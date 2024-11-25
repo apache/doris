@@ -32,6 +32,18 @@ namespace doris::pipeline {
 TableFunctionLocalState::TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<>(state, parent), _child_block(vectorized::Block::create_unique()) {}
 
+Status TableFunctionLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _init_function_timer = ADD_TIMER(_runtime_profile, "InitTableFunctionTime");
+    _process_rows_timer = ADD_TIMER(_runtime_profile, "ProcessRowsTime");
+    _copy_data_timer = ADD_TIMER(_runtime_profile, "CopyDataTime");
+    _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
+    _repeat_data_timer = ADD_TIMER(_runtime_profile, "RepeatDataTime");
+    return Status::OK();
+}
+
 Status TableFunctionLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(PipelineXLocalState<>::exec_time_counter());
     SCOPED_TIMER(PipelineXLocalState<>::_open_timer);
@@ -59,6 +71,7 @@ void TableFunctionLocalState::_copy_output_slots(
     if (!_current_row_insert_times) {
         return;
     }
+    SCOPED_TIMER(_copy_data_timer);
     auto& p = _parent->cast<TableFunctionOperatorX>();
     for (auto index : p._output_slot_indexs) {
         auto src_column = _child_block->get_by_position(index).column;
@@ -197,15 +210,18 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
         columns[index]->insert_many_defaults(row_size - columns[index]->size());
     }
 
-    // 3. eval conjuncts
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
-                                                           output_block->columns()));
+    {
+        SCOPED_TIMER(_filter_timer); // 3. eval conjuncts
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
+                                                               output_block->columns()));
+    }
 
     *eos = _child_eos && _cur_child_offset == -1;
     return Status::OK();
 }
 
 void TableFunctionLocalState::process_next_child_row() {
+    SCOPED_TIMER(_process_rows_timer);
     _cur_child_offset++;
 
     if (_cur_child_offset >= _child_block->rows()) {

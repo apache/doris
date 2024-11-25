@@ -17,7 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.catalog.authorizer.ranger.doris.RangerCacheDorisAccessController;
+import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
 
 import java.util.Map;
 
@@ -28,7 +28,7 @@ public class RangerDorisAccessControllerFactory implements AccessControllerFacto
     }
 
     @Override
-    public RangerCacheDorisAccessController createAccessController(Map<String, String> prop) {
-        return new RangerCacheDorisAccessController("doris");
+    public RangerDorisAccessController createAccessController(Map<String, String> prop) {
+        return new RangerDorisAccessController("doris");
     }
 }

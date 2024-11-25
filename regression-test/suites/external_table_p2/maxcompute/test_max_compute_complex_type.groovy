@@ -160,8 +160,8 @@
 suite("test_max_compute_complex_type", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String ak = context.config.otherConfigs.get("aliYunAk")
-        String sk = context.config.otherConfigs.get("aliYunSk")
+        String ak = context.config.otherConfigs.get("ak")
+        String sk = context.config.otherConfigs.get("sk")
         String mc_catalog_name = "test_max_compute_complex_type"
         sql """drop catalog if exists ${mc_catalog_name} """
         sql """

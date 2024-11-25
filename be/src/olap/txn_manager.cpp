@@ -89,6 +89,15 @@ TxnManager::TxnManager(StorageEngine& engine, int32_t txn_map_shard_size, int32_
 Status TxnManager::prepare_txn(TPartitionId partition_id, const Tablet& tablet,
                                TTransactionId transaction_id, const PUniqueId& load_id,
                                bool ingest) {
+    // check if the tablet has already been shutdown. If it has, it indicates that
+    // it is an old tablet, and data should not be imported into the old tablet.
+    // Otherwise, it may lead to data loss during migration.
+    if (tablet.tablet_state() == TABLET_SHUTDOWN) {
+        return Status::InternalError<false>(
+                "The tablet's state is shutdown, tablet_id: {}. The tablet may have been dropped "
+                "or migrationed. Please check if the table has been dropped or try again.",
+                tablet.tablet_id());
+    }
     return prepare_txn(partition_id, transaction_id, tablet.tablet_id(), tablet.tablet_uid(),
                        load_id, ingest);
 }

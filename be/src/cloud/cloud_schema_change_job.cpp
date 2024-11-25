@@ -344,7 +344,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             sc_job->add_txn_ids(rs->txn_id());
             sc_job->add_output_versions(rs->end_version());
             num_output_rows += rs->num_rows();
-            size_output_rowsets += rs->data_disk_size();
+            size_output_rowsets += rs->total_disk_size();
             num_output_segments += rs->num_segments();
         }
         sc_job->set_num_output_rows(num_output_rows);
@@ -363,7 +363,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         // If there are historical versions of rowsets, we need to recalculate their delete
         // bitmaps, otherwise we will miss the delete bitmaps of incremental rowsets
         int64_t start_calc_delete_bitmap_version =
-                already_exist_any_version ? 0 : sc_job->alter_version() + 1;
+                // [0-1] is a placeholder rowset, start from 2.
+                already_exist_any_version ? 2 : sc_job->alter_version() + 1;
         RETURN_IF_ERROR(_process_delete_bitmap(sc_job->alter_version(),
                                                start_calc_delete_bitmap_version, initiator));
         sc_job->set_delete_bitmap_lock_initiator(initiator);

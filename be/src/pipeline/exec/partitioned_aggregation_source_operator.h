@@ -91,6 +91,8 @@ public:
 
     bool is_source() const override { return true; }
 
+    bool is_serial_operator() const override;
+
 private:
     friend class PartitionedAggLocalState;
 

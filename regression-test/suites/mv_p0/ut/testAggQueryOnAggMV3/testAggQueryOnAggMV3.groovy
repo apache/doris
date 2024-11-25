@@ -44,38 +44,23 @@ suite ("testAggQueryOnAggMV3") {
     sql "analyze table emps with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-
-    explain {
-        sql("select commission, sum(salary) from emps where deptno > 0 and commission * (deptno + commission) = 100 group by commission order by commission;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select commission, sum(salary) from emps where deptno > 0 and commission * (deptno + commission) = 100 group by commission order by commission;",
+            "emps_mv")
     qt_select_mv "select commission, sum(salary) from emps where commission * (deptno + commission) = 100 group by commission order by commission;"
 
-    explain {
-        sql("select commission, sum(salary) from emps where deptno > 0 and  commission = 100 group by commission order by commission;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select commission, sum(salary) from emps where deptno > 0 and  commission = 100 group by commission order by commission;",
+            "emps_mv")
     qt_select_mv "select commission, sum(salary) from emps where commission = 100 group by commission order by commission;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 
-    explain {
-        sql("select commission, sum(salary) from emps where deptno > 0 and commission * (deptno + commission) = 100 group by commission order by commission;")
-        contains "(emps_mv)"
-    }
-    
-    explain {
-        sql("select commission, sum(salary) from emps where deptno > 0 and  commission = 100 group by commission order by commission;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select commission, sum(salary) from emps where deptno > 0 and commission * (deptno + commission) = 100 group by commission order by commission;",
+            "emps_mv")
+
+    mv_rewrite_success("select commission, sum(salary) from emps where deptno > 0 and  commission = 100 group by commission order by commission;",
+            "emps_mv")
 }

@@ -118,6 +118,10 @@ Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
     return _agg_source_operator->close(state);
 }
 
+bool PartitionedAggSourceOperatorX::is_serial_operator() const {
+    return _agg_source_operator->is_serial_operator();
+}
+
 Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                 bool* eos) {
     auto& local_state = get_local_state(state);

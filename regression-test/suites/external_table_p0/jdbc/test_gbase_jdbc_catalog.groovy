@@ -91,7 +91,7 @@ suite("test_gbase_jdbc_catalog", "p0,external,gbase,external_docker,external_doc
     //     REPEAT('A', 21845),          -- text_col (max value 21845 characters)
     //     '9999-12-31',                -- date_col (max value)
     //     '9999-12-31 23:59:59.999999',-- datetime_col (max value)
-    //     '23:59:59',                 -- time_col (max value)
+    //     '838:59:59',                 -- time_col (max value)
     //     '2038-01-01 00:59:59'        -- timestamp_col (max value)
     // );
 
@@ -133,5 +133,11 @@ suite("test_gbase_jdbc_catalog", "p0,external,gbase,external_docker,external_doc
     //order_qt_sample_table_desc """ desc gbase_test; """
     //order_qt_sample_table_select  """ select * from gbase_test order by 1; """
     //order_qt_show_tables  """ show tables; """
+
+    // explain {
+    //     sql("select tinyint_col from gbase_test limit 2;")
+
+    //     contains "QUERY: SELECT `tinyint_col` FROM `doris_test`.`gbase_test` LIMIT 2"
+    // }
 
 }

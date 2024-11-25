@@ -28,6 +28,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.util.concurrent.ExecutorService
 import java.util.function.Function
+import org.apache.doris.regression.util.JdbcUtils
 
 class ConnectionInfo {
     Connection conn
@@ -312,6 +313,36 @@ class SuiteContext implements Closeable {
             } else {
                 threadLocalConn.set(originConnection)
             }
+        }
+    }
+
+    def reconnectToMasterFe = { ->
+        log.info("Reconnecting to a new master frontend...")
+        def result = JdbcUtils.executeToMapArray(getConnection(), "SHOW FRONTENDS")
+        def master = null
+        for (def row : result) {
+            if (row.IsMaster == "true") {
+                master = row
+                break
+            }
+        }
+        if (master) {
+            log.info("master found: ${master.Host}:${master.HttpPort}")
+            def url = Config.buildUrlWithDb(master.Host as String, master.QueryPort as Integer, dbName)
+            ConnectionInfo connInfo = threadLocalConn.get()
+            def userName = null
+            def userPass = null
+            if (connInfo) {
+                userName = connInfo.username
+                userPass = connInfo.password
+            } else {
+                userName = config.jdbcUser
+                userPass = config.jdbcPassword
+            }
+            connectTo(url, connInfo.username, connInfo.password)
+            log.info("Successfully reconnected to the master")
+        } else {
+            throw new Exception("No master found to reconnect")
         }
     }
 

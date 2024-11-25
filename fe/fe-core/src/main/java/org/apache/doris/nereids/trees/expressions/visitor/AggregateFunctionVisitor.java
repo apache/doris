@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
@@ -45,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
+import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
@@ -218,6 +221,10 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(kurt, context);
     }
 
+    default R visitLinearHistogram(LinearHistogram linearHistogram, C context) {
+        return visitAggregateFunction(linearHistogram, context);
+    }
+
     default R visitMapAgg(MapAgg mapAgg, C context) {
         return visitAggregateFunction(mapAgg, context);
     }
@@ -352,6 +359,14 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitJavaUdaf(JavaUdaf javaUdaf, C context) {
         return visitAggregateFunction(javaUdaf, context);
+    }
+
+    default R visitApproxTopK(ApproxTopK approxTopK, C context) {
+        return visitNullableAggregateFunction(approxTopK, context);
+    }
+
+    default R visitApproxTopSum(ApproxTopSum approxTopSum, C context) {
+        return visitNullableAggregateFunction(approxTopSum, context);
     }
 
 }

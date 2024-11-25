@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
 #include "function_filter.h"
@@ -234,7 +236,8 @@ ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
     std::shared_ptr<BloomFilterFuncBase> filter_olap;
     filter_olap.reset(create_bloom_filter(PT));
     filter_olap->light_copy(filter.get());
-    return new BloomFilterColumnPredicate<PT>(column_id, filter);
+    // create a new filter to match the input filter and PT. For example, filter may be varchar, but PT is char
+    return new BloomFilterColumnPredicate<PT>(column_id, filter_olap);
 }
 
 template <PrimitiveType PT>
@@ -243,12 +246,9 @@ ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
                                               int be_exec_version, const TabletColumn*) {
     if constexpr (PT == TYPE_TINYINT || PT == TYPE_SMALLINT || PT == TYPE_INT ||
                   PT == TYPE_BIGINT) {
-        std::shared_ptr<BitmapFilterFuncBase> filter_olap;
-        filter_olap.reset(create_bitmap_filter(PT));
-        filter_olap->light_copy(filter.get());
         return new BitmapFilterColumnPredicate<PT>(column_id, filter, be_exec_version);
     } else {
-        return nullptr;
+        throw Exception(ErrorCode::INTERNAL_ERROR, "bitmap filter do not support type {}", PT);
     }
 }
 
@@ -265,17 +265,14 @@ ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
                                               const std::shared_ptr<FunctionFilter>& filter, int,
                                               const TabletColumn* column = nullptr) {
     // currently only support like predicate
-    if constexpr (PT == TYPE_CHAR || PT == TYPE_VARCHAR || PT == TYPE_STRING) {
-        if constexpr (PT == TYPE_CHAR) {
-            return new LikeColumnPredicate<TYPE_CHAR>(filter->_opposite, column_id, filter->_fn_ctx,
-                                                      filter->_string_param);
-        } else {
-            return new LikeColumnPredicate<TYPE_STRING>(filter->_opposite, column_id,
-                                                        filter->_fn_ctx, filter->_string_param);
-        }
-    } else {
-        return nullptr;
+    if constexpr (PT == TYPE_CHAR) {
+        return new LikeColumnPredicate<TYPE_CHAR>(filter->_opposite, column_id, filter->_fn_ctx,
+                                                  filter->_string_param);
+    } else if constexpr (PT == TYPE_VARCHAR || PT == TYPE_STRING) {
+        return new LikeColumnPredicate<TYPE_STRING>(filter->_opposite, column_id, filter->_fn_ctx,
+                                                    filter->_string_param);
     }
+    throw Exception(ErrorCode::INTERNAL_ERROR, "function filter do not support type {}", PT);
 }
 
 template <typename T>

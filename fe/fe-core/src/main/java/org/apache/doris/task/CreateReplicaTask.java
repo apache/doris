@@ -66,6 +66,7 @@ public class CreateReplicaTask extends AgentTask {
     private TStorageMedium storageMedium;
     private TCompressionType compressionType;
     private long rowStorePageSize;
+    private long storagePageSize;
 
     private List<Column> columns;
 
@@ -156,7 +157,8 @@ public class CreateReplicaTask extends AgentTask {
                              List<Integer> rowStoreColumnUniqueIds,
                              Map<Object, Object> objectPool,
                              long rowStorePageSize,
-                             boolean variantEnableFlattenNested) {
+                             boolean variantEnableFlattenNested,
+                             long storagePageSize) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -204,6 +206,7 @@ public class CreateReplicaTask extends AgentTask {
         this.objectPool = objectPool;
         this.rowStorePageSize = rowStorePageSize;
         this.variantEnableFlattenNested = variantEnableFlattenNested;
+        this.storagePageSize = storagePageSize;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -231,6 +234,23 @@ public class CreateReplicaTask extends AgentTask {
             latch.countDownToZero(new Status(TStatusCode.CANCELLED, errMsg));
             if (LOG.isDebugEnabled()) {
                 LOG.debug("CreateReplicaTask download to zero. error msg: {}", errMsg);
+            }
+        }
+    }
+
+    @Override
+    public void failedWithMsg(String errMsg) {
+        super.failedWithMsg(errMsg);
+
+        // CreateReplicaTask will not trigger a retry in ReportTask. Therefore, it needs to
+        // be marked as failed here and all threads waiting for the result of
+        // CreateReplicaTask need to be awakened.
+        if (this.latch != null) {
+            Status s = new Status(TStatusCode.CANCELLED, errMsg);
+            latch.markedCountDownWithStatus(getBackendId(), getTabletId(), s);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("CreateReplicaTask failed with msg: {}, tablet: {}, backend: {}",
+                        errMsg, getTabletId(), getBackendId());
             }
         }
     }
@@ -348,6 +368,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);
         tSchema.setRowStorePageSize(rowStorePageSize);
+        tSchema.setStoragePageSize(storagePageSize);
         createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);

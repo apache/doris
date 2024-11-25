@@ -265,11 +265,6 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
 }
 
 template <typename T>
-const char* ColumnVector<T>::get_family_name() const {
-    return TypeName<T>::get();
-}
-
-template <typename T>
 MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     auto res = this->create();
     if constexpr (std::is_same_v<T, vectorized::Int64>) {
@@ -429,6 +424,14 @@ size_t ColumnVector<T>::filter(const IColumn::Filter& filter) {
     resize(new_size);
 
     return new_size;
+}
+
+template <typename T>
+void ColumnVector<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    auto old_size = data.size();
+    data.resize(old_size + length);
+    auto& vals = assert_cast<const Self&>(src).get_data();
+    std::fill(&data[old_size], &data[old_size + length], vals[position]);
 }
 
 template <typename T>

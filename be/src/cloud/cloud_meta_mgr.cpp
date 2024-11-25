@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -39,6 +40,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -51,6 +53,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
 #include "runtime/client_cache.h"
@@ -292,6 +295,9 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" tablet_id={}", req.rowset_meta().tablet_id());
     } else if constexpr (is_any_v<Request, RemoveDeleteBitmapRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
+    } else if constexpr (is_any_v<Request, RemoveDeleteBitmapUpdateLockRequest>) {
+        return fmt::format(" table_id={}, tablet_id={}, lock_id={}", req.table_id(),
+                           req.tablet_id(), req.lock_id());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -378,7 +384,8 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
     return Status::OK();
 }
 
-Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data) {
+Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data,
+                                         bool sync_delete_bitmap, bool full_sync) {
     using namespace std::chrono;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
@@ -404,12 +411,20 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
         idx->set_partition_id(tablet->partition_id());
         {
             std::shared_lock rlock(tablet->get_header_lock());
-            req.set_start_version(tablet->max_version_unlocked() + 1);
+            if (full_sync) {
+                req.set_start_version(0);
+            } else {
+                req.set_start_version(tablet->max_version_unlocked() + 1);
+            }
             req.set_base_compaction_cnt(tablet->base_compaction_cnt());
             req.set_cumulative_compaction_cnt(tablet->cumulative_compaction_cnt());
             req.set_cumulative_point(tablet->cumulative_layer_point());
         }
         req.set_end_version(-1);
+        // backend side use schema dict
+        if (config::variant_use_cloud_schema_dict) {
+            req.set_schema_op(GetRowsetRequest::RETURN_DICT);
+        }
         VLOG_DEBUG << "send GetRowsetRequest: " << req.ShortDebugString();
 
         stub->get_rowset(&cntl, &req, &resp, nullptr);
@@ -455,12 +470,12 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
 
         // If is mow, the tablet has no delete bitmap in base rowsets.
         // So dont need to sync it.
-        if (tablet->enable_unique_key_merge_on_write() &&
+        if (sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DeleteBitmap delete_bitmap(tablet_id);
             int64_t old_max_version = req.start_version() - 1;
             auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
-                                                resp.stats(), req.idx(), &delete_bitmap);
+                                                resp.stats(), req.idx(), &delete_bitmap, full_sync);
             if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
                 LOG_WARNING("rowset meta is expired, need to retry")
                         .tag("tablet", tablet->tablet_id())
@@ -524,7 +539,8 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                     existed_rowset->rowset_id().to_string() == cloud_rs_meta_pb.rowset_id_v2()) {
                     continue; // Same rowset, skip it
                 }
-                RowsetMetaPB meta_pb = cloud_rowset_meta_to_doris(cloud_rs_meta_pb);
+                RowsetMetaPB meta_pb = cloud_rowset_meta_to_doris(
+                        cloud_rs_meta_pb, resp.has_schema_dict() ? &resp.schema_dict() : nullptr);
                 auto rs_meta = std::make_shared<RowsetMeta>();
                 rs_meta->init_from_pb(meta_pb);
                 RowsetSharedPtr rowset;
@@ -543,6 +559,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 bool version_overlap =
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
                 tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, warmup_delta_data);
+                RETURN_IF_ERROR(tablet->merge_rowsets_schema());
             }
             tablet->last_base_compaction_success_time_ms = stats.last_base_compaction_time_ms();
             tablet->last_cumu_compaction_success_time_ms = stats.last_cumu_compaction_time_ms();
@@ -604,12 +621,13 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
 Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                                std::ranges::range auto&& rs_metas,
                                                const TabletStatsPB& stats, const TabletIndexPB& idx,
-                                               DeleteBitmap* delete_bitmap) {
+                                               DeleteBitmap* delete_bitmap, bool full_sync) {
     if (rs_metas.empty()) {
         return Status::OK();
     }
 
-    if (sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
+    if (!full_sync &&
+        sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
         return Status::OK();
     } else {
         LOG(WARNING) << "failed to sync delete bitmap by txn info. tablet_id="
@@ -693,11 +711,19 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     const auto& segment_ids = res.segment_ids();
     const auto& vers = res.versions();
     const auto& delete_bitmaps = res.segment_delete_bitmaps();
+    if (rowset_ids.size() != segment_ids.size() || rowset_ids.size() != vers.size() ||
+        rowset_ids.size() != delete_bitmaps.size()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                "get delete bitmap data wrong,"
+                "rowset_ids.size={},segment_ids.size={},vers.size={},delete_bitmaps.size={}",
+                rowset_ids.size(), segment_ids.size(), vers.size(), delete_bitmaps.size());
+    }
     for (size_t i = 0; i < rowset_ids.size(); i++) {
         RowsetId rst_id;
         rst_id.init(rowset_ids[i]);
-        delete_bitmap->merge({rst_id, segment_ids[i], vers[i]},
-                             roaring::Roaring::read(delete_bitmaps[i].data()));
+        delete_bitmap->merge(
+                {rst_id, segment_ids[i], vers[i]},
+                roaring::Roaring::readSafe(delete_bitmaps[i].data(), delete_bitmaps[i].length()));
     }
     int64_t latency = cntl.latency_us();
     if (latency > 100 * 1000) { // 100ms
@@ -750,6 +776,7 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
         Status ret_st;
         TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_rowset", ret_st);
     }
+    check_table_size_correctness(rs_meta);
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -815,7 +842,7 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
                 Status status;
                 int64_t duration_ns = 0;
                 TNetworkAddress master_addr =
-                        ExecEnv::GetInstance()->master_info()->network_address;
+                        ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
                 if (master_addr.hostname.empty() || master_addr.port == 0) {
                     status = Status::Error<SERVICE_UNAVAILABLE>(
                             "Have not get FE Master heartbeat yet");
@@ -880,6 +907,7 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     AbortTxnRequest req;
     AbortTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_reason(std::string(ctx.status.msg().substr(0, 1024)));
     if (ctx.db_id > 0 && !ctx.label.empty()) {
         req.set_db_id(ctx.db_id);
         req.set_label(ctx.label);
@@ -1048,9 +1076,10 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     return st;
 }
 
-Status CloudMetaMgr::update_delete_bitmap_without_lock(const CloudTablet& tablet,
-                                                       DeleteBitmap* delete_bitmap) {
-    VLOG_DEBUG << "update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id();
+Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(const CloudTablet& tablet,
+                                                             DeleteBitmap* delete_bitmap) {
+    LOG(INFO) << "cloud_update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id()
+              << ",delete_bitmap size:" << delete_bitmap->delete_bitmap.size();
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -1105,6 +1134,25 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
     return st;
 }
 
+Status CloudMetaMgr::remove_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
+                                                      int64_t initiator) {
+    VLOG_DEBUG << "remove_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id()
+               << ",lock_id:" << lock_id;
+    RemoveDeleteBitmapUpdateLockRequest req;
+    RemoveDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_tablet_id(tablet.tablet_id());
+    req.set_lock_id(lock_id);
+    req.set_initiator(initiator);
+    auto st = retry_rpc("remove delete bitmap update lock", req, &res,
+                        &MetaService_Stub::remove_delete_bitmap_update_lock);
+    if (!st.ok()) {
+        LOG(WARNING) << "remove delete bitmap update lock fail,tablet_id=" << tablet.tablet_id()
+                     << " lock_id=" << lock_id << " st=" << st.to_string();
+    }
+    return st;
+}
+
 Status CloudMetaMgr::remove_old_version_delete_bitmap(
         int64_t tablet_id,
         const std::vector<std::tuple<std::string, uint64_t, uint64_t>>& to_delete) {
@@ -1121,6 +1169,122 @@ Status CloudMetaMgr::remove_old_version_delete_bitmap(
     auto st = retry_rpc("remove old delete bitmap", req, &res,
                         &MetaService_Stub::remove_delete_bitmap);
     return st;
+}
+
+void CloudMetaMgr::check_table_size_correctness(const RowsetMeta& rs_meta) {
+    if (!config::enable_table_size_correctness_check) {
+        return;
+    }
+    int64_t total_segment_size = get_segment_file_size(rs_meta);
+    int64_t total_inverted_index_size = get_inverted_index_file_szie(rs_meta);
+    if (rs_meta.data_disk_size() != total_segment_size ||
+        rs_meta.index_disk_size() != total_inverted_index_size ||
+        rs_meta.data_disk_size() + rs_meta.index_disk_size() != rs_meta.total_disk_size()) {
+        LOG(WARNING) << "[Cloud table table size check failed]:"
+                     << " tablet id: " << rs_meta.tablet_id()
+                     << ", rowset id:" << rs_meta.rowset_id()
+                     << ", rowset data disk size:" << rs_meta.data_disk_size()
+                     << ", rowset real data disk size:" << total_segment_size
+                     << ", rowset index disk size:" << rs_meta.index_disk_size()
+                     << ", rowset real index disk size:" << total_inverted_index_size
+                     << ", rowset total disk size:" << rs_meta.total_disk_size()
+                     << ", rowset segment path:"
+                     << StorageResource().remote_segment_path(rs_meta.tablet_id(),
+                                                              rs_meta.rowset_id().to_string(), 0);
+        DCHECK(false);
+    }
+}
+
+int64_t CloudMetaMgr::get_segment_file_size(const RowsetMeta& rs_meta) {
+    int64_t total_segment_size = 0;
+    const auto fs = const_cast<RowsetMeta&>(rs_meta).fs();
+    if (!fs) {
+        LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta.resource_id();
+    }
+    for (int64_t seg_id = 0; seg_id < rs_meta.num_segments(); seg_id++) {
+        std::string segment_path = StorageResource().remote_segment_path(
+                rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+        int64_t segment_file_size = 0;
+        auto st = fs->file_size(segment_path, &segment_file_size);
+        if (!st.ok()) {
+            segment_file_size = 0;
+            if (st.is<NOT_FOUND>()) {
+                LOG(INFO) << "cloud table size correctness check get segment size 0 because "
+                             "file not exist! msg:"
+                          << st.msg() << ", segment path:" << segment_path;
+            } else {
+                LOG(WARNING) << "cloud table size correctness check get segment size failed! msg:"
+                             << st.msg() << ", segment path:" << segment_path;
+            }
+        }
+        total_segment_size += segment_file_size;
+    }
+    return total_segment_size;
+}
+
+int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
+    int64_t total_inverted_index_size = 0;
+    const auto fs = const_cast<RowsetMeta&>(rs_meta).fs();
+    if (!fs) {
+        LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta.resource_id();
+    }
+    if (rs_meta.tablet_schema()->get_inverted_index_storage_format() ==
+        InvertedIndexStorageFormatPB::V1) {
+        const auto& indices = rs_meta.tablet_schema()->inverted_indexes();
+        for (auto& index : indices) {
+            for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
+                std::string segment_path = StorageResource().remote_segment_path(
+                        rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+                int64_t file_size = 0;
+
+                std::string inverted_index_file_path =
+                        InvertedIndexDescriptor::get_index_file_path_v1(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(segment_path),
+                                index->index_id(), index->get_index_suffix());
+                auto st = fs->file_size(inverted_index_file_path, &file_size);
+                if (!st.ok()) {
+                    file_size = 0;
+                    if (st.is<NOT_FOUND>()) {
+                        LOG(INFO) << "cloud table size correctness check get inverted index v1 "
+                                     "0 because file not exist! msg:"
+                                  << st.msg()
+                                  << ", inverted index path:" << inverted_index_file_path;
+                    } else {
+                        LOG(WARNING)
+                                << "cloud table size correctness check get inverted index v1 "
+                                   "size failed! msg:"
+                                << st.msg() << ", inverted index path:" << inverted_index_file_path;
+                    }
+                }
+                total_inverted_index_size += file_size;
+            }
+        }
+    } else {
+        for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
+            int64_t file_size = 0;
+            std::string segment_path = StorageResource().remote_segment_path(
+                    rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+
+            std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
+                    InvertedIndexDescriptor::get_index_file_path_prefix(segment_path));
+            auto st = fs->file_size(inverted_index_file_path, &file_size);
+            if (!st.ok()) {
+                file_size = 0;
+                if (st.is<NOT_FOUND>()) {
+                    LOG(INFO) << "cloud table size correctness check get inverted index v2 "
+                                 "0 because file not exist! msg:"
+                              << st.msg() << ", inverted index path:" << inverted_index_file_path;
+                } else {
+                    LOG(WARNING) << "cloud table size correctness check get inverted index v2 "
+                                    "size failed! msg:"
+                                 << st.msg()
+                                 << ", inverted index path:" << inverted_index_file_path;
+                }
+            }
+            total_inverted_index_size += file_size;
+        }
+    }
+    return total_inverted_index_size;
 }
 
 } // namespace doris::cloud

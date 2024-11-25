@@ -560,7 +560,14 @@ CREATE TABLE `all_types_text`(
   `t_array_string_all_nulls` array<string>,
   `dt` int)
 stored as textfile
-TBLPROPERTIES("line.delim"="\n", "field.delim"="\1");
+TBLPROPERTIES(
+  'field.delim'='\t',
+  'line.delim'='\n',
+  'collection.delim'=',',
+  'mapkey.delim'=':',
+  'escape.delim'='|',
+  'serialization.null.format'='null'
+);
 
 CREATE TABLE all_types_par_text(
     `boolean_col` boolean,
@@ -628,4 +635,11 @@ CREATE TABLE all_types_par_text(
 PARTITIONED BY (
   `dt` int)
 stored as textfile
-TBLPROPERTIES("line.delim"="\n", "field.delim"="\1");
+TBLPROPERTIES(
+  'field.delim'='\t',
+  'line.delim'='\n',
+  'collection.delim'=',',
+  'mapkey.delim'=':',
+  'escape.delim'='|',
+  'serialization.null.format'='null'
+);

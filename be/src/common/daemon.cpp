@@ -27,17 +27,13 @@
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <butil/iobuf.h>
 #include <math.h>
-#include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
 
-#include <algorithm>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <map>
 #include <ostream>
-#include <set>
 #include <string>
 
 #include "cloud/config.h"
@@ -45,30 +41,23 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/memtable_memory_limiter.h"
-#include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "runtime/be_proc_monitor.h"
-#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/global_memory_arbitrator.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/memory_reclamation.h"
+#include "runtime/process_profile.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/algorithm_util.h"
-#include "util/cpu_info.h"
-#include "util/debug_util.h"
-#include "util/disk_info.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
-#include "util/network_util.h"
 #include "util/perf_counters.h"
 #include "util/system_metrics.h"
-#include "util/thrift_util.h"
 #include "util/time.h"
 
 namespace doris {
@@ -233,9 +222,8 @@ void refresh_memory_state_after_memory_change() {
     if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
         last_print_proc_mem = PerfCounters::get_vm_rss();
         doris::MemTrackerLimiter::clean_tracker_limiter_group();
-        doris::MemTrackerLimiter::enable_print_log_process_usage();
-        // Refresh mem tracker each type counter.
-        doris::MemTrackerLimiter::refresh_global_counter();
+        doris::ProcessProfile::instance()->memory_profile()->enable_print_log_process_usage();
+        doris::ProcessProfile::instance()->memory_profile()->refresh_memory_overview_profile();
         LOG(INFO) << doris::GlobalMemoryArbitrator::
                         process_mem_log_str(); // print mem log when memory state by 256M
     }
@@ -339,10 +327,12 @@ void Daemon::memory_gc_thread() {
             memory_full_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             LOG(INFO) << fmt::format("[MemoryGC] start full GC, {}.", mem_info);
-            doris::MemTrackerLimiter::print_log_process_usage();
+            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
             if (doris::MemoryReclamation::process_full_gc(std::move(mem_info))) {
                 // If there is not enough memory to be gc, the process memory usage will not be printed in the next continuous gc.
-                doris::MemTrackerLimiter::enable_print_log_process_usage();
+                doris::ProcessProfile::instance()
+                        ->memory_profile()
+                        ->enable_print_log_process_usage();
             }
         } else if (memory_minor_gc_sleep_time_ms <= 0 &&
                    (sys_mem_available < doris::MemInfo::sys_mem_available_warning_water_mark() ||
@@ -352,9 +342,11 @@ void Daemon::memory_gc_thread() {
                     doris::GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str();
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             LOG(INFO) << fmt::format("[MemoryGC] start minor GC, {}.", mem_info);
-            doris::MemTrackerLimiter::print_log_process_usage();
+            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
             if (doris::MemoryReclamation::process_minor_gc(std::move(mem_info))) {
-                doris::MemTrackerLimiter::enable_print_log_process_usage();
+                doris::ProcessProfile::instance()
+                        ->memory_profile()
+                        ->enable_print_log_process_usage();
             }
         } else {
             if (memory_full_gc_sleep_time_ms > 0) {

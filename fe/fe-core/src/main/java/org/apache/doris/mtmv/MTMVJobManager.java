@@ -130,7 +130,7 @@ public class MTMVJobManager implements MTMVHookService {
     public void dropMTMV(MTMV mtmv) throws DdlException {
         try {
             Env.getCurrentEnv().getJobManager()
-                    .unregisterJob(mtmv.getJobInfo().getJobName(), false);
+                    .unregisterJob(mtmv.getJobInfo().getJobName(), true);
         } catch (JobException e) {
             LOG.warn("drop mtmv job failed, mtmvName: {}", mtmv.getName(), e);
             throw new DdlException(e.getMessage());

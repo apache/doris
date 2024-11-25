@@ -141,139 +141,92 @@ suite("part_partition_invalid", "p0,external") {
 
     // test query rewrite by mv, should fail ,because materialized_view_rewrite_enable_contain_external_table
     // is false default
-    explain {
-        sql(""" ${query_sql}""")
-        notContains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_fail(query_sql, mv_name)
     sql "SET materialized_view_rewrite_enable_contain_external_table=true"
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
 
     // data change in external table doesn't influence query rewrite,
     // if want to use new data in external table should be refresh manually
     sql """insert into ${hive_catalog_name}.${hive_database}.${hive_table} values(3, 3, 'ok', 99.5, 'a', 'b', 1, 'yy', '2023-10-19');"""
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_after_modify_data_without_refresh_catalog """ ${query_sql}"""
 
-    explain {
-        sql("""
+    mv_rewrite_success("""
             ${query_sql} where o_orderdate = '2023-10-19';
-        """)
-        // query invalid partition data, should hit mv, because not check now.
-        contains("${mv_name}(${mv_name})")
-    }
+        """, mv_name)
     order_qt_after_modify_and_without_refresh_catalog_19 """ ${query_sql} where o_orderdate = '2023-10-19';"""
 
-    explain {
-        sql("""
-            ${query_sql} where o_orderdate = '2023-10-18';
-        """)
-        // query valid partition data, should hit mv
-        contains("${mv_name}(${mv_name})")
-    }
+    // query valid partition data, should hit mv
+    mv_rewrite_success("""
+        ${query_sql} where o_orderdate = '2023-10-18';
+    """, mv_name
+    )
     order_qt_after_modify_and_without_refresh_catalog_18 """ ${query_sql} where o_orderdate = '2023-10-18';"""
 
     // refresh catalog cache
     sql """ REFRESH CATALOG ${hive_catalog_name} PROPERTIES("invalid_cache" = "true"); """
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_after_modify_data_and_refresh_catalog """ ${query_sql}"""
 
-    explain {
-        sql("""
+    // query invalid partition data, should hit mv, because not check now.
+    mv_rewrite_success("""
             ${query_sql} where o_orderdate = '2023-10-19';
-        """)
-        // query invalid partition data, should hit mv, because not check now.
-        contains("${mv_name}(${mv_name})")
-    }
+        """, mv_name)
     order_qt_after_modify_and_refresh_catalog_19 """ ${query_sql} where o_orderdate = '2023-10-19';"""
 
-    explain {
-        sql("""
+    // query valid partition data, should hit mv
+    mv_rewrite_success("""
             ${query_sql} where o_orderdate = '2023-10-18';
-        """)
-        // query valid partition data, should hit mv
-        contains("${mv_name}(${mv_name})")
-    }
+        """, mv_name)
     order_qt_after_modify_and_refresh_catalog_18 """ ${query_sql} where o_orderdate = '2023-10-18';"""
 
     // refresh manually
     sql """ REFRESH CATALOG ${hive_catalog_name} PROPERTIES("invalid_cache" = "true");  """
     sql """REFRESH MATERIALIZED VIEW ${mv_name} auto"""
     waitingMTMVTaskFinished(getJobName(olap_db, mv_name))
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_after_modify_data_and_refresh_catalog_and_mv """ ${query_sql}"""
 
     // test after hive add partition
     sql """insert into ${hive_catalog_name}.${hive_database}.${hive_table} values(6, 7, 'ok', 29.5, 'x', 'y', 6, 'ss', '2023-10-20');"""
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_after_add_data_without_refresh_catalog """ ${query_sql}"""
 
-    explain {
-        sql("""
-            ${query_sql}
-        """)
-        // query invalid partition data, should hit mv, because not check now.
-        contains("${mv_name}(${mv_name})")
-    }
+    // query invalid partition data, should hit mv, because not check now.
+    mv_rewrite_success(query_sql, mv_name)
+
     order_qt_after_add_and_without_refresh_catalog_19 """ ${query_sql} where o_orderdate = '2023-10-19';"""
 
-    explain {
-        sql("""
+    // query valid partition data, should hit mv
+    mv_rewrite_success("""
             ${query_sql} where o_orderdate = '2023-10-20';
-        """)
-        // query valid partition data, should hit mv
-        notContains("${mv_name}(${mv_name})")
-    }
+        """, mv_name)
+
     order_qt_after_add_and_without_refresh_catalog_20 """ ${query_sql} where o_orderdate = '2023-10-20';"""
 
     // refresh catalog cache
     sql """ REFRESH CATALOG ${hive_catalog_name} PROPERTIES("invalid_cache" = "true"); """
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_after_add_data_with_refresh_catalog """ ${query_sql}"""
 
-    explain {
-        sql("""
+    // query invalid partition data, should hit mv, because not check now.
+    mv_rewrite_success("""
             ${query_sql} where o_orderdate = '2023-10-19';
-        """)
-        // query invalid partition data, should hit mv, because not check now.
-        contains("${mv_name}(${mv_name})")
-    }
+        """, mv_name)
+
     order_qt_after_add_and_refresh_catalog_19 """ ${query_sql} where o_orderdate = '2023-10-19';"""
 
-    explain {
-        sql("""
+    // query valid partition data, should hit mv
+    mv_rewrite_success("""
             ${query_sql} where o_orderdate = '2023-10-20';
-        """)
-        // query valid partition data, should hit mv
-        notContains("${mv_name}(${mv_name})")
-    }
+        """, mv_name)
     order_qt_after_add_and_refresh_catalog_20 """ ${query_sql} where o_orderdate = '2023-10-20';"""
 
     // refresh manually
     sql """ REFRESH CATALOG ${hive_catalog_name} PROPERTIES("invalid_cache" = "true");  """
     sql """REFRESH MATERIALIZED VIEW ${mv_name} auto"""
     waitingMTMVTaskFinished(getJobName(olap_db, mv_name))
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_after_add_data_and_refresh_catalog_and_mv """ ${query_sql}"""
 
     sql """drop table if exists ${hive_catalog_name}.${hive_database}.${hive_table}"""

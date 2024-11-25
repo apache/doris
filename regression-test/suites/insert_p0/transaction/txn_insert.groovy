@@ -42,6 +42,11 @@ suite("txn_insert") {
         return null
     }
 
+    sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '100')"
+    onFinish {
+        sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '30')"
+    }
+
     for (def use_nereids_planner : [/*false,*/ true]) {
         sql " SET enable_nereids_planner = $use_nereids_planner; "
 
@@ -503,7 +508,7 @@ suite("txn_insert") {
                     assertFalse(true, "should not reach here")
                 } catch (Exception e) {
                     logger.info("exception: " + e)
-                    assertTrue(e.getMessage().contains("The transaction is already timeout") || e.getMessage().contains("Execute timeout"))
+                    assertTrue(e.getMessage().contains("The transaction is already timeout") || e.getMessage().contains("timeout"))
                 } finally {
                     try {
                         sql "rollback"

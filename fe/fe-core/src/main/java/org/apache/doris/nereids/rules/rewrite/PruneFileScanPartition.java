@@ -17,13 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -72,8 +69,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                         selectedPartitions = new SelectedPartitions(0, ImmutableMap.of(), true);
                     }
 
-                    LogicalFileScan rewrittenScan = scan.withConjuncts(filter.getConjuncts())
-                            .withSelectedPartitions(selectedPartitions);
+                    LogicalFileScan rewrittenScan = scan.withSelectedPartitions(selectedPartitions);
                     return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
                 }).toRule(RuleType.FILE_SCAN_PARTITION_PRUNE);
     }
@@ -95,11 +91,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 .map(column -> scanOutput.get(column.getName().toLowerCase()))
                 .collect(Collectors.toList());
 
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) hiveTbl.getCatalog());
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                hiveTbl.getDbName(), hiveTbl.getName(), hiveTbl.getPartitionColumnTypes());
-        Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
+        Map<Long, PartitionItem> idToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
         List<Long> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
                 partitionSlots, filter.getPredicate(), idToPartitionItem, ctx, PartitionTableType.HIVE));
 

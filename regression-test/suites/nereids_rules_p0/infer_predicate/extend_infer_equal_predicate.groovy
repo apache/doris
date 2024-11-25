@@ -83,19 +83,13 @@ suite("extend_infer_equal_predicate") {
     );
     """
     sql """
-    insert into extend_infer_t3 values(1,'d2',3,5);
+    insert into extend_infer_t3 values(100,'d2',3,5),(0,'d2',3,5),(null,null,9,3),(33,'d2',2,5),(null,'d2',3,55),(78,null,9,3),(12,null,9,3);
     """
     sql """
-    insert into extend_infer_t4 values(1,'d2',2,2);
+    insert into extend_infer_t4 values(10,'d2',2,2),(0,'d2',2,2),(100,'d2',3,null),(null,null,9,3),(78,'d2',23,5),(33,'d2',23,5);
     """
     sql """
     insert into extend_infer_t5 values(1,'d2',2,2);
-    """
-    sql """
-    insert into extend_infer_t4 values(-3,'d2',2,2);
-    """
-    sql """
-    insert into extend_infer_t3 values(0,'d2',3,5);
     """
 
     qt_test_integer_cast """explain shape plan
@@ -354,4 +348,33 @@ suite("extend_infer_equal_predicate") {
     qt_date_equal_int_infer """explain shape plan
     select 1 from extend_infer_t1 t1 inner join extend_infer_t2 t2 on t1.d_datev2=t2.d_int and t1.d_datev2 in('2024-01-01','2024-01-02')"""
 
+    qt_not_pull_up_grouping """select a, b from extend_infer_t3 where a>0 group by grouping sets((a),(b)) having a>0 order by 1,2;"""
+    qt_pull_up_grouping """select a, b from extend_infer_t3 where a>0 group by grouping sets((a),(a,b)) having a>0 order by 1,2;"""
+    qt_pull_up_limit """select a from (select a, b from extend_infer_t3 where a<30 group by grouping sets((a),(a,b))  limit 10 ) t where a<30 order by 1;"""
+    qt_pull_up_topn """select a from (select a, b from extend_infer_t3 where a<30 group by grouping sets((a),(a,b)) having a>1 order by a,b limit 10 ) t where a<30  order by 1"""
+
+    qt_pull_up_window_partition_column """select c1,a,c from (select a,c,sum(a) over(partition by c order by a) c1 from extend_infer_t3 where c<33 ) t where a<33 and c<33  order by 1,2,3"""
+    qt_pull_up_window_order_column """select c1,a from (select a,b,sum(a) over(order by a) c1 from extend_infer_t3 where a<33 ) t where a<33  order by 1,2"""
+    qt_pull_up_partition_topn """select * from (select a, c,row_number() over(partition by b order by c) as rn from extend_infer_t3 where a>5 and c>3)t
+    where a>5  and c>3  and rn<3 order by 1,2,3;"""
+    qt_pull_up_generate """select a,b, age from (select * from extend_infer_t3 lateral view
+    EXPLODE(ARRAY(30,60))  t1 as age where a<10 ) t group by grouping sets ((age),(a,b)) having a <10 order by 1,2,3"""
+
+    qt_pull_up_from_inner_join """select a,b from (select t1.a,t2.b from extend_infer_t3 t1 inner join extend_infer_t4 t2 on t1.a=t2.a where t1.a<10  limit 10) t  where a<10 order by 1,2"""
+    qt_pull_up_from_left_join """select a,b from (select t2.a,t2.b from extend_infer_t3 t1 left join extend_infer_t4 t2 on t1.a=t2.a and t2.a<10  limit 10) t  where a<10 order by 1,2"""
+    qt_pull_up_from_left_semi_join "select a from (select t1.a from extend_infer_t3 t1 left semi join extend_infer_t4 t2 on t1.a=t2.a and t2.a<10  limit 10) t  where a<10 order by 1"
+    qt_pull_up_from_left_anti_join "select a from (select t1.a from extend_infer_t3 t1 left anti join extend_infer_t4 t2 on t1.a=t2.a and t1.a<10  limit 10) t  where a<10 order by 1"
+    qt_pull_up_from_left_null_aware_anti_join "select a from (select t1.a from extend_infer_t3 t1 where t1.a<100 and t1.a not in (select t2.a from extend_infer_t4 t2 where t2.a is not null) limit 10) t where a<100 order by 1"
+    qt_pull_up_from_left_anti_join_where "select a from (select t1.a from extend_infer_t3 t1 left anti join extend_infer_t4 t2 on t1.a=t2.a where t1.a<10  limit 10) t  where a<10 order by 1"
+    qt_pull_up_from_right_join "select a,b from (select t1.a,t2.b from extend_infer_t3 t1 right join extend_infer_t4 t2 on t1.a=t2.a and t1.a<10  limit 10) t  where a<10 order by 1,2"
+    qt_pull_up_from_right_semi_join "select a from (select t2.a from extend_infer_t3 t1 right semi join extend_infer_t4 t2 on t1.a=t2.a and t1.a<10  limit 10) t  where a<10 order by 1"
+    qt_pull_up_from_right_anti_join_where "select a from (select t2.a from extend_infer_t3 t1 right anti join extend_infer_t4 t2 on t1.a=t2.a where t2.a<10  limit 10) t  where a<10 order by 1"
+    qt_pull_up_from_right_anti_join_and "select a from (select t2.a from extend_infer_t3 t1 right anti join extend_infer_t4 t2 on t1.a=t2.a and t2.a<10  limit 10) t  where a<10 order by 1"
+    qt_pull_up_from_union """select a from(select a from (select t1.a from extend_infer_t3 t1 where t1.a<10 union all select t2.a from extend_infer_t4 t2 where t2.a<10  ) tt
+            limit 10) t  where a<10 order by 1;"""
+    qt_pull_up_from_except """select a from(select a from (select t1.a from extend_infer_t3 t1 where t1.a<10 except select t2.a from extend_infer_t4 t2 where t2.a<10  ) tt
+            limit 10) t  where a<10 order by 1;"""
+    qt_pull_up_from_intersect """select a from(select a from (select t1.a from extend_infer_t3 t1 where t1.a<10 intersect select t2.a from extend_infer_t4 t2 where t2.a<10  ) tt
+            limit 10) t  where a<10 order by 1 ;"""
+    qt_pull_up_from_agg """select a from (select a from extend_infer_t3 t1 where a<10 group by a limit 10) t where a<10 order by 1"""
 }

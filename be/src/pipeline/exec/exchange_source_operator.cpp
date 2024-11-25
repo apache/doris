@@ -17,6 +17,7 @@
 
 #include "exchange_source_operator.h"
 
+#include <cstdint>
 #include <memory>
 
 #include "pipeline/exec/operator.h"
@@ -29,7 +30,7 @@
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent), num_rows_skipped(0), is_ready(false) {}
 
@@ -77,6 +78,11 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                                                            TUnit ::TIME_NS, timer_name, 1);
     }
 
+    get_data_from_recvr_timer = ADD_TIMER(_runtime_profile, "GetDataFromRecvrTime");
+    filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
+    create_merger_timer = ADD_TIMER(_runtime_profile, "CreateMergerTime");
+    _runtime_profile->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
+
     return Status::OK();
 }
 
@@ -104,7 +110,9 @@ ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNo
                           std::vector<bool>(tnode.nullable_tuples.begin(),
                                             tnode.nullable_tuples.begin() +
                                                     tnode.exchange_node.input_row_tuples.size())),
-          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {}
+          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+}
 
 Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::init(tnode, state));
@@ -141,15 +149,22 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     });
     SCOPED_TIMER(local_state.exec_time_counter());
     if (_is_merging && !local_state.is_ready) {
+        SCOPED_TIMER(local_state.create_merger_timer);
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(
                 local_state.vsort_exec_exprs.lhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first,
                 state->batch_size(), _limit, _offset));
         local_state.is_ready = true;
         return Status::OK();
     }
-    auto status = local_state.stream_recvr->get_next(block, eos);
-    RETURN_IF_ERROR(doris::vectorized::VExprContext::filter_block(local_state.conjuncts(), block,
-                                                                  block->columns()));
+    {
+        SCOPED_TIMER(local_state.get_data_from_recvr_timer);
+        RETURN_IF_ERROR(local_state.stream_recvr->get_next(block, eos));
+    }
+    {
+        SCOPED_TIMER(local_state.filter_timer);
+        RETURN_IF_ERROR(doris::vectorized::VExprContext::filter_block(local_state.conjuncts(),
+                                                                      block, block->columns()));
+    }
     // In vsortrunmerger, it will set eos=true, and block not empty
     // so that eos==true, could not make sure that block not have valid data
     if (!*eos || block->rows() > 0) {
@@ -158,9 +173,10 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
                 local_state.num_rows_skipped += block->rows();
                 block->set_num_rows(0);
             } else if (local_state.num_rows_skipped < _offset) {
-                auto offset = _offset - local_state.num_rows_skipped;
+                int64_t offset = _offset - local_state.num_rows_skipped;
                 local_state.num_rows_skipped = _offset;
-                block->set_num_rows(block->rows() - offset);
+                // should skip some rows
+                block->skip_num_rows(offset);
             }
         }
         if (local_state.num_rows_returned() + block->rows() < _limit) {
@@ -172,7 +188,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             local_state.set_num_rows_returned(_limit);
         }
     }
-    return status;
+    return Status::OK();
 }
 
 Status ExchangeLocalState::close(RuntimeState* state) {

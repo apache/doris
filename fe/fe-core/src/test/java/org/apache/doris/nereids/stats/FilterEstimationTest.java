@@ -36,9 +36,11 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -1144,7 +1146,75 @@ class FilterEstimationTest {
         Statistics result = filterEstimation.estimate(and, stats);
         // result 1.0->2.0 bc happens because the calculation from normalization of
         // "Math.min(columnStatistic.numNulls * factor, rowCount - ndv);"
-        Assertions.assertEquals(result.getRowCount(), 2.0, 0.01);
+        Assertions.assertEquals(result.getRowCount(), 3.5, 0.01);
+    }
+
+    /**
+     * dt BETWEEN "2020-05-25 00:00:00" and "2020-05-25 23:59:59"
+     * and day BETWEEN "2020-05-24" and "2020-05-26"
+     * and game="mus" and plat = "37wan";
+     */
+    @Test
+    void testMultiAndWithNull() {
+        SlotReference dt = new SlotReference("dt", DateTimeType.INSTANCE);
+        ColumnStatisticBuilder dtBuilder = new ColumnStatisticBuilder(1000000)
+                .setNdv(783813.0)
+                .setNumNulls(50833.0)
+                .setMaxValue(new DateTimeLiteral("2020-05-31 07:59:59").getDouble())
+                .setMinValue(new DateTimeLiteral("2020-05-01 08:00:04").getDouble());
+        DateLiteral dtMin = new DateTimeLiteral("2020-05-25 00:00:00");
+        DateLiteral dtMax = new DateTimeLiteral("2020-05-25 23:59:59");
+        GreaterThanEqual dtGreater = new GreaterThanEqual(dt, dtMin);
+        LessThan dtLess = new LessThan(dt, dtMax);
+        And dtAnd = new And(dtLess, dtGreater);
+
+        SlotReference day = new SlotReference("day", DateType.INSTANCE);
+        ColumnStatisticBuilder dayBuilder = new ColumnStatisticBuilder(1000000)
+                .setNdv(31.0)
+                .setNumNulls(49699.0)
+                .setMaxValue(new DateLiteral("2020-05-31").getDouble())
+                .setMinValue(new DateLiteral("2020-05-01").getDouble());
+        DateLiteral dayMin = new DateLiteral("2020-05-24");
+        DateLiteral dayMax = new DateLiteral("2020-05-26");
+        GreaterThanEqual dayGreater = new GreaterThanEqual(day, dayMin);
+        LessThan dayLess = new LessThan(day, dayMax);
+        And dayAnd = new And(dayLess, dayGreater);
+
+        SlotReference game = new SlotReference("game", new VarcharType(500));
+        ColumnStatisticBuilder gameBuilder = new ColumnStatisticBuilder(1000000)
+                .setNdv(1.0)
+                .setNumNulls(49813.0)
+                .setMaxExpr(new StringLiteral("mus"))
+                .setMaxValue(new VarcharLiteral("mus").getDouble())
+                .setMinExpr(new StringLiteral("mus"))
+                .setMinValue(new VarcharLiteral("mus").getDouble());
+        VarcharLiteral mus = new VarcharLiteral("mus");
+        EqualTo gameEqualTo = new EqualTo(game, mus);
+
+        SlotReference plat = new SlotReference("plat", new VarcharType(500));
+        ColumnStatisticBuilder platBuilder = new ColumnStatisticBuilder(1000000)
+                .setNdv(1.0)
+                .setNumNulls(49691.0)
+                .setMaxExpr(new StringLiteral("37wan"))
+                .setMaxValue(new VarcharLiteral("37wan").getDouble())
+                .setMinExpr(new StringLiteral("37wan"))
+                .setMinValue(new VarcharLiteral("37wan").getDouble());
+        VarcharLiteral wan = new VarcharLiteral("37wan");
+        EqualTo wanEqualTo = new EqualTo(plat, wan);
+        And equalAnd = new And(gameEqualTo, wanEqualTo);
+
+        And partialAnd = new And(dtAnd, dayAnd);
+        And allAnd = new And(partialAnd, equalAnd);
+
+        Statistics stats = new Statistics(1000000, new HashMap<>());
+        stats.addColumnStats(dt, dtBuilder.build());
+        stats.addColumnStats(day, dayBuilder.build());
+        stats.addColumnStats(game, gameBuilder.build());
+        stats.addColumnStats(plat, platBuilder.build());
+
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics result = filterEstimation.estimate(allAnd, stats);
+        Assertions.assertEquals(result.getRowCount(), 2109.16, 0.01);
     }
 
     /**

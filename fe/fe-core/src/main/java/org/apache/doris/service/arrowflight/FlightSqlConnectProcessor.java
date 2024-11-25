@@ -53,15 +53,22 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * Process one flgiht sql connection.
+ * <p>
+ * Must use try-with-resources.
  */
 public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(FlightSqlConnectProcessor.class);
+    private TNetworkAddress publicAccessAddr = new TNetworkAddress();
 
     public FlightSqlConnectProcessor(ConnectContext context) {
         super(context);
         connectType = ConnectType.ARROW_FLIGHT_SQL;
         context.setThreadLocalInfo();
         context.setReturnResultFromLocal(true);
+    }
+
+    public TNetworkAddress getPublicAccessAddr() {
+        return publicAccessAddr;
     }
 
     public void prepare(MysqlCommand command) {
@@ -128,10 +135,13 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
             Status resultStatus = new Status(pResult.getStatus());
             if (resultStatus.getErrorCode() != TStatusCode.OK) {
                 throw new RuntimeException(String.format("fetch arrow flight schema failed, queryId: %s, errmsg: %s",
-                        DebugUtil.printId(tid), resultStatus.toString()));
+                        DebugUtil.printId(tid), resultStatus));
             }
             if (pResult.hasBeArrowFlightIp()) {
-                ctx.getResultFlightServerAddr().hostname = pResult.getBeArrowFlightIp().toStringUtf8();
+                publicAccessAddr.setHostname(pResult.getBeArrowFlightIp().toStringUtf8());
+            }
+            if (pResult.hasBeArrowFlightPort()) {
+                publicAccessAddr.setPort(pResult.getBeArrowFlightPort());
             }
             if (pResult.hasSchema() && pResult.getSchema().size() > 0) {
                 RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);
@@ -177,6 +187,7 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     @Override
     public void close() throws Exception {
         ctx.setCommand(MysqlCommand.COM_SLEEP);
+        ctx.clear();
         // TODO support query profile
         for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
             asynExecutor.finalizeQuery();

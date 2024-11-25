@@ -47,37 +47,19 @@ suite ("projectMV3") {
     sql "analyze table projectMV3 with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from projectMV3 order by empid;")
-        contains "(projectMV3)"
-    }
+    mv_rewrite_fail("select * from projectMV3 order by empid;", "projectMV3_mv")
     order_qt_select_star "select * from projectMV3 order by empid;"
 
-
-    explain {
-        sql("select empid + 1, name from projectMV3 where deptno = 1 order by empid;")
-        contains "(projectMV3_mv)"
-    }
+    mv_rewrite_success("select empid + 1, name from projectMV3 where deptno = 1 order by empid;", "projectMV3_mv")
     order_qt_select_mv "select empid + 1, name from projectMV3 where deptno = 1 order by empid;"
 
-    explain {
-        sql("select name from projectMV3 where deptno = 0 order by empid;")
-        contains "(projectMV3_mv)"
-    }
+    mv_rewrite_success("select name from projectMV3 where deptno = 0 order by empid;", "projectMV3_mv")
     order_qt_select_mv2 "select name from projectMV3 where deptno -1 = 0 order by empid;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from projectMV3 order by empid;")
-        contains "(projectMV3)"
-    }
+    mv_rewrite_fail("select * from projectMV3 order by empid;", "projectMV3_mv")
 
-    explain {
-        sql("select empid + 1, name from projectMV3 where deptno = 1 order by empid;")
-        contains "(projectMV3_mv)"
-    }
-    explain {
-        sql("select name from projectMV3 where deptno = 0 order by empid;")
-        contains "(projectMV3_mv)"
-    }
+    mv_rewrite_success("select empid + 1, name from projectMV3 where deptno = 1 order by empid;", "projectMV3_mv")
+
+    mv_rewrite_success("select name from projectMV3 where deptno = 0 order by empid;", "projectMV3_mv")
 }

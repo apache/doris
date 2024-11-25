@@ -63,7 +63,9 @@ public:
     using Base = OperatorX<UnionSourceLocalState>;
     UnionSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                          const DescriptorTbl& descs)
-            : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {};
+            : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {
+        _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+    }
     ~UnionSourceOperatorX() override = default;
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 

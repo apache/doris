@@ -44,14 +44,8 @@ suite ("onlyGroupBy") {
     sql "analyze table onlyGroupBy with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select deptno from onlyGroupBy group by deptno;")
-        contains "(onlyGroupBy_mv)"
-    }
+    mv_rewrite_success("select deptno from onlyGroupBy group by deptno;", "onlyGroupBy_mv")
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select deptno from onlyGroupBy group by deptno;")
-        contains "(onlyGroupBy_mv)"
-    }
+    mv_rewrite_success("select deptno from onlyGroupBy group by deptno;", "onlyGroupBy_mv")
 }

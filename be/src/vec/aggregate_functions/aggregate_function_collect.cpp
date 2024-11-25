@@ -96,7 +96,8 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
 
 AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
                                                        const DataTypes& argument_types,
-                                                       const bool result_is_nullable) {
+                                                       const bool result_is_nullable,
+                                                       const AggregateFunctionAttr& attr) {
     if (argument_types.size() == 1) {
         if (name == "array_agg") {
             return create_aggregate_function_collect_impl<std::false_type, std::true_type>(

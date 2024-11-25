@@ -41,7 +41,7 @@ class PipelineFragmentContext;
 
 namespace doris::pipeline {
 
-class TaskQueue;
+class MultiCoreTaskQueue;
 class PriorityTaskQueue;
 class Dependency;
 
@@ -159,8 +159,8 @@ public:
         }
     }
 
-    void set_task_queue(TaskQueue* task_queue);
-    TaskQueue* get_task_queue() { return _task_queue; }
+    void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
+    MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
 
@@ -224,6 +224,8 @@ public:
 
     RuntimeState* runtime_state() const { return _state; }
 
+    RuntimeProfile* get_task_profile() const { return _task_profile.get(); }
+
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
     void stop_if_finished() {
@@ -233,6 +235,8 @@ public:
     }
 
     PipelineId pipeline_id() const { return _pipeline->id(); }
+
+    bool wake_up_by_downstream() const { return _wake_up_by_downstream; }
 
 private:
     friend class RuntimeFilterDependency;
@@ -253,7 +257,7 @@ private:
     uint32_t _schedule_time = 0;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context = nullptr;
-    TaskQueue* _task_queue = nullptr;
+    MultiCoreTaskQueue* _task_queue = nullptr;
 
     // used for priority queue
     // it may be visited by different thread but there is no race condition

@@ -60,7 +60,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * EXPORT statement, export data to dirs by broker.
@@ -242,7 +241,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
     private ExportJob generateExportJob(ConnectContext ctx, Map<String, String> fileProperties, TableName tblName)
             throws UserException {
-        ExportJob exportJob = new ExportJob();
+        ExportJob exportJob = new ExportJob(Env.getCurrentEnv().getNextId());
         // set export job and check catalog/db/table
         CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
         DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
@@ -354,38 +353,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
     private void checkFileProperties(ConnectContext ctx, Map<String, String> fileProperties, TableName tblName)
             throws UserException {
-        // check user specified columns
-        if (fileProperties.containsKey(LoadStmt.KEY_IN_PARAM_COLUMNS)) {
-            checkColumns(ctx, fileProperties.get(LoadStmt.KEY_IN_PARAM_COLUMNS), tblName);
-        }
-
         // check user specified label
         if (fileProperties.containsKey(LABEL)) {
             FeNameFormat.checkLabel(fileProperties.get(LABEL));
-        }
-    }
-
-    private void checkColumns(ConnectContext ctx, String columns, TableName tblName)
-            throws AnalysisException, UserException {
-        if (columns.isEmpty()) {
-            throw new AnalysisException("columns can not be empty");
-        }
-
-        CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
-        DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
-        TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
-
-        // As for external table
-        // their base schemas are equals to full schemas
-        List<String> tableColumns = table.getBaseSchema().stream().map(column -> column.getName())
-                .collect(Collectors.toList());
-        Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
-
-        List<String> columnsSpecified = split.splitToList(columns.toLowerCase());
-        for (String columnName : columnsSpecified) {
-            if (!tableColumns.contains(columnName)) {
-                throw new AnalysisException("unknown column [" + columnName + "] in table [" + tblName.getTbl() + "]");
-            }
         }
     }
 

@@ -143,11 +143,10 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void shrink_padding_chars() override;
+
     bool is_variable_length() const override { return nested_column->is_variable_length(); }
 
-    const char* get_family_name() const override { return "Nullable"; }
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override {
@@ -198,6 +197,8 @@ public:
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;
 
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+
     template <typename ColumnType>
     void insert_from_with_type(const IColumn& src, size_t n) {
         const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
@@ -242,12 +243,6 @@ public:
         }
         _push_false_to_nullmap(num);
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
-    }
-
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
-        _push_false_to_nullmap(num);
-        get_nested_column().insert_many_binary_data(data_array, len_array, start_offset_array, num);
     }
 
     void insert_default() override {
@@ -308,16 +303,6 @@ public:
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        append_data_by_selector_impl<ColumnNullable>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        append_data_by_selector_impl<ColumnNullable>(res, selector, begin, end);
-    }
-
     ColumnPtr convert_column_if_overflow() override {
         nested_column = nested_column->convert_column_if_overflow();
         return get_ptr();
@@ -341,6 +326,7 @@ public:
     void set_datetime_type() override { get_nested_column().set_datetime_type(); }
 
     bool is_nullable() const override { return true; }
+    bool is_concrete_nullable() const override { return true; }
     bool is_bitmap() const override { return get_nested_column().is_bitmap(); }
     bool is_hll() const override { return get_nested_column().is_hll(); }
     bool is_column_decimal() const override { return get_nested_column().is_column_decimal(); }
@@ -479,8 +465,4 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
-// check if argument column is nullable. If so, extract its concrete column and set null_map.
-//TODO: use this to replace inner usages.
-// is_single: whether null_map is null map of a ColumnConst
-void check_set_nullable(ColumnPtr&, ColumnVector<UInt8>::MutablePtr& null_map, bool is_single);
 } // namespace doris::vectorized

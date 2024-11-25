@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -275,17 +274,6 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             }
         }
         return cteConsumer.withTwoMaps(consumerToProducerOutputMap, producerToConsumerOutputMap);
-    }
-
-    @Override
-    public Plan visitLogicalExternalRelation(LogicalExternalRelation relation, Map<ExprId, Slot> replaceMap) {
-        if (!relation.getConjuncts().isEmpty()) {
-            relation.getOutputSet().forEach(s -> replaceMap.put(s.getExprId(), s));
-            Set<Expression> conjuncts = updateExpressions(relation.getConjuncts(), replaceMap);
-            return relation.withConjuncts(conjuncts).recomputeLogicalProperties();
-        } else {
-            return relation;
-        }
     }
 
     private <T extends Expression> T updateExpression(T input, Map<ExprId, Slot> replaceMap) {

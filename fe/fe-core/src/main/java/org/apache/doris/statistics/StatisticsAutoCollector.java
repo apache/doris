@@ -145,10 +145,10 @@ public class StatisticsAutoCollector extends MasterDaemon {
         // appendMvColumn(table, columns);
         appendAllColumns(table, columns);
         columns = columns.stream().filter(c -> StatisticsUtil.needAnalyzeColumn(table, c)).collect(Collectors.toSet());
-        if (columns.isEmpty()) {
+        AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority);
+        if (analyzeJob == null) {
             return;
         }
-        AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority);
         LOG.debug("Auto analyze job : {}", analyzeJob.toString());
         try {
             executeSystemAnalysisJob(analyzeJob);
@@ -205,8 +205,28 @@ public class StatisticsAutoCollector extends MasterDaemon {
         }
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
-        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 :
-                (table.getRowCount() <= 0 ? table.fetchRowCount() : table.getRowCount());
+        if (table instanceof OlapTable && analysisMethod.equals(AnalysisMethod.SAMPLE)) {
+            OlapTable ot = (OlapTable) table;
+            if (ot.getRowCountForIndex(ot.getBaseIndexId(), true) == TableIf.UNKNOWN_ROW_COUNT) {
+                LOG.info("Table {} row count is not fully reported, skip auto analyzing this time.", ot.getName());
+                return null;
+            }
+        }
+        // We don't auto analyze empty table to avoid all 0 stats.
+        // Because all 0 is more dangerous than unknown stats when row count report is delayed.
+        long rowCount = table.getRowCount();
+        if (rowCount <= 0) {
+            LOG.info("Table {} is empty, remove its old stats and skip auto analyze it.", table.getName());
+            // Remove the table's old stats if exists.
+            if (tableStatsStatus != null && !tableStatsStatus.isColumnsStatsEmpty()) {
+                manager.dropStats(table, null);
+            }
+            return null;
+        }
+        if (jobColumns == null || jobColumns.isEmpty()) {
+            return null;
+        }
+        LOG.info("Auto analyze table {} row count is {}", table.getName(), rowCount);
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (Pair<String, String> pair : jobColumns) {
             stringJoiner.add(pair.toString());

@@ -173,6 +173,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_update_delete_bitmap;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap_update_lock;
 extern BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap;
+extern BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap_update_lock;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status;
 extern BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_instance;
@@ -197,6 +198,7 @@ extern bvar::LatencyRecorder g_bvar_txn_kv_batch_get;
 
 extern bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 extern bvar::Adder<int64_t> g_bvar_txn_kv_commit_conflict_counter;
+extern bvar::Adder<int64_t> g_bvar_txn_kv_get_count_normalized;
 
 extern const int64_t BVAR_FDB_INVALID_VALUE;
 extern bvar::Status<int64_t> g_bvar_fdb_client_count;
@@ -246,3 +248,5 @@ extern BvarStatusWithTag<long> g_bvar_checker_check_cost_s;
 extern BvarStatusWithTag<long> g_bvar_checker_enqueue_cost_s;
 extern BvarStatusWithTag<long> g_bvar_checker_last_success_time_ms;
 extern BvarStatusWithTag<long> g_bvar_checker_instance_volume;
+extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_scanned;
+extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed;

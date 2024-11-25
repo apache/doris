@@ -17,6 +17,8 @@
 
 #include "olap/segment_loader.h"
 
+#include <butil/time.h>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/olap_define.h"
@@ -52,7 +54,8 @@ void SegmentCache::erase(const SegmentCache::CacheKey& key) {
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
                                     SegmentCacheHandle* cache_handle, bool use_cache,
-                                    bool need_load_pk_index_and_bf) {
+                                    bool need_load_pk_index_and_bf,
+                                    OlapReaderStatistics* index_load_stats) {
     if (cache_handle->is_inited()) {
         return Status::OK();
     }
@@ -70,7 +73,7 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
         segment_v2::SegmentSharedPtr segment;
         RETURN_IF_ERROR(rowset->load_segment(i, &segment));
         if (need_load_pk_index_and_bf) {
-            RETURN_IF_ERROR(segment->load_pk_index_and_bf());
+            RETURN_IF_ERROR(segment->load_pk_index_and_bf(index_load_stats));
         }
         if (use_cache && !config::disable_segment_cache) {
             // memory of SegmentCache::CacheValue will be handled by SegmentCache

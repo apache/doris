@@ -669,7 +669,7 @@ class Config {
             if (config.s3Source == "aliyun") {
                 s3BucketName = "doris-regression-hk"
             } else if (config.s3Source == "aliyun-internal") {
-                s3BucketName = "doris-regression"
+                s3BucketName = "doris-regression-bj"
             } else if (config.s3Source == "tencent") {
                 s3BucketName = "doris-build-1308700295"
             } else if (config.s3Source == "huawei") {
@@ -1134,6 +1134,14 @@ class Config {
         urlWithDb = addTimeoutUrl(urlWithDb);
 
         return urlWithDb
+    }
+
+    public static String buildUrlWithDb(String host, int queryPort, String dbName) {
+        def url = String.format(
+            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+            host, queryPort)
+        url = buildUrlWithDb(url, dbName)
+        return url
     }
 
     private static String addSslUrl(String url) {

@@ -66,6 +66,7 @@ struct PartialUpdateInfo {
         case UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS:
             return "flexible partial update";
         }
+        return "";
     }
     bool is_partial_update() const { return partial_update_mode != UniqueKeyUpdateModePB::UPSERT; }
     bool is_fixed_partial_update() const {

@@ -26,6 +26,7 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 void SharedHashTableController::set_builder_and_consumers(TUniqueId builder, int node_id) {
     // Only need to set builder and consumers with pipeline engine enabled.

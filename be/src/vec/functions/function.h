@@ -22,10 +22,9 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <memory>
-#include <ostream>
 #include <string>
 #include <utility>
 
@@ -46,6 +45,10 @@ struct FuncExprParams;
 } // namespace doris::segment_v2
 
 namespace doris::vectorized {
+
+struct FunctionAttr {
+    bool enable_decimal256 {false};
+};
 
 #define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                       \
     bool is_nullable = false;                                                            \
@@ -91,7 +94,7 @@ public:
     virtual String get_name() const = 0;
 
     virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           size_t result, size_t input_rows_count, bool dry_run) const = 0;
+                           uint32_t result, size_t input_rows_count, bool dry_run) const = 0;
 };
 
 using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
@@ -99,7 +102,7 @@ using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
 class PreparedFunctionImpl : public IPreparedFunction {
 public:
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   size_t result, size_t input_rows_count, bool dry_run = false) const final;
+                   uint32_t result, size_t input_rows_count, bool dry_run = false) const final;
 
     /** If the function have non-zero number of arguments,
       *  and if all arguments are constant, that we could automatically provide default implementation:
@@ -116,13 +119,13 @@ public:
 
 protected:
     virtual Status execute_impl_dry_run(FunctionContext* context, Block& block,
-                                        const ColumnNumbers& arguments, size_t result,
+                                        const ColumnNumbers& arguments, uint32_t result,
                                         size_t input_rows_count) const {
         return execute_impl(context, block, arguments, result, input_rows_count);
     }
 
     virtual Status execute_impl(FunctionContext* context, Block& block,
-                                const ColumnNumbers& arguments, size_t result,
+                                const ColumnNumbers& arguments, uint32_t result,
                                 size_t input_rows_count) const = 0;
 
     /** Default implementation in presence of Nullable arguments or NULL constants as arguments is the following:
@@ -146,18 +149,18 @@ protected:
 
 private:
     Status default_implementation_for_nulls(FunctionContext* context, Block& block,
-                                            const ColumnNumbers& args, size_t result,
+                                            const ColumnNumbers& args, uint32_t result,
                                             size_t input_rows_count, bool dry_run,
                                             bool* executed) const;
     Status default_implementation_for_constant_arguments(FunctionContext* context, Block& block,
-                                                         const ColumnNumbers& args, size_t result,
+                                                         const ColumnNumbers& args, uint32_t result,
                                                          size_t input_rows_count, bool dry_run,
                                                          bool* executed) const;
     Status execute_without_low_cardinality_columns(FunctionContext* context, Block& block,
-                                                   const ColumnNumbers& arguments, size_t result,
+                                                   const ColumnNumbers& arguments, uint32_t result,
                                                    size_t input_rows_count, bool dry_run) const;
     Status _execute_skipped_constant_deal(FunctionContext* context, Block& block,
-                                          const ColumnNumbers& args, size_t result,
+                                          const ColumnNumbers& args, uint32_t result,
                                           size_t input_rows_count, bool dry_run) const;
 };
 
@@ -175,7 +178,7 @@ public:
     /// Do preparations and return executable.
     /// sample_block should contain data types of arguments and values of constants, if relevant.
     virtual PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
-                                        const ColumnNumbers& arguments, size_t result) const = 0;
+                                        const ColumnNumbers& arguments, uint32_t result) const = 0;
 
     /// Override this when function need to store state in the `FunctionContext`, or do some
     /// preparation work according to information from `FunctionContext`.
@@ -185,7 +188,7 @@ public:
 
     /// TODO: make const
     virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           size_t result, size_t input_rows_count, bool dry_run = false) const {
+                           uint32_t result, size_t input_rows_count, bool dry_run = false) const {
         return prepare(context, block, arguments, result)
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
     }
@@ -206,32 +209,7 @@ public:
 
     virtual bool is_use_default_implementation_for_constants() const = 0;
 
-    /// The property of monotonicity for a certain range.
-    struct Monotonicity {
-        bool is_monotonic = false; /// Is the function monotonous (nondecreasing or nonincreasing).
-        bool is_positive =
-                true; /// true if the function is nondecreasing, false, if notincreasing. If is_monotonic = false, then it does not matter.
-        bool is_always_monotonic =
-                false; /// Is true if function is monotonic on the whole input range I
-
-        Monotonicity(bool is_monotonic_ = false, bool is_positive_ = true,
-                     bool is_always_monotonic_ = false)
-                : is_monotonic(is_monotonic_),
-                  is_positive(is_positive_),
-                  is_always_monotonic(is_always_monotonic_) {}
-    };
-
-    /** Get information about monotonicity on a range of values. Call only if hasInformationAboutMonotonicity.
-      * NULL can be passed as one of the arguments. This means that the corresponding range is unlimited on the left or on the right.
-      */
-    virtual Monotonicity get_monotonicity_for_range(const IDataType& /*type*/,
-                                                    const Field& /*left*/,
-                                                    const Field& /*right*/) const {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Function {} has no information about its monotonicity.",
-                               get_name());
-        return Monotonicity {};
-    }
+    virtual bool is_udf_function() const { return false; }
 
     virtual bool can_push_down_to_index() const { return false; }
 };
@@ -361,7 +339,7 @@ protected:
     virtual FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
                                        const DataTypePtr& return_type) const = 0;
 
-    virtual DataTypes get_variadic_argument_types_impl() const { return DataTypes(); }
+    virtual DataTypes get_variadic_argument_types_impl() const { return {}; }
 
 private:
     DataTypePtr get_return_type_without_low_cardinality(
@@ -382,9 +360,8 @@ public:
     String get_name() const override = 0;
 
     /// Notice: We should not change the column in the block, because the column may be shared by multiple expressions or exec nodes.
-    virtual Status execute_impl(FunctionContext* context, Block& block,
-                                const ColumnNumbers& arguments, size_t result,
-                                size_t input_rows_count) const override = 0;
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override = 0;
 
     /// Override this functions to change default implementation behavior. See details in IMyFunction.
     bool use_default_implementation_for_nulls() const override { return true; }
@@ -409,7 +386,7 @@ public:
     [[noreturn]] PreparedFunctionPtr prepare(FunctionContext* context,
                                              const Block& /*sample_block*/,
                                              const ColumnNumbers& /*arguments*/,
-                                             size_t /*result*/) const final {
+                                             uint32_t /*result*/) const final {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "prepare is not implemented for IFunction {}", get_name());
         __builtin_unreachable();
@@ -453,7 +430,7 @@ public:
 
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const final {
+                        uint32_t result, size_t input_rows_count) const final {
         return function->execute_impl(context, block, arguments, result, input_rows_count);
     }
 
@@ -467,7 +444,7 @@ protected:
     }
 
     Status execute_impl_dry_run(FunctionContext* context, Block& block,
-                                const ColumnNumbers& arguments, size_t result,
+                                const ColumnNumbers& arguments, uint32_t result,
                                 size_t input_rows_count) const final {
         return function->execute_impl_dry_run(context, block, arguments, result, input_rows_count);
     }
@@ -511,7 +488,7 @@ public:
     // return a default wrapper for IFunction.
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
                                 const ColumnNumbers& /*arguments*/,
-                                size_t /*result*/) const override {
+                                uint32_t /*result*/) const override {
         return std::make_shared<DefaultExecutable>(function);
     }
 
@@ -530,11 +507,6 @@ public:
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         return function->evaluate_inverted_index(args, data_type_with_names, iterators, num_rows,
                                                  bitmap_result);
-    }
-
-    IFunctionBase::Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
-                                                           const Field& right) const override {
-        return function->get_monotonicity_for_range(type, left, right);
     }
 
     bool is_use_default_implementation_for_constants() const override {
@@ -608,7 +580,7 @@ using FunctionPtr = std::shared_ptr<IFunction>;
   * Or ColumnConst(ColumnNullable) if the result is always NULL or if the result is constant and always not NULL.
   */
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
-                           size_t result, size_t input_rows_count);
+                           uint32_t result, size_t input_rows_count);
 
 #define NUMERIC_TYPE_TO_COLUMN_TYPE(M) \
     M(UInt8, ColumnUInt8)              \

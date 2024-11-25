@@ -62,7 +62,7 @@ Status SchemaRoutinesScanner::start(RuntimeState* state) {
 }
 
 Status SchemaRoutinesScanner::get_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     TSchemaTableRequestParams schema_table_request_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {
         schema_table_request_params.__isset.columns_name = true;

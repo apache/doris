@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "util/defer_op.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_string.h"
@@ -30,6 +32,7 @@
 #include "vec/core/column_numbers.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
@@ -37,6 +40,11 @@ namespace doris::vectorized {
 class Arena;
 class IColumn;
 class IDataType;
+
+struct AggregateFunctionAttr {
+    bool enable_decimal256 {false};
+    std::vector<std::string> column_names;
+};
 
 template <bool nullable, typename ColVecType>
 class AggregateFunctionBitmapCount;
@@ -111,21 +119,21 @@ public:
      *  Additional parameter arena should be used instead of standard memory allocator if the addition requires memory allocation.
      */
     virtual void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-                     Arena* arena) const = 0;
+                     Arena*) const = 0;
 
     virtual void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
-                          std::vector<int>& rows, Arena* arena) const {}
+                          std::vector<int>& rows, Arena*) const {}
 
     /// Merges state (on which place points to) with other state of current aggregation function.
     virtual void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-                       Arena* arena) const = 0;
+                       Arena*) const = 0;
 
     virtual void merge_vec(const AggregateDataPtr* places, size_t offset, ConstAggregateDataPtr rhs,
-                           Arena* arena, const size_t num_rows) const = 0;
+                           Arena*, const size_t num_rows) const = 0;
 
     // same as merge_vec, but only call "merge" function when place is not nullptr
     virtual void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                    ConstAggregateDataPtr rhs, Arena* arena,
+                                    ConstAggregateDataPtr rhs, Arena*,
                                     const size_t num_rows) const = 0;
 
     /// Serializes state (to transmit it over the network, for example).
@@ -142,21 +150,21 @@ public:
 
     /// Deserializes state. This function is called only for empty (just created) states.
     virtual void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                             Arena* arena) const = 0;
+                             Arena*) const = 0;
 
-    virtual void deserialize_vec(AggregateDataPtr places, const ColumnString* column, Arena* arena,
+    virtual void deserialize_vec(AggregateDataPtr places, const ColumnString* column, Arena*,
                                  size_t num_rows) const = 0;
 
     virtual void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                           AggregateDataPtr rhs, const IColumn* column,
-                                           Arena* arena, const size_t num_rows) const = 0;
+                                           AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                           const size_t num_rows) const = 0;
 
     virtual void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                                     AggregateDataPtr rhs, const IColumn* column,
-                                                    Arena* arena, const size_t num_rows) const = 0;
+                                                    Arena*, const size_t num_rows) const = 0;
 
-    virtual void deserialize_from_column(AggregateDataPtr places, const IColumn& column,
-                                         Arena* arena, size_t num_rows) const = 0;
+    virtual void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena*,
+                                         size_t num_rows) const = 0;
 
     /// Deserializes state and merge it with current aggregation function.
     virtual void deserialize_and_merge(AggregateDataPtr __restrict place,
@@ -165,10 +173,10 @@ public:
 
     virtual void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                          const IColumn& column, size_t begin,
-                                                         size_t end, Arena* arena) const = 0;
+                                                         size_t end, Arena*) const = 0;
 
     virtual void deserialize_and_merge_from_column(AggregateDataPtr __restrict place,
-                                                   const IColumn& column, Arena* arena) const = 0;
+                                                   const IColumn& column, Arena*) const = 0;
 
     /// Inserts results into a column.
     virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
@@ -181,33 +189,32 @@ public:
       *  and do a single call to "add_batch" for devirtualization and inlining.
       */
     virtual void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                           const IColumn** columns, Arena* arena, bool agg_many = false) const = 0;
+                           const IColumn** columns, Arena*, bool agg_many = false) const = 0;
 
     // same as add_batch, but only call "add" function when place is not nullptr
     virtual void add_batch_selected(size_t batch_size, AggregateDataPtr* places,
-                                    size_t place_offset, const IColumn** columns,
-                                    Arena* arena) const = 0;
+                                    size_t place_offset, const IColumn** columns, Arena*) const = 0;
 
     /** The same for single place.
       */
     virtual void add_batch_single_place(size_t batch_size, AggregateDataPtr place,
-                                        const IColumn** columns, Arena* arena) const = 0;
+                                        const IColumn** columns, Arena*) const = 0;
 
     // only used at agg reader
     virtual void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
-                                 const IColumn** columns, Arena* arena, bool has_null = false) = 0;
+                                 const IColumn** columns, Arena*, bool has_null = false) = 0;
 
     // only used at window function
     virtual void add_range_single_place(int64_t partition_start, int64_t partition_end,
                                         int64_t frame_start, int64_t frame_end,
                                         AggregateDataPtr place, const IColumn** columns,
-                                        Arena* arena) const = 0;
+                                        Arena*) const = 0;
 
     virtual void streaming_agg_serialize(const IColumn** columns, BufferWritable& buf,
-                                         const size_t num_rows, Arena* arena) const = 0;
+                                         const size_t num_rows, Arena*) const = 0;
 
     virtual void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                                   const size_t num_rows, Arena* arena) const = 0;
+                                                   const size_t num_rows, Arena*) const = 0;
 
     const DataTypes& get_argument_types() const { return argument_types; }
 
@@ -218,6 +225,10 @@ public:
     virtual void set_version(const int version_) { version = version_; }
 
     virtual AggregateFunctionPtr transmit_to_stable() { return nullptr; }
+
+    /// Verify function signature
+    virtual Status verify_result_type(const bool without_key, const DataTypes& argument_types,
+                                      const DataTypePtr result_type) const = 0;
 
 protected:
     DataTypes argument_types;
@@ -490,6 +501,43 @@ public:
         assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->deserialize(rhs, buf,
                                                                                     arena);
         assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->merge(place, rhs, arena);
+    }
+
+    Status verify_result_type(const bool without_key, const DataTypes& argument_types_with_nullable,
+                              const DataTypePtr result_type_with_nullable) const override {
+        DataTypePtr function_result_type = assert_cast<const Derived*>(this)->get_return_type();
+
+        if (function_result_type->equals(*result_type_with_nullable)) {
+            return Status::OK();
+        }
+
+        if (!remove_nullable(function_result_type)
+                     ->equals(*remove_nullable(result_type_with_nullable))) {
+            return Status::InternalError(
+                    "Result type of {} is not matched, planner expect {}, but get {}, with group "
+                    "by: "
+                    "{}",
+                    get_name(), result_type_with_nullable->get_name(),
+                    function_result_type->get_name(), !without_key);
+        }
+
+        if (without_key == true) {
+            if (result_type_with_nullable->is_nullable()) {
+                // This branch is decicated for NullableAggregateFunction.
+                // When they are executed without group by key, the result from planner will be AlwaysNullable
+                // since Planer does not know whether there are any invalid input at runtime, if so, the result
+                // should be Null, so the result type must be nullable.
+                // Backend will wrap a ColumnNullable in this situation. For example: AggLocalState::_get_without_key_result
+                return Status::OK();
+            }
+        }
+
+        // Executed with group by key, result type must be exactly same with the return type from Planner.
+        return Status::InternalError(
+                "Result type of {} is not matched, planner expect {}, but get {}, with group by: "
+                "{}",
+                get_name(), result_type_with_nullable->get_name(), function_result_type->get_name(),
+                !without_key);
     }
 };
 

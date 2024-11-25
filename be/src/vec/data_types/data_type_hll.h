@@ -77,7 +77,6 @@ public:
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }
-    bool have_maximum_size_of_value() const override { return false; }
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 

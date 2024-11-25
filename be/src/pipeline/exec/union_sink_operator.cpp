@@ -32,6 +32,7 @@ Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) 
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+    _expr_timer = ADD_TIMER(_profile, "ExprTime");
     auto& p = _parent->cast<Parent>();
     _shared_state->data_queue.set_sink_dependency(_dependency, p._cur_child_id);
     return Status::OK();

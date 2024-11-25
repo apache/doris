@@ -39,6 +39,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -53,6 +54,7 @@ import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -148,6 +150,7 @@ public abstract class ExternalCatalog
 
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
+    protected PreExecutionAuthenticator preExecutionAuthenticator;
 
     public ExternalCatalog() {
     }
@@ -349,19 +352,8 @@ public abstract class ExternalCatalog
         InitCatalogLog initCatalogLog = new InitCatalogLog();
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(logType);
-        List<String> allDatabases = getFilteredDatabaseNames();
-        Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
-        Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
-        for (String dbName : allDatabases) {
-            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME) && !dbName.equals(MysqlDb.DATABASE_NAME)) {
-                // Exclude database map take effect with higher priority over include database map
-                if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
-                    continue;
-                }
-                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
-                    continue;
-                }
-            }
+        List<String> filteredDatabases = getFilteredDatabaseNames();
+        for (String dbName : filteredDatabases) {
             long dbId;
             if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
                 dbId = dbNameToId.get(dbName);
@@ -392,6 +384,20 @@ public abstract class ExternalCatalog
         allDatabases.add(InfoSchemaDb.DATABASE_NAME);
         allDatabases.remove(MysqlDb.DATABASE_NAME);
         allDatabases.add(MysqlDb.DATABASE_NAME);
+        Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
+        Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
+        allDatabases = allDatabases.stream().filter(dbName -> {
+            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME) && !dbName.equals(MysqlDb.DATABASE_NAME)) {
+                // Exclude database map take effect with higher priority over include database map
+                if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
+                    return false;
+                }
+                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
+                    return false;
+                }
+            }
+            return true;
+        }).collect(Collectors.toList());
         return allDatabases;
     }
 
@@ -414,6 +420,7 @@ public abstract class ExternalCatalog
             if (useMetaCache.get() && metaCache != null) {
                 metaCache.invalidateAll();
             } else if (!useMetaCache.get()) {
+                this.initialized = false;
                 for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
                     db.setUnInitialized(invalidCache);
                 }
@@ -675,11 +682,11 @@ public abstract class ExternalCatalog
             InitCatalogLog.Type logType, boolean checkExists) {
         // When running ut, disable this check to make ut pass.
         // Because in ut, the database is not created in remote system.
-        if (checkExists && !FeConstants.runningUnitTest) {
+        if (checkExists && (!FeConstants.runningUnitTest || this instanceof TestExternalCatalog)) {
             try {
                 List<String> dbNames = getDbNames();
                 if (!dbNames.contains(dbName)) {
-                    dbNames = listDatabaseNames();
+                    dbNames = getFilteredDatabaseNames();
                     if (!dbNames.contains(dbName)) {
                         return null;
                     }
@@ -835,15 +842,15 @@ public abstract class ExternalCatalog
         throw new NotImplementedException("registerDatabase not implemented");
     }
 
-    public Map<String, Boolean> getIncludeDatabaseMap() {
+    protected Map<String, Boolean> getIncludeDatabaseMap() {
         return getSpecifiedDatabaseMap(Resource.INCLUDE_DATABASE_LIST);
     }
 
-    public Map<String, Boolean> getExcludeDatabaseMap() {
+    protected Map<String, Boolean> getExcludeDatabaseMap() {
         return getSpecifiedDatabaseMap(Resource.EXCLUDE_DATABASE_LIST);
     }
 
-    public Map<String, Boolean> getSpecifiedDatabaseMap(String catalogPropertyKey) {
+    private Map<String, Boolean> getSpecifiedDatabaseMap(String catalogPropertyKey) {
         String specifiedDatabaseList = catalogProperty.getOrDefault(catalogPropertyKey, "");
         Map<String, Boolean> specifiedDatabaseMap = Maps.newHashMap();
         specifiedDatabaseList = specifiedDatabaseList.trim();
@@ -929,5 +936,9 @@ public abstract class ExternalCatalog
         } else {
             tableAutoAnalyzePolicy.put(key, policy);
         }
+    }
+
+    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
+        return preExecutionAuthenticator;
     }
 }

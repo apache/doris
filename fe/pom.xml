@@ -259,7 +259,7 @@ under the License.
         <commons-io.version>2.7</commons-io.version>
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
-        <hikaricp.version>4.0.3</hikaricp.version>
+        <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed-core.version>8.5.86</tomcat-embed-core.version>
         <log4j2.version>2.18.0</log4j2.version>
@@ -314,7 +314,7 @@ under the License.
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.4.3</iceberg.version>
         <maxcompute.version>0.49.0-public</maxcompute.version>
-        <avro.version>1.11.3</avro.version>
+        <avro.version>1.11.4</avro.version>
         <arrow.version>17.0.0</arrow.version>
         <!-- hudi -->
         <hudi.version>0.14.1</hudi.version>
@@ -347,7 +347,7 @@ under the License.
         <spring-framework.version>5.3.39</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.2</zookeeper.version>
-        <velocity-engine-core.version>2.3</velocity-engine-core.version>
+        <velocity-engine-core.version>2.4</velocity-engine-core.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
@@ -1330,6 +1330,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro-ipc</artifactId>
+                <version>${avro.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro-mapred</artifactId>
                 <version>${avro.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->

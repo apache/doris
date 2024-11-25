@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/page_handle.h"
@@ -46,18 +47,20 @@ namespace segment_v2 {
 class EncodingInfo;
 
 // thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
-class IndexedColumnReader {
+class IndexedColumnReader : public MetadataAdder<IndexedColumnReader> {
 public:
     explicit IndexedColumnReader(io::FileReaderSPtr file_reader, const IndexedColumnMetaPB& meta)
             : _file_reader(std::move(file_reader)), _meta(meta) {}
 
     ~IndexedColumnReader();
 
-    Status load(bool use_page_cache, bool kept_in_memory);
+    Status load(bool use_page_cache, bool kept_in_memory,
+                OlapReaderStatistics* index_load_stats = nullptr);
 
     // read a page specified by `pp' from `file' into `handle'
     Status read_page(const PagePointer& pp, PageHandle* handle, Slice* body, PageFooterPB* footer,
-                     PageTypePB type, BlockCompressionCodec* codec, bool pre_decode) const;
+                     PageTypePB type, BlockCompressionCodec* codec, bool pre_decode,
+                     OlapReaderStatistics* stats = nullptr) const;
 
     int64_t num_values() const { return _num_values; }
     const EncodingInfo* encoding_info() const { return _encoding_info; }
@@ -71,6 +74,8 @@ public:
 
 private:
     Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader);
+
+    int64_t get_metadata_size() const override;
 
     friend class IndexedColumnIterator;
 
@@ -95,14 +100,17 @@ private:
     const KeyCoder* _value_key_coder = nullptr;
     uint64_t _mem_size = 0;
     bool _is_pk_index = false;
+    OlapReaderStatistics* _index_load_stats = nullptr;
 };
 
 class IndexedColumnIterator {
 public:
-    explicit IndexedColumnIterator(const IndexedColumnReader* reader)
+    explicit IndexedColumnIterator(const IndexedColumnReader* reader,
+                                   OlapReaderStatistics* stats = nullptr)
             : _reader(reader),
               _ordinal_iter(&reader->_ordinal_index_reader),
-              _value_iter(&reader->_value_index_reader) {}
+              _value_iter(&reader->_value_index_reader),
+              _stats(stats) {}
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.
     // Return Status::Error<ENTRY_NOT_FOUND> if provided seek point is past the end.
@@ -151,6 +159,7 @@ private:
     ordinal_t _current_ordinal = 0;
     // iterator owned compress codec, should NOT be shared by threads, initialized before used
     BlockCompressionCodec* _compress_codec = nullptr;
+    OlapReaderStatistics* _stats = nullptr;
 };
 
 } // namespace segment_v2

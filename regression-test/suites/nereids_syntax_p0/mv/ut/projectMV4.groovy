@@ -47,38 +47,19 @@ suite ("projectMV4") {
     sql "analyze table projectMV4 with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from projectMV4 order by empid;")
-        contains "(projectMV4)"
-    }
+    mv_rewrite_fail("select * from projectMV4 order by empid;", "projectMV4_mv")
     order_qt_select_star "select * from projectMV4 order by empid;"
 
-
-    explain {
-        sql("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;")
-        contains "(projectMV4_mv)"
-    }
+    mv_rewrite_success("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;", "projectMV4_mv")
     order_qt_select_mv "select name from projectMV4 where deptno > 1 and salary > 1 order by name;"
 
-    explain {
-        sql("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;")
-        contains "(projectMV4)"
-    }
+    mv_rewrite_fail("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;", "projectMV4_mv")
     order_qt_select_base "select empid from projectMV4 where deptno > 1 and empid > 1 order by empid;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from projectMV4 order by empid;")
-        contains "(projectMV4)"
-    }
+    mv_rewrite_fail("select * from projectMV4 order by empid;", "projectMV4_mv")
 
-    explain {
-        sql("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;")
-        contains "(projectMV4_mv)"
-    }
+    mv_rewrite_success("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;", "projectMV4_mv")
 
-    explain {
-        sql("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;")
-        contains "(projectMV4)"
-    }
+    mv_rewrite_fail("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;", "projectMV4_mv")
 }

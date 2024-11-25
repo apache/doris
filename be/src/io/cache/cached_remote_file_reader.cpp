@@ -292,6 +292,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                                  file_offset);
             }
             if (!st || block_state != FileBlock::State::DOWNLOADED) {
+                LOG(WARNING) << "Read data failed from file cache downloaded by others. err="
+                             << st.msg() << ", block state=" << block_state;
                 size_t bytes_read {0};
                 stats.hit_cache = false;
                 s3_read_counter << 1;

@@ -44,11 +44,16 @@ public class DecimalV3Literal extends FractionalLiteral {
      * Constructor for DecimalV3Literal
      */
     public DecimalV3Literal(DecimalV3Type dataType, BigDecimal value) {
-        super(DecimalV3Type.createDecimalV3TypeLooseCheck(dataType.getPrecision(), dataType.getScale()));
+        super(DecimalV3Type.createDecimalV3TypeLooseCheck(
+                dataType.getPrecision() == -1 ? value.precision() : dataType.getPrecision(),
+                dataType.getScale() == -1 ? value.scale() : dataType.getScale())
+        );
+
+        int precision = dataType.getPrecision() == -1 ? value.precision() : dataType.getPrecision();
+        int scale = dataType.getScale() == -1 ? value.scale() : dataType.getScale();
         Objects.requireNonNull(value, "value not be null");
-        checkPrecisionAndScale(dataType.getPrecision(), dataType.getScale(), value);
-        BigDecimal adjustedValue = value.scale() < 0 ? value
-                : value.setScale(dataType.getScale(), RoundingMode.HALF_UP);
+        checkPrecisionAndScale(precision, scale, value);
+        BigDecimal adjustedValue = value.scale() < 0 ? value : value.setScale(scale, RoundingMode.HALF_UP);
         this.value = Objects.requireNonNull(adjustedValue);
     }
 
@@ -144,5 +149,15 @@ public class DecimalV3Literal extends FractionalLiteral {
         }
         DecimalV3Literal literal = (DecimalV3Literal) o;
         return Objects.equals(dataType, literal.dataType);
+    }
+
+    @Override
+    public String toSql() {
+        return value.toPlainString();
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
     }
 }

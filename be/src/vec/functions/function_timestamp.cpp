@@ -107,7 +107,7 @@ struct StrToDate {
     }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
         const auto& col0 = block.get_by_position(arguments[0]).column;
@@ -115,12 +115,9 @@ struct StrToDate {
         ColumnPtr argument_columns[2] = {
                 col_const[0] ? static_cast<const ColumnConst&>(*col0).convert_to_full_column()
                              : col0};
-        check_set_nullable(argument_columns[0], null_map, col_const[0]);
-        //TODO: when we set default implementation for nullable, the check_set_nullable for arguments is useless. consider to remove it.
 
         std::tie(argument_columns[1], col_const[1]) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        check_set_nullable(argument_columns[1], null_map, col_const[1]);
 
         auto specific_str_column = assert_cast<const ColumnString*>(argument_columns[0].get());
         auto specific_char_column = assert_cast<const ColumnString*>(argument_columns[1].get());
@@ -256,7 +253,7 @@ struct MakeDateImpl {
     }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         DCHECK_EQ(arguments.size(), 2);
 
@@ -265,11 +262,9 @@ struct MakeDateImpl {
         ColumnPtr argument_columns[2] = {
                 col_const[0] ? static_cast<const ColumnConst&>(*col0).convert_to_full_column()
                              : col0};
-        check_set_nullable(argument_columns[0], null_map, col_const[0]);
 
         std::tie(argument_columns[1], col_const[1]) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        check_set_nullable(argument_columns[1], null_map, col_const[1]);
 
         ColumnPtr res = nullptr;
         WhichDataType which(remove_nullable(block.get_by_position(result).type));
@@ -463,7 +458,7 @@ struct DateTrunc {
     }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         DCHECK_EQ(arguments.size(), 2);
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -502,14 +497,12 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeDate>());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
         ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
@@ -580,7 +573,7 @@ struct UnixTimeStampImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto col_result = ColumnVector<Int32>::create();
         col_result->resize(1);
@@ -615,7 +608,7 @@ struct UnixTimeStampDateImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         const ColumnPtr& col = block.get_by_position(arguments[0]).column;
         DCHECK(!col->is_nullable());
@@ -699,7 +692,7 @@ struct UnixTimeStampStrImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         ColumnPtr col_left = nullptr, col_right = nullptr;
         bool source_const = false, format_const = false;
@@ -712,9 +705,6 @@ struct UnixTimeStampStrImpl {
         auto null_map = ColumnVector<UInt8>::create(input_rows_count);
         auto& col_result_data = col_result->get_data();
         auto& null_map_data = null_map->get_data();
-
-        check_set_nullable(col_left, null_map, source_const);
-        check_set_nullable(col_right, null_map, format_const);
 
         const auto* col_source = assert_cast<const ColumnString*>(col_left.get());
         const auto* col_format = assert_cast<const ColumnString*>(col_right.get());
@@ -772,12 +762,8 @@ public:
         return Impl::get_variadic_argument_types();
     }
 
-    bool use_default_implementation_for_nulls() const override {
-        return !static_cast<bool>(std::is_same_v<Impl, UnixTimeStampStrImpl>);
-    }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
@@ -814,7 +800,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnUInt64&>(*arg_col);
         auto res_col = ColumnInt64::create();
@@ -849,8 +835,6 @@ public:
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-
     size_t get_number_of_arguments() const override { return 1; }
 
     bool is_variadic() const override { return true; }
@@ -876,7 +860,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl<DateType>::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
@@ -894,7 +878,7 @@ struct LastDayImpl {
     using ResultNativeType = date_cast::ValueTypeOfColumnV<ResultColumnType>;
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
         ColumnPtr res_column;
@@ -907,14 +891,6 @@ struct LastDayImpl {
                     input_rows_count, null_map->get_data(), data_col->get_data(),
                     static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data());
 
-            if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                        block.get_by_position(arguments[0]).column.get())) {
-                NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
-                const NullMap& src_null_map =
-                        assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                                .get_data();
-                VectorizedUtils::update_null_map(result_null_map, src_null_map);
-            }
             block.replace_by_position(result,
                                       ColumnNullable::create(res_column, std::move(null_map)));
         } else {
@@ -1006,7 +982,7 @@ struct MondayImpl {
     using ResultNativeType = date_cast::ValueTypeOfColumnV<ResultColumnType>;
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
         ColumnPtr argument_column = remove_nullable(block.get_by_position(arguments[0]).column);
@@ -1019,14 +995,6 @@ struct MondayImpl {
                     input_rows_count, null_map->get_data(), data_col->get_data(),
                     static_cast<ResultColumnType*>(res_column->assume_mutable().get())->get_data());
 
-            if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                        block.get_by_position(arguments[0]).column.get())) {
-                NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
-                const NullMap& src_null_map =
-                        assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                                .get_data();
-                VectorizedUtils::update_null_map(result_null_map, src_null_map);
-            }
             block.replace_by_position(result,
                                       ColumnNullable::create(res_column, std::move(null_map)));
         } else {
@@ -1183,7 +1151,7 @@ public:
     //ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute(context, block, arguments, result, input_rows_count);
     }
 };
@@ -1202,7 +1170,7 @@ struct FromIso8601DateV2 {
     }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         const auto* src_column_ptr = block.get_by_position(arguments[0]).column.get();
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);

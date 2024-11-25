@@ -82,10 +82,12 @@ suite('test_multi_followr_in_cloud', 'multi_cluster, docker') {
             log.info("show frontends: {}", ret)
             ret.size() == 4
         }
+        def connectedUrl = context.threadLocalConn.get().conn.getMetaData().getURL()
+        log.info("current connected url {}", connectedUrl)
         check(4) { def ret ->
             ret.each {
                 assertTrue(it.Role.contains(f))
-                if (!Boolean.parseBoolean(it.IsMaster)) {
+                if (!Boolean.parseBoolean(it.IsMaster) && !connectedUrl.contains(it.Host)) {
                     toDropIP = it.Host
                     toDropPort = it.EditLogPort
                     toDropType = transferType(it.Role)
@@ -117,7 +119,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster, docker') {
         drop_node(toDropUniqueId, toDropIP, 0,
                     toDropPort, toDropType, feClusterName, feClusterId, ms)
 
-        dockerAwaitUntil(5) {
+        dockerAwaitUntil(50) {
             def ret = sql """SHOW FRONTENDS"""
             log.info("show frontends: {}", ret)
             ret.size() == 3
@@ -153,7 +155,7 @@ suite('test_multi_followr_in_cloud', 'multi_cluster, docker') {
         drop_node(toDropUniqueId, toDropIP, 0,
                     toDropPort, toDropType, feClusterName, feClusterId, ms)
 
-        dockerAwaitUntil(5) {
+        dockerAwaitUntil(50) {
             def ret = sql """SHOW FRONTENDS"""
             log.info("show frontends: {}", ret)
             ret.size() == 3

@@ -53,6 +53,7 @@
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_column_object_pool.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
 #include "pipeline/pipeline_tracing.h"
@@ -71,9 +72,11 @@
 #include "runtime/load_path_mgr.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/memory/cache_manager.h"
+#include "runtime/memory/heap_profiler.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
+#include "runtime/process_profile.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
@@ -273,11 +276,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _workload_group_manager = new WorkloadGroupMgr();
+    _workload_group_manager->init_internal_workload_group();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
-    _master_info = new TMasterInfo();
+    _cluster_info = new ClusterInfo();
     _load_path_mgr = new LoadPathMgr(this);
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
@@ -337,11 +341,16 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _tablet_schema_cache =
             TabletSchemaCache::create_global_schema_cache(config::tablet_schema_cache_capacity);
 
+    _tablet_column_object_pool = TabletColumnObjectPool::create_global_column_cache(
+            config::tablet_schema_cache_capacity);
+
     // Storage engine
     doris::EngineOptions options;
     options.store_paths = store_paths;
     options.broken_paths = broken_paths;
     options.backend_uid = doris::UniqueId::gen_uid();
+    // Check if the startup mode has been modified
+    RETURN_IF_ERROR(_check_deploy_mode());
     if (config::is_cloud_mode()) {
         std::cout << "start BE in cloud mode, cloud_unique_id: " << config::cloud_unique_id
                   << ", meta_service_endpoint: " << config::meta_service_endpoint << std::endl;
@@ -356,7 +365,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return st;
     }
     _storage_engine->set_heartbeat_flags(this->heartbeat_flags());
-    if (st = _storage_engine->start_bg_threads(); !st.ok()) {
+    WorkloadGroupPtr internal_wg = _workload_group_manager->get_internal_wg();
+    if (st = _storage_engine->start_bg_threads(internal_wg); !st.ok()) {
         LOG(ERROR) << "Failed to starge bg threads of storage engine, res=" << st;
         return st;
     }
@@ -379,9 +389,8 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 
     LOG_INFO("pipeline executors_size set ").tag("size", executors_size);
     // TODO pipeline workload group combie two blocked schedulers.
-    auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     _without_group_task_scheduler =
-            new pipeline::TaskScheduler(this, t_queue, "PipeNoGSchePool", nullptr);
+            new pipeline::TaskScheduler(executors_size, "PipeNoGSchePool", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
 
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
@@ -412,8 +421,8 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
     std::unordered_set<std::string> cache_path_set;
     Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
     if (!rest) {
-        LOG(FATAL) << "parse config file cache path failed, path="
-                   << doris::config::file_cache_path;
+        LOG(FATAL) << "parse config file cache path failed, path=" << doris::config::file_cache_path
+                   << ", reason=" << rest.msg();
         exit(-1);
     }
     std::vector<std::thread> file_cache_init_threads;
@@ -440,8 +449,11 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
     }
     for (const auto& status : cache_status) {
         if (!status.ok()) {
-            LOG(FATAL) << "failed to init file cache, err: " << status;
-            exit(-1);
+            if (!doris::config::ignore_broken_disk) {
+                LOG(FATAL) << "failed to init file cache, err: " << status;
+                exit(-1);
+            }
+            LOG(WARNING) << "failed to init file cache, err: " << status;
         }
     }
 }
@@ -450,6 +462,8 @@ Status ExecEnv::_init_mem_env() {
     bool is_percent = false;
     std::stringstream ss;
     // 1. init mem tracker
+    _process_profile = ProcessProfile::create_global_instance();
+    _heap_profiler = HeapProfiler::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
@@ -618,6 +632,49 @@ void ExecEnv::init_mem_tracker() {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "StreamLoadPipe");
 }
 
+Status ExecEnv::_check_deploy_mode() {
+    for (auto _path : _store_paths) {
+        auto deploy_mode_path = fmt::format("{}/{}", _path.path, DEPLOY_MODE_PREFIX);
+        std::string expected_mode = doris::config::is_cloud_mode() ? "cloud" : "local";
+        bool exists = false;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(deploy_mode_path, &exists));
+        if (exists) {
+            // check if is ok
+            io::FileReaderSPtr reader;
+            RETURN_IF_ERROR(io::global_local_filesystem()->open_file(deploy_mode_path, &reader));
+            size_t fsize = reader->size();
+            if (fsize > 0) {
+                std::string actual_mode;
+                actual_mode.resize(fsize, '\0');
+                size_t bytes_read = 0;
+                RETURN_IF_ERROR(reader->read_at(0, {actual_mode.data(), fsize}, &bytes_read));
+                DCHECK_EQ(fsize, bytes_read);
+                if (expected_mode != actual_mode) {
+                    return Status::InternalError(
+                            "You can't switch deploy mode from {} to {}, "
+                            "maybe you need to check be.conf\n",
+                            actual_mode.c_str(), expected_mode.c_str());
+                }
+                LOG(INFO) << "The current deployment mode is " << expected_mode << ".";
+            }
+        } else {
+            io::FileWriterPtr file_writer;
+            RETURN_IF_ERROR(
+                    io::global_local_filesystem()->create_file(deploy_mode_path, &file_writer));
+            RETURN_IF_ERROR(file_writer->append(expected_mode));
+            RETURN_IF_ERROR(file_writer->close());
+            LOG(INFO) << "The file deploy_mode doesn't exist, create it.";
+            auto cluster_id_path = fmt::format("{}/{}", _path.path, CLUSTER_ID_PREFIX);
+            RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path, &exists));
+            if (exists) {
+                LOG(WARNING) << "This may be an upgrade from old version,"
+                             << "or the deploy_mode file has been manually deleted";
+            }
+        }
+    }
+    return Status::OK();
+}
+
 void ExecEnv::_register_metrics() {
     REGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num,
                          [this]() { return _send_batch_thread_pool->num_threads(); });
@@ -672,7 +729,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_write_cooldown_meta_executors);
 
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
-    // shouldn't use SAFE_STOP. otherwise will lead to twice stop.
+    SAFE_STOP(_storage_engine);
     _storage_engine.reset();
 
     SAFE_STOP(_spill_stream_mgr);
@@ -755,9 +812,9 @@ void ExecEnv::destroy() {
 
     // Master Info is a thrift object, it could be the last one to deconstruct.
     // Master info should be deconstruct later than fragment manager, because fragment will
-    // access master_info.backend id to access some info. If there is a running query and master
+    // access cluster_info.backend_id to access some info. If there is a running query and master
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
-    SAFE_DELETE(_master_info);
+    SAFE_DELETE(_cluster_info);
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -771,6 +828,9 @@ void ExecEnv::destroy() {
 
     // dns cache is a global instance and need to be released at last
     SAFE_DELETE(_dns_cache);
+
+    SAFE_DELETE(_process_profile);
+    SAFE_DELETE(_heap_profiler);
 
     _s_tracking_memory = false;
 

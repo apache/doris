@@ -17,17 +17,16 @@
 
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
 #include <filesystem>
 
 #include "common/status.h"
-#include "io/fs/file_writer.h"
-#include "io/fs/local_file_system.h"
-#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/tablet_schema.h"
-#include "runtime/exec_env.h"
 
 namespace doris::segment_v2 {
 
@@ -36,33 +35,43 @@ Status InvertedIndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_di
     return Status::OK();
 }
 
-Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index_meta) {
-    auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
-    const auto& local_fs = io::global_local_filesystem();
+Status InvertedIndexFileWriter::_insert_directory_into_map(int64_t index_id,
+                                                           const std::string& index_suffix,
+                                                           std::shared_ptr<DorisFSDirectory> dir) {
+    auto key = std::make_pair(index_id, index_suffix);
+    auto [it, inserted] = _indices_dirs.emplace(key, std::move(dir));
+    if (!inserted) {
+        LOG(ERROR) << "InvertedIndexFileWriter::open attempted to insert a duplicate key: ("
+                   << key.first << ", " << key.second << ")";
+        LOG(ERROR) << "Directories already in map: ";
+        for (const auto& entry : _indices_dirs) {
+            LOG(ERROR) << "Key: (" << entry.first.first << ", " << entry.first.second << ")";
+        }
+        return Status::InternalError(
+                "InvertedIndexFileWriter::open attempted to insert a duplicate dir");
+    }
+    return Status::OK();
+}
+
+Result<std::shared_ptr<DorisFSDirectory>> InvertedIndexFileWriter::open(
+        const TabletIndex* index_meta) {
     auto local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
-            tmp_file_dir.native(), _rowset_id, _seg_id, index_meta->index_id(),
-            index_meta->get_index_suffix());
-    bool exists = false;
-    auto st = local_fs->exists(local_fs_index_path, &exists);
+            _tmp_dir, _rowset_id, _seg_id, index_meta->index_id(), index_meta->get_index_suffix());
+    bool can_use_ram_dir = true;
+    auto dir = std::shared_ptr<DorisFSDirectory>(DorisFSDirectoryFactory::getDirectory(
+            _local_fs, local_fs_index_path.c_str(), can_use_ram_dir));
+    auto st =
+            _insert_directory_into_map(index_meta->index_id(), index_meta->get_index_suffix(), dir);
     if (!st.ok()) {
-        LOG(ERROR) << "index_path:" << local_fs_index_path << " exists error:" << st;
         return ResultError(st);
     }
 
-    if (exists) {
-        LOG(ERROR) << "try to init a directory:" << local_fs_index_path << " already exists";
-        return ResultError(Status::InternalError("init_fulltext_index directory already exists"));
-    }
-
-    bool can_use_ram_dir = true;
-    auto* dir = DorisFSDirectoryFactory::getDirectory(local_fs, local_fs_index_path.c_str(),
-                                                      can_use_ram_dir);
-    _indices_dirs.emplace(std::make_pair(index_meta->index_id(), index_meta->get_index_suffix()),
-                          std::unique_ptr<DorisFSDirectory>(dir));
     return dir;
 }
 
 Status InvertedIndexFileWriter::delete_index(const TabletIndex* index_meta) {
+    DBUG_EXECUTE_IF("InvertedIndexFileWriter::delete_index_index_meta_nullptr",
+                    { index_meta = nullptr; });
     if (!index_meta) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>("Index metadata is null.");
     }
@@ -72,6 +81,8 @@ Status InvertedIndexFileWriter::delete_index(const TabletIndex* index_meta) {
 
     // Check if the specified index exists
     auto index_it = _indices_dirs.find(std::make_pair(index_id, index_suffix));
+    DBUG_EXECUTE_IF("InvertedIndexFileWriter::delete_index_indices_dirs_reach_end",
+                    { index_it = _indices_dirs.end(); })
     if (index_it == _indices_dirs.end()) {
         std::ostringstream errMsg;
         errMsg << "No inverted index with id " << index_id << " and suffix " << index_suffix
@@ -110,6 +121,8 @@ int64_t InvertedIndexFileWriter::headerLength() {
 }
 
 Status InvertedIndexFileWriter::close() {
+    DCHECK(!_closed) << debug_string();
+    _closed = true;
     if (_indices_dirs.empty()) {
         return Status::OK();
     }
@@ -122,7 +135,7 @@ Status InvertedIndexFileWriter::close() {
     })
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         try {
-            _total_file_size = write_v1();
+            RETURN_IF_ERROR(write_v1());
             for (const auto& entry : _indices_dirs) {
                 const auto& dir = entry.second;
                 // delete index path, which contains separated inverted index files
@@ -137,7 +150,7 @@ Status InvertedIndexFileWriter::close() {
         }
     } else {
         try {
-            _total_file_size = write_v2();
+            RETURN_IF_ERROR(write_v2());
             for (const auto& entry : _indices_dirs) {
                 const auto& dir = entry.second;
                 // delete index path, which contains separated inverted index files
@@ -184,7 +197,12 @@ void InvertedIndexFileWriter::copyFile(const char* fileName, lucene::store::Dire
                                        int64_t bufferLength) {
     lucene::store::IndexInput* tmp = nullptr;
     CLuceneError err;
-    if (!dir->openInput(fileName, tmp, err)) {
+    auto open = dir->openInput(fileName, tmp, err);
+    DBUG_EXECUTE_IF("InvertedIndexFileWriter::copyFile_openInput_error", {
+        open = false;
+        err.set(CL_ERR_IO, "debug point: copyFile_openInput_error");
+    });
+    if (!open) {
         throw err;
     }
 
@@ -195,11 +213,12 @@ void InvertedIndexFileWriter::copyFile(const char* fileName, lucene::store::Dire
     int64_t chunk = bufferLength;
 
     while (remainder > 0) {
-        int64_t len = std::min(std::min(chunk, length), remainder);
+        int64_t len = std::min({chunk, length, remainder});
         input->readBytes(buffer, len);
         output->writeBytes(buffer, len);
         remainder -= len;
     }
+    DBUG_EXECUTE_IF("InvertedIndexFileWriter::copyFile_remainder_is_not_zero", { remainder = 10; });
     if (remainder != 0) {
         std::ostringstream errMsg;
         errMsg << "Non-zero remainder length after copying: " << remainder << " (id: " << fileName
@@ -210,6 +229,8 @@ void InvertedIndexFileWriter::copyFile(const char* fileName, lucene::store::Dire
 
     int64_t end_ptr = output->getFilePointer();
     int64_t diff = end_ptr - start_ptr;
+    DBUG_EXECUTE_IF("InvertedIndexFileWriter::copyFile_diff_not_equals_length",
+                    { diff = length - 10; });
     if (diff != length) {
         std::ostringstream errMsg;
         errMsg << "Difference in the output file offsets " << diff
@@ -220,227 +241,328 @@ void InvertedIndexFileWriter::copyFile(const char* fileName, lucene::store::Dire
     input->close();
 }
 
-int64_t InvertedIndexFileWriter::write_v1() {
+Status InvertedIndexFileWriter::write_v1() {
     int64_t total_size = 0;
+    std::string err_msg;
+    lucene::store::Directory* out_dir = nullptr;
+    std::exception_ptr eptr;
+    std::unique_ptr<lucene::store::IndexOutput> output = nullptr;
     for (const auto& entry : _indices_dirs) {
         const int64_t index_id = entry.first.first;
         const auto& index_suffix = entry.first.second;
         try {
-            const auto& directory = entry.second;
-            std::vector<std::string> files;
-            directory->list(&files);
-            // remove write.lock file
-            auto it = std::find(files.begin(), files.end(), DorisFSDirectory::WRITE_LOCK_FILE);
-            if (it != files.end()) {
-                files.erase(it);
-            }
+            const auto& directory = entry.second.get();
 
-            std::vector<FileInfo> sorted_files;
-            for (auto file : files) {
-                FileInfo file_info;
-                file_info.filename = file;
-                file_info.filesize = directory->fileLength(file.c_str());
-                sorted_files.emplace_back(std::move(file_info));
-            }
-            sort_files(sorted_files);
+            // Prepare sorted file list
+            auto sorted_files = prepare_sorted_files(directory);
 
-            int32_t file_count = sorted_files.size();
+            // Calculate header length
+            auto [header_length, header_file_count] =
+                    calculate_header_length(sorted_files, directory);
 
-            io::Path cfs_path(InvertedIndexDescriptor::get_index_file_path_v1(
-                    _index_path_prefix, index_id, index_suffix));
-            auto idx_path = cfs_path.parent_path();
-            std::string idx_name = cfs_path.filename();
-            // write file entries to ram directory to get header length
-            lucene::store::RAMDirectory ram_dir;
-            auto* out_idx = ram_dir.createOutput(idx_name.c_str());
-            if (out_idx == nullptr) {
-                LOG(WARNING) << "Write compound file error: RAMDirectory output is nullptr.";
-                _CLTHROWA(CL_ERR_IO, "Create RAMDirectory output error");
-            }
+            // Create output stream
+            auto result = create_output_stream_v1(index_id, index_suffix);
+            out_dir = result.first;
+            output = std::move(result.second);
 
-            std::unique_ptr<lucene::store::IndexOutput> ram_output(out_idx);
-            ram_output->writeVInt(file_count);
-            // write file entries in ram directory
-            // number of files, which data are in header
-            int header_file_count = 0;
-            int64_t header_file_length = 0;
-            const int64_t buffer_length = 16384;
-            uint8_t ram_buffer[buffer_length];
-            for (auto file : sorted_files) {
-                ram_output->writeString(file.filename); // file name
-                ram_output->writeLong(0);               // data offset
-                ram_output->writeLong(file.filesize);   // file length
-                header_file_length += file.filesize;
-                if (header_file_length <= DorisFSDirectory::MAX_HEADER_DATA_SIZE) {
-                    copyFile(file.filename.c_str(), directory.get(), ram_output.get(), ram_buffer,
-                             buffer_length);
-                    header_file_count++;
-                }
-            }
-            auto header_len = ram_output->getFilePointer();
-            ram_output->close();
-            ram_dir.deleteFile(idx_name.c_str());
-            ram_dir.close();
-
-            auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, idx_path.c_str());
-            out_dir->set_file_writer_opts(_opts);
-
-            auto* out = out_dir->createOutput(idx_name.c_str());
-            if (out == nullptr) {
-                LOG(WARNING) << "Write compound file error: CompoundDirectory output is nullptr.";
-                _CLTHROWA(CL_ERR_IO, "Create CompoundDirectory output error");
-            }
-            std::unique_ptr<lucene::store::IndexOutput> output(out);
             size_t start = output->getFilePointer();
-            output->writeVInt(file_count);
-            // write file entries
-            int64_t data_offset = header_len;
-            uint8_t header_buffer[buffer_length];
-            for (int i = 0; i < sorted_files.size(); ++i) {
-                auto file = sorted_files[i];
-                output->writeString(file.filename); // FileName
-                // DataOffset
-                if (i < header_file_count) {
-                    // file data write in header, so we set its offset to -1.
-                    output->writeLong(-1);
-                } else {
-                    output->writeLong(data_offset);
-                }
-                output->writeLong(file.filesize); // FileLength
-                if (i < header_file_count) {
-                    // append data
-                    copyFile(file.filename.c_str(), directory.get(), output.get(), header_buffer,
-                             buffer_length);
-                } else {
-                    data_offset += file.filesize;
-                }
-            }
-            // write rest files' data
-            uint8_t data_buffer[buffer_length];
-            for (int i = header_file_count; i < sorted_files.size(); ++i) {
-                auto file = sorted_files[i];
-                copyFile(file.filename.c_str(), directory.get(), output.get(), data_buffer,
-                         buffer_length);
-            }
-            out_dir->close();
-            // NOTE: need to decrease ref count, but not to delete here,
-            // because index cache may get the same directory from DIRECTORIES
-            _CLDECDELETE(out_dir)
-            auto compound_file_size = output->getFilePointer() - start;
-            output->close();
-            //LOG(INFO) << (idx_path / idx_name).c_str() << " size:" << compound_file_size;
-            total_size += compound_file_size;
-            InvertedIndexFileInfo_IndexInfo index_info;
-            index_info.set_index_id(index_id);
-            index_info.set_index_suffix(index_suffix);
-            index_info.set_index_file_size(compound_file_size);
-            auto* new_index_info = _file_info.add_index_info();
-            *new_index_info = index_info;
-        } catch (CLuceneError& err) {
-            LOG(ERROR) << "CLuceneError occur when close idx file "
-                       << InvertedIndexDescriptor::get_index_file_path_v1(_index_path_prefix,
-                                                                          index_id, index_suffix)
-                       << " error msg: " << err.what();
+            // Write header and data
+            write_header_and_data_v1(output.get(), sorted_files, directory, header_length,
+                                     header_file_count);
 
-            throw err;
+            // Collect file information
+            auto compound_file_size = output->getFilePointer() - start;
+            total_size += compound_file_size;
+            add_index_info(index_id, index_suffix, compound_file_size);
+        } catch (CLuceneError& err) {
+            eptr = std::current_exception();
+            auto index_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                    _index_path_prefix, index_id, index_suffix);
+            err_msg = "CLuceneError occur when write_v1 idx file " + index_path +
+                      " error msg: " + err.what();
+        }
+
+        // Close and clean up
+        finalize_output_dir(out_dir);
+        if (output) {
+            output->close();
+        }
+
+        if (eptr) {
+            LOG(ERROR) << err_msg;
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(err_msg);
         }
     }
-    return total_size;
+
+    _total_file_size = total_size;
+    return Status::OK();
 }
 
-int64_t InvertedIndexFileWriter::write_v2() {
-    // Create the output stream to write the compound file
-    int64_t current_offset = headerLength();
+Status InvertedIndexFileWriter::write_v2() {
+    std::string err_msg;
+    lucene::store::Directory* out_dir = nullptr;
+    std::unique_ptr<lucene::store::IndexOutput> compound_file_output = nullptr;
+    std::exception_ptr eptr;
+    try {
+        // Calculate header length and initialize offset
+        int64_t current_offset = headerLength();
+        // Prepare file metadata
+        auto file_metadata = prepare_file_metadata_v2(current_offset);
 
-    io::Path index_path {InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)};
+        // Create output stream
+        auto result = create_output_stream_v2();
+        out_dir = result.first;
+        compound_file_output = std::move(result.second);
 
-    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, index_path.parent_path().c_str());
-    out_dir->set_file_writer_opts(_opts);
+        // Write version and number of indices
+        write_version_and_indices_count(compound_file_output.get());
 
-    std::unique_ptr<lucene::store::IndexOutput> compound_file_output;
-    // idx v2 writer != nullptr means memtable on sink node now
-    if (_idx_v2_writer != nullptr) {
-        compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
-                out_dir->createOutputV2(_idx_v2_writer.get()));
-    } else {
-        compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
-                out_dir->createOutput(index_path.filename().c_str()));
+        // Write index headers and file metadata
+        write_index_headers_and_metadata(compound_file_output.get(), file_metadata);
+
+        // Copy file data
+        copy_files_data_v2(compound_file_output.get(), file_metadata);
+
+        _total_file_size = compound_file_output->getFilePointer();
+        _file_info.set_index_size(_total_file_size);
+    } catch (CLuceneError& err) {
+        eptr = std::current_exception();
+        auto index_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
+        err_msg = "CLuceneError occur when close idx file " + index_path +
+                  " error msg: " + err.what();
     }
 
+    // Close and clean up
+    finalize_output_dir(out_dir);
+    if (compound_file_output) {
+        compound_file_output->close();
+    }
+
+    if (eptr) {
+        LOG(ERROR) << err_msg;
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(err_msg);
+    }
+
+    return Status::OK();
+}
+
+// Helper function implementations
+std::vector<FileInfo> InvertedIndexFileWriter::prepare_sorted_files(
+        lucene::store::Directory* directory) {
+    std::vector<std::string> files;
+    directory->list(&files);
+
+    // Remove write.lock file
+    files.erase(std::remove(files.begin(), files.end(), DorisFSDirectory::WRITE_LOCK_FILE),
+                files.end());
+
+    std::vector<FileInfo> sorted_files;
+    for (const auto& file : files) {
+        FileInfo file_info;
+        file_info.filename = file;
+        file_info.filesize = directory->fileLength(file.c_str());
+        sorted_files.push_back(std::move(file_info));
+    }
+
+    // Sort the files
+    sort_files(sorted_files);
+    return sorted_files;
+}
+
+void InvertedIndexFileWriter::finalize_output_dir(lucene::store::Directory* out_dir) {
+    if (out_dir != nullptr) {
+        out_dir->close();
+        _CLDECDELETE(out_dir)
+    }
+}
+
+void InvertedIndexFileWriter::add_index_info(int64_t index_id, const std::string& index_suffix,
+                                             int64_t compound_file_size) {
+    InvertedIndexFileInfo_IndexInfo index_info;
+    index_info.set_index_id(index_id);
+    index_info.set_index_suffix(index_suffix);
+    index_info.set_index_file_size(compound_file_size);
+    auto* new_index_info = _file_info.add_index_info();
+    *new_index_info = index_info;
+}
+
+std::pair<int64_t, int32_t> InvertedIndexFileWriter::calculate_header_length(
+        const std::vector<FileInfo>& sorted_files, lucene::store::Directory* directory) {
+    // Use RAMDirectory to calculate header length
+    lucene::store::RAMDirectory ram_dir;
+    auto* out_idx = ram_dir.createOutput("temp_idx");
+    DBUG_EXECUTE_IF("InvertedIndexFileWriter::calculate_header_length_ram_output_is_nullptr",
+                    { out_idx = nullptr; })
+    if (out_idx == nullptr) {
+        LOG(WARNING) << "InvertedIndexFileWriter::calculate_header_length error: RAMDirectory "
+                        "output is nullptr.";
+        _CLTHROWA(CL_ERR_IO, "Create RAMDirectory output error");
+    }
+    std::unique_ptr<lucene::store::IndexOutput> ram_output(out_idx);
+    int32_t file_count = sorted_files.size();
+    ram_output->writeVInt(file_count);
+
+    int64_t header_file_length = 0;
+    const int64_t buffer_length = 16384;
+    uint8_t ram_buffer[buffer_length];
+    int32_t header_file_count = 0;
+    for (const auto& file : sorted_files) {
+        ram_output->writeString(file.filename);
+        ram_output->writeLong(0);
+        ram_output->writeLong(file.filesize);
+        header_file_length += file.filesize;
+
+        if (header_file_length <= DorisFSDirectory::MAX_HEADER_DATA_SIZE) {
+            copyFile(file.filename.c_str(), directory, ram_output.get(), ram_buffer, buffer_length);
+            header_file_count++;
+        }
+    }
+
+    int64_t header_length = ram_output->getFilePointer();
+    ram_output->close();
+    ram_dir.close();
+    return {header_length, header_file_count};
+}
+
+std::pair<lucene::store::Directory*, std::unique_ptr<lucene::store::IndexOutput>>
+InvertedIndexFileWriter::create_output_stream_v1(int64_t index_id,
+                                                 const std::string& index_suffix) {
+    io::Path cfs_path(InvertedIndexDescriptor::get_index_file_path_v1(_index_path_prefix, index_id,
+                                                                      index_suffix));
+    auto idx_path = cfs_path.parent_path();
+    std::string idx_name = cfs_path.filename();
+
+    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, idx_path.c_str());
+    out_dir->set_file_writer_opts(_opts);
+
+    auto* out = out_dir->createOutput(idx_name.c_str());
+    DBUG_EXECUTE_IF("InvertedIndexFileWriter::write_v1_out_dir_createOutput_nullptr",
+                    { out = nullptr; });
+    if (out == nullptr) {
+        LOG(WARNING) << "InvertedIndexFileWriter::create_output_stream_v1 error: CompoundDirectory "
+                        "output is nullptr.";
+        _CLTHROWA(CL_ERR_IO, "Create CompoundDirectory output error");
+    }
+
+    std::unique_ptr<lucene::store::IndexOutput> output(out);
+    return {out_dir, std::move(output)};
+}
+
+void InvertedIndexFileWriter::write_header_and_data_v1(lucene::store::IndexOutput* output,
+                                                       const std::vector<FileInfo>& sorted_files,
+                                                       lucene::store::Directory* directory,
+                                                       int64_t header_length,
+                                                       int32_t header_file_count) {
+    output->writeVInt(sorted_files.size());
+    int64_t data_offset = header_length;
+    const int64_t buffer_length = 16384;
+    uint8_t buffer[buffer_length];
+
+    for (int i = 0; i < sorted_files.size(); ++i) {
+        auto file = sorted_files[i];
+        output->writeString(file.filename);
+
+        // DataOffset
+        if (i < header_file_count) {
+            // file data write in header, so we set its offset to -1.
+            output->writeLong(-1);
+        } else {
+            output->writeLong(data_offset);
+        }
+        output->writeLong(file.filesize); // FileLength
+        if (i < header_file_count) {
+            // append data
+            copyFile(file.filename.c_str(), directory, output, buffer, buffer_length);
+        } else {
+            data_offset += file.filesize;
+        }
+    }
+
+    for (size_t i = header_file_count; i < sorted_files.size(); ++i) {
+        copyFile(sorted_files[i].filename.c_str(), directory, output, buffer, buffer_length);
+    }
+}
+
+std::pair<lucene::store::Directory*, std::unique_ptr<lucene::store::IndexOutput>>
+InvertedIndexFileWriter::create_output_stream_v2() {
+    io::Path index_path {InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)};
+    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, index_path.parent_path().c_str());
+    out_dir->set_file_writer_opts(_opts);
+    DCHECK(_idx_v2_writer != nullptr) << "inverted index file writer v2 is nullptr";
+    auto compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
+            out_dir->createOutputV2(_idx_v2_writer.get()));
+    return std::make_pair(out_dir, std::move(compound_file_output));
+}
+
+void InvertedIndexFileWriter::write_version_and_indices_count(lucene::store::IndexOutput* output) {
     // Write the version number
-    compound_file_output->writeInt(InvertedIndexStorageFormatPB::V2);
+    output->writeInt(InvertedIndexStorageFormatPB::V2);
 
     // Write the number of indices
-    const auto numIndices = static_cast<uint32_t>(_indices_dirs.size());
-    compound_file_output->writeInt(numIndices);
+    const auto num_indices = static_cast<uint32_t>(_indices_dirs.size());
+    output->writeInt(num_indices);
+}
 
-    std::vector<std::tuple<std::string, int64_t, int64_t, CL_NS(store)::Directory*>>
-            file_metadata; // Store file name, offset, file length, and corresponding directory
+std::vector<InvertedIndexFileWriter::FileMetadata>
+InvertedIndexFileWriter::prepare_file_metadata_v2(int64_t& current_offset) {
+    std::vector<FileMetadata> file_metadata;
 
-    // First, write all index information and file metadata
     for (const auto& entry : _indices_dirs) {
         const int64_t index_id = entry.first.first;
         const auto& index_suffix = entry.first.second;
-        const auto& dir = entry.second;
-        std::vector<std::string> files;
-        dir->list(&files);
+        auto* dir = entry.second.get();
 
-        auto it = std::find(files.begin(), files.end(), DorisFSDirectory::WRITE_LOCK_FILE);
-        if (it != files.end()) {
-            files.erase(it);
+        // Get sorted files
+        auto sorted_files = prepare_sorted_files(dir);
+
+        for (const auto& file : sorted_files) {
+            file_metadata.emplace_back(index_id, index_suffix, file.filename, current_offset,
+                                       file.filesize, dir);
+            current_offset += file.filesize; // Update the data offset
         }
-        // sort file list by file length
-        std::vector<std::pair<std::string, int64_t>> sorted_files;
-        for (const auto& file : files) {
-            sorted_files.emplace_back(file, dir->fileLength(file.c_str()));
-        }
+    }
+    return file_metadata;
+}
 
-        std::sort(sorted_files.begin(), sorted_files.end(),
-                  [](const std::pair<std::string, int64_t>& a,
-                     const std::pair<std::string, int64_t>& b) { return (a.second < b.second); });
+void InvertedIndexFileWriter::write_index_headers_and_metadata(
+        lucene::store::IndexOutput* output, const std::vector<FileMetadata>& file_metadata) {
+    // Group files by index_id and index_suffix
+    std::map<std::pair<int64_t, std::string>, std::vector<FileMetadata>> indices;
 
-        int32_t file_count = sorted_files.size();
+    for (const auto& meta : file_metadata) {
+        indices[{meta.index_id, meta.index_suffix}].push_back(meta);
+    }
+
+    for (const auto& index_entry : indices) {
+        int64_t index_id = index_entry.first.first;
+        const std::string& index_suffix = index_entry.first.second;
+        const auto& files = index_entry.second;
 
         // Write the index ID and the number of files
-        compound_file_output->writeLong(index_id);
-        compound_file_output->writeInt(static_cast<int32_t>(index_suffix.length()));
-        compound_file_output->writeBytes(reinterpret_cast<const uint8_t*>(index_suffix.data()),
-                                         index_suffix.length());
-        compound_file_output->writeInt(file_count);
+        output->writeLong(index_id);
+        output->writeInt(static_cast<int32_t>(index_suffix.length()));
+        output->writeBytes(reinterpret_cast<const uint8_t*>(index_suffix.data()),
+                           index_suffix.length());
+        output->writeInt(static_cast<int32_t>(files.size()));
 
-        // Calculate the offset for each file and write the file metadata
-        for (const auto& file : sorted_files) {
-            int64_t file_length = dir->fileLength(file.first.c_str());
-            compound_file_output->writeInt(static_cast<int32_t>(file.first.length()));
-            compound_file_output->writeBytes(reinterpret_cast<const uint8_t*>(file.first.data()),
-                                             file.first.length());
-            compound_file_output->writeLong(current_offset);
-            compound_file_output->writeLong(file_length);
-
-            file_metadata.emplace_back(file.first, current_offset, file_length, dir.get());
-            current_offset += file_length; // Update the data offset
+        // Write file metadata
+        for (const auto& file : files) {
+            output->writeInt(static_cast<int32_t>(file.filename.length()));
+            output->writeBytes(reinterpret_cast<const uint8_t*>(file.filename.data()),
+                               file.filename.length());
+            output->writeLong(file.offset);
+            output->writeLong(file.length);
         }
     }
+}
 
+void InvertedIndexFileWriter::copy_files_data_v2(lucene::store::IndexOutput* output,
+                                                 const std::vector<FileMetadata>& file_metadata) {
     const int64_t buffer_length = 16384;
-    uint8_t header_buffer[buffer_length];
+    uint8_t buffer[buffer_length];
 
-    // Next, write the file data
-    for (const auto& info : file_metadata) {
-        const std::string& file = std::get<0>(info);
-        auto* dir = std::get<3>(info);
-
-        // Write the actual file data
-        copyFile(file.c_str(), dir, compound_file_output.get(), header_buffer, buffer_length);
+    for (const auto& meta : file_metadata) {
+        copyFile(meta.filename.c_str(), meta.directory, output, buffer, buffer_length);
     }
-
-    out_dir->close();
-    // NOTE: need to decrease ref count, but not to delete here,
-    // because index cache may get the same directory from DIRECTORIES
-    _CLDECDELETE(out_dir)
-    auto compound_file_size = compound_file_output->getFilePointer();
-    compound_file_output->close();
-    _file_info.set_index_size(compound_file_size);
-    return compound_file_size;
 }
 } // namespace doris::segment_v2

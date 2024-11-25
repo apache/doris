@@ -17,6 +17,9 @@
 
 testGroups = "p0"
 
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+
 // exclude groups and exclude suites is more prior than include groups and include suites.
 // keep them in lexico order(add/remove cases between the sentinals and sort):
 // * sort lines in vim: select lines and then type :sort
@@ -33,7 +36,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_refresh_mtmv," + // not supported yet
     "test_report_version_missing," +
     "test_set_partition_version," +
-    "test_show_transaction," + // not supported yet
     "test_spark_load," +
     "test_index_lowercase_fault_injection," +
     "test_index_compaction_failure_injection," +

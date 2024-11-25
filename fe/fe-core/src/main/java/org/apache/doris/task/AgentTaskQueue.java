@@ -156,7 +156,7 @@ public class AgentTaskQueue {
     // this is just for unit test
     public static synchronized List<AgentTask> getTask(TTaskType type) {
         List<AgentTask> res = Lists.newArrayList();
-        for (Map<Long, AgentTask> agentTasks : tasks.column(TTaskType.ALTER).values()) {
+        for (Map<Long, AgentTask> agentTasks : tasks.column(type).values()) {
             res.addAll(agentTasks.values());
         }
         return res;

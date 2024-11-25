@@ -32,7 +32,7 @@ ROOT=$(
 )
 
 CURDIR="${ROOT}"
-TPCDS_DBGEN_DIR="${CURDIR}/DSGen-software-code-3.2.0rc1/tools"
+TPCDS_DBGEN_DIR="${CURDIR}/DSGen-software-code-3.2.0rc2/tools"
 
 check_prerequest() {
     local CMD=$1
@@ -48,11 +48,11 @@ check_prerequest "unzip -h" "unzip"
 # download tpcds tools package first
 if [[ -d "${CURDIR}/DSGen-software-code-3.2.0rc1" ]]; then
     echo "If you want to rebuild TPC-DS_Tools_v3.2.0 again, please delete ${CURDIR}/DSGen-software-code-3.2.0rc1 first."
-elif [[ -f "${CURDIR}/TPC-DS_Tools_v3.2.0new.zip" ]]; then
-    unzip TPC-DS_Tools_v3.2.0new.zip -d "${CURDIR}/"
+elif [[ -f "TPC-DS_Tools_v3.2.0rc2.zip" ]]; then
+    unzip TPC-DS_Tools_v3.2.0rc2.zip -d "${CURDIR}/"
 else
-    wget "https://qa-build.oss-cn-beijing.aliyuncs.com/tools/TPC-DS_Tools_v3.2.0new.zip"
-    unzip TPC-DS_Tools_v3.2.0new.zip -d "${CURDIR}/"
+    wget "https://qa-build.oss-cn-beijing.aliyuncs.com/tools/TPC-DS_Tools_v3.2.0rc2.zip"
+    unzip TPC-DS_Tools_v3.2.0rc2.zip -d "${CURDIR}/"
 fi
 
 # compile tpcds-dsdgen

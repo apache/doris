@@ -65,8 +65,6 @@ public:
 
     bool is_variadic() const override { return true; }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-
     size_t get_number_of_arguments() const override {
         return get_variadic_argument_types_impl().size();
     }
@@ -82,7 +80,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
@@ -129,7 +127,7 @@ struct RangeImplUtil {
 
     static constexpr auto name = get_function_name();
 
-    static Status range_execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status range_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                                 size_t input_rows_count) {
         DCHECK_EQ(arguments.size(), 3);
         auto return_nested_type = make_nullable(std::make_shared<DataType>());
@@ -146,14 +144,6 @@ struct RangeImplUtil {
         for (int i = 0; i < 3; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(args_null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
-            }
         }
         auto start_column =
                 assert_cast<const ColumnVector<SourceDataType>*>(argument_columns[0].get());
@@ -258,7 +248,7 @@ struct RangeOneImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         using ColumnType = std::conditional_t<std::is_same_v<SourceDataType, Int32>, ColumnInt32,
                                               ColumnDateTimeV2>;
@@ -282,7 +272,7 @@ struct RangeTwoImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto step_column = ColumnInt32::create(input_rows_count, 1);
         block.insert({std::move(step_column), std::make_shared<DataTypeInt32>(), "step_column"});
@@ -301,7 +291,7 @@ struct RangeThreeImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         return (RangeImplUtil<SourceDataType, TimeUnitOrVoid>::range_execute)(
                 block, arguments, result, input_rows_count);

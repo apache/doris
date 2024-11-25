@@ -44,28 +44,17 @@ suite ("test_nvl") {
     sql """analyze table dwd with sync;"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select nvl(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select nvl(id,0) from dwd order by 1;", "dwd_mv")
     qt_select_mv "select nvl(id,0) from dwd order by 1;"
 
-    explain {
-        sql("select ifnull(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select ifnull(id,0) from dwd order by 1;", "dwd_mv")
     qt_select_mv "select ifnull(id,0) from dwd order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select nvl(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select nvl(id,0) from dwd order by 1;", "dwd_mv")
 
-    explain {
-        sql("select ifnull(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select ifnull(id,0) from dwd order by 1;", "dwd_mv")
+
 
     sql """ drop materialized view dwd_mv on dwd;
     """
@@ -74,27 +63,14 @@ suite ("test_nvl") {
             create materialized view dwd_mv as  select ifnull(id,0) from dwd;
     """)
 
-    explain {
-        sql("select nvl(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select nvl(id,0) from dwd order by 1;", "dwd_mv")
     qt_select_mv "select nvl(id,0) from dwd order by 1;"
 
-    explain {
-        sql("select ifnull(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select ifnull(id,0) from dwd order by 1;", "dwd_mv")
     qt_select_mv "select ifnull(id,0) from dwd order by 1;"
 
     sql """set enable_stats=false;"""
-    explain {
-        sql("select nvl(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select nvl(id,0) from dwd order by 1;", "dwd_mv")
 
-    explain {
-        sql("select ifnull(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
-
+    mv_rewrite_success("select ifnull(id,0) from dwd order by 1;", "dwd_mv")
 }

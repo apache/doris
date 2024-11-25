@@ -41,6 +41,7 @@ class ReadBuffer;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 IDataType::IDataType() = default;
 
@@ -58,7 +59,8 @@ void IDataType::update_avg_value_size_hint(const IColumn& column, double& avg_va
     /// Update the average value size hint if amount of read rows isn't too small
     size_t row_size = column.size();
     if (row_size > 10) {
-        double current_avg_value_size = static_cast<double>(column.byte_size()) / row_size;
+        double current_avg_value_size =
+                static_cast<double>(column.byte_size()) / static_cast<double>(row_size);
 
         /// Heuristic is chosen so that avg_value_size_hint increases rapidly but decreases slowly.
         if (current_avg_value_size > avg_value_size_hint) {
@@ -81,7 +83,7 @@ ColumnPtr IDataType::create_column_const_with_default_value(size_t size) const {
 }
 
 size_t IDataType::get_size_of_value_in_memory() const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                            "Value of type {} in memory is not of fixed size.", get_name());
     return 0;
 }

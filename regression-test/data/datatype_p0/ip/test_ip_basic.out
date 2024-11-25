@@ -361,3 +361,15 @@ ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff	4
 121.25.82.29	2620:44:a000::1
 121.25.160.80	2001:418:0:5000::c2d
 
+-- !sql --
+1	true	255.255.255.255	5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b
+
+-- !sql --
+1	false	255.255.255.255	5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b
+
+-- !sql --
+1	false	127.0.0.1	5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b
+
+-- !sql --
+1	false	127.0.0.1	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+

@@ -397,18 +397,25 @@ PhysicalResultSink
 14	01234567890123456789	33	23	0123456789	2020-01-11T10:00:01	2020-01-11	2022-08-03	2022-08-09T10:00:02	14	01234567890123456789	33	23	0123456789	2020-01-11T10:00:01	2020-01-11	2022-08-03	2022-08-09T10:00:02
 
 -- !test_between_and_res --
-1	d2	3	5	1	d2	2	2
 
 -- !test_and_res --
 
 -- !test_or1_res --
-1	d2	3	5	1	d2	2	2
+0	d2	3	5	0	d2	2	2
+33	d2	2	5	33	d2	23	5
+78	\N	9	3	78	d2	23	5
+100	d2	3	5	100	d2	3	\N
 
 -- !test_or2_res --
-1	d2	3	5	1	d2	2	2
+0	d2	3	5	0	d2	2	2
+33	d2	2	5	33	d2	23	5
+78	\N	9	3	78	d2	23	5
+100	d2	3	5	100	d2	3	\N
 
 -- !test_sign_predicate_res --
-1	d2	3	5	1	d2	2	2
+33	d2	2	5	33	d2	23	5
+78	\N	9	3	78	d2	23	5
+100	d2	3	5	100	d2	3	\N
 
 -- !test_if_predicate_res --
 1	01234567890123456789	3	3	0123456789	2020-01-09T10:00:01	2020-01-09	2022-08-09	2022-08-09T10:00	1	01234567890123456789	3	3	0123456789	2020-01-09T10:00:01	2020-01-09	2022-08-09	2022-08-09T10:00
@@ -419,7 +426,6 @@ PhysicalResultSink
 -- !test_if_and_in_predicate_not_res --
 
 -- !test_multi_slot_in_predicate1_res --
-0	d2	3	5	1	d2	2	2
 
 -- !test_multi_slot_in_predicate2_res --
 
@@ -437,7 +443,9 @@ PhysicalResultSink
 14	01234567890123456789	33	23	0123456789	2020-01-11T10:00:01	2020-01-11	2022-08-03	2022-08-09T10:00:02	14	01234567890123456789	33	23	0123456789	2020-01-11T10:00:01	2020-01-11	2022-08-03	2022-08-09T10:00:02
 
 -- !test_random_predicate_res --
-1	d2	3	5	1	d2	2	2
+33	d2	2	5	33	d2	23	5
+78	\N	9	3	78	d2	23	5
+100	d2	3	5	100	d2	3	\N
 
 -- !test_predicate_map_res --
 14	01234567890123456789	33	23	0123456789	2020-01-11T10:00:01	2020-01-11	2022-08-03	2022-08-09T10:00:02	14	01234567890123456789	33	23	0123456789	2020-01-11T10:00:01	2020-01-11	2022-08-03	2022-08-09T10:00:02
@@ -683,4 +691,83 @@ PhysicalResultSink
 ------PhysicalOlapScan[extend_infer_t1]
 ----filter(cast(d_int as DATEV2) IN ('2024-01-01', '2024-01-02'))
 ------PhysicalOlapScan[extend_infer_t2]
+
+-- !not_pull_up_grouping --
+12	\N
+33	\N
+78	\N
+100	\N
+
+-- !pull_up_grouping --
+12	\N
+12	\N
+33	\N
+33	d2
+78	\N
+78	\N
+100	\N
+100	d2
+
+-- !pull_up_limit --
+0
+0
+12
+12
+
+-- !pull_up_topn --
+12
+12
+
+-- !pull_up_window_partition_column --
+0	0	3
+12	12	9
+
+-- !pull_up_window_order_column --
+0	0
+12	12
+
+-- !pull_up_partition_topn --
+12	9	2
+78	9	1
+
+-- !pull_up_generate --
+0	d2	\N
+
+-- !pull_up_from_inner_join --
+0	d2
+
+-- !pull_up_from_left_join --
+0	d2
+
+-- !pull_up_from_left_semi_join --
+0
+
+-- !pull_up_from_left_anti_join --
+
+-- !pull_up_from_left_null_aware_anti_join --
+12
+
+-- !pull_up_from_left_anti_join_where --
+
+-- !pull_up_from_right_join --
+0	d2
+
+-- !pull_up_from_right_semi_join --
+0
+
+-- !pull_up_from_right_anti_join_where --
+
+-- !pull_up_from_right_anti_join_and --
+
+-- !pull_up_from_union --
+0
+0
+
+-- !pull_up_from_except --
+
+-- !pull_up_from_intersect --
+0
+
+-- !pull_up_from_agg --
+0
 

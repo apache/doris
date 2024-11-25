@@ -561,3 +561,5 @@ abbbb
 -- !union_child_and_const_exprs_orpredicates_res --
 1	d2
 
+-- !test --
+

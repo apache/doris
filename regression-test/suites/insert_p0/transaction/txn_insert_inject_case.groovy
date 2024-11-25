@@ -96,6 +96,8 @@ suite("txn_insert_inject_case", "nonConcurrent") {
     } catch (Exception e) {
         logger.error("failed", e)
     } finally {
+        sql """ rollback """
+        disableDebugPoint()
         GetDebugPoint().disableDebugPointForAllBEs("FlushToken.submit_flush_error")
     }
     sql "sync"

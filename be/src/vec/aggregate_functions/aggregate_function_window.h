@@ -66,7 +66,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         ++data(place).count;
     }
 
@@ -104,7 +104,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         int64_t peer_group_count = frame_end - frame_start;
         if (WindowFunctionRank::data(place).peer_group_start != frame_start) {
             WindowFunctionRank::data(place).peer_group_start = frame_start;
@@ -149,7 +149,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         if (WindowFunctionDenseRank::data(place).peer_group_start != frame_start) {
             WindowFunctionDenseRank::data(place).peer_group_start = frame_start;
             WindowFunctionDenseRank::data(place).rank++;
@@ -196,7 +196,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         int64_t peer_group_count = frame_end - frame_start;
         if (WindowFunctionPercentRank::data(place).peer_group_start != frame_start) {
             WindowFunctionPercentRank::data(place).peer_group_start = frame_start;
@@ -254,7 +254,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         check_default(place, partition_start, partition_end);
         int64_t peer_group_count = frame_end - frame_start;
         if (WindowFunctionCumeDist::data(place).peer_group_start != frame_start) {
@@ -298,7 +298,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         // some variables are partition related, but there is no chance to init them
         // when the new partition arrives, so we calculate them every time now.
         // Partition = big_bucket_num * big_bucket_size + small_bucket_num * small_bucket_size
@@ -542,7 +542,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         this->data(place).add_range_single_place(partition_start, partition_end, frame_start,
                                                  frame_end, columns);
     }
@@ -554,7 +554,7 @@ public:
     }
 
     void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena*) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "WindowFunctionLeadLagData do not support add");
         __builtin_unreachable();

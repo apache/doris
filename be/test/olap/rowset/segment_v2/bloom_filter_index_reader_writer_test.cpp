@@ -59,40 +59,46 @@ public:
 };
 
 template <FieldType type>
-void write_bloom_filter_index_file(const std::string& file_name, const void* values,
-                                   size_t value_count, size_t null_count,
-                                   ColumnIndexMetaPB* index_meta) {
+Status write_bloom_filter_index_file(const std::string& file_name, const void* values,
+                                     size_t value_count, size_t null_count,
+                                     ColumnIndexMetaPB* index_meta,
+                                     bool use_primary_key_bloom_filter = false) {
     const auto* type_info = get_scalar_type_info<type>();
     using CppType = typename CppTypeTraits<type>::CppType;
     std::string fname = dname + "/" + file_name;
     auto fs = io::global_local_filesystem();
     {
         io::FileWriterPtr file_writer;
-        Status st = fs->create_file(fname, &file_writer);
-        EXPECT_TRUE(st.ok()) << st.to_string();
+        RETURN_IF_ERROR(fs->create_file(fname, &file_writer));
 
         std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
         BloomFilterOptions bf_options;
-        static_cast<void>(
-                BloomFilterIndexWriter::create(bf_options, type_info, &bloom_filter_index_writer));
+
+        if (use_primary_key_bloom_filter) {
+            RETURN_IF_ERROR(PrimaryKeyBloomFilterIndexWriterImpl::create(
+                    bf_options, type_info, &bloom_filter_index_writer));
+        } else {
+            RETURN_IF_ERROR(BloomFilterIndexWriter::create(bf_options, type_info,
+                                                           &bloom_filter_index_writer));
+        }
+
         const CppType* vals = (const CppType*)values;
         for (int i = 0; i < value_count;) {
             size_t num = std::min(1024, (int)value_count - i);
-            static_cast<void>(bloom_filter_index_writer->add_values(vals + i, num));
+            RETURN_IF_ERROR(bloom_filter_index_writer->add_values(vals + i, num));
             if (i == 2048) {
                 // second page
                 bloom_filter_index_writer->add_nulls(null_count);
             }
-            st = bloom_filter_index_writer->flush();
-            EXPECT_TRUE(st.ok());
+            RETURN_IF_ERROR(bloom_filter_index_writer->flush());
             i += 1024;
         }
-        st = bloom_filter_index_writer->finish(file_writer.get(), index_meta);
-        EXPECT_TRUE(st.ok()) << "writer finish status:" << st.to_string();
+        RETURN_IF_ERROR(bloom_filter_index_writer->finish(file_writer.get(), index_meta));
         EXPECT_TRUE(file_writer->close().ok());
         EXPECT_EQ(BLOOM_FILTER_INDEX, index_meta->type());
         EXPECT_EQ(bf_options.strategy, index_meta->bloom_filter_index().hash_strategy());
     }
+    return Status::OK();
 }
 
 void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnIndexMetaPB& meta,
@@ -110,13 +116,14 @@ void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnInde
 }
 
 template <FieldType Type>
-void test_bloom_filter_index_reader_writer_template(
+Status test_bloom_filter_index_reader_writer_template(
         const std::string file_name, typename TypeTraits<Type>::CppType* val, size_t num,
         size_t null_num, typename TypeTraits<Type>::CppType* not_exist_value,
-        bool is_slice_type = false) {
+        bool is_slice_type = false, bool use_primary_key_bloom_filter = false) {
     using CppType = typename TypeTraits<Type>::CppType;
     ColumnIndexMetaPB meta;
-    write_bloom_filter_index_file<Type>(file_name, val, num, null_num, &meta);
+    RETURN_IF_ERROR(write_bloom_filter_index_file<Type>(file_name, val, num, null_num, &meta,
+                                                        use_primary_key_bloom_filter));
     {
         BloomFilterIndexReader* reader = nullptr;
         std::unique_ptr<BloomFilterIndexIterator> iter;
@@ -124,8 +131,7 @@ void test_bloom_filter_index_reader_writer_template(
 
         // page 0
         std::unique_ptr<BloomFilter> bf;
-        auto st = iter->read_bloom_filter(0, &bf);
-        EXPECT_TRUE(st.ok());
+        RETURN_IF_ERROR(iter->read_bloom_filter(0, &bf));
         for (int i = 0; i < 1024; ++i) {
             if (is_slice_type) {
                 Slice* value = (Slice*)(val + i);
@@ -136,8 +142,7 @@ void test_bloom_filter_index_reader_writer_template(
         }
 
         // page 1
-        st = iter->read_bloom_filter(1, &bf);
-        EXPECT_TRUE(st.ok());
+        RETURN_IF_ERROR(iter->read_bloom_filter(1, &bf));
         for (int i = 1024; i < 2048; ++i) {
             if (is_slice_type) {
                 Slice* value = (Slice*)(val + i);
@@ -148,8 +153,7 @@ void test_bloom_filter_index_reader_writer_template(
         }
 
         // page 2
-        st = iter->read_bloom_filter(2, &bf);
-        EXPECT_TRUE(st.ok());
+        RETURN_IF_ERROR(iter->read_bloom_filter(2, &bf));
         for (int i = 2048; i < 3071; ++i) {
             if (is_slice_type) {
                 Slice* value = (Slice*)(val + i);
@@ -163,6 +167,7 @@ void test_bloom_filter_index_reader_writer_template(
 
         delete reader;
     }
+    return Status::OK();
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_int) {
@@ -175,8 +180,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_int) {
 
     std::string file_name = "bloom_filter_int";
     int not_exist_value = 18888;
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_INT>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_INT>(
             file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
@@ -190,8 +196,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_bigint) {
 
     std::string file_name = "bloom_filter_bigint";
     int64_t not_exist_value = 18888;
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_BIGINT>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_BIGINT>(
             file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
@@ -205,8 +212,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_largeint) {
 
     std::string file_name = "bloom_filter_largeint";
     int128_t not_exist_value = 18888;
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_LARGEINT>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_LARGEINT>(
             file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
@@ -224,8 +232,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_varchar_type) {
     }
     std::string file_name = "bloom_filter_varchar";
     Slice not_exist_value("value_not_exist");
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
             file_name, slices, num, 1, &not_exist_value, true);
+    EXPECT_TRUE(st.ok());
     delete[] val;
     delete[] slices;
 }
@@ -244,8 +253,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_char) {
     }
     std::string file_name = "bloom_filter_char";
     Slice not_exist_value("char_value_not_exist");
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_CHAR>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_CHAR>(
             file_name, slices, num, 1, &not_exist_value, true);
+    EXPECT_TRUE(st.ok());
     delete[] val;
     delete[] slices;
 }
@@ -260,8 +270,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_date) {
 
     std::string file_name = "bloom_filter_date";
     uint24_t not_exist_value = 18888;
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATE>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATE>(
             file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
@@ -275,8 +286,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_datetime) {
 
     std::string file_name = "bloom_filter_datetime";
     int64_t not_exist_value = 18888;
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATETIME>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATETIME>(
             file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
@@ -290,8 +302,45 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal) {
 
     std::string file_name = "bloom_filter_decimal";
     decimal12_t not_exist_value = {666, 666};
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL>(
             file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_primary_key_bloom_filter_index) {
+    size_t num = 1024 * 3 - 1;
+    std::vector<std::string> val_strings(num);
+    for (size_t i = 0; i < num; ++i) {
+        val_strings[i] = "primary_key_" + std::to_string(i);
+    }
+    std::vector<Slice> slices(num);
+    for (size_t i = 0; i < num; ++i) {
+        slices[i] = Slice(val_strings[i]);
+    }
+
+    std::string file_name = "primary_key_bloom_filter_index";
+    Slice not_exist_value("primary_key_not_exist");
+
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
+            file_name, slices.data(), num, 0, &not_exist_value, true, true);
+    EXPECT_TRUE(st.ok());
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_primary_key_bloom_filter_index_int) {
+    size_t num = 1024 * 3 - 1;
+    int* val = new int[num];
+    for (int i = 0; i < num; ++i) {
+        // there will be 3 bloom filter pages
+        val[i] = 10000 + i + 1;
+    }
+
+    std::string file_name = "primary_key_bloom_filter_index_int";
+    int not_exist_value = 18888;
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_INT>(
+            file_name, val, num, 1, &not_exist_value, false, true);
+    EXPECT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), TStatusCode::NOT_IMPLEMENTED_ERROR);
     delete[] val;
 }
 

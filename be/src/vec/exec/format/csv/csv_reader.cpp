@@ -622,7 +622,7 @@ template <bool from_json>
 Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
     auto& null_column = assert_cast<ColumnNullable&>(column);
     if (!(from_json && _options.converted_from_string && slice.trim_double_quotes())) {
-        if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+        if (slice.compare(Slice(_options.null_format, _options.null_len)) == 0) {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
         }

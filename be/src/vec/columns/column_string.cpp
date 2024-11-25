@@ -22,7 +22,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <ostream>
+#include <cstring>
 
 #include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
@@ -82,18 +82,35 @@ MutableColumnPtr ColumnStr<T>::clone_resized(size_t to_size) const {
 }
 
 template <typename T>
-MutableColumnPtr ColumnStr<T>::get_shrinked_column() {
-    auto shrinked_column = ColumnStr<T>::create();
-    shrinked_column->get_offsets().reserve(offsets.size());
-    shrinked_column->get_chars().reserve(chars.size());
-    for (int i = 0; i < size(); i++) {
-        StringRef str = get_data_at(i);
-        reinterpret_cast<ColumnStr<T>*>(shrinked_column.get())
-                ->insert_data(str.data, strnlen(str.data, str.size));
+void ColumnStr<T>::shrink_padding_chars() {
+    if (size() == 0) {
+        return;
     }
-    return shrinked_column;
+    char* data = reinterpret_cast<char*>(chars.data());
+    auto* offset = offsets.data();
+    size_t size = offsets.size();
+
+    // deal the 0-th element. no need to move.
+    auto next_start = offset[0];
+    offset[0] = strnlen(data, size_at(0));
+    for (size_t i = 1; i < size; i++) {
+        // get the i-th length and whole move it to cover the last's trailing void
+        auto length = strnlen(data + next_start, offset[i] - next_start);
+        memmove(data + offset[i - 1], data + next_start, length);
+        // offset i will be changed. so save the old value for (i+1)-th to get its length.
+        next_start = offset[i];
+        offset[i] = offset[i - 1] + length;
+    }
+    chars.resize_fill(offsets.back()); // just call it to shrink memory here. no possible to expand.
 }
 
+// This method is only called by MutableBlock::merge_ignore_overflow
+// by hash join operator to collect build data to avoid
+// the total string length of a ColumnStr<uint32_t> column exceeds the 4G limit.
+//
+// After finishing collecting build data, a ColumnStr<uint32_t> column
+// will be converted to ColumnStr<uint64_t> if the total string length
+// exceeds the 4G limit by calling Block::replace_if_overflow.
 template <typename T>
 void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IColumn& src,
                                                      size_t start, size_t length) {
@@ -123,6 +140,8 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
         offsets.resize(old_size + length);
 
         for (size_t i = 0; i < length; ++i) {
+            // unsinged integer overflow is well defined in C++,
+            // so we don't need to check the overflow here.
             offsets[old_size + i] =
                     src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
         }
@@ -134,34 +153,63 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
     if (length == 0) {
         return;
     }
+    auto do_insert = [&](const auto& src_concrete) {
+        const auto& src_offsets = src_concrete.get_offsets();
+        const auto& src_chars = src_concrete.get_chars();
+        if (start + length > src_offsets.size()) {
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "Parameter out of bound in IColumnStr<T>::insert_range_from method.");
+        }
+        size_t nested_offset = src_offsets[static_cast<ssize_t>(start) - 1];
+        size_t nested_length = src_offsets[start + length - 1] - nested_offset;
 
-    const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
+        size_t old_chars_size = chars.size();
+        check_chars_length(old_chars_size + nested_length, offsets.size() + length);
+        chars.resize(old_chars_size + nested_length);
+        memcpy(&chars[old_chars_size], &src_chars[nested_offset], nested_length);
 
-    if (start + length > src_concrete.offsets.size()) {
-        throw doris::Exception(
-                doris::ErrorCode::INTERNAL_ERROR,
-                "Parameter out of bound in IColumnStr<T>::insert_range_from method.");
+        using OffsetsType = std::decay_t<decltype(src_offsets)>;
+        if (std::is_same_v<T, typename OffsetsType::value_type> && start == 0 && offsets.empty()) {
+            offsets.assign(src_offsets.begin(), src_offsets.begin() + length);
+        } else {
+            size_t old_size = offsets.size();
+            size_t prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
+            offsets.resize(old_size + length);
+
+            for (size_t i = 0; i < length; ++i) {
+                offsets[old_size + i] = src_offsets[start + i] - nested_offset + prev_max_offset;
+            }
+        }
+    };
+    // insert_range_from maybe called by ColumnArray::insert_indices_from(which is used by hash join operator),
+    // so we need to support both ColumnStr<uint32_t> and ColumnStr<uint64_t>
+    if (src.is_column_string64()) {
+        do_insert(assert_cast<const ColumnStr<uint64_t>&>(src));
+    } else {
+        do_insert(assert_cast<const ColumnStr<uint32_t>&>(src));
     }
+}
 
-    size_t nested_offset = src_concrete.offset_at(start);
-    size_t nested_length = src_concrete.offsets[start + length - 1] - nested_offset;
+template <typename T>
+void ColumnStr<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    const auto& string_column = assert_cast<const ColumnStr<T>&>(src);
+    auto [data_val, data_length] = string_column.get_data_at(position);
 
     size_t old_chars_size = chars.size();
-    check_chars_length(old_chars_size + nested_length, offsets.size() + length);
-    chars.resize(old_chars_size + nested_length);
-    memcpy(&chars[old_chars_size], &src_concrete.chars[nested_offset], nested_length);
+    check_chars_length(old_chars_size + data_length * length, offsets.size() + length);
+    chars.resize(old_chars_size + data_length * length);
 
-    if (start == 0 && offsets.empty()) {
-        offsets.assign(src_concrete.offsets.begin(), src_concrete.offsets.begin() + length);
-    } else {
-        size_t old_size = offsets.size();
-        size_t prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
-        offsets.resize(old_size + length);
+    auto old_size = offsets.size();
+    offsets.resize(old_size + length);
 
-        for (size_t i = 0; i < length; ++i) {
-            offsets[old_size + i] =
-                    src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
-        }
+    auto start_pos = old_size;
+    auto end_pos = old_size + length;
+    auto prev_pos = old_chars_size;
+    for (; start_pos < end_pos; ++start_pos) {
+        memcpy(&chars[prev_pos], data_val, data_length);
+        offsets[start_pos] = prev_pos + data_length;
+        prev_pos = prev_pos + data_length;
     }
 }
 

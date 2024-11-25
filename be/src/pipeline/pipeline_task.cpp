@@ -181,7 +181,7 @@ void PipelineTask::_init_profile() {
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
-    _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
+    _wait_worker_timer = ADD_TIMER_WITH_LEVEL(_task_profile, "WaitWorkerTime", 1);
 
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
@@ -216,10 +216,6 @@ Status PipelineTask::_open() {
     return Status::OK();
 }
 
-void PipelineTask::set_task_queue(TaskQueue* task_queue) {
-    _task_queue = task_queue;
-}
-
 bool PipelineTask::_wait_to_start() {
     // Before task starting, we should make sure
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
@@ -227,6 +223,9 @@ bool PipelineTask::_wait_to_start() {
     _blocked_dep = _execution_dep->is_blocked_by(this);
     if (_blocked_dep != nullptr) {
         static_cast<Dependency*>(_blocked_dep)->start_watcher();
+        if (_wake_up_by_downstream) {
+            _eos = true;
+        }
         return true;
     }
 
@@ -234,6 +233,9 @@ bool PipelineTask::_wait_to_start() {
         _blocked_dep = op_dep->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
+            if (_wake_up_by_downstream) {
+                _eos = true;
+            }
             return true;
         }
     }
@@ -241,6 +243,12 @@ bool PipelineTask::_wait_to_start() {
 }
 
 bool PipelineTask::_is_blocked() {
+    Defer defer([this] {
+        if (_blocked_dep != nullptr) {
+            _task_profile->add_info_string("TaskState", "Blocked");
+            _task_profile->add_info_string("BlockedByDependency", _blocked_dep->name());
+        }
+    });
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
         for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
@@ -249,6 +257,9 @@ bool PipelineTask::_is_blocked() {
                 _blocked_dep = dep->is_blocked_by(this);
                 if (_blocked_dep != nullptr) {
                     _blocked_dep->start_watcher();
+                    if (_wake_up_by_downstream) {
+                        _eos = true;
+                    }
                     return true;
                 }
             }
@@ -268,6 +279,9 @@ bool PipelineTask::_is_blocked() {
         _blocked_dep = op_dep->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
+            if (_wake_up_by_downstream) {
+                _eos = true;
+            }
             return true;
         }
     }
@@ -306,13 +320,25 @@ Status PipelineTask::execute(bool* eos) {
     if (_wait_to_start()) {
         return Status::OK();
     }
+    if (_wake_up_by_downstream) {
+        _eos = true;
+        *eos = true;
+        return Status::OK();
+    }
     // The status must be runnable
     if (!_opened && !_fragment_context->is_canceled()) {
         RETURN_IF_ERROR(_open());
     }
 
+    _task_profile->add_info_string("TaskState", "Runnable");
+    _task_profile->add_info_string("BlockedByDependency", "");
     while (!_fragment_context->is_canceled()) {
         if (_is_blocked()) {
+            return Status::OK();
+        }
+        if (_wake_up_by_downstream) {
+            _eos = true;
+            *eos = true;
             return Status::OK();
         }
 
@@ -369,6 +395,7 @@ Status PipelineTask::execute(bool* eos) {
             *eos = status.is<ErrorCode::END_OF_FILE>() ? true : *eos;
             if (*eos) { // just return, the scheduler will do finish work
                 _eos = true;
+                _task_profile->add_info_string("TaskState", "Finished");
                 return Status::OK();
             }
         }
@@ -481,9 +508,10 @@ std::string PipelineTask::debug_string() {
     auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, id = {}, open = {}, eos = {}, finish = {}, dry run = "
-                   "{}, elapse time "
-                   "= {}s], block dependency = {}, is running = {}\noperators: ",
+                   "{}, elapse time = {}s, _wake_up_by_downstream = {}], block dependency = {}, is "
+                   "running = {}\noperators: ",
                    (void*)this, _index, _opened, _eos, _finalized, _dry_run, elapsed,
+                   _wake_up_by_downstream.load(),
                    cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
                    is_running());
     for (size_t i = 0; i < _operators.size(); i++) {

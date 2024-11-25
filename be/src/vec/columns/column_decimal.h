@@ -102,7 +102,7 @@ private:
     ColumnDecimal(const ColumnDecimal& src) : data(src.data), scale(src.scale) {}
 
 public:
-    const char* get_family_name() const override { return TypeName<T>::get(); }
+    std::string get_name() const override { return TypeName<T>::get(); }
 
     bool is_numeric() const override { return false; }
     bool is_column_decimal() const override { return true; }
@@ -157,6 +157,8 @@ public:
         data.resize(old_size + length);
         memset(data.data() + old_size, 0, length * sizeof(data[0]));
     }
+
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void pop_back(size_t n) override { data.resize_assume_reserved(data.size() - n); }
 
@@ -215,15 +217,6 @@ public:
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
-    }
 
     //    void gather(ColumnGathererStream & gatherer_stream) override;
 

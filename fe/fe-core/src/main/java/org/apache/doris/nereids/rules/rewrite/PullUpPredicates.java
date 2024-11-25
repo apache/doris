@@ -30,11 +30,18 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PredicateInferUtils;
@@ -68,10 +75,57 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     @Override
     public ImmutableSet<Expression> visit(Plan plan, Void context) {
-        if (plan.arity() == 1) {
-            return plan.child(0).accept(this, context);
-        }
         return ImmutableSet.of();
+    }
+
+    @Override
+    public ImmutableSet<Expression> visitLogicalSort(LogicalSort<? extends Plan> sort, Void context) {
+        return cacheOrElse(sort, () -> sort.child(0).accept(this, context));
+    }
+
+    @Override
+    public ImmutableSet<Expression> visitLogicalLimit(LogicalLimit<? extends Plan> limit, Void context) {
+        return cacheOrElse(limit, () -> limit.child(0).accept(this, context));
+    }
+
+    @Override
+    public ImmutableSet<Expression> visitLogicalTopN(LogicalTopN<? extends Plan> topN, Void context) {
+        return cacheOrElse(topN, () -> topN.child(0).accept(this, context));
+    }
+
+    @Override
+    public ImmutableSet<Expression> visitLogicalPartitionTopN(LogicalPartitionTopN<? extends Plan> topN, Void context) {
+        return cacheOrElse(topN, () -> topN.child(0).accept(this, context));
+    }
+
+    @Override
+    public ImmutableSet<Expression> visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, Void context) {
+        return cacheOrElse(generate, () -> generate.child(0).accept(this, context));
+    }
+
+    @Override
+    public ImmutableSet<Expression> visitLogicalWindow(LogicalWindow<? extends Plan> window, Void context) {
+        return cacheOrElse(window, () -> window.child(0).accept(this, context));
+    }
+
+    @Override
+    public ImmutableSet<Expression> visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, Void context) {
+        return cacheOrElse(repeat, () -> {
+            ImmutableSet<Expression> childPredicates = repeat.child().accept(this, context);
+            Set<Expression> commonGroupingSetExpressions = repeat.getCommonGroupingSetExpressions();
+            if (commonGroupingSetExpressions.isEmpty()) {
+                return ImmutableSet.of();
+            }
+
+            Set<Expression> pulledPredicates = new LinkedHashSet<>();
+            for (Expression conjunct : childPredicates) {
+                Set<Slot> conjunctSlots = conjunct.getInputSlots();
+                if (commonGroupingSetExpressions.containsAll(conjunctSlots)) {
+                    pulledPredicates.add(conjunct);
+                }
+            }
+            return ImmutableSet.copyOf(pulledPredicates);
+        });
     }
 
     @Override

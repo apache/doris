@@ -22,35 +22,14 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_decimal256_outfile_csv") {
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-
-    String command = strBuilder.toString()
-    def process = command.toString().execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
-        return
-    }
-
     sql "set enable_nereids_planner = true;"
     sql "set enable_decimal256 = true;"
+
+    String ak = getS3AK()
+    String sk = getS3SK()
+    String s3_endpoint = getS3Endpoint()
+    String region = getS3Region()
+    String bucket = context.config.otherConfigs.get("s3BucketName");
 
     sql "DROP TABLE IF EXISTS `test_decimal256_outfile_csv`"
     sql """
@@ -105,31 +84,37 @@ suite("test_decimal256_outfile_csv") {
         SELECT * FROM test_decimal256_outfile_csv t order by 1,2,3;
     """
 
-    def uuid = UUID.randomUUID().toString()
-    def outFileNamePrefix = """test_decimal256_outfile_csv_${uuid}_"""
-    def outFilePath = """/tmp/${outFileNamePrefix}"""
-    FilenameFilter filter = new FilenameFilter() {
-        @Override
-        public boolean accept(File dir, String name) {
-            return name.startsWith(outFileNamePrefix);
-        }
-    };
+
+    def outFilePath = "${bucket}/outfile/csv/test_decimal256_outfile_csv/exp_"
+
+    def outfile_to_S3 = { export_table_name, foramt ->
+        // select ... into outfile ...
+        def res = sql """
+            SELECT * FROM ${export_table_name} t ORDER BY k1
+            INTO OUTFILE "s3://${outFilePath}"
+            FORMAT AS ${foramt}
+            PROPERTIES (
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${region}",
+                "s3.secret_key"="${sk}",
+                "s3.access_key" = "${ak}"
+            );
+        """
+        return res[0][3]
+    }
+
     try {
         logger.info("outfile: " + outFilePath)
-        sql """
-            SELECT * FROM test_decimal256_outfile_csv t order by 1,2,3 INTO OUTFILE "file://${outFilePath}" properties("column_separator" = ",");
-        """
-        File path = new File("/tmp/")
-        File[] files = path.listFiles(filter)
-        assert files.length == 1
-        List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
-        assert outLines.size() == 19
+        def outfile_url = outfile_to_S3("test_decimal256_outfile_csv", "csv")
+
+        qt_select_tvf1 """ SELECT * FROM S3 (
+                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
+                            "ACCESS_KEY"= "${ak}",
+                            "SECRET_KEY" = "${sk}",
+                            "format" = "csv",
+                            "region" = "${region}"
+                        );
+                        """
     } finally {
-        File path = new File("/tmp/")
-        if (path.exists()) {
-            for (File f: path.listFiles(filter)) {
-                f.delete();
-            }
-        }
     }
 }

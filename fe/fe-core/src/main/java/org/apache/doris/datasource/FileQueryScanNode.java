@@ -144,7 +144,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
                                 table.getName()));
             }
         }
-        computeColumnsFilter();
         initBackendPolicy();
         initSchemaParams();
     }
@@ -213,11 +212,21 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeStartTime();
         }
+        convertPredicate();
         createScanRangeLocations();
         updateRequiredSlots();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeFinishTime();
         }
+    }
+
+    /**
+     * Used as a predicate to convert conjuncts into corresponding data sources.
+     * All predicate conversions from different data sources should override this method.
+     * and this method must be called in finalize,
+     * because in nereids planner, conjuncts are only generated in the finalize stage.
+     */
+    protected void convertPredicate() {
     }
 
     private void setColumnPositionMapping()
@@ -288,6 +297,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
                 scanRangeLocations.add(curLocations);
+                scanBackendIds.add(backendId);
                 return;
             }
         }
@@ -337,6 +347,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 // However, even one ScanNode instance can provide maximum scanning concurrency.
                 scanRangeLocations.add(curLocations);
                 setLocationPropertiesIfNecessary(backend, locationType, locationProperties);
+                scanBackendIds.add(backend.getId());
             }
         } else {
             List<Split> inputSplits = getSplits();
@@ -354,6 +365,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
                     totalFileSize += split.getLength();
                 }
+                scanBackendIds.add(backend.getId());
             }
         }
 

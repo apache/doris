@@ -154,23 +154,14 @@ suite ("usercase_union_rewrite") {
         o_orderdate
         """
 
-    explain {
-        sql("${query_stmt}")
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-        }
-    }
+    mv_rewrite_success(query_stmt, mv_name, true,
+            is_partition_statistics_ready(db, ["orders_user", mv_name]))
     compare_res(query_stmt + " order by 1,2,3,4,5,6,7,8")
 
     sql """insert into orders_user values (5, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-19');"""
     sleep(10 * 1000)
-    explain {
-        sql("${query_stmt}")
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-        }
-    }
+
+    mv_rewrite_success(query_stmt, mv_name, true,
+            is_partition_statistics_ready(db, ["orders_user", mv_name]))
     compare_res(query_stmt + " order by 1,2,3,4,5,6,7,8")
 }

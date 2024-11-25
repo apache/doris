@@ -17,18 +17,18 @@
 
 #pragma once
 
-#include <stddef.h>
+#include <cstddef>
 
 #include "common/status.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/array/function_array_utils.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 class Block;
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::vectorized {
 
@@ -52,4 +52,5 @@ private:
     size_t _array_offset; // start offset of array[row_idx]
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -141,7 +141,7 @@ public:
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* arena, bool /*agg_many*/) const override {
+                   const IColumn** columns, Arena*, bool /*agg_many*/) const override {
         std::vector<KeyType> keys_container;
         const KeyType* keys = get_keys(keys_container, *columns[0], batch_size);
 
@@ -175,7 +175,7 @@ public:
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         std::vector<KeyType> keys_container;
         const KeyType* keys = get_keys(keys_container, *columns[0], batch_size);
         auto& set = this->data(place).set;
@@ -197,7 +197,7 @@ public:
     }
 
     void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
-                               BufferReadable& buf, Arena* arena) const override {
+                               BufferReadable& buf, Arena*) const override {
         auto& set = this->data(place).set;
         UInt64 size;
         read_var_uint(size, buf);
@@ -212,7 +212,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
+                     Arena*) const override {
         auto& set = this->data(place).set;
         UInt64 size;
         read_var_uint(size, buf);

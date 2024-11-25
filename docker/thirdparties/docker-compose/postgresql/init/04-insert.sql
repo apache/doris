@@ -1042,6 +1042,7 @@ insert into doris_test.test1 values
 (cast(0 as bit), 'abc', 'def', '2022-10-11', 1.234, 1, 2, 1022, '2022-10-22 10:59:59', 34.123),
 (cast(0 as bit), 'abc', 'def', '2022-10-11', 1.234, 1, 2, 1023, '2022-10-22 10:59:59', 34.123),
 (cast(0 as bit), 'abc', 'def', '2022-10-11', 1.234, 1, 2, 1024, '2022-10-22 10:59:59', 34.123);
+analyze doris_test.test1;
 
 insert into doris_test.test2 values
 (123, 'zhangsan', '2022-01-01 01:02:03', 'zhangsan1', '2022-01-01 01:02:04', 111, 122, false, 'code', 'zhangsan2', 222, 'tag', 'remark'),

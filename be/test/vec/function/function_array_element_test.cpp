@@ -148,7 +148,7 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::Int32};
 
-        Array vec = {Field("abc", 3), Field("", 0), Field("def", 3)};
+        Array vec = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
         DataSet data_set = {{{vec, 1}, std::string("abc")},
                             {{vec, 2}, std::string("")},
                             {{vec, 10}, Null()},

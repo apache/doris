@@ -237,8 +237,11 @@ void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, 
     size_t cid = 0;
     for (const auto& typed_column : *block) {
         if (typed_column.column->size() != block->rows()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "input invalid block, block={}",
-                            block->dump_structure());
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "input invalid block, column_size={} != block_rows_num={}, column={}, block={}",
+                    typed_column.column->size(), block->rows(), typed_column.dump_structure(),
+                    block->dump_structure());
         }
         _convertors[cid]->set_source_column(typed_column, row_pos, num_rows);
         ++cid;

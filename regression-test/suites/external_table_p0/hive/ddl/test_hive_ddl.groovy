@@ -96,8 +96,10 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
 
             // create and insert default value is supported on hive3, we can test default hive version 2.3
             sql """switch ${catalog_name}"""
-            sql  """ create database if not exists `test_hive_default_val`
-                 """
+            sql  """ drop database if exists `test_hive_default_val` """
+
+            sql  """ create database if not exists `test_hive_default_val` """
+            
             sql """use `test_hive_default_val`"""
             test {
                 sql """ 
@@ -111,7 +113,6 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                     """
                 exception "failed to create table from hms client. reason: java.lang.UnsupportedOperationException: Table with default values is not supported if the hive version is less than 3.0. Can set 'hive.version' to 3.0 in properties."
             }
-            sql """DROP DATABASE `test_hive_default_val`"""
 
             test {
                 sql """
@@ -273,6 +274,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
             def create_tbl_res = sql """ show create table loc_tbl_${file_format}_default """
             logger.info("${create_tbl_res}")
             assertTrue(create_tbl_res.toString().containsIgnoreCase("${loc}/loc_tbl_${file_format}_default"))
+            assertTrue(create_tbl_res.toString().containsIgnoreCase("'owner'='root'"))
 
             sql """ INSERT INTO loc_tbl_${file_format}_default values(1)  """
 
@@ -303,12 +305,14 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                     )  ENGINE=hive 
                     PROPERTIES (
                       'file_format'='${file_format}',
-                      'location'='${tbl_loc}'
+                      'location'='${tbl_loc}',
+                      'owner' = 'doris_writer'
                     )
                  """
             def create_tbl_res2 = sql """ show create table loc_tbl_${file_format}_custom """
             logger.info("${create_tbl_res2}")
             assertTrue(create_tbl_res2.toString().containsIgnoreCase("${tbl_loc}"))
+            assertTrue(create_tbl_res2.toString().containsIgnoreCase("'owner'='doris_writer'"))
             sql """ INSERT INTO loc_tbl_${file_format}_custom values(1)  """
             def tvfRes2 = sql """ SELECT * FROM hdfs(
                                     'uri'='${tbl_loc}/*',
