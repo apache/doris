@@ -1145,15 +1145,15 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                     //     - if the previous conflicting row is deleted, we should use the value in current block as its final value
                     //     - if the previous conflicting row is an insert, we should use the value in old block as its final value to
                     //       keep consistency between replicas
-                    new_col->insert_from(cur_col, read_index_update[idx]);
+                    new_col->insert_from(cur_col, read_index_update[cast_set<uint32_t>(idx)]);
                 } else {
                     new_col->insert_default();
                 }
             } else {
-                new_col->insert_from(old_value_col, read_index_old[idx]);
+                new_col->insert_from(old_value_col, read_index_old[cast_set<uint32_t>(idx)]);
             }
         } else {
-            new_col->insert_from(cur_col, read_index_update[idx]);
+            new_col->insert_from(cur_col, read_index_update[cast_set<uint32_t>(idx)]);
         }
     };
 
