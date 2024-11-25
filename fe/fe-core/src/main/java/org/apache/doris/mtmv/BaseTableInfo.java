@@ -110,6 +110,15 @@ public class BaseTableInfo {
         this.tableName = tableName;
     }
 
+    // if compatible failed due catalog dropped, ctlName will be null
+    public boolean isInternalTable() {
+        if (!StringUtils.isEmpty(ctlName)) {
+            return InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctlName);
+        } else {
+            return InternalCatalog.INTERNAL_CATALOG_ID == ctlId;
+        }
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
