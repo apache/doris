@@ -18,13 +18,16 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -33,10 +36,12 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -76,10 +81,18 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
                     partitionSlots.add(partitionSlot);
                 }
             }
+            NereidsSortedPartitionsCacheManager sortedPartitionsCacheManager = Env.getCurrentEnv()
+                    .getSortedPartitionsCacheManager();
             List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
-            Map<Long, PartitionItem> idToPartitions;
+            Map<Long, PartitionItem> idToPartitions = ImmutableMap.of();
+            SortedPartitionRanges<Long> sortedPartitionRanges = null;
             if (manuallySpecifiedPartitions.isEmpty()) {
-                idToPartitions = partitionInfo.getIdToItem(false);
+                Optional<SortedPartitionRanges<?>> sortedPartitionRangesOpt = sortedPartitionsCacheManager.get(table);
+                if (sortedPartitionRangesOpt.isPresent()) {
+                    sortedPartitionRanges = (SortedPartitionRanges<Long>) sortedPartitionRangesOpt.get();
+                } else {
+                    idToPartitions = partitionInfo.getIdToItem(false);
+                }
             } else {
                 Map<Long, PartitionItem> allPartitions = partitionInfo.getAllPartitions();
                 idToPartitions = allPartitions.keySet().stream()
@@ -88,7 +101,7 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             }
             List<Long> prunedPartitions = PartitionPruner.prune(
                     partitionSlots, filter.getPredicate(), idToPartitions, ctx.cascadesContext,
-                    PartitionTableType.OLAP);
+                    PartitionTableType.OLAP, sortedPartitionRanges);
             if (prunedPartitions.isEmpty()) {
                 return new LogicalEmptyRelation(
                         ConnectContext.get().getStatementContext().getNextRelationId(),

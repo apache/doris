@@ -1429,9 +1429,33 @@ public class Config extends ConfigBase {
     @ConfField(
             mutable = true,
             masterOnly = false,
-            callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig"
+            callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
+            description = {
+                    "当前默认设置为 300，用来控制控制NereidsSqlCacheManager中sql cache过期时间，超过一段时间不访问cache会被回收",
+                    "The current default setting is 300, which is used to control the expiration time of SQL cache"
+                            + "in NereidsSqlCacheManager. If the cache is not accessed for a period of time, "
+                            + "it will be reclaimed"
+            }
     )
     public static int expire_sql_cache_in_fe_second = 300;
+
+
+    /**
+     *  Expire sql sql in frontend time
+     */
+    @ConfField(
+            mutable = true,
+            masterOnly = false,
+            callbackClassString = "org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager$UpdateConfig",
+            description = {
+                "当前默认设置为 300，用来控制控制NereidsSortedPartitionsCacheManager中分区元数据缓存过期时间，"
+                    + "超过一段时间不访问cache会被回收",
+                "The current default setting is 300, which is used to control the expiration time of "
+                    + "the partition metadata cache in NereidsSortedPartitionsCheManager. "
+                    + "If the cache is not accessed for a period of time, it will be reclaimed"
+            }
+    )
+    public static int expire_cache_partition_meta_table_in_fe_second = 300;
 
     /**
      * Set the maximum number of rows that can be cached
@@ -2275,8 +2299,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(
             mutable = true,
-            varType = VariableAnnotation.EXPERIMENTAL,
-            callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig",
+            callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
             description = {
                 "当前默认设置为 100，用来控制控制NereidsSqlCacheManager管理的sql cache数量。",
                 "Now default set to 100, this config is used to control the number of "
@@ -2284,6 +2307,19 @@ public class Config extends ConfigBase {
             }
     )
     public static int sql_cache_manage_num = 100;
+
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager$UpdateConfig",
+            description = {
+                    "当前默认设置为 100，用来控制控制NereidsSortedPartitionsCacheManager中有序分区元数据的缓存个数，"
+                            + "用于加速分区裁剪",
+                    "The current default setting is 100, which is used to control the number of ordered "
+                            + "partition metadata caches in NereidsSortedPartitionsCacheManager, "
+                            + "and to accelerate partition pruning"
+            }
+    )
+    public static int cache_partition_meta_table_manage_num = 100;
 
     /**
      * Maximum number of events to poll in each RPC.

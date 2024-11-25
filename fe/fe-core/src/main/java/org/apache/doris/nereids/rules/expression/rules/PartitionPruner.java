@@ -22,6 +22,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndRange;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -39,6 +40,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
+import com.google.common.collect.RangeSet;
 
 import java.util.List;
 import java.util.Map;
@@ -49,7 +52,7 @@ import java.util.Objects;
  * PartitionPruner
  */
 public class PartitionPruner extends DefaultExpressionRewriter<Void> {
-    private final List<OnePartitionEvaluator> partitions;
+    private final List<OnePartitionEvaluator<?>> partitions;
     private final Expression partitionPredicate;
 
     /** Different type of table may have different partition prune behavior. */
@@ -58,7 +61,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         EXTERNAL
     }
 
-    private PartitionPruner(List<OnePartitionEvaluator> partitions, Expression partitionPredicate) {
+    private PartitionPruner(List<OnePartitionEvaluator<?>> partitions, Expression partitionPredicate) {
         this.partitions = Objects.requireNonNull(partitions, "partitions cannot be null");
         this.partitionPredicate = Objects.requireNonNull(partitionPredicate.accept(this, null),
                 "partitionPredicate cannot be null");
@@ -105,11 +108,17 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     public <K> List<K> prune() {
         Builder<K> scanPartitionIdents = ImmutableList.builder();
         for (OnePartitionEvaluator partition : partitions) {
-            if (!canBePrunedOut(partition)) {
+            if (!canBePrunedOut(partitionPredicate, partition)) {
                 scanPartitionIdents.add((K) partition.getPartitionIdent());
             }
         }
         return scanPartitionIdents.build();
+    }
+
+    public static <K> List<K> prune(List<Slot> partitionSlots, Expression partitionPredicate,
+            Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
+            PartitionTableType partitionTableType) {
+        return prune(partitionSlots, partitionPredicate, idToPartitions, cascadesContext, partitionTableType, null);
     }
 
     /**
@@ -117,7 +126,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
      */
     public static <K> List<K> prune(List<Slot> partitionSlots, Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
-            PartitionTableType partitionTableType) {
+            PartitionTableType partitionTableType, SortedPartitionRanges<K> sortedPartitionRanges) {
         partitionPredicate = PartitionPruneExpressionExtractor.extract(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
         partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, cascadesContext);
@@ -134,7 +143,95 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             return ImmutableList.of();
         }
 
-        List<OnePartitionEvaluator> evaluators = Lists.newArrayListWithCapacity(idToPartitions.size());
+        if (sortedPartitionRanges != null) {
+            RangeSet<MultiColumnBound> predicateRanges = partitionPredicate.accept(
+                    new PartitionPredicateToRange(partitionSlots), null);
+            if (predicateRanges != null) {
+                return binarySearchFiltering(
+                        sortedPartitionRanges, partitionSlots, partitionPredicate, cascadesContext,
+                        expandThreshold, predicateRanges
+                );
+            }
+        }
+
+        return sequentialFiltering(
+                idToPartitions, partitionSlots, partitionPredicate, cascadesContext, expandThreshold
+        );
+    }
+
+    /**
+     * convert partition item to partition evaluator
+     */
+    public static <K> OnePartitionEvaluator<K> toPartitionEvaluator(K id, PartitionItem partitionItem,
+            List<Slot> partitionSlots, CascadesContext cascadesContext, int expandThreshold) {
+        if (partitionItem instanceof ListPartitionItem) {
+            return new OneListPartitionEvaluator<>(
+                    id, partitionSlots, (ListPartitionItem) partitionItem, cascadesContext);
+        } else if (partitionItem instanceof RangePartitionItem) {
+            return new OneRangePartitionEvaluator<>(
+                    id, partitionSlots, (RangePartitionItem) partitionItem, cascadesContext, expandThreshold);
+        } else {
+            return new UnknownPartitionEvaluator<>(id, partitionItem);
+        }
+    }
+
+    private static <K> List<K> binarySearchFiltering(
+            SortedPartitionRanges<K> sortedPartitionRanges, List<Slot> partitionSlots,
+            Expression partitionPredicate, CascadesContext cascadesContext, int expandThreshold,
+            RangeSet<MultiColumnBound> predicateRanges) {
+        List<PartitionItemAndRange<K>> sortedPartitions = sortedPartitionRanges.sortedPartitions;
+        List<K> selectedPartitions = Lists.newArrayList();
+
+        int leftIndex = 0;
+        int midIndex = 0;
+        for (Range<MultiColumnBound> predicateRange : predicateRanges.asRanges()) {
+            int rightIndex = sortedPartitions.size();
+            if (leftIndex >= rightIndex) {
+                break;
+            }
+            MultiColumnBound predicateLowerBound = predicateRange.lowerEndpoint();
+            MultiColumnBound predicateUpperBound = predicateRange.upperEndpoint();
+            while (leftIndex + 1 < rightIndex) {
+                midIndex = (leftIndex + rightIndex) / 2;
+                PartitionItemAndRange<K> partition = sortedPartitions.get(midIndex);
+                Range<MultiColumnBound> partitionSpan = partition.ranges.span();
+                MultiColumnBound partitionLowerBound = partitionSpan.lowerEndpoint();
+
+                int compare = predicateLowerBound.compareTo(partitionLowerBound);
+                if (compare == 0) {
+                    break;
+                } else if (compare < 0) {
+                    rightIndex = midIndex;
+                } else {
+                    leftIndex = midIndex;
+                }
+            }
+
+            for (leftIndex = midIndex; leftIndex < sortedPartitions.size(); leftIndex++) {
+                PartitionItemAndRange<K> partition = sortedPartitions.get(leftIndex);
+                if (leftIndex > midIndex) {
+                    Range<MultiColumnBound> partitionSpan = partition.ranges.span();
+                    MultiColumnBound partitionLowerBound = partitionSpan.lowerEndpoint();
+                    if (partitionLowerBound.compareTo(predicateUpperBound) > 0) {
+                        break;
+                    }
+                }
+
+                K partitionId = partition.id;
+                OnePartitionEvaluator<K> partitionEvaluator = toPartitionEvaluator(
+                        partitionId, partition.partitionItem, partitionSlots, cascadesContext, expandThreshold);
+                if (!canBePrunedOut(partitionPredicate, partitionEvaluator)) {
+                    selectedPartitions.add(partitionId);
+                }
+            }
+        }
+
+        return selectedPartitions;
+    }
+
+    private static <K> List<K> sequentialFiltering(Map<K, PartitionItem> idToPartitions, List<Slot> partitionSlots,
+            Expression partitionPredicate, CascadesContext cascadesContext, int expandThreshold) {
+        List<OnePartitionEvaluator<?>> evaluators = Lists.newArrayListWithCapacity(idToPartitions.size());
         for (Entry<K, PartitionItem> kv : idToPartitions.entrySet()) {
             evaluators.add(toPartitionEvaluator(
                     kv.getKey(), kv.getValue(), partitionSlots, cascadesContext, expandThreshold));
@@ -145,28 +242,12 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     }
 
     /**
-     * convert partition item to partition evaluator
-     */
-    public static final <K> OnePartitionEvaluator<K> toPartitionEvaluator(K id, PartitionItem partitionItem,
-            List<Slot> partitionSlots, CascadesContext cascadesContext, int expandThreshold) {
-        if (partitionItem instanceof ListPartitionItem) {
-            return new OneListPartitionEvaluator(
-                    id, partitionSlots, (ListPartitionItem) partitionItem, cascadesContext);
-        } else if (partitionItem instanceof RangePartitionItem) {
-            return new OneRangePartitionEvaluator(
-                    id, partitionSlots, (RangePartitionItem) partitionItem, cascadesContext, expandThreshold);
-        } else {
-            return new UnknownPartitionEvaluator(id, partitionItem);
-        }
-    }
-
-    /**
      * return true if partition is not qualified. that is, can be pruned out.
      */
-    private boolean canBePrunedOut(OnePartitionEvaluator evaluator) {
+    private static <K> boolean canBePrunedOut(Expression partitionPredicate, OnePartitionEvaluator<K> evaluator) {
         List<Map<Slot, PartitionSlotInput>> onePartitionInputs = evaluator.getOnePartitionInputs();
         for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
-            // evaluate wether there's possible for this partition to accept this predicate
+            // evaluate whether there's possible for this partition to accept this predicate
             Expression result = evaluator.evaluateWithDefaultPartition(partitionPredicate, currentInputs);
             if (!result.equals(BooleanLiteral.FALSE) && !(result instanceof NullLiteral)) {
                 return false;
