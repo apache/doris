@@ -171,22 +171,26 @@ int Checker::start() {
 
             bool success {true};
 
-            int ret = checker->do_check();
-            if (ret != 0) success = false;
+            if (int ret = checker->do_check(); ret != 0) {
+                success = false;
+            }
 
             if (config::enable_inverted_check) {
-                int ret = checker->do_inverted_check();
-                if (ret != 0) success = false;
+                if (int ret = checker->do_inverted_check(); ret != 0) {
+                    success = false;
+                }
             }
 
             if (config::enable_delete_bitmap_inverted_check) {
-                int ret = checker->do_delete_bitmap_inverted_check();
-                if (ret != 0) success = false;
+                if (int ret = checker->do_delete_bitmap_inverted_check(); ret != 0) {
+                    success = false;
+                }
             }
 
             if (config::enable_delete_bitmap_storage_optimize_check) {
-                int ret = checker->do_delete_bitmap_storage_optimize_check();
-                if (ret != 0) success = false;
+                if (int ret = checker->do_delete_bitmap_storage_optimize_check(); ret != 0) {
+                    success = false;
+                }
             }
 
             // If instance checker has been aborted, don't finish this job
