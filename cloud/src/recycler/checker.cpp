@@ -965,9 +965,8 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
             ++total_delete_bitmap_keys;
 
             if (!it->has_next()) {
-                // Update to next smallest key for iteration
-                // scan for next tablet in this instance
-                begin = meta_rowset_key({instance_id_, tablet_id + 1, 0});
+                begin = k;
+                begin.push_back('\x00'); // Update to next smallest key for iteration
             }
 
             if (tablet_rowsets_cache.tablet_id == -1 ||
