@@ -107,7 +107,7 @@ suite("test_sql_block_rule", "nonConcurrent") {
                 PROPERTIES("sql"="SELECT \\\\* FROM table_2", "global"= "true", "enable"= "true")
               """              
 
-    qt_select4_exist """
+    order_qt_select4_exist """
                 SHOW SQL_BLOCK_RULE
               """
 
