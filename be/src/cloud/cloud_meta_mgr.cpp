@@ -610,8 +610,9 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
             engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id,
                                                                            tablet->tablet_id());
         } else {
-            LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << tablet->tablet_id()
-                         << ", txn_id=" << txn_id << ", status=" << status;
+            LOG_EVERY_N(INFO, 20)
+                    << "delete bitmap not found in cache, will sync rowset to get. tablet_id= "
+                    << tablet->tablet_id() << ", txn_id=" << txn_id << ", status=" << status;
             return false;
         }
     }
@@ -630,8 +631,6 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
         sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
         return Status::OK();
     } else {
-        LOG(WARNING) << "failed to sync delete bitmap by txn info. tablet_id="
-                     << tablet->tablet_id();
         DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
         *delete_bitmap = *new_delete_bitmap;
     }
