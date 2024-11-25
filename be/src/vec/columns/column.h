@@ -221,8 +221,8 @@ public:
     // insert the data of target columns into self column according to positions
     // positions[i] means index of srcs whitch need to insert_from
     // the virtual function overhead of multiple calls to insert_from can be reduced to once
-    void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
-                                  std::vector<size_t> positions);
+    virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
+                                          const std::vector<size_t>& positions) = 0;
 
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
@@ -706,6 +706,9 @@ protected:
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector, size_t begin,
                                       size_t end) const;
+    template <typename Derived>
+    void insert_from_multi_column_impl(const std::vector<const IColumn*>& srcs,
+                                       const std::vector<size_t>& positions);
 };
 
 using ColumnPtr = IColumn::Ptr;
