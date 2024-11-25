@@ -1261,8 +1261,8 @@ Status FragmentMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
         if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
-            return Status::InvalidArgument(
-                    "Sync filter size failed: Query context (query-id: {}) not found",
+            return Status::EndOfFile(
+                    "Sync filter size failed: Query context (query-id: {}) already finished",
                     queryid.to_string());
         }
     }
@@ -1282,8 +1282,8 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
-            return Status::InvalidArgument(
-                    "Merge filter size failed: Query context (query-id: {}) not found",
+            return Status::EndOfFile(
+                    "Merge filter size failed: Query context (query-id: {}) already finished",
                     queryid.to_string());
         }
     }
