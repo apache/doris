@@ -747,7 +747,7 @@ TEST(BlockTest, Constructor) {
         const_base->insert_value(42);
         auto const_col = vectorized::ColumnConst::create(const_base->get_ptr(), 10);
         columns.emplace_back(const_col->get_ptr(), regular_type, "const_col");
-            
+
         // Nullable column
         auto nullable_col = vectorized::make_nullable(regular_col->get_ptr());
         auto nullable_type = vectorized::make_nullable(regular_type);
