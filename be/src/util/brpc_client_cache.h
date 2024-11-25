@@ -134,11 +134,7 @@ public:
         } else if (_protocol != "") {
             options.protocol = _protocol;
         }
-        if (connection_type != "") {
-            options.connection_type = connection_type;
-        } else if (_connection_type != "") {
-            options.connection_type = _connection_type;
-        }
+        options.connection_type = "pooled";
         if (connection_group != "") {
             options.connection_group = connection_group;
         } else if (_connection_group != "") {
