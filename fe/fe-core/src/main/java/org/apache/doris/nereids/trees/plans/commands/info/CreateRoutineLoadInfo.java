@@ -24,7 +24,6 @@ import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportDeleteOnStmt;
 import org.apache.doris.analysis.ImportSequenceStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
@@ -37,8 +36,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -152,7 +149,7 @@ public class CreateRoutineLoadInfo {
             .add(LoadStmt.KEY_ESCAPE)
             .build();
 
-    private final LabelName labelName;
+    private final LabelNameInfo labelNameInfo;
     private String tableName;
     private final Map<String, LoadProperty> loadPropertyMap;
     private final Map<String, String> jobProperties;
@@ -209,11 +206,12 @@ public class CreateRoutineLoadInfo {
     /**
      * constructor for create table
      */
-    public CreateRoutineLoadInfo(LabelName labelName, String tableName, Map<String, LoadProperty> loadPropertyMap,
+    public CreateRoutineLoadInfo(LabelNameInfo labelNameInfo, String tableName,
+                                 Map<String, LoadProperty> loadPropertyMap,
                                  Map<String, String> jobProperties, String typeName,
                                  Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
                                  String comment) {
-        this.labelName = labelName;
+        this.labelNameInfo = labelNameInfo;
         if (StringUtils.isBlank(tableName)) {
             this.isMultiTable = true;
         }
@@ -265,15 +263,9 @@ public class CreateRoutineLoadInfo {
     }
 
     private void checkDBTable(ConnectContext ctx) throws AnalysisException {
-        dbName = labelName.getDbName();
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = ctx.getDatabase();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        }
-        name = labelName.getLabelName();
-        FeNameFormat.checkLabel(name);
+        labelNameInfo.validate(ctx);
+        dbName = labelNameInfo.getDb();
+        name = labelNameInfo.getLabel();
 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         if (isPartialUpdate && isMultiTable) {
@@ -513,7 +505,7 @@ public class CreateRoutineLoadInfo {
      * @return legacy create routine load statement
      */
     public CreateRoutineLoadStmt translateToLegacyStmt(ConnectContext ctx) {
-        return new CreateRoutineLoadStmt(null, dbName, name, tableName, null,
+        return new CreateRoutineLoadStmt(labelNameInfo.transferToLabelName(), dbName, name, tableName, null,
             ctx.getStatementContext().getOriginStatement(), ctx.getUserIdentity(),
             jobProperties, typeName, routineLoadDesc,
             desiredConcurrentNum, maxErrorNum, maxFilterRatio, maxBatchIntervalS, maxBatchRows, maxBatchSizeBytes,

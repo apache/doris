@@ -20,7 +20,6 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StorageBackend;
@@ -540,6 +539,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.FuncNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.GeneratedColumnDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.MTMVPartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
@@ -1516,7 +1516,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             throw new AnalysisException("labelParts in load should be [ctl.][db.]label");
         }
-        LabelName jobLabel = new LabelName(labelDbName, labelName);
+        LabelNameInfo jobLabelInfo = new LabelNameInfo(labelName, labelDbName);
         String tableName = null;
         if (ctx.table != null) {
             tableName = ctx.table.getText();
@@ -1552,8 +1552,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 loadPropertyMap.put(loadProperty.getClass().getName(), loadProperty);
             }
         }
-        CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(jobLabel, tableName, loadPropertyMap,
-                properties, type, customProperties, mergeType, comment);
+        CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(jobLabelInfo, tableName,
+                loadPropertyMap, properties, type, customProperties, mergeType, comment);
         return new CreateRoutineLoadCommand(createRoutineLoadInfo);
 
     }
