@@ -191,7 +191,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DBUG_EXECUTE_IF("array_func.array_contains", {
             auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
                     "array_func.array_contains", "req_id", 0);
@@ -217,9 +217,9 @@ private:
         const auto& right_chars = reinterpret_cast<const ColumnString&>(right_column).get_chars();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size());
+        auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(offsets.size());
+        auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
 
         // process
@@ -286,9 +286,9 @@ private:
         const auto& right_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size());
+        auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(offsets.size());
+        auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
 
         // process
@@ -348,7 +348,7 @@ private:
         return nullptr;
     }
 
-    Status _execute_dispatch(Block& block, const ColumnNumbers& arguments, size_t result,
+    Status _execute_dispatch(Block& block, const ColumnNumbers& arguments, uint32_t result,
                              size_t input_rows_count) const {
         // extract array offsets and nested data
         auto left_column =

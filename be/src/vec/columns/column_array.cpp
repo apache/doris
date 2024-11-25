@@ -25,6 +25,7 @@
 #include <cstring>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -78,17 +79,9 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nest
     offsets = ColumnOffsets::create();
 }
 
-bool ColumnArray::could_shrinked_column() {
-    return data->could_shrinked_column();
-}
 
-MutableColumnPtr ColumnArray::get_shrinked_column() {
-    if (could_shrinked_column()) {
-        return ColumnArray::create(data->get_shrinked_column(), offsets->assume_mutable());
-    }
-    // if nested column could not be shrinked, we should make behavior consistent
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Method get_shrinked_column is not supported for " + get_name());
+void ColumnArray::shrink_padding_chars() {
+    data->shrink_padding_chars();
 }
 
 std::string ColumnArray::get_name() const {
@@ -131,7 +124,7 @@ Field ColumnArray::operator[](size_t n) const {
 
     if (size > max_array_size_as_field)
         throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
+                ErrorCode::INVALID_ARGUMENT,
                 "Array of size {}, is too large to be manipulated as single field, maximum size {}",
                 size, max_array_size_as_field);
 
@@ -148,7 +141,7 @@ void ColumnArray::get(size_t n, Field& res) const {
 
     if (size > max_array_size_as_field)
         throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
+                ErrorCode::INVALID_ARGUMENT,
                 "Array of size {}, is too large to be manipulated as single field, maximum size {}",
                 size, max_array_size_as_field);
 
@@ -389,7 +382,8 @@ void ColumnArray::insert_from(const IColumn& src_, size_t n) {
 
     if (!get_data().is_nullable() && src.get_data().is_nullable()) {
         // Note: we can't process the case of 'Array(Nullable(nest))'
-        DCHECK(false);
+        throw Exception(ErrorCode::INTERNAL_ERROR, "insert '{}' into '{}'", src.get_name(),
+                        get_name());
     } else if (get_data().is_nullable() && !src.get_data().is_nullable()) {
         // Note: here we should process the case of 'Array(NotNullable(nest))'
         reinterpret_cast<ColumnNullable*>(&get_data())

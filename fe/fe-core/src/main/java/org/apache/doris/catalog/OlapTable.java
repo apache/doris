@@ -110,9 +110,11 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -1383,12 +1385,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public List<Long> getPartitionIds() {
-        readLock();
-        try {
-            return new ArrayList<>(idToPartition.keySet());
-        } finally {
-            readUnlock();
-        }
+        return new ArrayList<>(idToPartition.keySet());
     }
 
     public Set<String> getCopiedBfColumns() {
@@ -2763,6 +2760,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     }
 
+    public void setStoragePageSize(long storagePageSize) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE,
+                Long.valueOf(storagePageSize).toString());
+        tableProperty.buildStoragePageSize();
+    }
+
+    public long storagePageSize() {
+        if (tableProperty != null) {
+            return tableProperty.storagePageSize();
+        }
+        return PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+    }
+
     public void setStorageFormat(TStorageFormat storageFormat) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, storageFormat.name());
@@ -3245,8 +3256,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems() {
-        readLock();
+    public Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) throws AnalysisException {
+        if (!tryReadLock(1, TimeUnit.MINUTES)) {
+            throw new AnalysisException("get table read lock timeout, database=" + getDBName() + ",table=" + getName());
+        }
         try {
             Map<String, PartitionItem> res = Maps.newHashMap();
             for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
@@ -3267,7 +3280,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
+            OptionalLong snapshotId)
             throws AnalysisException {
         Map<String, Long> partitionVersions = context.getBaseVersions().getPartitionVersions();
         long partitionId = getPartitionOrAnalysisException(partitionName).getId();
@@ -3277,7 +3291,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) {
+    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId) {
         Map<Long, Long> tableVersions = context.getBaseVersions().getTableVersions();
         long visibleVersion = tableVersions.containsKey(id) ? tableVersions.get(id) : getVisibleVersion();
         return new MTMVVersionSnapshot(visibleVersion, id);

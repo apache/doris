@@ -236,7 +236,6 @@ public class ConnectContext {
     private Map<String, String> resultAttachedInfo = Maps.newHashMap();
 
     private String workloadGroupName = "";
-    private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
     private boolean isGroupCommit;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
@@ -1327,14 +1326,6 @@ public class ConnectContext {
 
     public String getWorkloadGroupName() {
         return this.workloadGroupName;
-    }
-
-    public void setInsertGroupCommit(long tableId, Backend backend) {
-        insertGroupCommitTableToBeMap.put(tableId, backend);
-    }
-
-    public Backend getInsertGroupCommit(long tableId) {
-        return insertGroupCommitTableToBeMap.get(tableId);
     }
 
     public boolean isSkipAuth() {

@@ -40,6 +40,7 @@ public:
 
     using key_type = Key;
     using mapped_type = Mapped;
+    using Value = Mapped;
     using value_type = std::pair<const Key, Mapped>;
 
     using LookupResult = std::pair<const Key, Mapped>*;
@@ -154,10 +155,8 @@ public:
                                                 [&](const auto& ctor) { f(ctor, key, key); });
     }
 
-    void ALWAYS_INLINE insert(const Key& key, size_t hash_value, const Mapped& value) {
-        auto it = &*_hash_map.lazy_emplace_with_hash(key, hash_value,
-                                                     [&](const auto& ctor) { ctor(key, value); });
-        it->second = value;
+    void ALWAYS_INLINE insert(const Key& key, const Mapped& value) {
+        _hash_map.lazy_emplace(key, [&](const auto& ctor) { ctor(key, value); });
     }
 
     template <typename KeyHolder>
@@ -190,8 +189,6 @@ public:
         return capacity * sizeof(typename HashMapImpl::slot_type);
     }
 
-    size_t get_buffer_size_in_cells() const { return _hash_map.capacity(); }
-
     bool add_elem_size_overflow(size_t row) const {
         const auto capacity = _hash_map.capacity();
         // phmap use 7/8th as maximum load factor.
@@ -209,7 +206,7 @@ public:
 
     void clear_and_shrink() { _hash_map.clear(); }
 
-    void expanse_for_add_elem(size_t num_elem) { _hash_map.reserve(num_elem); }
+    void reserve(size_t num_elem) { _hash_map.reserve(num_elem); }
 
 private:
     HashMapImpl _hash_map;

@@ -46,6 +46,10 @@ public class ModifyColumnClause extends AlterTableClause {
         return column;
     }
 
+    public void setColumn(Column column) {
+        this.column = column;
+    }
+
     public ColumnPosition getColPos() {
         return colPos;
     }

@@ -84,6 +84,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -252,6 +253,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         // we will return false if null, which means that the table type maybe unsupported.
         if (remoteTable.getSd() == null) {
             throw new NotSupportedException("remote table's storage descriptor is null");
+        }
+        // If this is hive view, no need to check file format.
+        if (remoteTable.isSetViewExpandedText() || remoteTable.isSetViewOriginalText()) {
+            return true;
         }
         String inputFileFormat = remoteTable.getSd().getInputFormat();
         if (inputFileFormat == null) {
@@ -744,7 +749,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems() {
+    public Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
@@ -759,8 +764,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
-            throws AnalysisException {
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
+            OptionalLong snapshotId) throws AnalysisException {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
@@ -772,7 +777,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) throws AnalysisException {
+    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId)
+            throws AnalysisException {
         if (getPartitionType() == PartitionType.UNPARTITIONED) {
             return new MTMVMaxTimestampSnapshot(getName(), getLastDdlTime());
         }

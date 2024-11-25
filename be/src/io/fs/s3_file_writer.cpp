@@ -379,7 +379,14 @@ Status S3FileWriter::_set_upload_to_remote_less_than_buffer_size() {
 }
 
 void S3FileWriter::_put_object(UploadFileBuffer& buf) {
-    DCHECK(state() != State::CLOSED) << fmt::format("state is {}", state());
+    if (state() == State::CLOSED) {
+        DCHECK(state() != State::CLOSED)
+                << "state=" << (int)state() << " path=" << _obj_storage_path_opts.path.native();
+        LOG_WARNING("failed to put object because file closed, file path {}",
+                    _obj_storage_path_opts.path.native());
+        buf.set_status(Status::InternalError<false>("try to put closed file"));
+        return;
+    }
     const auto& client = _obj_client->get();
     if (nullptr == client) {
         buf.set_status(Status::InternalError<false>("invalid obj storage client"));

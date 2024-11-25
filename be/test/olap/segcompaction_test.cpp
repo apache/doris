@@ -49,6 +49,7 @@ using namespace ErrorCode;
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* l_engine = nullptr;
 static const std::string lTestDir = "./data_test/data/segcompaction_test";
+constexpr static std::string_view tmp_dir = "./data_test/tmp";
 
 class SegCompactionTest : public testing::Test {
 public:
@@ -59,6 +60,7 @@ public:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
+        config::inverted_index_fd_number_limit_percent = 0;
 
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
@@ -71,6 +73,23 @@ public:
 
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
+
+        // tmp dir
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(tmp_dir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->create_directory(tmp_dir).ok());
+        paths.emplace_back(std::string(tmp_dir), 1024000000);
+        auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
+        EXPECT_TRUE(tmp_file_dirs->init().ok());
+        ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
+
+        // use memory limit
+        int64_t inverted_index_cache_limit = 0;
+        _inverted_index_searcher_cache = std::unique_ptr<segment_v2::InvertedIndexSearcherCache>(
+                InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit,
+                                                                   256));
+
+        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(
+                _inverted_index_searcher_cache.get());
 
         doris::EngineOptions options;
         options.store_paths = paths;
@@ -99,6 +118,7 @@ public:
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         l_engine = nullptr;
         exec_env->set_storage_engine(nullptr);
+        exec_env->set_inverted_index_searcher_cache(nullptr);
     }
 
 protected:
@@ -140,6 +160,7 @@ protected:
         tablet_schema_pb.set_num_rows_per_row_block(1024);
         tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
         tablet_schema_pb.set_next_column_unique_id(4);
+        tablet_schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
 
         ColumnPB* column_1 = tablet_schema_pb.add_column();
         column_1->set_unique_id(1);
@@ -150,6 +171,11 @@ protected:
         column_1->set_index_length(4);
         column_1->set_is_nullable(true);
         column_1->set_is_bf_column(false);
+        auto tablet_index_1 = tablet_schema_pb.add_index();
+        tablet_index_1->set_index_id(1);
+        tablet_index_1->set_index_name("column_1");
+        tablet_index_1->set_index_type(IndexType::INVERTED);
+        tablet_index_1->add_col_unique_id(1);
 
         ColumnPB* column_2 = tablet_schema_pb.add_column();
         column_2->set_unique_id(2);
@@ -162,6 +188,11 @@ protected:
         column_2->set_is_key(true);
         column_2->set_is_nullable(true);
         column_2->set_is_bf_column(false);
+        auto tablet_index_2 = tablet_schema_pb.add_index();
+        tablet_index_2->set_index_id(2);
+        tablet_index_2->set_index_name("column_2");
+        tablet_index_2->set_index_type(IndexType::INVERTED);
+        tablet_index_2->add_col_unique_id(2);
 
         for (int i = 1; i <= num_value_col; i++) {
             ColumnPB* v_column = tablet_schema_pb.add_column();
@@ -245,6 +276,7 @@ protected:
 
 private:
     std::unique_ptr<DataDir> _data_dir;
+    std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
 };
 
 TEST_F(SegCompactionTest, SegCompactionThenRead) {
@@ -300,6 +332,13 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         ls.push_back("10047_4.dat");
         ls.push_back("10047_5.dat");
         ls.push_back("10047_6.dat");
+        ls.push_back("10047_0.idx");
+        ls.push_back("10047_1.idx");
+        ls.push_back("10047_2.idx");
+        ls.push_back("10047_3.idx");
+        ls.push_back("10047_4.idx");
+        ls.push_back("10047_5.idx");
+        ls.push_back("10047_6.idx");
         EXPECT_TRUE(check_dir(ls));
     }
 
@@ -502,6 +541,13 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         ls.push_back("10048_4.dat"); // O
         ls.push_back("10048_5.dat"); // oooooooo
         ls.push_back("10048_6.dat"); // O
+        ls.push_back("10048_0.idx"); // oooo
+        ls.push_back("10048_1.idx"); // O
+        ls.push_back("10048_2.idx"); // O
+        ls.push_back("10048_3.idx"); // o
+        ls.push_back("10048_4.idx"); // O
+        ls.push_back("10048_5.idx"); // oooooooo
+        ls.push_back("10048_6.idx"); // O
         EXPECT_TRUE(check_dir(ls));
     }
 }
@@ -628,6 +674,11 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         ls.push_back("10049_2.dat"); // O
         ls.push_back("10049_3.dat"); // o
         ls.push_back("10049_4.dat"); // O
+        ls.push_back("10049_0.idx"); // O
+        ls.push_back("10049_1.idx"); // o
+        ls.push_back("10049_2.idx"); // O
+        ls.push_back("10049_3.idx"); // o
+        ls.push_back("10049_4.idx"); // O
         EXPECT_TRUE(check_dir(ls));
     }
 }
@@ -789,6 +840,10 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         ls.push_back("10051_1.dat");
         ls.push_back("10051_2.dat");
         ls.push_back("10051_3.dat");
+        ls.push_back("10051_0.idx");
+        ls.push_back("10051_1.idx");
+        ls.push_back("10051_2.idx");
+        ls.push_back("10051_3.idx");
         EXPECT_TRUE(check_dir(ls));
     }
 
@@ -1049,6 +1104,10 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         ls.push_back("10052_1.dat");
         ls.push_back("10052_2.dat");
         ls.push_back("10052_3.dat");
+        ls.push_back("10052_0.idx");
+        ls.push_back("10052_1.idx");
+        ls.push_back("10052_2.idx");
+        ls.push_back("10052_3.idx");
         EXPECT_TRUE(check_dir(ls));
     }
 

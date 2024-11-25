@@ -128,6 +128,7 @@ FE="fe"
 BE="be"
 CLOUD="ms"
 EXT="extensions"
+TOOLS="tools"
 PACKAGE="apache-doris-${VERSION}-bin-${ARCH}"
 
 if [[ "${_USE_AVX2}" == "0" ]]; then
@@ -139,6 +140,7 @@ OUTPUT_FE="${OUTPUT}/${FE}"
 OUTPUT_EXT="${OUTPUT}/${EXT}"
 OUTPUT_BE="${OUTPUT}/${BE}"
 OUTPUT_CLOUD="${OUTPUT}/${CLOUD}"
+OUTPUT_TOOLS="${OUTPUT}/${TOOLS}"
 
 echo "Package Name:"
 echo "FE:    ${OUTPUT_FE}"
@@ -152,7 +154,7 @@ sh build.sh --clean &&
 
 echo "Begin to pack"
 rm -rf "${OUTPUT}"
-mkdir -p "${OUTPUT_FE}" "${OUTPUT_BE}" "${OUTPUT_EXT}" "${OUTPUT_CLOUD}"
+mkdir -p "${OUTPUT_FE}" "${OUTPUT_BE}" "${OUTPUT_EXT}" "${OUTPUT_CLOUD}" "${OUTPUT_TOOLS}"
 
 # FE
 cp -R "${ORI_OUTPUT}"/fe/* "${OUTPUT_FE}"/
@@ -176,6 +178,9 @@ if [[ "${TAR}" -eq 1 ]]; then
     tar -cf - "${PACKAGE}" | xz -T0 -z - >"${PACKAGE}".tar.xz
     cd -
 fi
+
+# TOOL
+cp -R "${ORI_OUTPUT}"/tools/* "${OUTPUT_TOOLS}"/
 
 echo "Output dir: ${OUTPUT}"
 exit 0

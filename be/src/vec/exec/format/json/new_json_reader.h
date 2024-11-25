@@ -39,7 +39,6 @@
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
-#include "vec/common/hash_table/hash_map.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/generic_reader.h"
@@ -267,10 +266,10 @@ private:
     // ======SIMD JSON======
     // name mapping
     /// Hash table match `field name -> position in the block`. NOTE You can use perfect hash map.
-    using NameMap = HashMap<StringRef, size_t, StringRefHash>;
+    using NameMap = phmap::flat_hash_map<StringRef, size_t, StringRefHash>;
     NameMap _slot_desc_index;
     /// Cached search results for previous row (keyed as index in JSON object) - used as a hint.
-    std::vector<NameMap::LookupResult> _prev_positions;
+    std::vector<NameMap::iterator> _prev_positions;
     /// Set of columns which already met in row. Exception is thrown if there are more than one column with the same name.
     std::vector<UInt8> _seen_columns;
     // simdjson

@@ -97,7 +97,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        const size_t result, size_t input_rows_count) const override {
+                        const uint32_t result, size_t input_rows_count) const override {
         auto src_arg = block.get_by_position(arguments[0]);
         ColumnPtr src_column = src_arg.column->convert_to_full_column_if_const();
 

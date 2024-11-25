@@ -22,7 +22,8 @@
 namespace doris::cloud::config {
 
 CONF_Int32(brpc_listen_port, "5000");
-CONF_Int32(brpc_num_threads, "-1");
+CONF_Int32(brpc_num_threads, "64");
+// connections without data transmission for so many seconds will be closed
 // Set -1 to disable it.
 CONF_Int32(brpc_idle_timeout_sec, "-1");
 CONF_String(hostname, "");
@@ -65,10 +66,10 @@ CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
-CONF_mInt32(instance_recycler_worker_pool_size, "8");
+CONF_mInt32(instance_recycler_worker_pool_size, "32");
 CONF_Bool(enable_checker, "false");
 // The parallelism for parallel recycle operation
-CONF_Int32(recycle_pool_parallelism, "10");
+CONF_Int32(recycle_pool_parallelism, "40");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
 // interval for scanning instances to do checks and inspections
@@ -210,6 +211,9 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
 
+// Max byte getting delete bitmap can return, default is 1GB
+CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
+
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
@@ -219,4 +223,6 @@ CONF_Int32(max_tablet_index_num_per_batch, "1000");
 
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
+
+CONF_Bool(enable_check_instance_id, "true");
 } // namespace doris::cloud::config

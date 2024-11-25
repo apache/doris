@@ -21,7 +21,6 @@
 
 #include <memory>
 #include <string_view>
-#include <utility>
 
 #include "common/object_pool.h"
 #include "vec/exprs/table_function/table_function.h"
@@ -37,6 +36,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename TableFunctionType>
 struct TableFunctionCreator {
@@ -91,4 +91,5 @@ Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, Tab
     return Status::NotSupported("Table function {} is not support", t_fn.name.function_name);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -2129,30 +2129,32 @@ public class ShowExecutor {
                         }
                     }
                 }
-                if (sizeLimit > -1 && tabletInfos.size() < sizeLimit) {
+                if (showStmt.hasOffset() && showStmt.getOffset() >= tabletInfos.size()) {
                     tabletInfos.clear();
-                } else if (sizeLimit > -1) {
-                    tabletInfos = tabletInfos.subList((int) showStmt.getOffset(), (int) sizeLimit);
-                }
-
-                // order by
-                List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
-                ListComparator<List<Comparable>> comparator = null;
-                if (orderByPairs != null) {
-                    OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-                    comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
                 } else {
-                    // order by tabletId, replicaId
-                    comparator = new ListComparator<>(0, 1);
-                }
-                Collections.sort(tabletInfos, comparator);
-
-                for (List<Comparable> tabletInfo : tabletInfos) {
-                    List<String> oneTablet = new ArrayList<String>(tabletInfo.size());
-                    for (Comparable column : tabletInfo) {
-                        oneTablet.add(column.toString());
+                    // order by
+                    List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+                    ListComparator<List<Comparable>> comparator = null;
+                    if (orderByPairs != null) {
+                        OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+                        comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
+                    } else {
+                        // order by tabletId, replicaId
+                        comparator = new ListComparator<>(0, 1);
                     }
-                    rows.add(oneTablet);
+                    Collections.sort(tabletInfos, comparator);
+                    if (sizeLimit > -1) {
+                        tabletInfos = tabletInfos.subList((int) showStmt.getOffset(),
+                                Math.min((int) sizeLimit, tabletInfos.size()));
+                    }
+
+                    for (List<Comparable> tabletInfo : tabletInfos) {
+                        List<String> oneTablet = new ArrayList<String>(tabletInfo.size());
+                        for (Comparable column : tabletInfo) {
+                            oneTablet.add(column.toString());
+                        }
+                        rows.add(oneTablet);
+                    }
                 }
             } finally {
                 olapTable.readUnlock();

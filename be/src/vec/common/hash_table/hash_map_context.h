@@ -33,10 +33,6 @@
 #include "vec/core/types.h"
 #include "vec/utils/util.hpp"
 
-namespace doris::pipeline {
-struct RowRefListWithFlags;
-}
-
 namespace doris::vectorized {
 
 constexpr auto BITSIZE = 8;
@@ -587,8 +583,7 @@ struct DataWithNullKey : public Base {
 
 private:
     bool has_null_key = false;
-    // null_key_data store AggregateDataPtr on agg node, store PartitionBlocks on partition sort node.
-    void* null_key_data = nullptr;
+    Base::Value null_key_data;
 };
 
 /// Single low cardinality column.

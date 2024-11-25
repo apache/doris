@@ -351,12 +351,12 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
         request.__set_strictMode(false);
         // this is an internal interface, use admin to pass the auth check
         request.__set_user("admin");
-        if (_exec_env->master_info()->__isset.backend_id) {
-            request.__set_backend_id(_exec_env->master_info()->backend_id);
+        if (_exec_env->cluster_info()->backend_id != 0) {
+            request.__set_backend_id(_exec_env->cluster_info()->backend_id);
         } else {
-            LOG(WARNING) << "_exec_env->master_info not set backend_id";
+            LOG(WARNING) << "_exec_env->cluster_info not set backend_id";
         }
-        TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+        TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
         st = ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
                 [&result, &request](FrontendServiceConnection& client) {
@@ -440,23 +440,25 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                         { status = Status::InternalError(""); });
         // commit txn
         TLoadTxnCommitRequest request;
-        request.__set_auth_code(0); // this is a fake, fe not check it now
+        // deprecated and should be removed in 3.1, use token instead
+        request.__set_auth_code(0);
+        request.__set_token(_exec_env->cluster_info()->curr_auth_token);
         request.__set_db_id(db_id);
         request.__set_table_id(table_id);
         request.__set_txnId(txn_id);
         request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
         request.__set_groupCommit(true);
         request.__set_receiveBytes(state->num_bytes_load_total());
-        if (_exec_env->master_info()->__isset.backend_id) {
-            request.__set_backendId(_exec_env->master_info()->backend_id);
+        if (_exec_env->cluster_info()->backend_id != 0) {
+            request.__set_backendId(_exec_env->cluster_info()->backend_id);
         } else {
-            LOG(WARNING) << "_exec_env->master_info not set backend_id";
+            LOG(WARNING) << "_exec_env->cluster_info not set backend_id";
         }
         if (state) {
             request.__set_commitInfos(state->tablet_commit_infos());
         }
         TLoadTxnCommitResult result;
-        TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+        TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
         int retry_times = 0;
         while (retry_times < config::mow_stream_load_commit_retry_times) {
             st = ThriftRpcHelper::rpc<FrontendServiceClient>(
@@ -482,12 +484,14 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     } else {
         // abort txn
         TLoadTxnRollbackRequest request;
-        request.__set_auth_code(0); // this is a fake, fe not check it now
+        // deprecated and should be removed in 3.1, use token instead
+        request.__set_auth_code(0);
+        request.__set_token(_exec_env->cluster_info()->curr_auth_token);
         request.__set_db_id(db_id);
         request.__set_txnId(txn_id);
         request.__set_reason(status.to_string());
         TLoadTxnRollbackResult result;
-        TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+        TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
         st = ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
                 [&request, &result](FrontendServiceConnection& client) {

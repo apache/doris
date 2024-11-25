@@ -50,8 +50,8 @@ Status PrimaryKeyIndexBuilder::init() {
 
     auto opt = segment_v2::BloomFilterOptions();
     opt.fpp = 0.01;
-    _bloom_filter_index_builder.reset(
-            new segment_v2::PrimaryKeyBloomFilterIndexWriterImpl(opt, type_info));
+    RETURN_IF_ERROR(segment_v2::PrimaryKeyBloomFilterIndexWriterImpl::create(
+            opt, type_info, &_bloom_filter_index_builder));
     return Status::OK();
 }
 
@@ -64,6 +64,9 @@ Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
     if (UNLIKELY(_num_rows == 0)) {
         _min_key.append(key.get_data(), key.get_size());
     }
+    DCHECK(key.compare(_max_key) > 0)
+            << "found duplicate key or key is not sorted! current key: " << key
+            << ", last max key: " << _max_key;
     _max_key.clear();
     _max_key.append(key.get_data(), key.get_size());
     _num_rows++;

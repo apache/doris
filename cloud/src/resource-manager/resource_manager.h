@@ -115,6 +115,25 @@ public:
                                     bool check_master_num);
 
     /**
+     * Check cloud_unique_id is degraded format, and get instance_id from cloud_unique_id
+     * degraded format : "${version}:${instance_id}:${unique_id}"
+     * @param degraded cloud_unique_id
+     *
+     * @return a <is_degraded_format, instance_id> pair, if is_degraded_format == true , instance_id, if is_degraded_format == false, instance_id=""
+     */
+    static std::pair<bool, std::string> get_instance_id_by_cloud_unique_id(
+            const std::string& cloud_unique_id);
+
+    /**
+     * check instance_id is a valid instance, check by get fdb kv 
+     *
+     * @param instance_id
+     *
+     * @return true, instance_id in fdb kv
+     */
+    bool is_instance_id_registered(const std::string& instance_id);
+
+    /**
      * Refreshes the cache of given instance. This process removes the instance in cache
      * and then replaces it with persisted instance state read from underlying KV storage.
      *

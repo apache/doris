@@ -22,10 +22,8 @@
 #include <gen_cpp/Types_types.h>
 
 #include <ostream>
-#include <utility>
 
 #include "common/config.h"
-#include "common/consts.h"
 #include "common/status.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/runtime_state.h"
@@ -49,6 +47,7 @@ class TExprNode;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 const std::string AGG_STATE_SUFFIX = "_state";
 
@@ -146,7 +145,7 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
 
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
                                      doris::vectorized::Block* block, int* result_column_id,
-                                     std::vector<size_t>& args) {
+                                     ColumnNumbers& args) {
     if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
@@ -182,7 +181,7 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
 
     RETURN_IF_ERROR(check_constant(*block, args));
     // call function
-    size_t num_columns_without_result = block->columns();
+    uint32_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, args,
@@ -193,13 +192,13 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
 
 Status VectorizedFnCall::execute_runtime_fitler(doris::vectorized::VExprContext* context,
                                                 doris::vectorized::Block* block,
-                                                int* result_column_id, std::vector<size_t>& args) {
+                                                int* result_column_id, ColumnNumbers& args) {
     return _do_execute(context, block, result_column_id, args);
 }
 
 Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
                                  int* result_column_id) {
-    std::vector<size_t> arguments;
+    ColumnNumbers arguments;
     return _do_execute(context, block, result_column_id, arguments);
 }
 
@@ -247,10 +246,10 @@ bool VectorizedFnCall::equals(const VExpr& other) {
     if (this->_function_name != other_ptr->_function_name) {
         return false;
     }
-    if (this->children().size() != other_ptr->children().size()) {
+    if (get_num_children() != other_ptr->get_num_children()) {
         return false;
     }
-    for (size_t i = 0; i < this->children().size(); i++) {
+    for (uint16_t i = 0; i < get_num_children(); i++) {
         if (!this->get_child(i)->equals(*other_ptr->get_child(i))) {
             return false;
         }
@@ -258,4 +257,5 @@ bool VectorizedFnCall::equals(const VExpr& other) {
     return true;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -262,8 +262,6 @@ public:
     }
 
     virtual int get_filter_id() const { return -1; }
-    // now InListPredicateBase BloomFilterColumnPredicate BitmapFilterColumnPredicate  = true
-    virtual bool is_filter() const { return false; }
     PredicateFilterInfo get_filtered_info() const {
         return PredicateFilterInfo {static_cast<int>(type()), _evaluated_rows - 1,
                                     _evaluated_rows - 1 - _passed_rows};
@@ -303,6 +301,13 @@ public:
     }
 
     bool always_true() const { return _always_true; }
+    // Return whether the ColumnPredicate was created by a runtime filter.
+    // If true, it was definitely created by a runtime filter.
+    // If false, it may still have been created by a runtime filter,
+    // as certain filters like "in filter" generate key ranges instead of ColumnPredicate.
+    // is_runtime_filter uses _can_ignore, except for BitmapFilter,
+    // as BitmapFilter cannot ignore data.
+    virtual bool is_runtime_filter() const { return _can_ignore(); }
 
 protected:
     virtual std::string _debug_string() const = 0;
@@ -325,7 +330,7 @@ protected:
         _judge_filter_rows = 0;
     }
 
-    void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) const {
+    void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) const {
         if ((_judge_counter--) == 0) {
             reset_judge_selectivity();
         }
@@ -352,8 +357,8 @@ protected:
     // without recalculating. At the beginning of the next period,
     // reset_judge_selectivity is used to reset these variables.
     mutable int _judge_counter = 0;
-    mutable int _judge_input_rows = 0;
-    mutable int _judge_filter_rows = 0;
+    mutable uint64_t _judge_input_rows = 0;
+    mutable uint64_t _judge_filter_rows = 0;
     mutable bool _always_true = false;
 };
 

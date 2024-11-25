@@ -24,6 +24,7 @@
 #include <memory>
 #include <string>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
@@ -45,6 +46,7 @@ class ReadBuffer;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class DataTypeJsonb final : public IDataType {
 public:
     using ColumnType = ColumnString;
@@ -70,15 +72,16 @@ public:
 
     virtual Field get_default() const override {
         std::string default_json = "null";
-        JsonBinaryValue binary_val(default_json.c_str(), default_json.size());
-        return JsonbField(binary_val.value(), binary_val.size());
+        JsonBinaryValue binary_val(default_json.c_str(), static_cast<Int32>(default_json.size()));
+        // Throw exception if default_json.size() is large than INT32_MAX
+        return JsonbField(binary_val.value(), cast_set<Int32>(binary_val.size()));
     }
 
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
         DCHECK(node.__isset.json_literal);
         JsonBinaryValue value(node.json_literal.value);
-        return String(value.value(), value.size());
+        return Field(String(value.value(), value.size()));
     }
 
     bool equals(const IDataType& rhs) const override;
@@ -100,4 +103,6 @@ public:
 private:
     DataTypeString data_type_string;
 };
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

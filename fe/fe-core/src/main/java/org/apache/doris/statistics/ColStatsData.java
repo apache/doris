@@ -131,11 +131,6 @@ public class ColStatsData {
     }
 
     public ColumnStatistic toColumnStatistic() {
-        // For non-empty table, return UNKNOWN if we can't collect ndv value.
-        // Because inaccurate ndv is very misleading.
-        if (count > 0 && ndv == 0 && count != nullCount) {
-            return ColumnStatistic.UNKNOWN;
-        }
         try {
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
             columnStatisticBuilder.setNdv(ndv);

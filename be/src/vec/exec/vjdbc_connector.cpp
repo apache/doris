@@ -259,8 +259,8 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     env->DeleteLocalRef(map);
 
-    std::vector<size_t> all_columns;
-    for (size_t i = 0; i < column_size; ++i) {
+    std::vector<uint32_t> all_columns;
+    for (uint32_t i = 0; i < column_size; ++i) {
         all_columns.push_back(i);
     }
     SCOPED_RAW_TIMER(&_jdbc_statistic._fill_block_timer);

@@ -974,7 +974,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                             objectPool,
                                             olapTable.rowStorePageSize(),
-                                            olapTable.variantEnableFlattenNested());
+                                            olapTable.variantEnableFlattenNested(),
+                                            olapTable.storagePageSize());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());

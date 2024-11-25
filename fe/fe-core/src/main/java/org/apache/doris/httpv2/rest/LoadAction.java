@@ -575,7 +575,7 @@ public class LoadAction extends RestBaseController {
     // So this function is not widely tested under general scenario
     private boolean checkClusterToken(String token) {
         try {
-            return Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token);
+            return Env.getCurrentEnv().getTokenManager().checkAuthToken(token);
         } catch (UserException e) {
             throw new UnauthorizedException(e.getMessage());
         }

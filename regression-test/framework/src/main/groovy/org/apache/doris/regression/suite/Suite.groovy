@@ -730,6 +730,26 @@ class Suite implements GroovyInterceptable {
         profileAction.run()
     }
 
+    String checkNereidsExecuteWithResult(String sqlString) {
+        String tag = UUID.randomUUID().toString();
+        String result = null;
+        log.info("start check" + tag)
+        String finalSqlString = "--" + tag + "\n" + sqlString
+        ProfileAction profileAction = new ProfileAction(context, tag)
+        profileAction.run {
+            log.info("start profile run" + tag)
+            result = sql (finalSqlString)
+        }
+        profileAction.check {
+            profileString, exception ->
+                log.info("start profile check" + tag)
+                log.info(profileString)
+                Assertions.assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
+        }
+        profileAction.run()
+        return result;
+    }
+
     void createMV(String sql) {
         (new CreateMVAction(context, sql)).run()
     }
@@ -756,6 +776,26 @@ class Suite implements GroovyInterceptable {
             quickTest("", """ SELECT * FROM ${tbName}  """, true)
             sql """ DROP TABLE  ${tbName} """
         }
+    }
+
+    void waitForBrokerLoadDone(String label, int timeoutInSecond = 60) {
+        if (timeoutInSecond < 0 || label == null) {
+            return
+        }
+        var start = System.currentTimeMillis()
+        var timeout = timeoutInSecond * 1000
+        while (System.currentTimeMillis() - start < timeout) {
+            def lists = sql "show load where label = '${label}'"
+            if (lists.isEmpty()) {
+                return
+            }
+            def state = lists[0][2]
+            if ("FINISHED".equals(state) || "CANCELLED".equals(state)) {
+                return
+            }
+            sleep(300)
+        }
+        logger.warn("broker load with label `${label}` didn't finish in ${timeoutInSecond} second, please check it!")
     }
 
 
@@ -1538,8 +1578,8 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def getMVJobState = { tableName, rollUpName  ->
-        def jobStateResult = sql """ SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' and IndexName = '${rollUpName}' ORDER BY CreateTime DESC limit 1"""
+    def getMVJobState = { tableName  ->
+        def jobStateResult = sql """ SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC limit 1"""
         if (jobStateResult == null || jobStateResult.isEmpty()) {
             logger.info("show alter table roll is empty" + jobStateResult)
             return "NOT_READY"
@@ -1550,14 +1590,14 @@ class Suite implements GroovyInterceptable {
         }
         return "FINISHED";
     }
-    def waitForRollUpJob =  (tbName, rollUpName, timeoutMillisecond) -> {
+    def waitForRollUpJob =  (tbName, timeoutMillisecond) -> {
 
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + timeoutMillisecond
 
         String result
         while (timeoutTimestamp > System.currentTimeMillis()){
-            result = getMVJobState(tbName, rollUpName)
+            result = getMVJobState(tbName)
             if (result == "FINISHED") {
                 sleep(200)
                 return
@@ -1640,7 +1680,7 @@ class Suite implements GroovyInterceptable {
     }
 
     void setFeConfig(String key, Object value) {
-        sql "ADMIN SET FRONTEND CONFIG ('${key}' = '${value}')"
+        sql "ADMIN SET ALL FRONTENDS CONFIG ('${key}' = '${value}')"
     }
 
     void setFeConfigTemporary(Map<String, Object> tempConfig, Closure actionSupplier) {
@@ -1833,8 +1873,17 @@ class Suite implements GroovyInterceptable {
     }
 
     // mv not part in rewrite process
-    def mv_not_part_in = { query_sql, mv_name ->
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name)
+    void mv_not_part_in(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name + ", sync_cbo_rewrite = " + sync_cbo_rewrite)
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean isContain = result.contains("${mv_name}")
+                    Assert.assertFalse(isContain)
+                }
+            }
+        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
@@ -1846,8 +1895,20 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv all not part in rewrite process
-    def mv_all_not_part_in = { query_sql, mv_names ->
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
+    void mv_all_not_part_in(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " + sync_cbo_rewrite)
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean isContain = false;
+                    for (String mv_name : mv_names) {
+                        isContain = isContain || result.contains("${mv_name}")
+                    }
+                    Assert.assertFalse(isContain)
+                }
+            }
+        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->

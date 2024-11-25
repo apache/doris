@@ -563,6 +563,10 @@ public class Config extends ConfigBase {
             "Default timeout for insert load job, in seconds."})
     public static int insert_load_default_timeout_second = 14400; // 4 hour
 
+    @ConfField(mutable = true, masterOnly = true, description = {"对mow表随机设置cluster keys，用于测试",
+            "random set cluster keys for mow table for test"})
+    public static boolean random_add_cluster_keys_for_mow = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {
             "等内部攒批真正写入完成才返回；insert into和stream load默认开启攒批",
             "Wait for the internal batch to be written before returning; "
@@ -1352,7 +1356,16 @@ public class Config extends ConfigBase {
      * For performance based considerations, better not set a very high value for this.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int decommission_tablet_check_threshold = 5000;
+    public static int decommission_tablet_check_threshold = 50000;
+
+    /**
+     * When decommission a backend, need to migrate all its tablets to other backends.
+     * But there maybe some leaky tablets due to forgetting to delete them from TabletInvertIndex.
+     * They are not in use. Decommission can skip migrating them.
+     * For safety, decommission wait for a period after founding leaky tablets.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int decommission_skip_leaky_tablet_second = 3600 * 5;
 
     /**
      * Decommission a tablet need to wait all the previous txns finished.
@@ -1513,9 +1526,10 @@ public class Config extends ConfigBase {
 
     /**
      * Whether to allow the outfile function to export the results to the local disk.
+     * If set to true, there's risk to run out of FE disk capacity.
      */
     @ConfField
-    public static boolean enable_outfile_to_local = true;
+    public static boolean enable_outfile_to_local = false;
 
     /**
      * Used to set the initial flow window size of the GRPC client channel, and also used to max message size.
@@ -1595,6 +1609,15 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false)
     public static boolean backup_job_compressed_serialization = false;
+
+    /**
+     * A internal config, to indicate whether to enable the restore snapshot rpc compression.
+     *
+     * The ccr syncer will depends this config to decide whether to compress the meta and job
+     * info of the restore snapshot request.
+     */
+    @ConfField(mutable = false)
+    public static boolean enable_restore_snapshot_rpc_compression = true;
 
     /**
      * Control the max num of tablets per backup job involved.
@@ -2157,7 +2180,7 @@ public class Config extends ConfigBase {
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
      */
-    @ConfField(mutable = true, masterOnly = false, options = {"p0"})
+    @ConfField(mutable = true, masterOnly = false, options = {"p0", "daily", "rqg"})
     public static String fuzzy_test_type = "";
 
     /**
@@ -2165,6 +2188,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static boolean use_fuzzy_session_variable = false;
+
+    /**
+     * Set config variables randomly to check more issues in github workflow
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean use_fuzzy_conf = false;
 
     /**
      * Max num of same name meta informatntion in catalog recycle bin.
@@ -2630,6 +2659,13 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_java_udf = true;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "开启后，可以在导入时，利用创建的全局java_udf函数处理数据, 默认为false。",
+        "When enabled, data can be processed using the globally created java_udf function during import."
+                + " The default setting is false."
+    })
+    public static boolean enable_udf_in_load = false;
+
     @ConfField(description = {
             "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
                     + "默认为 false，如果 Image 文件中包含未知的模块，Doris 将会抛出异常。"
@@ -2643,7 +2679,7 @@ public class Config extends ConfigBase {
     })
     public static boolean ignore_unknown_metadata_module = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
+    @ConfField(mutable = true, description = {
             "从主节点同步image文件的超时时间，用户可根据${meta_dir}/image文件夹下面的image文件大小和节点间的网络环境调整，"
                     + "单位为秒，默认值300",
             "The timeout for FE Follower/Observer synchronizing an image file from the FE Master, can be adjusted by "
@@ -3232,4 +3268,10 @@ public class Config extends ConfigBase {
             "For testing purposes, all queries are forcibly forwarded to the master to verify"
                     + "the behavior of forwarding queries."})
     public static boolean force_forward_all_queries = false;
+
+    @ConfField(description = {"用于禁用某些SQL，配置项为AST的class simple name列表(例如CreateRepositoryStmt,"
+            + "CreatePolicyCommand)，用逗号间隔开",
+            "For disabling certain SQL queries, the configuration item is a list of simple class names of AST"
+                    + "(for example CreateRepositoryStmt, CreatePolicyCommand), separated by commas."})
+    public static String block_sql_ast_names = "";
 }

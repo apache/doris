@@ -384,13 +384,15 @@ public class IcebergScanNode extends FileQueryScanNode {
             return 0;
         }
 
+        // `TOTAL_POSITION_DELETES` is need to 0,
+        // because prevent 'dangling delete' problem after `rewrite_data_files`
+        // ref: https://iceberg.apache.org/docs/nightly/spark-procedures/#rewrite_position_delete_files
         Map<String, String> summary = snapshot.summary();
-        if (summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")) {
-            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS))
-                - Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
-        } else {
+        if (!summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")
+                || !summary.get(IcebergUtils.TOTAL_POSITION_DELETES).equals("0")) {
             return -1;
         }
+        return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
     }
 
     @Override

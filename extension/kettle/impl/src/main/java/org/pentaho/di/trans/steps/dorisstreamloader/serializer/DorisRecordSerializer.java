@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.StringJoiner;
 
 import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.CSV;
+import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.DORIS_DELETE_SIGN;
 import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.JSON;
 import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.NULL_VALUE;
 
@@ -47,13 +48,15 @@ public class DorisRecordSerializer {
     private final String fieldDelimiter;
     private final ValueMetaInterface[] formatMeta;
     private LogChannelInterface log;
+    private final boolean deletable;
 
     private DorisRecordSerializer(
             String[] fieldNames,
             ValueMetaInterface[] formatMeta,
             String type,
             String fieldDelimiter,
-            LogChannelInterface log) {
+            LogChannelInterface log,
+            boolean deletable) {
         this.fieldNames = fieldNames;
         this.type = type;
         this.fieldDelimiter = fieldDelimiter;
@@ -62,6 +65,7 @@ public class DorisRecordSerializer {
         }
         this.formatMeta = formatMeta;
         this.log = log;
+        this.deletable = deletable;
     }
 
 
@@ -89,6 +93,10 @@ public class DorisRecordSerializer {
             valueMap.put(fieldNames[fieldIndex], value);
             fieldIndex++;
         }
+        if (deletable) {
+            // All load data will be deleted
+            valueMap.put(DORIS_DELETE_SIGN, "1");
+        }
         return objectMapper.writeValueAsString(valueMap);
     }
 
@@ -100,6 +108,10 @@ public class DorisRecordSerializer {
             String value = field != null ? field.toString() : NULL_VALUE;
             joiner.add(value);
             fieldIndex++;
+        }
+        if (deletable) {
+            // All load data will be deleted
+            joiner.add("1");
         }
         return joiner.toString();
     }
@@ -147,6 +159,7 @@ public class DorisRecordSerializer {
         private String type;
         private String fieldDelimiter;
         private LogChannelInterface log;
+        private boolean deletable;
 
         public Builder setFieldNames(String[] fieldNames) {
             this.fieldNames = fieldNames;
@@ -173,6 +186,11 @@ public class DorisRecordSerializer {
             return this;
         }
 
+        public Builder setDeletable(boolean deletable) {
+            this.deletable = deletable;
+            return this;
+        }
+
         public DorisRecordSerializer build() {
             Preconditions.checkState(
                     CSV.equals(type) && fieldDelimiter != null
@@ -180,7 +198,7 @@ public class DorisRecordSerializer {
             Preconditions.checkNotNull(formatMeta);
             Preconditions.checkNotNull(fieldNames);
 
-            return new DorisRecordSerializer(fieldNames, formatMeta, type, fieldDelimiter, log);
+            return new DorisRecordSerializer(fieldNames, formatMeta, type, fieldDelimiter, log, deletable);
         }
     }
 }

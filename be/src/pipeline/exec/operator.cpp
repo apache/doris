@@ -666,7 +666,7 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
     if (_writer) {
         Status st = _writer->get_writer_status();
         if (exec_status.ok()) {
-            _writer->force_close(state->is_cancelled() ? Status::Cancelled("Cancelled")
+            _writer->force_close(state->is_cancelled() ? state->cancel_reason()
                                                        : Status::Cancelled("force close"));
         } else {
             _writer->force_close(exec_status);

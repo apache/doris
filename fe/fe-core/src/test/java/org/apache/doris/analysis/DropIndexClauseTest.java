@@ -39,7 +39,15 @@ public class DropIndexClauseTest {
         DropIndexClause clause = new DropIndexClause("index1", false,
                 new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"), false);
         clause.analyze(analyzer);
-        Assert.assertEquals("DROP INDEX index1 ON `db`.`table`", clause.toSql());
+        Assert.assertEquals("DROP INDEX `index1` ON `db`.`table`", clause.toSql());
+    }
+
+    @Test
+    public void testAlter() throws UserException {
+        DropIndexClause clause = new DropIndexClause("index1", false,
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"), true);
+        clause.analyze(analyzer);
+        Assert.assertEquals("DROP INDEX `index1`", clause.toSql());
     }
 
     @Test(expected = AnalysisException.class)

@@ -22,6 +22,7 @@
 #include <memory>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "pipeline/exec/operator.h"
 #include "vec/exprs/vectorized_agg_fn.h"
@@ -1217,7 +1218,8 @@ Status StreamingAggOperatorX::open(RuntimeState* state) {
     // check output type
     if (_needs_finalize) {
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::check_agg_fn_output(
-                _probe_expr_ctxs.size(), _aggregate_evaluators, _agg_fn_output_row_descriptor));
+                cast_set<uint32_t>(_probe_expr_ctxs.size()), _aggregate_evaluators,
+                _agg_fn_output_row_descriptor));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
 

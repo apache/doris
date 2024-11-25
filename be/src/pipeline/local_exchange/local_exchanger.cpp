@@ -226,19 +226,6 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
                 new_block_wrapper->unref(local_state._shared_state, local_state._channel_id);
             }
         }
-    } else if (_num_senders != _num_sources) {
-        // In this branch, data just should be distributed equally into all instances.
-        new_block_wrapper->ref(_num_partitions);
-        for (size_t i = 0; i < _num_partitions; i++) {
-            uint32_t start = local_state._partition_rows_histogram[i];
-            uint32_t size = local_state._partition_rows_histogram[i + 1] - start;
-            if (size > 0) {
-                _enqueue_data_and_set_ready(i % _num_sources, local_state,
-                                            {new_block_wrapper, {row_idx, start, size}});
-            } else {
-                new_block_wrapper->unref(local_state._shared_state, local_state._channel_id);
-            }
-        }
     } else {
         DCHECK(!bucket_seq_to_instance_idx.empty());
         new_block_wrapper->ref(_num_partitions);

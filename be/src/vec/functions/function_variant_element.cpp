@@ -95,7 +95,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto* variant_col = check_and_get_column<ColumnObject>(
                 remove_nullable(block.get_by_position(arguments[0]).column).get());
         if (!variant_col) {

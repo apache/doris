@@ -108,6 +108,7 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
             "atomic_restore" = "true"
         )
     """
+    sql "SYNC"
 
     boolean restore_paused = false
     for (int k = 0; k < 60; k++) {
@@ -120,6 +121,8 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
         sleep(3000)
     }
     assertTrue(restore_paused)
+
+    sql "SYNC"
 
     // 0. table_1 has in_atomic_restore property
     def show_result = sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """
@@ -224,6 +227,7 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
 
 
     sql "CANCEL RESTORE FROM ${dbName}"
+    sql "SYNC"
 
     // 5. The restore job is cancelled, the in_atomic_restore property has been removed.
     show_result = sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """

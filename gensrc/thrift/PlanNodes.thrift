@@ -321,17 +321,18 @@ struct TPaimonDeletionFileDesc {
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
-    3: optional string db_name
-    4: optional string table_name
+    3: optional string db_name // deprecated
+    4: optional string table_name // deprecated
     5: optional string paimon_predicate
-    6: optional map<string, string> paimon_options
-    7: optional i64 ctl_id
-    8: optional i64 db_id
-    9: optional i64 tbl_id
-    10: optional i64 last_update_time
+    6: optional map<string, string> paimon_options // deprecated
+    7: optional i64 ctl_id // deprecated
+    8: optional i64 db_id // deprecated
+    9: optional i64 tbl_id // deprecated
+    10: optional i64 last_update_time // deprecated
     11: optional string file_format
     12: optional TPaimonDeletionFileDesc deletion_file;
-    13: optional map<string, string> hadoop_conf
+    13: optional map<string, string> hadoop_conf // deprecated
+    14: optional string paimon_table
 }
 
 struct TTrinoConnectorFileDesc {

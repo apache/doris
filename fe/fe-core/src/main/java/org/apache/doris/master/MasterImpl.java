@@ -143,6 +143,7 @@ public class MasterImpl {
                         + (taskStatus.isSetErrorMsgs() ? (", status_message: " + taskStatus.getErrorMsgs()) : "")
                         + ", backendId: " + backend + ", signature: " + signature;
                 task.setErrorMsg(errMsg);
+                task.setErrorCode(taskStatus.getStatusCode());
                 // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE

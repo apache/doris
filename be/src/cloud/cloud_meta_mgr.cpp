@@ -384,7 +384,8 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
     return Status::OK();
 }
 
-Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data) {
+Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data,
+                                         bool sync_delete_bitmap, bool full_sync) {
     using namespace std::chrono;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
@@ -410,7 +411,11 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
         idx->set_partition_id(tablet->partition_id());
         {
             std::shared_lock rlock(tablet->get_header_lock());
-            req.set_start_version(tablet->max_version_unlocked() + 1);
+            if (full_sync) {
+                req.set_start_version(0);
+            } else {
+                req.set_start_version(tablet->max_version_unlocked() + 1);
+            }
             req.set_base_compaction_cnt(tablet->base_compaction_cnt());
             req.set_cumulative_compaction_cnt(tablet->cumulative_compaction_cnt());
             req.set_cumulative_point(tablet->cumulative_layer_point());
@@ -465,12 +470,12 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
 
         // If is mow, the tablet has no delete bitmap in base rowsets.
         // So dont need to sync it.
-        if (tablet->enable_unique_key_merge_on_write() &&
+        if (sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DeleteBitmap delete_bitmap(tablet_id);
             int64_t old_max_version = req.start_version() - 1;
             auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
-                                                resp.stats(), req.idx(), &delete_bitmap);
+                                                resp.stats(), req.idx(), &delete_bitmap, full_sync);
             if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
                 LOG_WARNING("rowset meta is expired, need to retry")
                         .tag("tablet", tablet->tablet_id())
@@ -554,6 +559,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 bool version_overlap =
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
                 tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, warmup_delta_data);
+                RETURN_IF_ERROR(tablet->merge_rowsets_schema());
             }
             tablet->last_base_compaction_success_time_ms = stats.last_base_compaction_time_ms();
             tablet->last_cumu_compaction_success_time_ms = stats.last_cumu_compaction_time_ms();
@@ -615,12 +621,13 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
 Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                                std::ranges::range auto&& rs_metas,
                                                const TabletStatsPB& stats, const TabletIndexPB& idx,
-                                               DeleteBitmap* delete_bitmap) {
+                                               DeleteBitmap* delete_bitmap, bool full_sync) {
     if (rs_metas.empty()) {
         return Status::OK();
     }
 
-    if (sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
+    if (!full_sync &&
+        sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
         return Status::OK();
     } else {
         LOG(WARNING) << "failed to sync delete bitmap by txn info. tablet_id="
@@ -704,11 +711,19 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     const auto& segment_ids = res.segment_ids();
     const auto& vers = res.versions();
     const auto& delete_bitmaps = res.segment_delete_bitmaps();
+    if (rowset_ids.size() != segment_ids.size() || rowset_ids.size() != vers.size() ||
+        rowset_ids.size() != delete_bitmaps.size()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                "get delete bitmap data wrong,"
+                "rowset_ids.size={},segment_ids.size={},vers.size={},delete_bitmaps.size={}",
+                rowset_ids.size(), segment_ids.size(), vers.size(), delete_bitmaps.size());
+    }
     for (size_t i = 0; i < rowset_ids.size(); i++) {
         RowsetId rst_id;
         rst_id.init(rowset_ids[i]);
-        delete_bitmap->merge({rst_id, segment_ids[i], vers[i]},
-                             roaring::Roaring::read(delete_bitmaps[i].data()));
+        delete_bitmap->merge(
+                {rst_id, segment_ids[i], vers[i]},
+                roaring::Roaring::readSafe(delete_bitmaps[i].data(), delete_bitmaps[i].length()));
     }
     int64_t latency = cntl.latency_us();
     if (latency > 100 * 1000) { // 100ms
@@ -827,7 +842,7 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
                 Status status;
                 int64_t duration_ns = 0;
                 TNetworkAddress master_addr =
-                        ExecEnv::GetInstance()->master_info()->network_address;
+                        ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
                 if (master_addr.hostname.empty() || master_addr.port == 0) {
                     status = Status::Error<SERVICE_UNAVAILABLE>(
                             "Have not get FE Master heartbeat yet");
@@ -1061,9 +1076,9 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     return st;
 }
 
-Status CloudMetaMgr::update_delete_bitmap_without_lock(const CloudTablet& tablet,
-                                                       DeleteBitmap* delete_bitmap) {
-    LOG(INFO) << "update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id()
+Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(const CloudTablet& tablet,
+                                                             DeleteBitmap* delete_bitmap) {
+    LOG(INFO) << "cloud_update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id()
               << ",delete_bitmap size:" << delete_bitmap->delete_bitmap.size();
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
@@ -1193,7 +1208,7 @@ int64_t CloudMetaMgr::get_segment_file_size(const RowsetMeta& rs_meta) {
         auto st = fs->file_size(segment_path, &segment_file_size);
         if (!st.ok()) {
             segment_file_size = 0;
-            if (st.is<FILE_NOT_EXIST>()) {
+            if (st.is<NOT_FOUND>()) {
                 LOG(INFO) << "cloud table size correctness check get segment size 0 because "
                              "file not exist! msg:"
                           << st.msg() << ", segment path:" << segment_path;
@@ -1229,7 +1244,7 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
                 auto st = fs->file_size(inverted_index_file_path, &file_size);
                 if (!st.ok()) {
                     file_size = 0;
-                    if (st.is<FILE_NOT_EXIST>()) {
+                    if (st.is<NOT_FOUND>()) {
                         LOG(INFO) << "cloud table size correctness check get inverted index v1 "
                                      "0 because file not exist! msg:"
                                   << st.msg()
@@ -1255,7 +1270,7 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
             auto st = fs->file_size(inverted_index_file_path, &file_size);
             if (!st.ok()) {
                 file_size = 0;
-                if (st.is<FILE_NOT_EXIST>()) {
+                if (st.is<NOT_FOUND>()) {
                     LOG(INFO) << "cloud table size correctness check get inverted index v2 "
                                  "0 because file not exist! msg:"
                               << st.msg() << ", inverted index path:" << inverted_index_file_path;

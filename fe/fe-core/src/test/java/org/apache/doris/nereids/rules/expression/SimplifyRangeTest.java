@@ -359,6 +359,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
                 "(CA is null and null) OR CB < timestamp '2024-01-05 00:50:00'");
     }
 
+    @Test
     private void assertRewrite(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);

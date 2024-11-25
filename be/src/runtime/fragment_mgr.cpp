@@ -17,6 +17,7 @@
 
 #include "runtime/fragment_mgr.h"
 
+#include <brpc/controller.h>
 #include <bvar/latency_recorder.h>
 #include <exprs/runtime_filter.h>
 #include <fmt/format.h>
@@ -84,6 +85,7 @@
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
+#include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -487,8 +489,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     req.runtime_state->get_unreported_errors(&(params.error_log));
     params.__isset.error_log = (!params.error_log.empty());
 
-    if (_exec_env->master_info()->__isset.backend_id) {
-        params.__set_backend_id(_exec_env->master_info()->backend_id);
+    if (_exec_env->cluster_info()->backend_id != 0) {
+        params.__set_backend_id(_exec_env->cluster_info()->backend_id);
     }
 
     TReportExecStatusResult res;
@@ -749,7 +751,9 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
     if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
         return q_ctx->print_all_pipeline_context();
     } else {
-        return fmt::format("Query context (query id = {}) not found. \n", print_id(query_id));
+        return fmt::format(
+                "Dump pipeline tasks failed: Query context (query id = {}) not found. \n",
+                print_id(query_id));
     }
 }
 
@@ -904,6 +908,7 @@ void FragmentMgr::cancel_worker() {
             c->clear_finished_tasks();
         }
 
+        std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem> brpc_stub_with_queries;
         {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
@@ -911,10 +916,18 @@ void FragmentMgr::cancel_worker() {
                     if (q_ctx->is_timeout(now)) {
                         LOG_WARNING("Query {} is timeout", print_id(it->first));
                         queries_timeout.push_back(it->first);
-                        ++it;
-                    } else {
-                        ++it;
+                    } else if (config::enable_brpc_connection_check) {
+                        auto brpc_stubs = q_ctx->get_using_brpc_stubs();
+                        for (auto& item : brpc_stubs) {
+                            if (!brpc_stub_with_queries.contains(item.second)) {
+                                brpc_stub_with_queries.emplace(item.second,
+                                                               BrpcItem {item.first, {q_ctx}});
+                            } else {
+                                brpc_stub_with_queries[item.second].queries.emplace_back(q_ctx);
+                            }
+                        }
                     }
+                    ++it;
                 } else {
                     it = _query_ctx_map.erase(it);
                 }
@@ -1006,6 +1019,16 @@ void FragmentMgr::cancel_worker() {
             }
         }
 
+        if (config::enable_brpc_connection_check) {
+            for (auto it : brpc_stub_with_queries) {
+                if (!it.first) {
+                    LOG(WARNING) << "brpc stub is nullptr, skip it.";
+                    continue;
+                }
+                _check_brpc_available(it.first, it.second);
+            }
+        }
+
         if (!queries_lost_coordinator.empty()) {
             LOG(INFO) << "There are " << queries_lost_coordinator.size()
                       << " queries need to be cancelled, coordinator dead or restarted.";
@@ -1029,8 +1052,55 @@ void FragmentMgr::cancel_worker() {
                                       "Source frontend is not running or restarted"));
         }
 
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
+    } while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::fragment_mgr_cancel_worker_interval_seconds)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
+}
+
+void FragmentMgr::_check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
+                                        const BrpcItem& brpc_item) {
+    const std::string message = "hello doris!";
+    std::string error_message;
+    int32_t failed_count = 0;
+    while (true) {
+        PHandShakeRequest request;
+        request.set_hello(message);
+        PHandShakeResponse response;
+        brpc::Controller cntl;
+        cntl.set_timeout_ms(500 * (failed_count + 1));
+        cntl.set_max_retry(10);
+        brpc_stub->hand_shake(&cntl, &request, &response, nullptr);
+
+        if (cntl.Failed()) {
+            error_message = cntl.ErrorText();
+            LOG(WARNING) << "brpc stub: " << brpc_item.network_address.hostname << ":"
+                         << brpc_item.network_address.port << " check failed: " << error_message;
+        } else if (response.has_status() && response.status().status_code() == 0) {
+            break;
+        } else {
+            error_message = response.DebugString();
+            LOG(WARNING) << "brpc stub: " << brpc_item.network_address.hostname << ":"
+                         << brpc_item.network_address.port << " check failed: " << error_message;
+        }
+        failed_count++;
+        if (failed_count == 2) {
+            for (const auto& query_wptr : brpc_item.queries) {
+                auto query = query_wptr.lock();
+                if (query && !query->is_cancelled()) {
+                    query->cancel(Status::InternalError("brpc(dest: {}:{}) check failed: {}",
+                                                        brpc_item.network_address.hostname,
+                                                        brpc_item.network_address.port,
+                                                        error_message));
+                }
+            }
+
+            LOG(WARNING) << "remove brpc stub from cache: " << brpc_item.network_address.hostname
+                         << ":" << brpc_item.network_address.port << ", error: " << error_message;
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    brpc_item.network_address.hostname, brpc_item.network_address.port);
+            break;
+        }
+    }
 }
 
 void FragmentMgr::debug(std::stringstream& ss) {}
@@ -1177,7 +1247,9 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));
 
         std::ranges::for_each(filters, [&](auto& filter) {
-            filter->update_filter(filter_wrapper, request->merge_time(), start_apply);
+            filter->update_filter(
+                    filter_wrapper, request->merge_time(), start_apply,
+                    request->has_local_merge_time() ? request->local_merge_time() : 0);
         });
     }
 
@@ -1196,14 +1268,16 @@ Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
         if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
-            return Status::EndOfFile("Query context (query-id: {}) not found, maybe finished",
-                                     queryid.to_string());
+            return Status::EndOfFile(
+                    "Send filter size failed: Query context (query-id: {}) not found, maybe "
+                    "finished",
+                    queryid.to_string());
         }
     }
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
-    auto merge_status = filter_controller->send_filter_size(request);
+    auto merge_status = filter_controller->send_filter_size(query_ctx, request);
     return merge_status;
 }
 
@@ -1218,8 +1292,9 @@ Status FragmentMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
         if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
-            return Status::InvalidArgument("Query context (query-id: {}) not found",
-                                           queryid.to_string());
+            return Status::InvalidArgument(
+                    "Sync filter size failed: Query context (query-id: {}) not found",
+                    queryid.to_string());
         }
     }
     return query_ctx->runtime_filter_mgr()->sync_filter_size(request);
@@ -1238,14 +1313,15 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
-            return Status::InvalidArgument("Query context (query-id: {}) not found",
-                                           queryid.to_string());
+            return Status::InvalidArgument(
+                    "Merge filter size failed: Query context (query-id: {}) not found",
+                    queryid.to_string());
         }
     }
     SCOPED_ATTACH_TASK(query_ctx.get());
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
-    auto merge_status = filter_controller->merge(request, attach_data);
+    auto merge_status = filter_controller->merge(query_ctx, request, attach_data);
     return merge_status;
 }
 

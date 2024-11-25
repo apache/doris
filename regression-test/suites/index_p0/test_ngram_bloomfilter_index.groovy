@@ -59,4 +59,51 @@ suite("test_ngram_bloomfilter_index") {
     qt_select_eq_3 "SELECT * FROM ${tableName} WHERE http_url = '/%/7212503657802320699%' ORDER BY key_id"
     qt_select_in_3 "SELECT * FROM ${tableName} WHERE http_url IN ('/%/7212503657802320699%') ORDER BY key_id"
     qt_select_like_3 "SELECT * FROM ${tableName} WHERE http_url like '/%/7212503657802320699%' ORDER BY key_id"
+
+    //case for bf_size 65536
+    def tableName2 = 'test_ngram_bloomfilter_index2'
+    sql "DROP TABLE IF EXISTS ${tableName2}"
+    test {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName2} (
+            `key_id` bigint(20) NULL COMMENT '',
+            `category` varchar(200) NULL COMMENT '',
+            `https_url` varchar(300) NULL COMMENT '',
+            `hostname` varchar(300) NULL,
+            `http_url` text NULL COMMENT '',
+            `url_path` varchar(2000) NULL COMMENT '',
+            `cnt` bigint(20) NULL COMMENT '',
+            `host_flag` boolean NULL COMMENT '',
+            INDEX idx_ngrambf (`http_url`) USING NGRAM_BF PROPERTIES("gram_size" = "2", "bf_size" = "65536")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`key_id`, `category`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`key_id`) BUCKETS 3
+        PROPERTIES("replication_num" = "1");
+        """
+        exception "bf_size should be integer and between 64 and 65535"
+    }
+
+    def tableName3 = 'test_ngram_bloomfilter_index3'
+    sql "DROP TABLE IF EXISTS ${tableName3}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName3} (
+            `key_id` bigint(20) NULL COMMENT '',
+            `category` varchar(200) NULL COMMENT '',
+            `https_url` varchar(300) NULL COMMENT '',
+            `hostname` varchar(300) NULL,
+            `http_url` text NULL COMMENT '',
+            `url_path` varchar(2000) NULL COMMENT '',
+            `cnt` bigint(20) NULL COMMENT '',
+            `host_flag` boolean NULL COMMENT ''
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`key_id`, `category`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`key_id`) BUCKETS 3
+        PROPERTIES("replication_num" = "1");
+        """
+    test {
+        sql """ALTER TABLE  ${tableName3} ADD INDEX idx_http_url(http_url) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="65536") COMMENT 'http_url ngram_bf index'"""
+        exception "bf_size should be integer and between 64 and 65535"
+    }
 }

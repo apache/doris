@@ -124,7 +124,7 @@ static bool query_string(const TabletIndex* index,
     for (int i = 0; i < query_data.size(); i++) {
         TQueryOptions queryOptions;
         auto query = QueryFactory::create(InvertedIndexQueryType::EQUAL_QUERY, *string_searcher,
-                                          queryOptions);
+                                          queryOptions, nullptr);
         EXPECT_TRUE(query != nullptr);
         InvertedIndexQueryInfo query_info;
         query_info.field_name = column_name_ws;
@@ -155,7 +155,7 @@ static bool query_fulltext(const TabletIndex* index,
     for (int i = 0; i < query_data.size(); i++) {
         TQueryOptions queryOptions;
         auto query = QueryFactory::create(InvertedIndexQueryType::MATCH_ANY_QUERY, *string_searcher,
-                                          queryOptions);
+                                          queryOptions, nullptr);
         EXPECT_TRUE(query != nullptr);
         InvertedIndexQueryInfo query_info;
         query_info.field_name = column_name_ws;
@@ -582,8 +582,8 @@ TEST_F(IndexCompactionDeleteTest, delete_index_test) {
         auto columns = block.mutate_columns();
         for (const auto& row : data[i]) {
             vectorized::Field key = Int32(row.key);
-            vectorized::Field v1 = row.word;
-            vectorized::Field v2 = row.url;
+            vectorized::Field v1(row.word);
+            vectorized::Field v2(row.url);
             vectorized::Field v3 = Int32(row.num);
             columns[0]->insert(key);
             columns[1]->insert(v1);

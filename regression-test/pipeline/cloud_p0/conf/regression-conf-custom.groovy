@@ -17,6 +17,9 @@
 
 testGroups = "p0"
 
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+
 // exclude groups and exclude suites is more prior than include groups and include suites.
 // keep them in lexico order(add/remove cases between the sentinals and sort):
 // * sort lines in vim: select lines and then type :sort
