@@ -146,7 +146,7 @@ public class HudiScanNode extends HiveScanNode {
 
     @Override
     public TFileFormatType getFileFormatType() throws UserException {
-        if (!sessionVariable.isForceJniScanner() && isCowOrRoTable) {
+        if (canUseNativeReader()) {
             return super.getFileFormatType();
         } else {
             // Use jni to read hudi table in BE
@@ -265,6 +265,10 @@ public class HudiScanNode extends HiveScanNode {
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
+    private boolean canUseNativeReader() {
+        return !sessionVariable.isForceJniScanner() && isCowOrRoTable;
+    }
+
     private List<HivePartition> getPrunedPartitions(
             HoodieTableMetaClient metaClient, Option<String> snapshotTimestamp) throws AnalysisException {
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
@@ -322,7 +326,7 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     private List<Split> getIncrementalSplits() {
-        if (isCowOrRoTable) {
+        if (canUseNativeReader()) {
             List<Split> splits = incrementalRelation.collectSplits();
             noLogsSplitNum.addAndGet(splits.size());
             return splits;
@@ -351,7 +355,7 @@ public class HudiScanNode extends HiveScanNode {
         HoodieTableFileSystemView fileSystemView = new HoodieTableFileSystemView(hudiClient,
                 timeline, statuses);
 
-        if (isCowOrRoTable) {
+        if (canUseNativeReader()) {
             fileSystemView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).forEach(baseFile -> {
                 noLogsSplitNum.incrementAndGet();
                 String filePath = baseFile.getPath();
