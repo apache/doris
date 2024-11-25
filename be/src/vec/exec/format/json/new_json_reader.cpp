@@ -1361,16 +1361,15 @@ Status NewJsonReader::_simdjson_handle_nested_complex_json(
 size_t NewJsonReader::_column_index(const StringRef& name, size_t key_index) {
     /// Optimization by caching the order of fields (which is almost always the same)
     /// and a quick check to match the next expected field, instead of searching the hash table.
-    if (_prev_positions.size() > key_index && _prev_positions[key_index] &&
-        name == _prev_positions[key_index]->get_first()) {
-        return _prev_positions[key_index]->get_second();
+    if (_prev_positions.size() > key_index && name == _prev_positions[key_index]->first) {
+        return _prev_positions[key_index]->second;
     }
-    auto* it = _slot_desc_index.find(name);
-    if (it) {
+    auto it = _slot_desc_index.find(name);
+    if (it != _slot_desc_index.end()) {
         if (key_index < _prev_positions.size()) {
             _prev_positions[key_index] = it;
         }
-        return it->get_second();
+        return it->second;
     }
     return size_t(-1);
 }

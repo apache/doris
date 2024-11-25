@@ -45,6 +45,7 @@
 #include <cstdint>
 #include <limits>
 #include <mutex>
+#include <orc/Exceptions.hh>
 #include <ostream>
 
 #include "common/config.h"

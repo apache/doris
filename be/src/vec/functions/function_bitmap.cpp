@@ -350,7 +350,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnBitmap::create();
         auto& null_map = res_null_map->get_data();
@@ -497,7 +497,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto res_data_column = ColumnInt64::create();
         auto& res = res_data_column->get_data();
         auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -660,7 +660,7 @@ void update_bitmap_op_count(int64_t* __restrict count, const NullMap& null_map) 
 // for bitmap_and_count, bitmap_xor_count and bitmap_and_not_count,
 // result is 0 for rows that if any column is null value
 ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
-                                            const ColumnNumbers& args, size_t result,
+                                            const ColumnNumbers& args, uint32_t result,
                                             size_t input_rows_count) {
     auto* nullable = assert_cast<const ColumnNullable*>(src.get());
     ColumnPtr src_not_nullable = nullable->get_nested_column_ptr();
@@ -696,7 +696,7 @@ ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
 }
 
 Status execute_bitmap_op_count_null_to_zero(
-        FunctionContext* context, Block& block, const ColumnNumbers& arguments, size_t result,
+        FunctionContext* context, Block& block, const ColumnNumbers& arguments, uint32_t result,
         size_t input_rows_count,
         const std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>&
                 exec_impl_func) {
@@ -745,10 +745,10 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 2);
         auto impl_func = [&](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                             size_t result, size_t input_rows_count) {
+                             uint32_t result, size_t input_rows_count) {
             return execute_impl_internal(context, block, arguments, result, input_rows_count);
         };
         return execute_bitmap_op_count_null_to_zero(context, block, arguments, result,
@@ -756,7 +756,7 @@ public:
     }
 
     Status execute_impl_internal(FunctionContext* context, Block& block,
-                                 const ColumnNumbers& arguments, size_t result,
+                                 const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) const {
         using ResultType = typename ResultDataType::FieldType;
         using ColVecResult = ColumnVector<ResultType>;
@@ -1147,7 +1147,7 @@ public:
     size_t get_number_of_arguments() const override { return 3; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 3);
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnBitmap::create(input_rows_count);
@@ -1200,7 +1200,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto return_nested_type = make_nullable(std::make_shared<DataTypeInt64>());
         auto dest_array_column_ptr = ColumnArray::create(return_nested_type->create_column(),
                                                          ColumnArray::ColumnOffsets::create());

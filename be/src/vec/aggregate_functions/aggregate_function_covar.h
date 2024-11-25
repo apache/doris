@@ -19,35 +19,22 @@
 
 #include <glog/logging.h>
 
-#include "agent/be_exec_version_manager.h"
-#define POP true
-#define NOTPOP false
-#define NULLABLE true
-#define NOTNULLABLE false
-
-#include <stddef.h>
-#include <stdint.h>
-
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
-#include <type_traits>
 
-#include "olap/olap_common.h"
-#include "runtime/decimalv2_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -55,15 +42,12 @@ template <typename T>
 class ColumnDecimal;
 template <typename>
 class ColumnVector;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 template <typename T>
 struct BaseData {
-    BaseData() : sum_x(0.0), sum_y(0.0), sum_xy(0.0), count(0) {}
+    BaseData() = default;
     virtual ~BaseData() = default;
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeFloat64>(); }
 
     void write(BufferWritable& buf) const {
         write_binary(sum_x, buf);
@@ -122,23 +106,26 @@ struct BaseData {
         count += 1;
     }
 
-    double sum_x;
-    double sum_y;
-    double sum_xy;
-    int64_t count;
+    double sum_x {};
+    double sum_y {};
+    double sum_xy {};
+    int64_t count {};
 };
 
-template <typename T, typename Data>
-struct PopData : Data {
+template <typename T>
+struct PopData : BaseData<T> {
+    static const char* name() { return "covar"; }
+
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColumnFloat64&>(to);
         col.get_data().push_back(this->get_pop_result());
     }
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
 };
 
-template <typename T, typename Data>
-struct SampData : Data {
+template <typename T>
+struct SampData : BaseData<T> {
+    static const char* name() { return "covar_samp"; }
+
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColumnFloat64&>(to);
         if (this->count == 1 || this->count == 0) {
@@ -147,27 +134,14 @@ struct SampData : Data {
             col.get_data().push_back(this->get_samp_result());
         }
     }
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
 };
 
 template <typename Data>
-struct CovarName : Data {
-    static const char* name() { return "covar"; }
-};
-
-template <typename Data>
-struct CovarSampName : Data {
-    static const char* name() { return "covar_samp"; }
-};
-
-template <bool is_pop, typename Data, bool is_nullable>
 class AggregateFunctionSampCovariance
-        : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionSampCovariance<is_pop, Data, is_nullable>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampCovariance<Data>> {
 public:
     AggregateFunctionSampCovariance(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<
-                      Data, AggregateFunctionSampCovariance<is_pop, Data, is_nullable>>(
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionSampCovariance<Data>>(
                       argument_types_) {}
 
     String get_name() const override { return Data::name(); }
@@ -176,39 +150,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        if constexpr (is_pop) {
-            this->data(place).add(columns[0], columns[1], row_num);
-        } else {
-            if constexpr (is_nullable) { //this if check could remove with old function
-                // nullable means at least one child is null.
-                // so here, maybe JUST ONE OF ups is null. so nullptr perhaps in ..._x or ..._y!
-                const auto* nullable_column_x = check_and_get_column<ColumnNullable>(columns[0]);
-                const auto* nullable_column_y = check_and_get_column<ColumnNullable>(columns[1]);
-
-                if (nullable_column_x && nullable_column_y) { // both nullable
-                    if (!nullable_column_x->is_null_at(row_num) &&
-                        !nullable_column_y->is_null_at(row_num)) {
-                        this->data(place).add(&nullable_column_x->get_nested_column(),
-                                              &nullable_column_y->get_nested_column(), row_num);
-                    }
-                } else if (nullable_column_x) { // x nullable
-                    if (!nullable_column_x->is_null_at(row_num)) {
-                        this->data(place).add(&nullable_column_x->get_nested_column(), columns[1],
-                                              row_num);
-                    }
-                } else if (nullable_column_y) { // y nullable
-                    if (!nullable_column_y->is_null_at(row_num)) {
-                        this->data(place).add(columns[0], &nullable_column_y->get_nested_column(),
-                                              row_num);
-                    }
-                } else {
-                    throw Exception(ErrorCode::INTERNAL_ERROR,
-                                    "Nullable function {} get non-nullable columns!", get_name());
-                }
-            } else {
-                this->data(place).add(columns[0], columns[1], row_num);
-            }
-        }
+        this->data(place).add(columns[0], columns[1], row_num);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
@@ -230,21 +172,6 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
-};
-
-template <typename Data, bool is_nullable>
-class AggregateFunctionSamp final
-        : public AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable> {
-public:
-    AggregateFunctionSamp(const DataTypes& argument_types_)
-            : AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable>(argument_types_) {}
-};
-
-template <typename Data, bool is_nullable>
-class AggregateFunctionPop final : public AggregateFunctionSampCovariance<POP, Data, is_nullable> {
-public:
-    AggregateFunctionPop(const DataTypes& argument_types_)
-            : AggregateFunctionSampCovariance<POP, Data, is_nullable>(argument_types_) {}
 };
 
 } // namespace doris::vectorized

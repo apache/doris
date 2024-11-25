@@ -42,13 +42,19 @@ import java.util.stream.Collectors;
 
 public class PaimonJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniScanner.class);
+    @Deprecated
     private static final String PAIMON_OPTION_PREFIX = "paimon.";
+    @Deprecated
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
 
     private final Map<String, String> params;
+    @Deprecated
     private final Map<String, String> paimonOptionParams;
+    @Deprecated
     private final Map<String, String> hadoopOptionParams;
+    @Deprecated
     private final String dbName;
+    @Deprecated
     private final String tblName;
     private final String paimonSplit;
     private final String paimonPredicate;
@@ -58,9 +64,13 @@ public class PaimonJniScanner extends JniScanner {
     private List<String> paimonAllFieldNames;
     private List<DataType> paimonDataTypeList;
 
+    @Deprecated
     private long ctlId;
+    @Deprecated
     private long dbId;
+    @Deprecated
     private long tblId;
+    @Deprecated
     private long lastUpdateTime;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
     private final ClassLoader classLoader;
@@ -214,16 +224,20 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initTable() {
-        PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId,
-                paimonOptionParams, hadoopOptionParams, dbName, tblName);
-        TableExt tableExt = PaimonTableCache.getTable(key);
-        if (tableExt.getCreateTime() < lastUpdateTime) {
-            LOG.warn("invalidate cache table:{}, localTime:{}, remoteTime:{}", key, tableExt.getCreateTime(),
-                    lastUpdateTime);
-            PaimonTableCache.invalidateTableCache(key);
-            tableExt = PaimonTableCache.getTable(key);
+        if (params.containsKey("paimon_table")) {
+            table = PaimonUtils.deserialize(params.get("paimon_table"));
+        } else {
+            PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId,
+                    paimonOptionParams, hadoopOptionParams, dbName, tblName);
+            TableExt tableExt = PaimonTableCache.getTable(key);
+            if (tableExt.getCreateTime() < lastUpdateTime) {
+                LOG.warn("invalidate cache table:{}, localTime:{}, remoteTime:{}", key, tableExt.getCreateTime(),
+                        lastUpdateTime);
+                PaimonTableCache.invalidateTableCache(key);
+                tableExt = PaimonTableCache.getTable(key);
+            }
+            this.table = tableExt.getTable();
         }
-        this.table = tableExt.getTable();
         paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);

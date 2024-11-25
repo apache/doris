@@ -47,6 +47,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -598,7 +599,9 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         if (CollectionUtils.isNotEmpty(indexDefs)) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexType, List<String>>> distinctCol = new HashSet<>();
-
+            boolean disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                        new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
+                            && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
                 if (!engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
@@ -608,7 +611,8 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                     boolean found = false;
                     for (Column column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, getKeysDesc().getKeysType(), enableUniqueKeyMergeOnWrite);
+                            indexDef.checkColumn(column, getKeysDesc().getKeysType(),
+                                                    enableUniqueKeyMergeOnWrite, disableInvertedIndexV1ForVariant);
                             found = true;
                             break;
                         }

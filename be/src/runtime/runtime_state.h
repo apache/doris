@@ -449,6 +449,8 @@ public:
 
     QueryContext* get_query_ctx() { return _query_ctx; }
 
+    std::weak_ptr<QueryContext> get_query_ctx_weak();
+
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
     }
@@ -457,6 +459,17 @@ public:
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
+
+    bool enable_verbose_profile() const {
+        return enable_profile() && _query_options.__isset.enable_verbose_profile &&
+               _query_options.enable_verbose_profile;
+    }
+
+    int rpc_verbose_profile_max_instance_count() const {
+        return _query_options.__isset.rpc_verbose_profile_max_instance_count
+                       ? _query_options.rpc_verbose_profile_max_instance_count
+                       : 0;
     }
 
     bool enable_share_hash_table_for_broadcast_join() const {
@@ -548,7 +561,6 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            bool need_local_merge,
                                             std::shared_ptr<IRuntimeFilter>* producer_filter,
                                             bool build_bf_exactly);
 

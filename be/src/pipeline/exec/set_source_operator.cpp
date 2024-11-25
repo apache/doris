@@ -18,6 +18,7 @@
 #include "set_source_operator.h"
 
 #include <memory>
+#include <type_traits>
 
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
@@ -124,11 +125,9 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         vectorized::Block* output_block, const int batch_size, bool* eos) {
     size_t left_col_len = local_state._left_table_data_types.size();
     hash_table_ctx.init_iterator();
-    auto& iter = hash_table_ctx.iterator;
     auto block_size = 0;
 
-    for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
-        auto& value = iter->get_second();
+    auto add_result = [&local_state, &block_size, this](auto value) {
         auto it = value.begin();
         if constexpr (is_intersect) {
             if (it->visited) { //intersected: have done probe, so visited values it's the result
@@ -139,9 +138,21 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
                 _add_result_columns(local_state, value, block_size);
             }
         }
+    };
+
+    auto& iter = hash_table_ctx.iterator;
+    for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
+        add_result(iter->get_second());
     }
 
     *eos = iter == hash_table_ctx.hash_table->end();
+    if (*eos && hash_table_ctx.hash_table->has_null_key_data()) {
+        auto value = hash_table_ctx.hash_table->template get_null_key_data<RowRefListWithFlags>();
+        if constexpr (std::is_same_v<RowRefListWithFlags, std::decay_t<decltype(value)>>) {
+            add_result(value);
+        }
+    }
+
     if (!output_block->mem_reuse()) {
         for (int i = 0; i < left_col_len; ++i) {
             output_block->insert(

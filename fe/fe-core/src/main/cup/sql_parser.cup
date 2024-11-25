@@ -1703,9 +1703,9 @@ alter_table_clause ::=
     {:
         RESULT = new ReplacePartitionClause(partitions, tempPartitions, isForce, properties);
     :}
-    | KW_REPLACE KW_WITH KW_TABLE ident:tblName opt_properties:properties
+    | KW_REPLACE KW_WITH KW_TABLE ident:tblName opt_properties:properties opt_force:force
     {:
-        RESULT = new ReplaceTableClause(tblName, properties);
+        RESULT = new ReplaceTableClause(tblName, properties, force);
     :}
     | KW_RENAME ident:newTableName
     {:

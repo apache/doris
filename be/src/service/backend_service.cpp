@@ -596,7 +596,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
 } // namespace
 
 BaseBackendService::BaseBackendService(ExecEnv* exec_env)
-        : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {}
+        : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, exec_env->cluster_info())) {}
 
 BaseBackendService::~BaseBackendService() = default;
 

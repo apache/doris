@@ -34,6 +34,25 @@
 
 namespace doris {
 
+void WorkloadGroupMgr::init_internal_workload_group() {
+    WorkloadGroupPtr internal_wg = nullptr;
+    {
+        std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
+        if (_workload_groups.find(INTERNAL_WORKLOAD_GROUP_ID) == _workload_groups.end()) {
+            WorkloadGroupInfo internal_wg_info {
+                    .id = INTERNAL_WORKLOAD_GROUP_ID,
+                    .name = INTERNAL_WORKLOAD_GROUP_NAME,
+                    .cpu_share = CgroupCpuCtl::cpu_soft_limit_default_value()};
+            internal_wg = std::make_shared<WorkloadGroup>(internal_wg_info, false);
+            _workload_groups[internal_wg_info.id] = internal_wg;
+        }
+    }
+    DCHECK(internal_wg != nullptr);
+    if (internal_wg) {
+        internal_wg->create_cgroup_cpu_ctl();
+    }
+}
+
 WorkloadGroupPtr WorkloadGroupMgr::get_or_create_workload_group(
         const WorkloadGroupInfo& workload_group_info) {
     {
@@ -86,6 +105,10 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
         old_wg_size = _workload_groups.size();
         for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
             uint64_t wg_id = iter->first;
+            // internal workload group created by BE can not be dropped
+            if (wg_id == INTERNAL_WORKLOAD_GROUP_ID) {
+                continue;
+            }
             auto workload_group_ptr = iter->second;
             if (used_wg_id.find(wg_id) == used_wg_id.end()) {
                 workload_group_ptr->shutdown();
@@ -254,7 +277,7 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
 }
 
 void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
-    int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
+    int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
     int cpu_num = CpuInfo::num_cores();
     cpu_num = cpu_num <= 0 ? 1 : cpu_num;
     uint64_t total_cpu_time_ns_per_second = cpu_num * 1000000000ll;

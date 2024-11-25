@@ -23,7 +23,6 @@
 
 #include "vec/columns/column_filter_helper.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
 
 namespace doris {
@@ -464,4 +463,7 @@ private:
     bool _has_null_key = false;
     bool _empty_build_side = true;
 };
+
+template <typename Key, typename Hash = DefaultHash<Key>>
+using JoinHashMap = JoinHashTable<Key, Hash>;
 } // namespace doris

@@ -58,8 +58,7 @@ public:
               _storage_format(storage_format),
               _idx_file_info(idx_file_info) {}
 
-    Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
-                bool open_idx_file_cache = false);
+    Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size);
     Result<std::unique_ptr<DorisCompoundReader>> open(const TabletIndex* index_meta) const;
     void debug_file_entries();
     std::string get_index_file_cache_key(const TabletIndex* index_meta) const;
@@ -80,7 +79,6 @@ private:
     const io::FileSystemSPtr _fs;
     std::string _index_path_prefix;
     int32_t _read_buffer_size = -1;
-    bool _open_idx_file_cache = false;
     InvertedIndexStorageFormatPB _storage_format;
     mutable std::shared_mutex _mutex; // Use mutable for const read operations
     bool _inited = false;

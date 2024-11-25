@@ -420,8 +420,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     if (Config.enable_query_hive_views && hmsTable.isView()) {
                         isView = true;
                         String hiveCatalog = hmsTable.getCatalog().getName();
+                        String hiveDb = hmsTable.getDatabase().getFullName();
                         String ddlSql = hmsTable.getViewText();
-                        Plan hiveViewPlan = parseAndAnalyzeHiveView(hmsTable, hiveCatalog, ddlSql, cascadesContext);
+                        Plan hiveViewPlan = parseAndAnalyzeHiveView(
+                                hmsTable, hiveCatalog, hiveDb, ddlSql, cascadesContext);
                         return new LogicalSubQueryAlias<>(qualifiedTableName, hiveViewPlan);
                     }
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
@@ -475,15 +477,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Plan parseAndAnalyzeHiveView(
-            HMSExternalTable table, String hiveCatalog, String ddlSql, CascadesContext cascadesContext) {
+            HMSExternalTable table, String hiveCatalog, String hiveDb, String ddlSql, CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
         String previousCatalog = ctx.getCurrentCatalog().getName();
         String previousDb = ctx.getDatabase();
+        // change catalog and db to hive catalog and db, so that we can parse and analyze the view sql in hive context.
         ctx.changeDefaultCatalog(hiveCatalog);
-        Plan hiveViewPlan = parseAndAnalyzeView(table, ddlSql, cascadesContext);
-        ctx.changeDefaultCatalog(previousCatalog);
-        ctx.setDatabase(previousDb);
-        return hiveViewPlan;
+        ctx.setDatabase(hiveDb);
+        try {
+            return parseAndAnalyzeView(table, ddlSql, cascadesContext);
+        } finally {
+            // restore catalog and db in connect context
+            ctx.changeDefaultCatalog(previousCatalog);
+            ctx.setDatabase(previousDb);
+        }
     }
 
     private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext) {

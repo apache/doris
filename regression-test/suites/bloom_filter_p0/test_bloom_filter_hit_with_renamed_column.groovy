@@ -112,6 +112,7 @@ suite("test_bloom_filter_hit_with_renamed_column") {
 
     sql """ SET enable_profile = true """
     sql """ set parallel_scan_min_rows_per_scanner = 2097152; """
+    sql "sync"
     //sql """ select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK' """
 
     // get and check profile with retry logic
@@ -122,6 +123,7 @@ suite("test_bloom_filter_hit_with_renamed_column") {
         int attempt = 0
 
         while (attempt < maxRetries) {
+            sql "sync"
             sql """ ${query} """
             profiles = httpGet(profileUrl)
             log.info("profiles attempt ${attempt + 1}: {}", profiles)

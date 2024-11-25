@@ -33,7 +33,6 @@
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
-#include "olap/tablet_schema.h"
 
 namespace doris {
 class CollectionValue;
@@ -41,6 +40,7 @@ class CollectionValue;
 class Field;
 
 class TabletIndex;
+class TabletColumn;
 
 namespace segment_v2 {
 class InvertedIndexFileWriter;
@@ -74,22 +74,7 @@ public:
 
     // check if the column is valid for inverted index, some columns
     // are generated from variant, but not all of them are supported
-    static bool check_support_inverted_index(const TabletColumn& column) {
-        // bellow types are not supported in inverted index for extracted columns
-        static std::set<FieldType> invalid_types = {
-                FieldType::OLAP_FIELD_TYPE_DOUBLE,
-                FieldType::OLAP_FIELD_TYPE_JSONB,
-                FieldType::OLAP_FIELD_TYPE_ARRAY,
-                FieldType::OLAP_FIELD_TYPE_FLOAT,
-        };
-        if (column.is_extracted_column() && (invalid_types.contains(column.type()))) {
-            return false;
-        }
-        if (column.is_variant_type()) {
-            return false;
-        }
-        return true;
-    }
+    static bool check_support_inverted_index(const TabletColumn& column);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexColumnWriter);

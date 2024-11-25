@@ -158,11 +158,11 @@ uint64_t CgroupCpuCtl::cpu_soft_limit_default_value() {
     return _is_enable_cgroup_v2_in_env ? 100 : 1024;
 }
 
-std::unique_ptr<CgroupCpuCtl> CgroupCpuCtl::create_cgroup_cpu_ctl(uint64_t wg_id) {
+std::shared_ptr<CgroupCpuCtl> CgroupCpuCtl::create_cgroup_cpu_ctl(uint64_t wg_id) {
     if (_is_enable_cgroup_v2_in_env) {
-        return std::make_unique<CgroupV2CpuCtl>(wg_id);
+        return std::make_shared<CgroupV2CpuCtl>(wg_id);
     } else if (_is_enable_cgroup_v1_in_env) {
-        return std::make_unique<CgroupV1CpuCtl>(wg_id);
+        return std::make_shared<CgroupV1CpuCtl>(wg_id);
     }
     return nullptr;
 }

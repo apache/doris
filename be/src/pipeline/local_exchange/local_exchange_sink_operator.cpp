@@ -62,6 +62,7 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
                 _num_partitions));
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     } else if (_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
+        DCHECK_GT(num_buckets, 0);
         _partitioner.reset(
                 new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(num_buckets));
         RETURN_IF_ERROR(_partitioner->init(_texprs));
@@ -90,6 +91,9 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
                 "UseGlobalShuffle",
                 std::to_string(_parent->cast<LocalExchangeSinkOperatorX>()._use_global_shuffle));
     }
+    _profile->add_info_string(
+            "PartitionExprsSize",
+            std::to_string(_parent->cast<LocalExchangeSinkOperatorX>()._partitioned_exprs_num));
     _channel_id = info.task_idx;
     return Status::OK();
 }
@@ -108,6 +112,18 @@ Status LocalExchangeSinkLocalState::open(RuntimeState* state) {
     }
 
     return Status::OK();
+}
+
+Status LocalExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    SCOPED_TIMER(Base::exec_time_counter());
+    SCOPED_TIMER(Base::_close_timer);
+    if (Base::_closed) {
+        return Status::OK();
+    }
+    if (_shared_state) {
+        _shared_state->sub_running_sink_operators();
+    }
+    return Base::close(state, exec_status);
 }
 
 std::string LocalExchangeSinkLocalState::debug_string(int indentation_level) const {
@@ -132,11 +148,7 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     // If all exchange sources ended due to limit reached, current task should also finish
     if (local_state._exchanger->_running_source_operators == 0) {
-        local_state._shared_state->sub_running_sink_operators();
         return Status::EndOfFile("receiver eof");
-    }
-    if (eos) {
-        local_state._shared_state->sub_running_sink_operators();
     }
 
     return Status::OK();

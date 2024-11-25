@@ -23,6 +23,7 @@
 #include <glog/logging.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -55,6 +56,7 @@ class RowDescriptor;
 class RuntimeState;
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 #define RETURN_IF_ERROR_OR_PREPARED(stmt) \
     if (_prepared) {                      \
@@ -68,12 +70,13 @@ namespace vectorized {
 // the relatioinship between threads and classes.
 class VExpr {
 public:
-    // resize inserted param column to make sure column size equal to block.rows()
-    // and return param column index
-    static size_t insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size) {
+    // resize inserted param column to make sure column size equal to block.rows() and return param column index
+    // keep return type same with block::columns()
+    static uint32_t insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size) {
         // usually elem.column always is const column, so we just clone it.
         elem.column = elem.column->clone_resized(size);
         block->insert(std::move(elem));
+        // just inserted. so no need to check underflow.
         return block->columns() - 1;
     }
 
@@ -129,7 +132,7 @@ public:
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
     virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
-                                          int* result_column_id, std::vector<size_t>& args) {
+                                          int* result_column_id, ColumnNumbers& args) {
         return execute(context, block, result_column_id);
     };
 
@@ -152,15 +155,17 @@ public:
     TExprOpcode::type op() const { return _opcode; }
 
     void add_child(const VExprSPtr& expr) { _children.push_back(expr); }
-    VExprSPtr get_child(int i) const { return _children[i]; }
-    int get_num_children() const { return _children.size(); }
+    VExprSPtr get_child(uint16_t i) const { return _children[i]; }
+    // Expr's children number is restricted by org.apache.doris.common.Config#expr_children_limit, 10000 default. and strongly not recommend to change.
+    // There's little to worry about it. uint16 is enough.
+    uint16_t get_num_children() const { return static_cast<uint16_t>(_children.size()); }
 
     virtual bool is_rf_wrapper() const {
         return std::ranges::any_of(_children.begin(), _children.end(),
                                    [](VExprSPtr child) { return child->is_rf_wrapper(); });
     }
 
-    virtual void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) {
+    virtual void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) {
         for (auto child : _children) {
             child->do_judge_selectivity(filter_rows, input_rows);
         }
@@ -217,7 +222,7 @@ public:
 
     int fn_context_index() const { return _fn_context_index; }
 
-    static const VExprSPtr expr_without_cast(const VExprSPtr& expr) {
+    static VExprSPtr expr_without_cast(const VExprSPtr& expr) {
         if (expr->node_type() == TExprNodeType::CAST_EXPR) {
             return expr_without_cast(expr->_children[0]);
         }
@@ -225,7 +230,7 @@ public:
     }
 
     // If this expr is a RuntimeFilterWrapper, this method will return an underlying rf expression
-    virtual const VExprSPtr get_impl() const { return {}; }
+    virtual VExprSPtr get_impl() const { return {}; }
 
     // If this expr is a BloomPredicate, this method will return a BloomFilterFunc
     virtual std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const {
@@ -300,7 +305,7 @@ protected:
     TExprOpcode::type _opcode;
     TypeDescriptor _type;
     DataTypePtr _data_type;
-    VExprSPtrs _children;
+    VExprSPtrs _children; // in few hundreds
     TFunction _fn;
 
     /// Index to pass to ExprContext::fn_context() to retrieve this expr's FunctionContext.
@@ -492,4 +497,5 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
 TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision = 0,
                                  int scale = 0);
 
+#include "common/compile_check_end.h"
 } // namespace doris

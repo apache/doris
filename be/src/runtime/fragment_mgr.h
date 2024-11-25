@@ -148,6 +148,11 @@ public:
     std::shared_ptr<QueryContext> get_or_erase_query_ctx_with_lock(const TUniqueId& query_id);
 
 private:
+    struct BrpcItem {
+        TNetworkAddress network_address;
+        std::vector<std::weak_ptr<QueryContext>> queries;
+    };
+
     std::shared_ptr<QueryContext> _get_or_erase_query_ctx(const TUniqueId& query_id);
 
     template <typename Param>
@@ -156,6 +161,9 @@ private:
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                           QuerySource query_type, std::shared_ptr<QueryContext>& query_ctx);
+
+    void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
+                               const BrpcItem& brpc_item);
 
     // This is input params
     ExecEnv* _exec_env = nullptr;

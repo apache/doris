@@ -245,8 +245,7 @@ Status LoadStreamWriter::_calc_file_size(uint32_t segid, FileType file_type, siz
     return Status::OK();
 }
 
-Status LoadStreamWriter::close() {
-    std::lock_guard<std::mutex> l(_lock);
+Status LoadStreamWriter::_pre_close() {
     SCOPED_ATTACH_TASK(_query_thread_context);
     if (!_is_init) {
         // if this delta writer is not initialized, but close() is called.
@@ -306,6 +305,15 @@ Status LoadStreamWriter::close() {
 
     RETURN_IF_ERROR(_rowset_builder->build_rowset());
     RETURN_IF_ERROR(_rowset_builder->submit_calc_delete_bitmap_task());
+    _pre_closed = true;
+    return Status::OK();
+}
+
+Status LoadStreamWriter::close() {
+    std::lock_guard<std::mutex> l(_lock);
+    if (!_pre_closed) {
+        RETURN_IF_ERROR(_pre_close());
+    }
     RETURN_IF_ERROR(_rowset_builder->wait_calc_delete_bitmap());
     // FIXME(plat1ko): No `commit_txn` operation in cloud mode, need better abstractions
     RETURN_IF_ERROR(static_cast<RowsetBuilder*>(_rowset_builder.get())->commit_txn());

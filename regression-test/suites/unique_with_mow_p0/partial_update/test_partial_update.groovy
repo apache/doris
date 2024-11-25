@@ -207,7 +207,7 @@ suite("test_primary_key_partial_update", "p0") {
 
             qt_select_timestamp "select count(*) from ${tableName} where `ctime` > \"1970-01-01\""
 
-            sql "set time_zone = 'America/New_York'"
+            sql "set time_zone = 'Asia/Tokyo'"
 
             Thread.sleep(5000)
 

@@ -25,6 +25,7 @@ suite("eliminate_outer_join") {
     sql 'set be_number_for_test=3'
     sql "set enable_parallel_result_sink=false;"
     sql "set disable_join_reorder=true;"
+    sql "set enable_nereids_distribute_planner=false;"
 
     sql """
         DROP TABLE IF EXISTS t

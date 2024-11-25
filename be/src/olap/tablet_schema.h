@@ -40,6 +40,7 @@
 #include "olap/rowset/segment_v2/options.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
@@ -304,14 +305,26 @@ public:
     TabletSchema();
     virtual ~TabletSchema();
 
-    void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false);
+    // Init from pb
+    // ignore_extracted_columns: ignore the extracted columns from variant column
+    // reuse_cached_column: reuse the cached column in the schema if they are the same, to reduce memory usage
+    void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false,
+                      bool reuse_cached_column = false);
     // Notice: Use deterministic way to serialize protobuf,
     // since serialize Map in protobuf may could lead to un-deterministic by default
-    static std::string deterministic_string_serialize(const TabletSchemaPB& schema_pb);
+    template <class PbType>
+    static std::string deterministic_string_serialize(const PbType& pb) {
+        std::string output;
+        google::protobuf::io::StringOutputStream string_output_stream(&output);
+        google::protobuf::io::CodedOutputStream output_stream(&string_output_stream);
+        output_stream.SetSerializationDeterministic(true);
+        pb.SerializeToCodedStream(&output_stream);
+        return output;
+    }
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
     void append_index(TabletIndex&& index);
-    void update_index(const TabletColumn& column, TabletIndex index);
+    void update_index(const TabletColumn& column, const IndexType& index_type, TabletIndex&& index);
     void remove_index(int64_t index_id);
     void clear_index();
     // Must make sure the row column is always the last column
@@ -381,6 +394,8 @@ public:
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
     void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
     long row_store_page_size() const { return _row_store_page_size; }
+    void set_storage_page_size(long storage_page_size) { _storage_page_size = storage_page_size; }
+    long storage_page_size() const { return _storage_page_size; }
 
     const std::vector<const TabletIndex*> inverted_indexes() const {
         std::vector<const TabletIndex*> inverted_indexes;
@@ -519,10 +534,13 @@ private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
+    void clear_column_cache_handlers();
+
     KeysType _keys_type = DUP_KEYS;
     SortType _sort_type = SortType::LEXICAL;
     size_t _sort_col_num = 0;
     std::vector<TabletColumnPtr> _cols;
+    std::vector<Cache::Handle*> _column_cache_handlers;
 
     std::vector<TabletIndex> _indexes;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
@@ -539,6 +557,7 @@ private:
     CompressKind _compress_kind = COMPRESS_NONE;
     segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
     long _row_store_page_size = segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+    long _storage_page_size = segment_v2::STORAGE_PAGE_SIZE_DEFAULT_VALUE;
     size_t _next_column_unique_id = 0;
     std::string _auto_increment_column;
 

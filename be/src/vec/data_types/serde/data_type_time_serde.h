@@ -26,42 +26,26 @@
 
 namespace doris {
 class JsonbOutStream;
-
+#include "common/compile_check_begin.h"
 namespace vectorized {
-class Arena;
-
-class DataTypeTimeSerDe : public DataTypeNumberSerDe<Float64> {
-public:
-    DataTypeTimeSerDe(int nesting_level = 1) : DataTypeNumberSerDe<Float64>(nesting_level) {};
-
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
-
-private:
-    template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const, const FormatOptions& options) const;
-};
 class DataTypeTimeV2SerDe : public DataTypeNumberSerDe<Float64> {
 public:
     DataTypeTimeV2SerDe(int scale = 0, int nesting_level = 1)
             : DataTypeNumberSerDe<Float64>(nesting_level), scale(scale) {};
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const,
+                                 int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const,
+                                 int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
 
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const, const FormatOptions& options) const;
+                                  int64_t row_idx, bool col_const,
+                                  const FormatOptions& options) const;
     int scale;
 };
+#include "common/compile_check_end.h"
 } // namespace vectorized
 } // namespace doris

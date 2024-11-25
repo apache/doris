@@ -34,30 +34,6 @@
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
-class TaskQueue {
-public:
-    TaskQueue(int core_size) : _core_size(core_size) {}
-    virtual ~TaskQueue();
-    virtual void close() = 0;
-    // Get the task by core id.
-    // TODO: To think the logic is useful?
-    virtual PipelineTask* take(int core_id) = 0;
-
-    // push from scheduler
-    virtual Status push_back(PipelineTask* task) = 0;
-
-    // push from worker
-    virtual Status push_back(PipelineTask* task, int core_id) = 0;
-
-    virtual void update_statistics(PipelineTask* task, int64_t time_spent) {}
-
-    int cores() const { return _core_size; }
-
-protected:
-    int _core_size;
-    static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
-};
-
 class SubTaskQueue {
     friend class PriorityTaskQueue;
 
@@ -127,31 +103,35 @@ private:
 };
 
 // Need consider NUMA architecture
-class MultiCoreTaskQueue : public TaskQueue {
+class MultiCoreTaskQueue {
 public:
     explicit MultiCoreTaskQueue(int core_size);
 
-    ~MultiCoreTaskQueue() override;
+    ~MultiCoreTaskQueue();
 
-    void close() override;
+    void close();
 
     // Get the task by core id.
-    PipelineTask* take(int core_id) override;
+    PipelineTask* take(int core_id);
 
     // TODO combine these methods to `push_back(task, core_id = -1)`
-    Status push_back(PipelineTask* task) override;
+    Status push_back(PipelineTask* task);
 
-    Status push_back(PipelineTask* task, int core_id) override;
+    Status push_back(PipelineTask* task, int core_id);
 
-    void update_statistics(PipelineTask* task, int64_t time_spent) override;
+    void update_statistics(PipelineTask* task, int64_t time_spent);
+
+    int cores() const { return _core_size; }
 
 private:
-    PipelineTask* _steal_take(
-            int core_id, std::vector<std::unique_ptr<PriorityTaskQueue>>& prio_task_queue_list);
+    PipelineTask* _steal_take(int core_id);
 
-    std::shared_ptr<std::vector<std::unique_ptr<PriorityTaskQueue>>> _prio_task_queue_list;
+    std::vector<PriorityTaskQueue> _prio_task_queues;
     std::atomic<uint32_t> _next_core = 0;
     std::atomic<bool> _closed;
+
+    int _core_size;
+    static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

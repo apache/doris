@@ -124,6 +124,11 @@ suite("agg_on_none_agg") {
     sql """analyze table lineitem with sync;"""
     sql """analyze table partsupp with sync;"""
 
+    // inject column statistic
+    sql """alter table orders modify column o_orderkey set stats ('row_count'='8')"""
+    sql """alter table lineitem modify column l_orderkey set stats ('row_count'='5')"""
+    sql """alter table partsupp modify column ps_partkey set stats ('row_count'='2')"""
+
     // query used expression is in mv
     def mv1_0 = """
              select case when o_shippriority > 1 and o_orderkey IN (4, 5) then o_custkey else o_shippriority end,

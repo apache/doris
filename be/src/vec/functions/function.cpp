@@ -23,7 +23,6 @@
 #include <algorithm>
 #include <memory>
 #include <numeric>
-#include <vector>
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -42,7 +41,7 @@
 namespace doris::vectorized {
 
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
-                           size_t result, size_t input_rows_count) {
+                           uint32_t result, size_t input_rows_count) {
     ColumnPtr result_null_map_column;
     /// If result is already nullable.
     ColumnPtr src_not_nullable = src;
@@ -105,7 +104,7 @@ bool have_null_column(const ColumnsWithTypeAndName& args) {
 }
 
 inline Status PreparedFunctionImpl::_execute_skipped_constant_deal(
-        FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
+        FunctionContext* context, Block& block, const ColumnNumbers& args, uint32_t result,
         size_t input_rows_count, bool dry_run) const {
     bool executed = false;
     RETURN_IF_ERROR(default_implementation_for_nulls(context, block, args, result, input_rows_count,
@@ -122,7 +121,7 @@ inline Status PreparedFunctionImpl::_execute_skipped_constant_deal(
 }
 
 Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
-        FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
+        FunctionContext* context, Block& block, const ColumnNumbers& args, uint32_t result,
         size_t input_rows_count, bool dry_run, bool* executed) const {
     *executed = false;
     ColumnNumbers args_expect_const = get_arguments_that_are_always_constant();
@@ -186,7 +185,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
 }
 
 Status PreparedFunctionImpl::default_implementation_for_nulls(
-        FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
+        FunctionContext* context, Block& block, const ColumnNumbers& args, uint32_t result,
         size_t input_rows_count, bool dry_run, bool* executed) const {
     *executed = false;
     if (args.empty() || !use_default_implementation_for_nulls()) {
@@ -232,7 +231,7 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
 }
 
 Status PreparedFunctionImpl::execute_without_low_cardinality_columns(
-        FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
+        FunctionContext* context, Block& block, const ColumnNumbers& args, uint32_t result,
         size_t input_rows_count, bool dry_run) const {
     bool executed = false;
 
@@ -246,7 +245,7 @@ Status PreparedFunctionImpl::execute_without_low_cardinality_columns(
 }
 
 Status PreparedFunctionImpl::execute(FunctionContext* context, Block& block,
-                                     const ColumnNumbers& args, size_t result,
+                                     const ColumnNumbers& args, uint32_t result,
                                      size_t input_rows_count, bool dry_run) const {
     return execute_without_low_cardinality_columns(context, block, args, result, input_rows_count,
                                                    dry_run);

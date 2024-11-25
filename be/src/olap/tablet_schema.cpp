@@ -38,8 +38,10 @@
 #include "exec/tablet_info.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/olap_define.h"
+#include "olap/tablet_column_object_pool.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "runtime/thread_context.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
@@ -853,7 +855,9 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
 
 TabletSchema::TabletSchema() = default;
 
-TabletSchema::~TabletSchema() = default;
+TabletSchema::~TabletSchema() {
+    clear_column_cache_handlers();
+}
 
 int64_t TabletSchema::get_metadata_size() const {
     return sizeof(TabletSchema) + _vl_field_mem_size;
@@ -906,13 +910,16 @@ void TabletSchema::append_index(TabletIndex&& index) {
     _indexes.push_back(std::move(index));
 }
 
-void TabletSchema::update_index(const TabletColumn& col, TabletIndex index) {
-    int32_t col_unique_id = col.unique_id();
+void TabletSchema::update_index(const TabletColumn& col, const IndexType& index_type,
+                                TabletIndex&& index) {
+    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path = escape_for_path_name(col.suffix_path());
     for (size_t i = 0; i < _indexes.size(); i++) {
         for (int32_t id : _indexes[i].col_unique_ids()) {
-            if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
-                _indexes[i] = index;
+            if (_indexes[i].index_type() == index_type && id == col_unique_id &&
+                _indexes[i].get_index_suffix() == suffix_path) {
+                _indexes[i] = std::move(index);
+                break;
             }
         }
     }
@@ -947,9 +954,18 @@ void TabletSchema::clear_columns() {
     _num_null_columns = 0;
     _num_key_columns = 0;
     _cols.clear();
+    clear_column_cache_handlers();
 }
 
-void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns) {
+void TabletSchema::clear_column_cache_handlers() {
+    for (auto* cache_handle : _column_cache_handlers) {
+        TabletColumnObjectPool::instance()->release(cache_handle);
+    }
+    _column_cache_handlers.clear();
+}
+
+void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns,
+                                bool reuse_cache_column) {
     _keys_type = schema.keys_type();
     _num_columns = 0;
     _num_variant_columns = 0;
@@ -960,30 +976,42 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _field_name_to_index.clear();
     _field_id_to_index.clear();
     _cluster_key_idxes.clear();
+    clear_column_cache_handlers();
     for (const auto& i : schema.cluster_key_idxes()) {
         _cluster_key_idxes.push_back(i);
     }
     for (auto& column_pb : schema.column()) {
-        TabletColumn column;
-        column.init_from_pb(column_pb);
-        if (ignore_extracted_columns && column.is_extracted_column()) {
+        TabletColumnPtr column;
+        if (reuse_cache_column) {
+            auto pair = TabletColumnObjectPool::instance()->insert(
+                    deterministic_string_serialize(column_pb));
+            column = pair.second;
+            _column_cache_handlers.push_back(pair.first);
+        } else {
+            column = std::make_shared<TabletColumn>();
+            column->init_from_pb(column_pb);
+        }
+        if (ignore_extracted_columns && column->is_extracted_column()) {
             continue;
         }
-        if (column.is_key()) {
+        if (column->is_key()) {
             _num_key_columns++;
         }
-        if (column.is_nullable()) {
+        if (column->is_nullable()) {
             _num_null_columns++;
         }
-        if (column.is_variant_type()) {
+        if (column->is_variant_type()) {
             ++_num_variant_columns;
         }
-        _cols.emplace_back(std::make_shared<TabletColumn>(std::move(column)));
-        _vl_field_mem_size +=
-                sizeof(StringRef) + sizeof(char) * _cols.back()->name().size() + sizeof(size_t);
-        _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
-        _vl_field_mem_size += sizeof(int32_t) * 2;
-        _field_id_to_index[_cols.back()->unique_id()] = _num_columns;
+
+        _cols.emplace_back(std::move(column));
+        if (!_cols.back()->is_extracted_column()) {
+            _vl_field_mem_size +=
+                    sizeof(StringRef) + sizeof(char) * _cols.back()->name().size() + sizeof(size_t);
+            _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
+            _vl_field_mem_size += sizeof(int32_t) * 2;
+            _field_id_to_index[_cols.back()->unique_id()] = _num_columns;
+        }
         _num_columns++;
     }
     for (auto& index_pb : schema.index()) {
@@ -1015,6 +1043,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
     _row_store_page_size = schema.row_store_page_size();
+    _storage_page_size = schema.storage_page_size();
     _schema_version = schema.schema_version();
     // Default to V1 inverted index storage format for backward compatibility if not specified in schema.
     if (!schema.has_inverted_index_storage_format()) {
@@ -1079,6 +1108,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
     _row_store_page_size = ori_tablet_schema.row_store_page_size();
+    _storage_page_size = ori_tablet_schema.storage_page_size();
     _variant_enable_flatten_nested = ori_tablet_schema.variant_flatten_nested();
 
     // copy from table_schema_param
@@ -1097,6 +1127,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _version_col_idx = -1;
     _skip_bitmap_col_idx = -1;
     _cluster_key_idxes.clear();
+    clear_column_cache_handlers();
     for (const auto& i : ori_tablet_schema._cluster_key_idxes) {
         _cluster_key_idxes.push_back(i);
     }
@@ -1237,6 +1268,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_row_store_page_size(_row_store_page_size);
+    tablet_schema_pb->set_storage_page_size(_storage_page_size);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
@@ -1408,7 +1440,6 @@ const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const
             }
         }
     }
-
     return nullptr;
 }
 
@@ -1505,6 +1536,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._enable_single_replica_compaction != b._enable_single_replica_compaction) return false;
     if (a._store_row_column != b._store_row_column) return false;
     if (a._row_store_page_size != b._row_store_page_size) return false;
+    if (a._storage_page_size != b._storage_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
     if (a._variant_enable_flatten_nested != b._variant_enable_flatten_nested) return false;
     return true;
@@ -1512,15 +1544,6 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
-}
-
-std::string TabletSchema::deterministic_string_serialize(const TabletSchemaPB& schema_pb) {
-    std::string output;
-    google::protobuf::io::StringOutputStream string_output_stream(&output);
-    google::protobuf::io::CodedOutputStream output_stream(&string_output_stream);
-    output_stream.SetSerializationDeterministic(true);
-    schema_pb.SerializeToCodedStream(&output_stream);
-    return output;
 }
 
 } // namespace doris

@@ -26,6 +26,7 @@ import org.apache.doris.common.DdlException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -35,10 +36,13 @@ public interface MTMVRelatedTableIf extends TableIf {
 
     /**
      * Get all partitions of the table
+     * Note: This method is called every time there is a refresh and transparent rewrite,
+     * so if this method is slow, it will significantly reduce query performance
      *
-     * @return partitionId->PartitionItem
+     * @param snapshotId
+     * @return partitionName->PartitionItem
      */
-    Map<String, PartitionItem> getAndCopyPartitionItems();
+    Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) throws AnalysisException;
 
     /**
      * getPartitionType LIST/RANGE/UNPARTITIONED
@@ -64,20 +68,31 @@ public interface MTMVRelatedTableIf extends TableIf {
 
     /**
      * getPartitionSnapshot
+     * It is best to use the version. If there is no version, use the last update time
+     * If snapshots have already been obtained in bulk in the context,
+     * the results should be obtained directly from the context
      *
+     * @param snapshotId
      * @param partitionName
+     * @param context
      * @return partition snapshot at current time
      * @throws AnalysisException
      */
-    MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context) throws AnalysisException;
+    MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context, OptionalLong snapshotId)
+            throws AnalysisException;
 
     /**
      * getTableSnapshot
+     * It is best to use the version. If there is no version, use the last update time
+     * If snapshots have already been obtained in bulk in the context,
+     * the results should be obtained directly from the context
      *
+     * @param snapshotId
+     * @param context
      * @return table snapshot at current time
      * @throws AnalysisException
      */
-    MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) throws AnalysisException;
+    MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId) throws AnalysisException;
 
     /**
      * Does the current type of table allow timed triggering
@@ -85,7 +100,9 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return If return false,The method of comparing whether to synchronize will directly return true,
      *         otherwise the snapshot information will be compared
      */
-    boolean needAutoRefresh();
+    default boolean needAutoRefresh() {
+        return true;
+    }
 
     /**
      * if allow partition column `isAllowNull`

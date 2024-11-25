@@ -36,6 +36,7 @@ public:
     using key_type = Key;
     using mapped_type = void;
     using value_type = void;
+    using Value = void*;
 
     using LookupResult = void*;
 
@@ -104,7 +105,7 @@ public:
 
     void clear_and_shrink() { _hash_set.clear(); }
 
-    void expanse_for_add_elem(size_t num_elem) { _hash_set.reserve(num_elem); }
+    void reserve(size_t num_elem) { _hash_set.reserve(num_elem); }
 
 private:
     HashSetImpl _hash_set;

@@ -81,6 +81,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     get_data_from_recvr_timer = ADD_TIMER(_runtime_profile, "GetDataFromRecvrTime");
     filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
     create_merger_timer = ADD_TIMER(_runtime_profile, "CreateMergerTime");
+    _runtime_profile->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
 
     return Status::OK();
 }

@@ -955,8 +955,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     bool exists = false;
     RETURN_IF_ERROR(io::global_local_filesystem()->exists(header_path, &exists));
     if (!exists) {
-        return Status::Error<FILE_NOT_EXIST>("fail to find header file. [header_path={}]",
-                                             header_path);
+        return Status::Error<NOT_FOUND>("fail to find header file. [header_path={}]", header_path);
     }
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta());

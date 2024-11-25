@@ -29,11 +29,11 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
@@ -174,9 +174,7 @@ public class MTMVTask extends AbstractTask {
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
             this.relation = MTMVPlanUtil.generateMTMVRelation(mtmv, ctx);
-            // Now, the MTMV first ensures consistency with the data in the cache.
-            // To be completely consistent with hive, you need to manually refresh the cache
-            refreshHmsTable();
+            beforeMTMVRefresh();
             if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
                 MTMVPartitionUtil.alignMvPartition(mtmv);
             }
@@ -295,20 +293,18 @@ public class MTMVTask extends AbstractTask {
     }
 
     /**
-     * Before obtaining information from hmsTable, refresh to ensure that the data is up-to-date
+     * Do something before refreshing, such as clearing the cache of the external table
      *
      * @throws AnalysisException
      * @throws DdlException
      */
-    private void refreshHmsTable() throws AnalysisException, DdlException {
+    private void beforeMTMVRefresh() throws AnalysisException, DdlException {
         for (BaseTableInfo tableInfo : relation.getBaseTablesOneLevel()) {
             TableIf tableIf = MTMVUtil.getTable(tableInfo);
-            if (tableIf instanceof HMSExternalTable) {
-                HMSExternalTable hmsTable = (HMSExternalTable) tableIf;
-                Env.getCurrentEnv().getRefreshManager()
-                        .refreshTable(hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), true);
+            if (tableIf instanceof MTMVBaseTableIf) {
+                MTMVBaseTableIf baseTableIf = (MTMVBaseTableIf) tableIf;
+                baseTableIf.beforeMTMVRefresh(mtmv);
             }
-
         }
     }
 

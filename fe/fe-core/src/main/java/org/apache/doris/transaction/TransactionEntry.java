@@ -225,7 +225,7 @@ public class TransactionEntry {
                                 ExecuteEnv.getInstance().getStartupTime()),
                         LoadJobSourceType.INSERT_STREAMING, timeoutSecond);
             } else {
-                String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+                String token = Env.getCurrentEnv().getTokenManager().acquireToken();
                 MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(ConnectContext.get());
                 TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
                 request.setDb(database.getFullName()).setTbl(table.getName()).setToken(token)

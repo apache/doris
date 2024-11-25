@@ -554,6 +554,10 @@ public class Auth implements Writable {
         }
     }
 
+    public void dropUser(UserIdentity userIdent, boolean ignoreIfNonExists)  throws DdlException {
+        dropUserInternal(userIdent, ignoreIfNonExists, false);
+    }
+
     // drop user
     public void dropUser(DropUserStmt stmt) throws DdlException {
         dropUserInternal(stmt.getUserIdentity(), stmt.isSetIfExists(), false);
@@ -681,7 +685,9 @@ public class Auth implements Writable {
             throws DdlException {
         writeLock();
         try {
-            checkTablePatternExist(tblPattern);
+            if (!isReplay) {
+                checkTablePatternExist(tblPattern);
+            }
             if (role == null) {
                 if (!doesUserExist(userIdent)) {
                     throw new DdlException("user " + userIdent + " does not exist");
@@ -1017,6 +1023,10 @@ public class Auth implements Writable {
         alterRoleInternal(stmt.getRole(), stmt.getComment(), false);
     }
 
+    public void alterRole(String role, String comment) throws DdlException {
+        alterRoleInternal(role, comment, false);
+    }
+
     public void replayCreateRole(PrivInfo info) {
         try {
             createRoleInternal(info.getRole(), false, info.getComment(), true);
@@ -1070,6 +1080,10 @@ public class Auth implements Writable {
     // drop role
     public void dropRole(DropRoleStmt stmt) throws DdlException {
         dropRoleInternal(stmt.getRole(), stmt.isSetIfExists(), false);
+    }
+
+    public void dropRole(String role, boolean ignoreIfNonExists) throws DdlException {
+        dropRoleInternal(role, ignoreIfNonExists, false);
     }
 
     public void replayDropRole(PrivInfo info) {

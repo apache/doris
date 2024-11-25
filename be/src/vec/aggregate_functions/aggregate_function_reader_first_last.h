@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include "factory_helpers.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
@@ -28,10 +26,8 @@
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 
@@ -51,7 +47,7 @@ public:
 
     void insert_into(IColumn& to) const {
         if constexpr (arg_is_nullable) {
-            auto* col = assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(_ptr);
+            const auto* col = assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(_ptr);
             assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).insert_from(
                     col->get_nested_column(), _offset);
         } else {
@@ -89,7 +85,8 @@ public:
         // because the address have meaningless, only need it to check is nullptr
         this->_ptr = (IColumn*)0x00000001;
         if constexpr (arg_is_nullable) {
-            auto* col = assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(column);
+            const auto* col =
+                    assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(column);
             if (col->is_null_at(row)) {
                 this->reset();
                 return;
@@ -149,8 +146,9 @@ protected:
     bool _has_value = false;
 };
 
-template <typename Data>
-struct ReaderFunctionFirstData : Data {
+template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable, bool is_copy>
+struct ReaderFunctionFirstData
+        : ReaderFirstAndLastData<ColVecType, result_is_nullable, arg_is_nullable, is_copy> {
     void add(int64_t row, const IColumn** columns) {
         if (this->has_set_value()) {
             return;
@@ -160,13 +158,15 @@ struct ReaderFunctionFirstData : Data {
     static const char* name() { return "first_value"; }
 };
 
-template <typename Data>
-struct ReaderFunctionFirstNonNullData : Data {
+template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable, bool is_copy>
+struct ReaderFunctionFirstNonNullData
+        : ReaderFirstAndLastData<ColVecType, result_is_nullable, arg_is_nullable, is_copy> {
     void add(int64_t row, const IColumn** columns) {
         if (this->has_set_value()) {
             return;
         }
-        if constexpr (Data::nullable) {
+        if constexpr (ReaderFirstAndLastData<ColVecType, result_is_nullable, arg_is_nullable,
+                                             is_copy>::nullable) {
             const auto* nullable_column =
                     assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
             if (nullable_column->is_null_at(row)) {
@@ -178,16 +178,19 @@ struct ReaderFunctionFirstNonNullData : Data {
     static const char* name() { return "first_non_null_value"; }
 };
 
-template <typename Data>
-struct ReaderFunctionLastData : Data {
+template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable, bool is_copy>
+struct ReaderFunctionLastData
+        : ReaderFirstAndLastData<ColVecType, result_is_nullable, arg_is_nullable, is_copy> {
     void add(int64_t row, const IColumn** columns) { this->set_value(columns, row); }
     static const char* name() { return "last_value"; }
 };
 
-template <typename Data>
-struct ReaderFunctionLastNonNullData : Data {
+template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable, bool is_copy>
+struct ReaderFunctionLastNonNullData
+        : ReaderFirstAndLastData<ColVecType, result_is_nullable, arg_is_nullable, is_copy> {
     void add(int64_t row, const IColumn** columns) {
-        if constexpr (Data::nullable) {
+        if constexpr (ReaderFirstAndLastData<ColVecType, result_is_nullable, arg_is_nullable,
+                                             is_copy>::nullable) {
             const auto* nullable_column =
                     assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
             if (nullable_column->is_null_at(row)) {
@@ -256,17 +259,18 @@ private:
     DataTypePtr _argument_type;
 };
 
-template <template <typename> class AggregateFunctionTemplate, template <typename> class Impl,
-          bool result_is_nullable, bool arg_is_nullable, bool is_copy = false>
+template <template <typename, bool, bool, bool> class FunctionData, bool result_is_nullable,
+          bool arg_is_nullable, bool is_copy = false>
 AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types) {
     auto type = remove_nullable(argument_types[0]);
     WhichDataType which(*type);
 
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                    \
-    if (which.idx == TypeIndex::TYPE)                                                  \
-        return std::make_shared<AggregateFunctionTemplate<Impl<ReaderFirstAndLastData< \
-                COLUMN_TYPE, result_is_nullable, arg_is_nullable, is_copy>>>>(argument_types);
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                        \
+    if (which.idx == TypeIndex::TYPE)                                                      \
+        return std::make_shared<ReaderFunctionData<                                        \
+                FunctionData<COLUMN_TYPE, result_is_nullable, arg_is_nullable, is_copy>>>( \
+                argument_types);
     TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
 
@@ -285,9 +289,9 @@ AggregateFunctionPtr create_function_single_value(const String& name,
         std::visit(                                                                            \
                 [&](auto result_is_nullable, auto arg_is_nullable) {                           \
                     res = AggregateFunctionPtr(                                                \
-                            create_function_single_value<ReaderFunctionData, FUNCTION_DATA,    \
-                                                         result_is_nullable, arg_is_nullable,  \
-                                                         is_copy>(name, argument_types));      \
+                            create_function_single_value<FUNCTION_DATA, result_is_nullable,    \
+                                                         arg_is_nullable, is_copy>(            \
+                                    name, argument_types));                                    \
                 },                                                                             \
                 make_bool_variant(result_is_nullable), make_bool_variant(arg_is_nullable));    \
         if (!res) {                                                                            \
@@ -303,4 +307,6 @@ CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_first_non_nu
 CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last, ReaderFunctionLastData);
 CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last_non_null_value,
                                           ReaderFunctionLastNonNullData);
+#undef CREATE_READER_FUNCTION_WITH_NAME_AND_DATA
+
 } // namespace doris::vectorized

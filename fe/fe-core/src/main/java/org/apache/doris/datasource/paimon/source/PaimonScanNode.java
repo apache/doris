@@ -164,6 +164,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         fileDesc.setDbId(((PaimonExternalTable) source.getTargetTable()).getDbId());
         fileDesc.setTblId(source.getTargetTable().getId());
         fileDesc.setLastUpdateTime(source.getTargetTable().getUpdateTime());
+        fileDesc.setPaimonTable(encodeObjectToString(source.getPaimonTable()));
         // The hadoop conf should be same with PaimonExternalCatalog.createCatalog()#getConfiguration()
         fileDesc.setHadoopConf(source.getCatalog().getCatalogProperty().getHadoopProperties());
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
@@ -349,8 +350,20 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         if (detailLevel == TExplainLevel.VERBOSE) {
             sb.append(prefix).append("PaimonSplitStats: \n");
-            for (SplitStat splitStat : splitStats) {
-                sb.append(String.format("%s  %s\n", prefix, splitStat));
+            int size = splitStats.size();
+            if (size <= 4) {
+                for (SplitStat splitStat : splitStats) {
+                    sb.append(String.format("%s  %s\n", prefix, splitStat));
+                }
+            } else {
+                for (int i = 0; i < 3; i++) {
+                    SplitStat splitStat = splitStats.get(i);
+                    sb.append(String.format("%s  %s\n", prefix, splitStat));
+                }
+                int other = size - 4;
+                sb.append(prefix).append("  ... other ").append(other).append(" paimon split stats ...\n");
+                SplitStat split = splitStats.get(size - 1);
+                sb.append(String.format("%s  %s\n", prefix, split));
             }
         }
         return sb.toString();
