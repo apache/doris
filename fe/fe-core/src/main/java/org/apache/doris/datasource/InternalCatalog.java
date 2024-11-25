@@ -3537,7 +3537,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException {
         TableRef tblRef = truncateTableStmt.getTblRef();
         TableName dbTbl = tblRef.getName();
-
+        boolean isForceDrop = truncateTableStmt.isForceDrop();
         // check, and save some info which need to be checked again later
         Map<String, Long> origPartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<Long, DistributionInfo> partitionsDistributionInfo = Maps.newHashMap();
@@ -3566,7 +3566,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     // If need absolutely correct, should check running txn here.
                     // But if the txn is in prepare state, cann't known which partitions had load data.
-                    if (!partition.hasData()) {
+                    if ((isForceDrop) && (!partition.hasData())) {
+                        // if not force drop, then need to add partition to
+                        // recycle bin, so behavior for recover would be clear
                         continue;
                     }
                     origPartitions.put(partName, partition.getId());
@@ -3577,7 +3579,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 for (Partition partition : olapTable.getPartitions()) {
                     // If need absolutely correct, should check running txn here.
                     // But if the txn is in prepare state, cann't known which partitions had load data.
-                    if (!partition.hasData()) {
+                    if ((isForceDrop) && (!partition.hasData())) {
+                        // if not force drop, then need to add partition to
+                        // recycle bin, so behavior for recover would be clear
                         continue;
                     }
                     origPartitions.put(partition.getName(), partition.getId());
@@ -3724,7 +3728,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException("Table[" + copiedTbl.getName() + "]'s meta has been changed. try again.");
             }
 
-            boolean isForceDrop = truncateTableStmt.isForceDrop();
             //replace
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap  =  new HashMap<>();
             oldPartitions = truncateTableInternal(olapTable, newPartitions,

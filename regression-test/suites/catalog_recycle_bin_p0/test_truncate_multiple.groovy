@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_insert_overwrite_recover") {
-    def table = "test_insert_overwrite_recover"
+suite("test_truncate_multiple") {
+    def table = "test_truncate_multiple"
 
     // create table and insert data
     sql """ drop table if exists ${table}"""
@@ -47,18 +47,29 @@ suite("test_insert_overwrite_recover") {
 
     qt_select_check_1 """ select * from  ${table} order by id,name,da; """
 
-    sql """ insert overwrite  table ${table} values(3, 'a', '2024-01-02'); """
+    sql """ truncate  table ${table}; """
 
-    qt_select_check_1 """ select * from  ${table} order by id,name,da; """
-    
+    qt_select_check_2 """ select * from  ${table} order by id,name,da; """
+
+    // add only one record, so that some paritions can be empty
+    sql """ insert into ${table} values(100, 'a', '2022-01-02'); """
+    // check empty partition drop
+    sql """ SYNC;"""
+    qt_select_check_3 """ select * from  ${table} order by id,name,da; """    
+    sql """ truncate  table ${table}; """
+
+    qt_select_check_4 """ select * from  ${table} order by id,name,da; """    
+    // after truncate , there would be new partition created,
+    // drop forcefully so that this partitions not kept in recycle bin.
     sql """ ALTER TABLE ${table} DROP PARTITION p3 force; """
     sql """ ALTER TABLE ${table} DROP PARTITION p4 force; """
     sql """ ALTER TABLE ${table} DROP PARTITION p5 force; """
 
+    // recover the data from the recycel bin , data present before truncate.
     sql """ recover partition p3  from ${table}; """
     sql """ recover partition p4  from ${table}; """
     sql """ recover partition p5  from ${table}; """    
 
-    qt_select_check_1 """ select * from  ${table} order by id,name,da; """
-
+    // data should match whatever before truncate.
+    qt_select_check_5 """ select * from  ${table} order by id,name,da; """
 }
