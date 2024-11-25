@@ -35,12 +35,14 @@ namespace doris {
 
 Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
                                UniqueKeyUpdateModePB unique_key_update_mode,
+                               PartialUpdateNewRowPolicyPB policy,
                                const std::set<string>& partial_update_cols, bool is_strict_mode,
                                int64_t timestamp_ms, int32_t nano_seconds,
                                const std::string& timezone,
                                const std::string& auto_increment_column,
                                int32_t sequence_map_col_uid, int64_t cur_max_version) {
     partial_update_mode = unique_key_update_mode;
+    partial_update_new_key_policy = policy;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
     sequence_map_col_unqiue_id = sequence_map_col_uid;
@@ -97,6 +99,7 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
 
 void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const {
     partial_update_info_pb->set_partial_update_mode(partial_update_mode);
+    partial_update_info_pb->set_partial_update_new_key_policy(partial_update_new_key_policy);
     partial_update_info_pb->set_max_version_in_flush_phase(max_version_in_flush_phase);
     for (const auto& col : partial_update_input_columns) {
         partial_update_info_pb->add_partial_update_input_columns(col);
@@ -132,6 +135,9 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
         }
     } else {
         partial_update_mode = partial_update_info_pb->partial_update_mode();
+    }
+    if (partial_update_info_pb->has_partial_update_new_key_policy()) {
+        partial_update_new_key_policy = partial_update_info_pb->partial_update_new_key_policy();
     }
     max_version_in_flush_phase = partial_update_info_pb->has_max_version_in_flush_phase()
                                          ? partial_update_info_pb->max_version_in_flush_phase()
@@ -186,56 +192,55 @@ std::string PartialUpdateInfo::summary() const {
             max_version_in_flush_phase);
 }
 
-Status PartialUpdateInfo::handle_not_found_error_for_fixed_partial_update(
-        const TabletSchema& tablet_schema) const {
-    if (!can_insert_new_rows_in_partial_update) {
-        std::string error_column;
-        for (auto cid : missing_cids) {
-            const TabletColumn& col = tablet_schema.column(cid);
-            if (!col.has_default_value() && !col.is_nullable() &&
-                !(tablet_schema.auto_increment_column() == col.name())) {
-                error_column = col.name();
-                break;
+Status PartialUpdateInfo::handle_new_key(const TabletSchema& tablet_schema,
+                                         const std::function<std::string()>& line,
+                                         BitmapValue* skip_bitmap) {
+    switch (partial_update_new_key_policy) {
+    case doris::PartialUpdateNewRowPolicyPB::APPEND: {
+        if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
+            if (!can_insert_new_rows_in_partial_update) {
+                std::string error_column;
+                for (auto cid : missing_cids) {
+                    const TabletColumn& col = tablet_schema.column(cid);
+                    if (!col.has_default_value() && !col.is_nullable() &&
+                        !(tablet_schema.auto_increment_column() == col.name())) {
+                        error_column = col.name();
+                        break;
+                    }
+                }
+                return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
+                        "the unmentioned column `{}` should have default value or be nullable "
+                        "for newly inserted rows in non-strict mode partial update",
+                        error_column);
+            }
+        } else if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS) {
+            DCHECK(skip_bitmap != nullptr);
+            bool can_insert_new_row {true};
+            std::string error_column;
+            for (auto cid : missing_cids) {
+                const TabletColumn& col = tablet_schema.column(cid);
+                if (skip_bitmap->contains(col.unique_id()) && !col.has_default_value() &&
+                    !col.is_nullable() && col.is_auto_increment()) {
+                    error_column = col.name();
+                    can_insert_new_row = false;
+                    break;
+                }
+            }
+            if (!can_insert_new_row) {
+                return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
+                        "the unmentioned column `{}` should have default value or be "
+                        "nullable for newly inserted rows in non-strict mode flexible partial "
+                        "update",
+                        error_column);
             }
         }
-        return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
-                "the unmentioned column `{}` should have default value or be nullable "
-                "for newly inserted rows in non-strict mode partial update",
-                error_column);
-    }
-    return Status::OK();
-}
-
-Status PartialUpdateInfo::handle_not_found_error_for_flexible_partial_update(
-        const TabletSchema& tablet_schema, BitmapValue* skip_bitmap) const {
-    DCHECK(skip_bitmap != nullptr);
-    bool can_insert_new_rows_in_partial_update = true;
-    std::string error_column;
-    for (auto cid : missing_cids) {
-        const TabletColumn& col = tablet_schema.column(cid);
-        if (skip_bitmap->contains(col.unique_id()) && !col.has_default_value() &&
-            !col.is_nullable() && col.is_auto_increment()) {
-            error_column = col.name();
-            can_insert_new_rows_in_partial_update = false;
-            break;
-        }
-    }
-    if (!can_insert_new_rows_in_partial_update) {
-        return Status::Error<ErrorCode::INVALID_SCHEMA, false>(
-                "the unmentioned column `{}` should have default value or be "
-                "nullable for newly inserted rows in non-strict mode flexible partial update",
-                error_column);
-    }
-    return Status::OK();
-}
-
-Status PartialUpdateInfo::handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema,
-                                                                 BitmapValue* skip_bitmap) const {
-    if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
-        RETURN_IF_ERROR(handle_not_found_error_for_fixed_partial_update(tablet_schema));
-    } else if (partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS) {
-        RETURN_IF_ERROR(
-                handle_not_found_error_for_flexible_partial_update(tablet_schema, skip_bitmap));
+    } break;
+    case doris::PartialUpdateNewRowPolicyPB::ERROR: {
+        return Status::Error<ErrorCode::NEW_ROWS_IN_PARTIAL_UPDATE, false>(
+                "Can't append new rows in partial update when partial_update_new_key_policy is "
+                "ERROR. Row with key=[{}] is not in table.",
+                line());
+    } break;
     }
     return Status::OK();
 }
