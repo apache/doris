@@ -137,7 +137,7 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
         // _probe_offset_stack and _build_offset_stack use u16 for storage
         // because on the FE side, it is guaranteed that the batch size will not exceed 65535 (the maximum value for u16).s
         while (_join_block.rows() < state->batch_size()) {
-            while (_current_build_pos == _shared_state->build_blocks.size() ||
+            while (_current_build_pos == _shared_state->build_blocks->size() ||
                    _left_block_pos == _child_block->rows()) {
                 // if left block is empty(), do not need disprocess the left block rows
                 if (_child_block->rows() > _left_block_pos) {
@@ -164,8 +164,8 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
             if (_matched_rows_done || _need_more_input_data) {
                 break;
             }
-
-            const auto& now_process_build_block = _shared_state->build_blocks[_current_build_pos++];
+            const auto& now_process_build_block =
+                    (*_shared_state->build_blocks)[_current_build_pos++];
             if constexpr (set_build_side_flag) {
                 _build_offset_stack.push(cast_set<uint16_t, size_t, false>(_join_block.rows()));
             }
@@ -189,7 +189,7 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
                             _join_block, state->batch_size());
                 }
             } else if (_left_side_process_count && p._is_mark_join &&
-                       _shared_state->build_blocks.empty()) {
+                       _shared_state->build_blocks->empty()) {
                 _append_left_data_with_null(_join_block);
             }
         }
@@ -204,7 +204,7 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
 
     if constexpr (set_build_side_flag) {
         if (_matched_rows_done &&
-            _output_null_idx_build_side < _shared_state->build_blocks.size()) {
+            _output_null_idx_build_side < _shared_state->build_blocks->size()) {
             _finalize_current_phase<true, JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN>(
                     _join_block, state->batch_size());
         }
@@ -235,10 +235,10 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(vectorized::Block& b
     auto column_size = dst_columns[0]->size();
     if constexpr (BuildSide) {
         DCHECK(!p._is_mark_join);
-        auto build_block_sz = _shared_state->build_blocks.size();
+        auto build_block_sz = _shared_state->build_blocks->size();
         size_t i = _output_null_idx_build_side;
         for (; i < build_block_sz && column_size < batch_size; i++) {
-            const auto& cur_block = _shared_state->build_blocks[i];
+            const auto& cur_block = (*_shared_state->build_blocks)[i];
             const auto* __restrict cur_visited_flags =
                     assert_cast<vectorized::ColumnUInt8*>(
                             _shared_state->build_side_visited_flags[i].get())
@@ -512,7 +512,7 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
     } else {
         *eos = ((_match_all_build || _is_right_semi_anti)
                         ? local_state._output_null_idx_build_side ==
-                                          local_state._shared_state->build_blocks.size() &&
+                                          local_state._shared_state->build_blocks->size() &&
                                   local_state._matched_rows_done
                         : local_state._matched_rows_done);
 

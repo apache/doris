@@ -42,7 +42,7 @@ public:
     RuntimeProfile::Counter* runtime_filter_compute_timer() {
         return _runtime_filter_compute_timer;
     }
-    vectorized::Blocks& build_blocks() { return _shared_state->build_blocks; }
+    std::shared_ptr<vectorized::Blocks> build_blocks() { return _shared_state->build_blocks; }
     RuntimeProfile::Counter* publish_runtime_filter_timer() {
         return _publish_runtime_filter_timer;
     }

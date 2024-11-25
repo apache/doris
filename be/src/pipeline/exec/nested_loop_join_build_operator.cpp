@@ -35,9 +35,9 @@ struct RuntimeFilterBuild {
 
         RETURN_IF_ERROR(runtime_filter_slots.init(state));
 
-        if (!runtime_filter_slots.empty() && !_parent->build_blocks().empty()) {
+        if (!runtime_filter_slots.empty() && !_parent->build_blocks()->empty()) {
             SCOPED_TIMER(_parent->runtime_filter_compute_timer());
-            for (auto& build_block : _parent->build_blocks()) {
+            for (auto& build_block : *_parent->build_blocks()) {
                 RETURN_IF_ERROR(runtime_filter_slots.insert(&build_block));
             }
         }
@@ -129,7 +129,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
     if (rows != 0) {
         local_state._build_rows += rows;
         local_state._total_mem_usage += mem_usage;
-        local_state._shared_state->build_blocks.emplace_back(std::move(*block));
+        local_state._shared_state->build_blocks->emplace_back(std::move(*block));
         if (_match_all_build || _is_right_semi_anti) {
             local_state._shared_state->build_side_visited_flags.emplace_back(
                     vectorized::ColumnUInt8::create(rows, 0));
@@ -142,9 +142,9 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
 
         // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338
         if (_is_output_left_side_only && ((_join_op == TJoinOp::type::LEFT_SEMI_JOIN &&
-                                           local_state._shared_state->build_blocks.empty()) ||
+                                           local_state._shared_state->build_blocks->empty()) ||
                                           (_join_op == TJoinOp::type::LEFT_ANTI_JOIN &&
-                                           !local_state._shared_state->build_blocks.empty()))) {
+                                           !local_state._shared_state->build_blocks->empty()))) {
             local_state._shared_state->left_side_eos = true;
         }
         local_state._dependency->set_ready_to_read();

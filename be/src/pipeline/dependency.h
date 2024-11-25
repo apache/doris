@@ -633,7 +633,7 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
     // Visited flags for each row in build side.
     vectorized::MutableColumns build_side_visited_flags;
     // List of build blocks, constructed in prepare()
-    vectorized::Blocks build_blocks;
+    std::shared_ptr<vectorized::Blocks> build_blocks = std::make_shared<vectorized::Blocks>();
 };
 
 struct PartitionSortNodeSharedState : public BasicSharedState {
