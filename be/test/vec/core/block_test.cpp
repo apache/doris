@@ -708,7 +708,7 @@ TEST(BlockTest, Constructor) {
         vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
         vectorized::Block block({{col->get_ptr(), type, "col1"}, {col->get_ptr(), type, "col2"}});
         EXPECT_EQ(2, block.columns());
-        EXPECT_EQ(0,block.rows());
+        EXPECT_EQ(0, block.rows());
         EXPECT_TRUE(block.empty());
     }
 
@@ -727,8 +727,8 @@ TEST(BlockTest, Constructor) {
     {
         auto col = vectorized::ColumnVector<Int32>::create();
         auto nullable_col = vectorized::make_nullable(col->get_ptr());
-        auto nullable_type = vectorized::make_nullable(
-            std::make_shared<vectorized::DataTypeInt32>());
+        auto nullable_type =
+                vectorized::make_nullable(std::make_shared<vectorized::DataTypeInt32>());
         vectorized::Block block({{nullable_col, nullable_type, "nullable_col"}});
         EXPECT_EQ(1, block.columns());
     }
@@ -736,18 +736,18 @@ TEST(BlockTest, Constructor) {
     // Test constructor with mixed column types
     {
         vectorized::ColumnsWithTypeAndName columns;
-        
+
         // Regular column
         auto regular_col = vectorized::ColumnVector<Int32>::create();
         auto regular_type = std::make_shared<vectorized::DataTypeInt32>();
         columns.emplace_back(regular_col->get_ptr(), regular_type, "regular_col");
-        
+
         // Const column
         auto const_base = vectorized::ColumnVector<Int32>::create();
         const_base->insert_value(42);
         auto const_col = vectorized::ColumnConst::create(const_base->get_ptr(), 10);
         columns.emplace_back(const_col->get_ptr(), regular_type, "const_col");
-        
+            
         // Nullable column
         auto nullable_col = vectorized::make_nullable(regular_col->get_ptr());
         auto nullable_type = vectorized::make_nullable(regular_type);
