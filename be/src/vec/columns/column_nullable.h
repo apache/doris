@@ -43,6 +43,7 @@
 class SipHash;
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Arena;
 class ColumnSorter;
 
@@ -410,7 +411,8 @@ public:
         }
         static constexpr auto MAX_NUMBER_OF_ROWS_FOR_FULL_SEARCH = 1000;
         size_t num_rows = size();
-        size_t num_sampled_rows = std::min(static_cast<size_t>(num_rows * sample_ratio), num_rows);
+        size_t num_sampled_rows = std::min(
+                static_cast<size_t>(static_cast<double>(num_rows) * sample_ratio), num_rows);
         size_t num_checked_rows = 0;
         size_t res = 0;
         if (num_sampled_rows == num_rows || num_rows <= MAX_NUMBER_OF_ROWS_FOR_FULL_SEARCH) {
@@ -429,7 +431,7 @@ public:
         if (num_checked_rows == 0) {
             return 0.0;
         }
-        return static_cast<double>(res) / num_checked_rows;
+        return static_cast<double>(res) / static_cast<double>(num_checked_rows);
     }
 
     void convert_dict_codes_if_necessary() override {
@@ -466,3 +468,4 @@ private:
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"
