@@ -1062,12 +1062,15 @@ void FragmentMgr::_check_brpc_available(const std::shared_ptr<PBackendService_St
     const std::string message = "hello doris!";
     std::string error_message;
     int32_t failed_count = 0;
+    const int64_t check_timeout_ms =
+            std::max<int64_t>(100, config::brpc_connection_check_timeout_ms);
+
     while (true) {
         PHandShakeRequest request;
         request.set_hello(message);
         PHandShakeResponse response;
         brpc::Controller cntl;
-        cntl.set_timeout_ms(500 * (failed_count + 1));
+        cntl.set_timeout_ms(check_timeout_ms);
         cntl.set_max_retry(10);
         brpc_stub->hand_shake(&cntl, &request, &response, nullptr);
 
