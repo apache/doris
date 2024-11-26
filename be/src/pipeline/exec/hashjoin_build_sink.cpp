@@ -126,6 +126,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     if (_closed) {
         return Status::OK();
     }
+    auto p = _parent->cast<HashJoinBuildSinkOperatorX>();
     Defer defer {[&]() {
         if (!_should_build_hash_table) {
             return;
