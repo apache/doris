@@ -155,7 +155,7 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
     auto single_replica_compaction_threads =
             get_single_replica_compaction_threads_num(data_dirs.size());
 
-    if (wg_sptr->get_cgroup_cpu_ctl_wptr().lock()) {
+    if (wg_sptr && wg_sptr->get_cgroup_cpu_ctl_wptr().lock()) {
         RETURN_IF_ERROR(ThreadPoolBuilder("gBaseCompactionTaskThreadPool")
                                 .set_min_threads(base_compaction_threads)
                                 .set_max_threads(base_compaction_threads)
