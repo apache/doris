@@ -193,13 +193,17 @@ supportedAlterStatement
         AS query                                                          #alterView
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause   #alterStorageVault
     | ALTER ROLE role=identifier commentSpec                                        #alterRole
+    | ALTER WORKLOAD GROUP name=identifierOrText
+        properties=propertyClause?                                                  #alterWorkloadGroup
     ;
 
 supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE  #dropCatalogRecycleBin
+    | DROP ENCRYPTKEY (IF EXISTS)? name=multipartIdentifier                     #dropEncryptkey
     | DROP ROLE (IF EXISTS)? name=identifier                                    #dropRole
     | DROP SQL_BLOCK_RULE (IF EXISTS)? identifierSeq                            #dropSqlBlockRule
     | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
+    | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText                    #dropWorkloadGroup
     ;
 
 supportedShowStatement
@@ -212,6 +216,7 @@ supportedShowStatement
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
+    | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL                                   #showLoadProfile
     | SHOW VIEW
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
@@ -221,7 +226,8 @@ supportedShowStatement
     | SHOW ROLES                                                                    #showRoles        
     | SHOW PARTITION partitionId=INTEGER_VALUE                                      #showPartitionId
     | SHOW PRIVILEGES                                                               #showPrivileges
-    | SHOW PROC path=STRING_LITERAL                                                 #showProc        
+    | SHOW PROC path=STRING_LITERAL                                                 #showProc       
+    | SHOW FILE ((FROM | IN) database=multipartIdentifier)?                         #showSmallFiles 
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE CATALOG name=identifier                                           #showCreateCatalog
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
@@ -324,13 +330,11 @@ unsupportedShowStatement
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showFunctions
     | SHOW GLOBAL FULL? FUNCTIONS wildWhere?                                        #showGlobalFunctions
     | SHOW TYPECAST ((FROM | IN) database=multipartIdentifier)?                     #showTypeCast
-    | SHOW FILE ((FROM | IN) database=multipartIdentifier)?                         #showSmallFiles
     | SHOW (KEY | KEYS | INDEX | INDEXES)
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
     | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL                                 #showQueryProfile
-    | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL                                   #showLoadProfile
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showEncryptKeys
     | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
@@ -557,8 +561,6 @@ unsupportedAlterStatement
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
-    | ALTER WORKLOAD GROUP name=identifierOrText
-        properties=propertyClause?                                                  #alterWorkloadGroup
     | ALTER WORKLOAD POLICY name=identifierOrText
         properties=propertyClause?                                                  #alterWorkloadPolicy
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
@@ -671,9 +673,7 @@ unsupportedDropStatement
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
     | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
-    | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText                    #dropWorkloadGroup
     | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
-    | DROP ENCRYPTKEY (IF EXISTS)? name=multipartIdentifier                     #dropEncryptkey
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
         ON tableName=multipartIdentifier
         (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy

@@ -14,9 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-suite("show_trash_nereids") {
-    // can not use qt command since the output change based on cluster and backend ip
-    checkNereidsExecute("""show trash;""")
-    checkNereidsExecute("""show trash on "127.0.0.1:9050";""")
+suite("test_nereids_encrypt_test") {
+    def dbName="test_nereids_encrypt_test_db"
+    def encryptkeyName="test_nereids_encrypt_test_key"
+    sql """ create database IF NOT EXISTS ${dbName}; """
+    sql """ use ${dbName}; """
+    checkNereidsExecute("drop encryptkey if exists ${encryptkeyName}")    
+    sql """CREATE ENCRYPTKEY ${encryptkeyName} AS "ABCD123456789";"""
+    qt_check_encrypt_1("SHOW ENCRYPTKEYS FROM ${dbName}")
+    checkNereidsExecute("drop encryptkey ${encryptkeyName}")
+    qt_check_encrypt_2("SHOW ENCRYPTKEYS FROM ${dbName}")    
+    checkNereidsExecute("drop encryptkey if exists ${encryptkeyName}")
+    qt_check_encrypt_3("SHOW ENCRYPTKEYS FROM ${dbName}")        
 }

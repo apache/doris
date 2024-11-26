@@ -41,6 +41,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -127,8 +128,15 @@ public class InitMaterializationContextHook implements PlannerHook {
 
     private List<MaterializationContext> createAsyncMaterializationContext(CascadesContext cascadesContext,
             Set<TableIf> usedTables) {
-        Set<MTMV> availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
-        if (availableMTMVs.isEmpty()) {
+        Set<MTMV> availableMTMVs;
+        try {
+            availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
+        } catch (Exception e) {
+            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current queryId is %s",
+                    cascadesContext.getConnectContext().getQueryIdentifier()), e);
+            return ImmutableList.of();
+        }
+        if (CollectionUtils.isEmpty(availableMTMVs)) {
             LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, current queryId "
                     + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
             return ImmutableList.of();

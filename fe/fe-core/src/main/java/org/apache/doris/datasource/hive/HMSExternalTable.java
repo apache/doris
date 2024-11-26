@@ -40,7 +40,6 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -297,19 +296,38 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 .orElse(Collections.emptyList());
     }
 
-    public SelectedPartitions getAllPartitions() {
-        if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
-            return SelectedPartitions.NOT_PRUNED;
-        }
+    @Override
+    public List<Column> getPartitionColumns(OptionalLong snapshotId) {
+        return getPartitionColumns();
+    }
 
+    @Override
+    public boolean supportPartitionPruned() {
+        return getDlaType() == DLAType.HIVE;
+    }
+
+    @Override
+    public Map<String, PartitionItem> getNameToPartitionItems(OptionalLong snapshotId) {
+        return getNameToPartitionItems();
+    }
+
+    public Map<String, PartitionItem> getNameToPartitionItems() {
+        if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
+            return Collections.emptyMap();
+        }
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) this.getCatalog());
         List<Type> partitionColumnTypes = this.getPartitionColumnTypes();
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                 this.getDbName(), this.getName(), partitionColumnTypes);
         Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
-
-        return new SelectedPartitions(idToPartitionItem.size(), idToPartitionItem, false);
+        // transfer id to name
+        BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
+        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(idToPartitionItem.size());
+        for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
+            nameToPartitionItem.put(idToName.get(entry.getKey()), entry.getValue());
+        }
+        return nameToPartitionItem;
     }
 
     public boolean isHiveTransactionalTable() {

@@ -423,7 +423,7 @@ public class ThriftPlansBuilder {
 
         boolean isLocalShuffle = instance instanceof LocalShuffleAssignedJob;
         if (isLocalShuffle && ((LocalShuffleAssignedJob) instance).receiveDataFromLocal) {
-            // save thrift rpc message size, don't need perNodeScanRanges and perNodeSharedScans,
+            // save thrift rpc message size, don't need perNodeScanRanges,
             // but the perNodeScanRanges is required rpc field
             instanceParams.setPerNodeScanRanges(Maps.newLinkedHashMap());
             return;
@@ -459,19 +459,16 @@ public class ThriftPlansBuilder {
 
     private static PerNodeScanParams computeDefaultScanSourceParam(DefaultScanSource defaultScanSource) {
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newLinkedHashMap();
-        Map<Integer, Boolean> perNodeSharedScans = Maps.newLinkedHashMap();
         for (Entry<ScanNode, ScanRanges> kv : defaultScanSource.scanNodeToScanRanges.entrySet()) {
             int scanNodeId = kv.getKey().getId().asInt();
             perNodeScanRanges.put(scanNodeId, kv.getValue().params);
-            perNodeSharedScans.put(scanNodeId, true);
         }
 
-        return new PerNodeScanParams(perNodeScanRanges, perNodeSharedScans);
+        return new PerNodeScanParams(perNodeScanRanges);
     }
 
     private static PerNodeScanParams computeBucketScanSourceParam(BucketScanSource bucketScanSource) {
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newLinkedHashMap();
-        Map<Integer, Boolean> perNodeSharedScans = Maps.newLinkedHashMap();
         for (Entry<Integer, Map<ScanNode, ScanRanges>> kv :
                 bucketScanSource.bucketIndexToScanNodeToTablets.entrySet()) {
             Map<ScanNode, ScanRanges> scanNodeToRanges = kv.getValue();
@@ -479,10 +476,9 @@ public class ThriftPlansBuilder {
                 int scanNodeId = kv2.getKey().getId().asInt();
                 List<TScanRangeParams> scanRanges = perNodeScanRanges.computeIfAbsent(scanNodeId, ArrayList::new);
                 scanRanges.addAll(kv2.getValue().params);
-                perNodeSharedScans.put(scanNodeId, true);
             }
         }
-        return new PerNodeScanParams(perNodeScanRanges, perNodeSharedScans);
+        return new PerNodeScanParams(perNodeScanRanges);
     }
 
     private static Map<Integer, Integer> computeBucketIdToInstanceId(
@@ -562,12 +558,9 @@ public class ThriftPlansBuilder {
 
     private static class PerNodeScanParams {
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges;
-        Map<Integer, Boolean> perNodeSharedScans;
 
-        public PerNodeScanParams(Map<Integer, List<TScanRangeParams>> perNodeScanRanges,
-                Map<Integer, Boolean> perNodeSharedScans) {
+        public PerNodeScanParams(Map<Integer, List<TScanRangeParams>> perNodeScanRanges) {
             this.perNodeScanRanges = perNodeScanRanges;
-            this.perNodeSharedScans = perNodeSharedScans;
         }
     }
 }

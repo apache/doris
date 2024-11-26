@@ -334,16 +334,10 @@ public:
     bool is_column_array() const override { return get_nested_column().is_column_array(); }
     bool is_column_map() const override { return get_nested_column().is_column_map(); }
     bool is_column_struct() const override { return get_nested_column().is_column_struct(); }
-    bool is_fixed_and_contiguous() const override { return false; }
 
     bool is_exclusive() const override {
         return IColumn::is_exclusive() && nested_column->is_exclusive() &&
                get_null_map_column().is_exclusive();
-    }
-
-    size_t size_of_value_if_fixed() const override {
-        return get_null_map_column().size_of_value_if_fixed() +
-               nested_column->size_of_value_if_fixed();
     }
 
     bool only_null() const override { return size() == 1 && is_null_at(0); }
