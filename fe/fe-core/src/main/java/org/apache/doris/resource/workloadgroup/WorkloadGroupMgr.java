@@ -492,7 +492,10 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     }
 
     public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {
-        String workloadGroupName = stmt.getWorkloadGroupName();
+        dropWorkloadGroup(stmt.getWorkloadGroupName(), stmt.isIfExists());
+    }
+
+    public void dropWorkloadGroup(String workloadGroupName, boolean ifExists) throws DdlException {
         if (DEFAULT_GROUP_NAME.equals(workloadGroupName) || INTERNAL_GROUP_NAME.equals(workloadGroupName)) {
             throw new DdlException("Dropping workload group " + workloadGroupName + " is not allowed");
         }
@@ -521,7 +524,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         writeLock();
         try {
             if (!nameToWorkloadGroup.containsKey(workloadGroupName)) {
-                if (stmt.isIfExists()) {
+                if (ifExists) {
                     return;
                 }
                 throw new DdlException("workload group " + workloadGroupName + " does not exist");
