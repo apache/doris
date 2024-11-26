@@ -30,6 +30,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -197,7 +198,8 @@ public class AuditLogHelper {
                 .setStmtId(ctx.getStmtId())
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
                 .setWorkloadGroup(ctx.getWorkloadGroupName())
-                .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables());
+                .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables())
+                .setCommandType(ctx.getCommand().toString());
 
         if (ctx.getState().isQuery()) {
             if (!ctx.getSessionVariable().internalSession) {
@@ -247,6 +249,9 @@ public class AuditLogHelper {
                     auditEventBuilder.setErrorMessage(ctx.executor.getProxyErrMsg());
                 }
             }
+        }
+        if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE && ctx.getState().getErrorCode() == null) {
+            auditEventBuilder.setState(String.valueOf(MysqlStateType.OK));
         }
         Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(auditEventBuilder.build());
     }
