@@ -1470,41 +1470,159 @@ TEST(BlockTest, SortColumns) {
 }
 
 TEST(BlockTest, RowOperations) {
-    vectorized::Block block;
-
     // Test empty block
-    EXPECT_EQ(0, block.rows());
-    EXPECT_EQ(0, block.columns());
-    EXPECT_TRUE(block.empty());
-    EXPECT_TRUE(block.is_empty_column());
+    {
+        vectorized::Block empty_block;
+        EXPECT_EQ(0, empty_block.rows());
+        EXPECT_EQ(0, empty_block.columns());
+        EXPECT_TRUE(empty_block.empty());
+        EXPECT_TRUE(empty_block.is_empty_column());
 
-    // Add columns with data
-    auto col1 = vectorized::ColumnVector<Int32>::create();
-    auto col2 = vectorized::ColumnString::create();
-    vectorized::DataTypePtr type1(std::make_shared<vectorized::DataTypeInt32>());
-    vectorized::DataTypePtr type2(std::make_shared<vectorized::DataTypeString>());
-
-    for (int i = 0; i < 100; ++i) {
-        col1->insert_value(i);
-        col2->insert_data(std::to_string(i).c_str(), std::to_string(i).length());
+        // Test row operations on empty block
+        EXPECT_NO_THROW(empty_block.set_num_rows(0));
+        int64_t offset = 0;
+        EXPECT_NO_THROW(empty_block.skip_num_rows(offset));
     }
 
-    block.insert({col1->get_ptr(), type1, "col1"});
-    block.insert({col2->get_ptr(), type2, "col2"});
+    // Test with regular columns
+    {
+        vectorized::Block block;
+        auto col1 = vectorized::ColumnVector<Int32>::create();
+        auto col2 = vectorized::ColumnString::create();
+        vectorized::DataTypePtr type1(std::make_shared<vectorized::DataTypeInt32>());
+        vectorized::DataTypePtr type2(std::make_shared<vectorized::DataTypeString>());
 
-    // Test basic properties
-    EXPECT_EQ(100, block.rows());
-    EXPECT_EQ(2, block.columns());
-    EXPECT_FALSE(block.empty());
-    EXPECT_FALSE(block.is_empty_column());
+        for (int i = 0; i < 100; ++i) {
+            col1->insert_value(i);
+            col2->insert_data(std::to_string(i).c_str(), std::to_string(i).length());
+        }
 
-    // Test row operations
-    block.set_num_rows(50); // LIMIT
-    EXPECT_EQ(50, block.rows());
+        block.insert({col1->get_ptr(), type1, "col1"});
+        block.insert({col2->get_ptr(), type2, "col2"});
 
-    int64_t offset = 20;
-    block.skip_num_rows(offset); // OFFSET
-    EXPECT_EQ(30, block.rows());
+        // Test basic properties
+        EXPECT_EQ(100, block.rows());
+        EXPECT_EQ(2, block.columns());
+        EXPECT_FALSE(block.empty());
+        EXPECT_FALSE(block.is_empty_column());
+
+        // Test row operations
+        block.set_num_rows(50);
+        EXPECT_EQ(50, block.rows());
+
+        int64_t offset = 20;
+        block.skip_num_rows(offset);
+        EXPECT_EQ(30, block.rows());
+    }
+
+    // Test with const columns
+    {
+        vectorized::Block block;
+        vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
+
+        // Create and insert const columns
+        auto base_col1 = vectorized::ColumnVector<Int32>::create();
+        base_col1->insert_value(42);
+        auto const_col1 = vectorized::ColumnConst::create(base_col1->get_ptr(), 100);
+        block.insert({const_col1->get_ptr(), type, "const_col1"});
+
+        auto base_col2 = vectorized::ColumnVector<Int32>::create();
+        base_col2->insert_value(24);
+        auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), 100);
+        block.insert({const_col2->get_ptr(), type, "const_col2"});
+
+        // Test basic properties
+        EXPECT_EQ(100, block.rows());
+        EXPECT_EQ(2, block.columns());
+        EXPECT_FALSE(block.empty());
+        EXPECT_FALSE(block.is_empty_column());
+
+        // Test row operations
+        block.set_num_rows(50);
+        EXPECT_EQ(50, block.rows());
+
+        int64_t offset = 20;
+        block.skip_num_rows(offset);
+        EXPECT_EQ(30, block.rows());
+    }
+
+    // Test with nullable columns
+    {
+        vectorized::Block block;
+        vectorized::DataTypePtr base_type(std::make_shared<vectorized::DataTypeInt32>());
+        auto nullable_type = vectorized::make_nullable(base_type);
+
+        // Create and insert nullable columns
+        auto col1 = vectorized::ColumnVector<Int32>::create();
+        for (int i = 0; i < 100; ++i) {
+            col1->insert_value(i);
+        }
+        auto nullable_col1 = vectorized::make_nullable(col1->get_ptr());
+        block.insert({nullable_col1, nullable_type, "nullable_col1"});
+
+        auto col2 = vectorized::ColumnVector<Int32>::create();
+        for (int i = 0; i < 100; ++i) {
+            col2->insert_value(i * 2);
+        }
+        auto nullable_col2 = vectorized::make_nullable(col2->get_ptr());
+        block.insert({nullable_col2, nullable_type, "nullable_col2"});
+
+        // Test basic properties
+        EXPECT_EQ(100, block.rows());
+        EXPECT_EQ(2, block.columns());
+        EXPECT_FALSE(block.empty());
+        EXPECT_FALSE(block.is_empty_column());
+
+        // Test row operations
+        block.set_num_rows(50);
+        EXPECT_EQ(50, block.rows());
+
+        int64_t offset = 20;
+        block.skip_num_rows(offset);
+        EXPECT_EQ(30, block.rows());
+    }
+
+    // Test with mixed column types
+    {
+        vectorized::Block block;
+        vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
+        auto nullable_type = vectorized::make_nullable(type);
+
+        // Insert regular column
+        auto regular_col = vectorized::ColumnVector<Int32>::create();
+        for (int i = 0; i < 100; ++i) {
+            regular_col->insert_value(i);
+        }
+        block.insert({regular_col->get_ptr(), type, "regular"});
+
+        // Insert const column
+        auto base_col = vectorized::ColumnVector<Int32>::create();
+        base_col->insert_value(42);
+        auto const_col = vectorized::ColumnConst::create(base_col->get_ptr(), 100);
+        block.insert({const_col->get_ptr(), type, "const"});
+
+        // Insert nullable column
+        auto nullable_base = vectorized::ColumnVector<Int32>::create();
+        for (int i = 0; i < 100; ++i) {
+            nullable_base->insert_value(i * 2);
+        }
+        auto nullable_col = vectorized::make_nullable(nullable_base->get_ptr());
+        block.insert({nullable_col, nullable_type, "nullable"});
+
+        // Test basic properties
+        EXPECT_EQ(100, block.rows());
+        EXPECT_EQ(3, block.columns());
+        EXPECT_FALSE(block.empty());
+        EXPECT_FALSE(block.is_empty_column());
+
+        // Test row operations
+        block.set_num_rows(50);
+        EXPECT_EQ(50, block.rows());
+
+        int64_t offset = 20;
+        block.skip_num_rows(offset);
+        EXPECT_EQ(30, block.rows());
+    }
 }
 
 TEST(BlockTest, MemoryAndSize) {
