@@ -132,7 +132,10 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA in (1) and TA in (3)", "TA is null and null");
         assertRewrite("TA in (1) and TA in (1)", "TA = 1");
         assertRewriteNotNull("(TA > 3 and TA < 1) and TB < 5", "FALSE");
+        assertRewrite("(TA > 3 and TA < 1) and (TA > 5 and TA = 4)", "TA is null and null");
+        assertRewrite("(TA > 3 and TA < 1) or (TA > 5 and TA = 4)", "TA is null and null");
         assertRewrite("(TA > 3 and TA < 1) and TB < 5", "TA is null and null and TB < 5");
+        assertRewrite("(TA > 3 and TA < 1) and (TB < 5 and TB = 6)", "TA is null and null and TB is null");
         assertRewrite("TA > 3 and TB < 5 and TA < 1", "TA is null and null and TB < 5");
         assertRewrite("(TA > 3 and TA < 1) or TB < 5", "(TA is null and null) or TB < 5");
         assertRewrite("((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1", "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");

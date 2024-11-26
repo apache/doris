@@ -496,16 +496,19 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
         public UnknownValue(ExpressionRewriteContext context, Expression toExpr,
                 List<ValueDesc> sourceValues, BinaryOperator<Expression> mergeExprOp) {
-            Expression newReference = sourceValues[0].reference;
-            for (int i = 1; i < sourceValues.size(); i++) {
-                if (!newReference.equals(sourceValues[i].reference)) {
-                    newReference = toExpr;
-                    break;
-                }
-            }
-            super(context, newReference, toExpr);
+            super(context, genReference(sourceValues, toExpr), toExpr);
             this.sourceValues = ImmutableList.copyOf(sourceValues);
             this.mergeExprOp = mergeExprOp;
+        }
+
+        private static Expression genReference(List<ValueDesc> sourceValues, Expression toExpr) {
+            Expression reference = sourceValues.get(0).reference;
+            for (int i = 1; i < sourceValues.size(); i++) {
+                if (!reference.equals(sourceValues.get(i).reference)) {
+                    return toExpr;
+                }
+            }
+            return reference;
         }
 
         @Override
