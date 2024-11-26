@@ -1687,16 +1687,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 for (Long beId : beToSnapshots.keySet()) {
                     List<SnapshotInfo> beSnapshotInfos = beToSnapshots.get(beId);
                     int totalNum = beSnapshotInfos.size();
-                    int batchNum = totalNum;
-                    if (Config.restore_download_task_num_per_be > 0) {
-                        batchNum = Math.min(totalNum, Config.restore_download_task_num_per_be);
-                    }
                     // each task contains several upload sub tasks
-                    int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("backend {} has {} batch, total {} tasks, {}",
-                                  beId, batchNum, totalNum, this);
-                    }
+                    int taskNumPerBatch = Config.restore_download_snapshot_batch_size;
+                    LOG.info("backend {} has total {} snapshots, per task batch size {}, {}",
+                            beId, totalNum, taskNumPerBatch, this);
 
                     List<FsBroker> brokerAddrs = null;
                     brokerAddrs = Lists.newArrayList();
@@ -1708,12 +1702,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     Preconditions.checkState(brokerAddrs.size() == 1);
 
                     // allot tasks
-                    int index = 0;
-                    for (int batch = 0; batch < batchNum; batch++) {
+                    for (int index = 0; index < totalNum; index += taskNumPerBatch) {
                         Map<String, String> srcToDest = Maps.newHashMap();
-                        int currentBatchTaskNum = (batch == batchNum - 1) ? totalNum - index : taskNumPerBatch;
-                        for (int j = 0; j < currentBatchTaskNum; j++) {
-                            SnapshotInfo info = beSnapshotInfos.get(index++);
+                        for (int j = 0; j < taskNumPerBatch && index + j < totalNum; j++) {
+                            SnapshotInfo info = beSnapshotInfos.get(index + j);
                             Table tbl = db.getTableNullable(info.getTblId());
                             if (tbl == null) {
                                 status = new Status(ErrCode.NOT_FOUND, "restored table "
@@ -1847,22 +1839,17 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 for (Long beId : beToSnapshots.keySet()) {
                     List<SnapshotInfo> beSnapshotInfos = beToSnapshots.get(beId);
                     int totalNum = beSnapshotInfos.size();
-                    int batchNum = totalNum;
-                    if (Config.restore_download_task_num_per_be > 0) {
-                        batchNum = Math.min(totalNum, Config.restore_download_task_num_per_be);
-                    }
                     // each task contains several upload sub tasks
-                    int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
+                    int taskNumPerBatch = Config.restore_download_snapshot_batch_size;
+                    LOG.info("backend {} has total {} snapshots, per task batch size {}, {}",
+                            beId, totalNum, taskNumPerBatch, this);
 
                     // allot tasks
-                    int index = 0;
-                    for (int batch = 0; batch < batchNum; batch++) {
+                    for (int index = 0; index < totalNum; index += taskNumPerBatch) {
                         List<TRemoteTabletSnapshot> remoteTabletSnapshots = Lists.newArrayList();
-                        int currentBatchTaskNum = (batch == batchNum - 1) ? totalNum - index : taskNumPerBatch;
-                        for (int j = 0; j < currentBatchTaskNum; j++) {
+                        for (int j = 0; j < taskNumPerBatch && index + j < totalNum; j++) {
                             TRemoteTabletSnapshot remoteTabletSnapshot = new TRemoteTabletSnapshot();
-
-                            SnapshotInfo info = beSnapshotInfos.get(index++);
+                            SnapshotInfo info = beSnapshotInfos.get(index + j);
                             Table tbl = db.getTableNullable(info.getTblId());
                             if (tbl == null) {
                                 status = new Status(ErrCode.NOT_FOUND, "restored table "
