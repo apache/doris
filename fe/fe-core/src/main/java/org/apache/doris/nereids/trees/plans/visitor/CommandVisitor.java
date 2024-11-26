@@ -83,6 +83,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
@@ -328,6 +329,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowCreateTableCommand(ShowCreateTableCommand showCreateTableCommand, C context) {
         return visitCommand(showCreateTableCommand, context);
+    }
+
+    default R visitShowSmallFilesCommand(ShowSmallFilesCommand showSmallFilesCommand, C context) {
+        return visitCommand(showSmallFilesCommand, context);
     }
 
     default R visitShowSqlBlockRuleCommand(ShowSqlBlockRuleCommand showblockruleCommand, C context) {
