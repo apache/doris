@@ -85,7 +85,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }
     bool text_can_contain_only_valid_utf8() const override {
         return nested->text_can_contain_only_valid_utf8();

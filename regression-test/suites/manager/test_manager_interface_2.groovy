@@ -292,6 +292,7 @@ suite('test_manager_interface_2',"p0") {
         }
 
         sql """ALTER SYSTEM ADD BROKER test_manager_broker "${address}:${notExistPort}";"""
+        checkNereidsExecute("show broker")
         result = sql """ show broker """ 
         x =  0
         logger.info("result = ${result}" )

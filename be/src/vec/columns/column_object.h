@@ -525,11 +525,6 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_raw_data" + get_name());
     }
 
-    size_t size_of_value_if_fixed() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "size_of_value_if_fixed" + get_name());
-    }
-
     StringRef get_data_at(size_t) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_data_at" + get_name());
     }
