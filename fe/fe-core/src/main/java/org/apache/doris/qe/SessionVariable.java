@@ -2260,7 +2260,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean requireSequenceInInsert = true;
 
 
-    @VariableMgr.VarAttr(name = ENABLE_AUTO_CREATE_WHEN_OVERWRITE, description = {
+    @VariableMgr.VarAttr(name = ENABLE_AUTO_CREATE_WHEN_OVERWRITE, needForward = true, description = {
         "开启后对自动分区表的 insert overwrite 操作会对没有找到分区的插入数据按自动分区规则创建分区，默认关闭",
         "The insert overwrite operation on an auto-partitioned table will create partitions for inserted data"
                 + " for which no partition is found according to the auto-partitioning rules, which is turned off"
