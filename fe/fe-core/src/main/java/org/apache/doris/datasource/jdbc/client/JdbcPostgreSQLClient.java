@@ -38,6 +38,12 @@ import java.util.Optional;
 
 public class JdbcPostgreSQLClient extends JdbcClient {
 
+    private static final String[] supportedInnerType = new String[] {
+            "int2", "int4", "int8", "smallserial", "serial",
+            "bigserial", "float4", "float8", "timestamp", "timestamptz",
+            "date", "bool", "bpchar", "varchar", "text"
+    };
+
     protected JdbcPostgreSQLClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
     }
@@ -168,11 +174,6 @@ public class JdbcPostgreSQLClient extends JdbcClient {
         }
 
         String innerType = fieldSchema.getDataTypeName().orElse("unknown").substring(1);
-        String[] supportedInnerType = new String[] {
-                "int2", "int4", "int8", "smallserial", "serial",
-                "bigserial", "float4", "float8", "timestamp", "timestamptz",
-                "date", "bool", "bpchar", "varchar", "text"
-        };
 
         boolean isSupported = Arrays.asList(supportedInnerType).contains(innerType);
         if (!isSupported) {
