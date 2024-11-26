@@ -71,7 +71,7 @@ public:
     std::shared_ptr<arrow::Schema> find_arrow_schema(const TUniqueId& query_id);
 
     // cancel
-    void cancel(const TUniqueId& fragment_id);
+    void cancel(const TUniqueId& query_id, const Status& reason);
 
     // cancel one query at a future time.
     void cancel_at_time(time_t cancel_time, const TUniqueId& query_id);
