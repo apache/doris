@@ -441,8 +441,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                     ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, fullDbName);
                 }
             } else {
-                unprotectCreateDb(db);
-                Env.getCurrentEnv().getEditLog().logCreateDb(db);
+                if (!db.tryWriteLock(100, TimeUnit.SECONDS)) {
+                    LOG.warn("try lock failed, create database failed {}", fullDbName);
+                    return;
+                }
+                try {
+                    unprotectCreateDb(db);
+                    Env.getCurrentEnv().getEditLog().logCreateDb(db);
+                } finally {
+                    db.writeUnlock();
+                }
             }
         } finally {
             unlock();

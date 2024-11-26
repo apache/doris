@@ -560,16 +560,20 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
      */
     @Override
     public Table getTableNullable(String tableName) {
+        readLock();
         if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         if (Env.isTableNamesCaseInsensitive()) {
             tableName = lowerCaseToTableName.get(tableName.toLowerCase());
             if (tableName == null) {
+                readUnlock();
                 return null;
             }
         }
-        return nameToTable.get(tableName);
+        Table table = nameToTable.get(tableName);
+        readUnlock();
+        return table;
     }
 
     /**
