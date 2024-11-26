@@ -556,6 +556,8 @@ DEFINE_Bool(enable_brpc_builtin_services, "true");
 // Enable brpc connection check
 DEFINE_Bool(enable_brpc_connection_check, "false");
 
+DEFINE_mInt64(brpc_connection_check_timeout_ms, "10000");
+
 // The maximum amount of data that can be processed by a stream load
 DEFINE_mInt64(streaming_load_max_mb, "102400");
 // Some data formats, such as JSON, cannot be streamed.
