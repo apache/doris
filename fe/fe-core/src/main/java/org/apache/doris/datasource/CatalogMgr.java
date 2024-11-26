@@ -363,14 +363,21 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     public ShowResultSet showCatalogs(ShowCatalogStmt showStmt, String currentCtlg) throws AnalysisException {
+        List<List<String>> rows = showCatalogs(showStmt.getCatalogName(), showStmt.getPattern(), currentCtlg);
+
+        return new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    public List<List<String>> showCatalogs(
+            String catalogName, String pattern, String currentCatalogName) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
         readLock();
         try {
-            if (showStmt.getCatalogName() == null) {
+            if (catalogName == null) {
                 PatternMatcher matcher = null;
-                if (showStmt.getPattern() != null) {
-                    matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
-                            CaseSensibility.CATALOG.getCaseSensibility());
+                if (pattern != null) {
+                    matcher = PatternMatcherWrapper.createMysqlPattern(pattern,
+                        CaseSensibility.CATALOG.getCaseSensibility());
                 }
                 for (CatalogIf catalog : listCatalogsWithCheckPriv(ConnectContext.get().getCurrentUserIdentity())) {
                     String name = catalog.getName();
@@ -382,7 +389,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     row.add(String.valueOf(catalog.getId()));
                     row.add(name);
                     row.add(catalog.getType());
-                    if (name.equals(currentCtlg)) {
+                    if (name.equals(currentCatalogName)) {
                         row.add("Yes");
                     } else {
                         row.add("No");
@@ -400,14 +407,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     });
                 }
             } else {
-                if (!nameToCatalog.containsKey(showStmt.getCatalogName())) {
-                    throw new AnalysisException("No catalog found with name: " + showStmt.getCatalogName());
+                if (!nameToCatalog.containsKey(catalogName)) {
+                    throw new AnalysisException("No catalog found with name: " + catalogName);
                 }
-                CatalogIf<DatabaseIf> catalog = nameToCatalog.get(showStmt.getCatalogName());
+                CatalogIf<DatabaseIf> catalog = nameToCatalog.get(catalogName);
                 if (!Env.getCurrentEnv().getAccessManager()
                         .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
-                            ConnectContext.get().getQualifiedUser(), catalog.getName());
+                    ErrorReport.reportAnalysisException(
+                            ErrorCode.ERR_CATALOG_ACCESS_DENIED,
+                            ConnectContext.get().getQualifiedUser(),
+                            catalog.getName());
                 }
                 if (!Strings.isNullOrEmpty(catalog.getResource())) {
                     rows.add(Arrays.asList("resource", catalog.getResource()));
@@ -419,7 +428,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             readUnlock();
         }
 
-        return new ShowResultSet(showStmt.getMetaData(), rows);
+        return rows;
     }
 
     public static Map<String, String> getCatalogPropertiesWithPrintable(CatalogIf<?> catalog) {
