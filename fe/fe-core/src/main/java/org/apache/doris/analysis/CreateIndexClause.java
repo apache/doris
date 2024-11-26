@@ -88,6 +88,10 @@ public class CreateIndexClause extends AlterTableClause {
 
     @Override
     public String toSql() {
+        return toSql(alter);
+    }
+
+    public String toSql(boolean alter) {
         if (alter) {
             return "ADD " + indexDef.toSql();
         } else {
