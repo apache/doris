@@ -1031,7 +1031,7 @@ TEST(BlockTest, ColumnOperations) {
     // Test with empty block
     {
         vectorized::Block empty_block;
-        
+
         // Test get operations with empty block
         EXPECT_DEATH(empty_block.get_by_position(0), "");
         EXPECT_THROW(empty_block.safe_get_by_position(0), Exception);
