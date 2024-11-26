@@ -50,16 +50,16 @@ import java.util.stream.Collectors;
 public class DataTrait {
 
     public static final DataTrait EMPTY_TRAIT
-            = new DataTrait(new NestedSet().toImmutable(),
+            = new DataTrait(new UniqueDescription().toImmutable(),
                     new UniformDescription().toImmutable(), new ImmutableSet.Builder<FdItem>().build(),
                     ImmutableEqualSet.empty(), new FuncDepsDG.Builder().build());
-    private final NestedSet uniqueSet;
+    private final UniqueDescription uniqueSet;
     private final UniformDescription uniformSet;
     private final ImmutableSet<FdItem> fdItems;
     private final ImmutableEqualSet<Slot> equalSet;
     private final FuncDepsDG fdDg;
 
-    private DataTrait(NestedSet uniqueSet, UniformDescription uniformSet, ImmutableSet<FdItem> fdItems,
+    private DataTrait(UniqueDescription uniqueSet, UniformDescription uniformSet, ImmutableSet<FdItem> fdItems,
             ImmutableEqualSet<Slot> equalSet, FuncDepsDG fdDg) {
         this.uniqueSet = uniqueSet;
         this.uniformSet = uniformSet;
@@ -160,14 +160,14 @@ public class DataTrait {
      * Builder of trait
      */
     public static class Builder {
-        private final NestedSet uniqueSet;
+        private final UniqueDescription uniqueSet;
         private final UniformDescription uniformSet;
         private ImmutableSet<FdItem> fdItems;
         private final ImmutableEqualSet.Builder<Slot> equalSetBuilder;
         private final FuncDepsDG.Builder fdDgBuilder;
 
         public Builder() {
-            uniqueSet = new NestedSet();
+            uniqueSet = new UniqueDescription();
             uniformSet = new UniformDescription();
             fdItems = new ImmutableSet.Builder<FdItem>().build();
             equalSetBuilder = new ImmutableEqualSet.Builder<>();
@@ -176,7 +176,7 @@ public class DataTrait {
 
         public Builder(DataTrait other) {
             this.uniformSet = new UniformDescription(other.uniformSet);
-            this.uniqueSet = new NestedSet(other.uniqueSet);
+            this.uniqueSet = new UniqueDescription(other.uniqueSet);
             this.fdItems = ImmutableSet.copyOf(other.fdItems);
             equalSetBuilder = new ImmutableEqualSet.Builder<>(other.equalSet);
             fdDgBuilder = new FuncDepsDG.Builder(other.fdDg);
@@ -374,21 +374,21 @@ public class DataTrait {
         }
     }
 
-    static class NestedSet {
+    static class UniqueDescription {
         Set<Slot> slots;
         Set<ImmutableSet<Slot>> slotSets;
 
-        NestedSet() {
+        UniqueDescription() {
             slots = new HashSet<>();
             slotSets = new HashSet<>();
         }
 
-        NestedSet(NestedSet o) {
+        UniqueDescription(UniqueDescription o) {
             this.slots = new HashSet<>(o.slots);
             this.slotSets = new HashSet<>(o.slotSets);
         }
 
-        NestedSet(Set<Slot> slots, Set<ImmutableSet<Slot>> slotSets) {
+        UniqueDescription(Set<Slot> slots, Set<ImmutableSet<Slot>> slotSets) {
             this.slots = slots;
             this.slotSets = slotSets;
         }
@@ -444,9 +444,9 @@ public class DataTrait {
             slotSets.add(slotSet);
         }
 
-        public void add(NestedSet nestedSet) {
-            slots.addAll(nestedSet.slots);
-            slotSets.addAll(nestedSet.slotSets);
+        public void add(UniqueDescription uniqueDescription) {
+            slots.addAll(uniqueDescription.slots);
+            slotSets.addAll(uniqueDescription.slotSets);
         }
 
         public boolean isIntersect(Set<Slot> set1, Set<Slot> set2) {
@@ -482,8 +482,8 @@ public class DataTrait {
                     .collect(Collectors.toSet());
         }
 
-        public NestedSet toImmutable() {
-            return new NestedSet(ImmutableSet.copyOf(slots), ImmutableSet.copyOf(slotSets));
+        public UniqueDescription toImmutable() {
+            return new UniqueDescription(ImmutableSet.copyOf(slots), ImmutableSet.copyOf(slotSets));
         }
     }
 

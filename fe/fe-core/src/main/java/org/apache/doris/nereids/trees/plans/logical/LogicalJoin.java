@@ -538,6 +538,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // outer join cant have nullable side uniform properties
         // (e.g. left join may produce null in right side, the uniform value is present and not null
         // cannot deduce the slot is uniform and not null)
+        // TODO: left outer join right child uniform properties can be pull up when uniform slot const value
+        //  is not present or const value is nullable (the right outer join left child is same)
         if (!joinType.isLeftJoin()) {
             builder.addUniformSlot(right().getLogicalProperties().getTrait());
         }
