@@ -59,13 +59,9 @@ Apache Doris is an easy-to-use, high-performance and real-time analytical databa
 
 All this makes Apache Doris an ideal tool for scenarios including report analysis, ad-hoc query, unified data warehouse, and data lake query acceleration. On Apache Doris, users can build various applications, such as user behavior analysis, AB test platform, log retrieval analysis, user portrait analysis, and order analysis.
 
-🎉 Version 3.0.2 released now. Check out the 🔗[Release Notes](https://doris.apache.org/docs/releasenotes/v3.0/release-3.0.2) here. Starting from version 3.X, Apache Doris supports a compute-storage decoupled mode in addition to the compute-storage coupled mode for cluster deployment. With the cloud-native architecture that decouples the computation and storage layers, users can achieve physical isolation between query loads across multiple compute clusters, as well as isolation between read and write loads. 
+🎉 Check out the 🔗[All releases](https://doris.apache.org/docs/releasenotes/all-release), where you'll find a chronological summary of Apache Doris versions released over the past year.
 
-🎉 Version 2.1.6 released now. Check out the 🔗[Release Notes](https://doris.apache.org/docs/releasenotes/v2.1/release-2.1.6) here. The 2.1 verison delivers exceptional performance with 100% higher out-of-the-box queries proven by TPC-DS 1TB tests, enhanced data lake analytics that are 4-6 times speedier than Trino and Spark, solid support for semi-structured data analysis with new Variant types and suite of analytical functions, asynchronous materialized views for query acceleration, optimized real-time writing at scale, and better workload management with stability and runtime SQL resource tracking.
-
-🎉 Version 2.0.15 is now released ! This fully evolved and stable release is ready for all users to upgrade. Check out the 🔗[Release Notes](https://doris.apache.org/docs/releasenotes/v2.0/release-2.0.15) here. 
-
-👀 Have a look at the 🔗[Official Website](https://doris.apache.org/) for a comprehensive list of Apache Doris's core features, blogs and user cases.
+👀 Explore the 🔗[Official Website](https://doris.apache.org/) to discover Apache Doris's core features, blogs, and user cases in detail.
 
 ## 📈 Usage Scenarios
 
