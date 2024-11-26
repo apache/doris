@@ -20,12 +20,12 @@ PhysicalResultSink
 ------------------------------filter(cd_education_status IN ('Advanced Degree', 'College', 'Primary') and cd_marital_status IN ('D', 'S', 'U'))
 --------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF5 RF6 RF7
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk)) otherCondition=((((ca_state IN ('IA', 'NC', 'TX') AND ((web_sales.ws_net_profit >= 100.00) AND (web_sales.ws_net_profit <= 200.00))) OR (ca_state IN ('GA', 'WI', 'WV') AND ((web_sales.ws_net_profit >= 150.00) AND (web_sales.ws_net_profit <= 300.00)))) OR (ca_state IN ('KY', 'OK', 'VA') AND ((web_sales.ws_net_profit >= 50.00) AND (web_sales.ws_net_profit <= 250.00))))) build RFs:RF4 wr_refunded_addr_sk->[ca_address_sk]
+------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk)) otherCondition=(OR[AND[ca_state IN ('IA', 'NC', 'TX'),(web_sales.ws_net_profit >= 100.00),(web_sales.ws_net_profit <= 200.00)],AND[ca_state IN ('GA', 'WI', 'WV'),(web_sales.ws_net_profit >= 150.00),(web_sales.ws_net_profit <= 300.00)],AND[ca_state IN ('KY', 'OK', 'VA'),(web_sales.ws_net_profit >= 50.00),(web_sales.ws_net_profit <= 250.00)]]) build RFs:RF4 wr_refunded_addr_sk->[ca_address_sk]
 --------------------------------PhysicalProject
 ----------------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('GA', 'IA', 'KY', 'NC', 'OK', 'TX', 'VA', 'WI', 'WV'))
 ------------------------------------PhysicalOlapScan[customer_address] apply RFs: RF4
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk)) otherCondition=((((((cd1.cd_marital_status = 'D') AND (cd1.cd_education_status = 'Primary')) AND ((web_sales.ws_sales_price >= 100.00) AND (web_sales.ws_sales_price <= 150.00))) OR (((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'College')) AND ((web_sales.ws_sales_price >= 50.00) AND (web_sales.ws_sales_price <= 100.00)))) OR (((cd1.cd_marital_status = 'U') AND (cd1.cd_education_status = 'Advanced Degree')) AND ((web_sales.ws_sales_price >= 150.00) AND (web_sales.ws_sales_price <= 200.00))))) build RFs:RF3 cd_demo_sk->[wr_refunded_cdemo_sk]
+----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk)) otherCondition=(OR[AND[(cd1.cd_marital_status = 'D'),(cd1.cd_education_status = 'Primary'),(web_sales.ws_sales_price >= 100.00),(web_sales.ws_sales_price <= 150.00)],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'College'),(web_sales.ws_sales_price >= 50.00),(web_sales.ws_sales_price <= 100.00)],AND[(cd1.cd_marital_status = 'U'),(cd1.cd_education_status = 'Advanced Degree'),(web_sales.ws_sales_price >= 150.00),(web_sales.ws_sales_price <= 200.00)]]) build RFs:RF3 cd_demo_sk->[wr_refunded_cdemo_sk]
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF1 ws_item_sk->[wr_item_sk];RF2 ws_order_number->[wr_order_number]
 ----------------------------------------PhysicalProject
@@ -39,7 +39,7 @@ PhysicalResultSink
 ----------------------------------------------filter((date_dim.d_year = 1998))
 ------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalProject
---------------------------------------filter(((((cd1.cd_marital_status = 'D') AND (cd1.cd_education_status = 'Primary')) OR ((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'College'))) OR ((cd1.cd_marital_status = 'U') AND (cd1.cd_education_status = 'Advanced Degree'))) and cd_education_status IN ('Advanced Degree', 'College', 'Primary') and cd_marital_status IN ('D', 'S', 'U'))
+--------------------------------------filter(OR[AND[(cd1.cd_marital_status = 'D'),(cd1.cd_education_status = 'Primary')],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'College')],AND[(cd1.cd_marital_status = 'U'),(cd1.cd_education_status = 'Advanced Degree')]] and cd_education_status IN ('Advanced Degree', 'College', 'Primary') and cd_marital_status IN ('D', 'S', 'U'))
 ----------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[reason]

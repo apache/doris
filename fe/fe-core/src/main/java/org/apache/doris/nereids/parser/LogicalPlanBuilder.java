@@ -2081,8 +2081,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // into expressions.
             Collections.reverse(contexts);
             List<Expression> expressions = contexts.stream().map(this::getExpression).collect(Collectors.toList());
-            // Create a balanced tree.
-            return reduceToExpressionTree(0, expressions.size() - 1, expressions, ctx);
+            if (ctx.operator.getType() == DorisParser.AND) {
+                return new And(expressions);
+            } else if (ctx.operator.getType() == DorisParser.OR) {
+                return new Or(expressions);
+            } else {
+                // Create a balanced tree.
+                return reduceToExpressionTree(0, expressions.size() - 1, expressions, ctx);
+            }
         });
     }
 

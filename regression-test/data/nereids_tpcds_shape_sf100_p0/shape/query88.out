@@ -23,7 +23,7 @@ PhysicalResultSink
 ------------------------------------filter((time_dim.t_hour = 8) and (time_dim.t_minute >= 30))
 --------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalProject
---------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (-1, 3, 4))
+--------------------------------filter(OR[AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],AND[(household_demographics.hd_dep_count = 4),(household_demographics.hd_vehicle_count <= 6)],AND[(household_demographics.hd_dep_count = 3),(household_demographics.hd_vehicle_count <= 5)]] and hd_dep_count IN (-1, 3, 4))
 ----------------------------------PhysicalOlapScan[household_demographics]
 --------------------------PhysicalProject
 ----------------------------filter((store.s_store_name = 'ese'))
@@ -43,7 +43,7 @@ PhysicalResultSink
 ------------------------------------filter((time_dim.t_hour = 9) and (time_dim.t_minute < 30))
 --------------------------------------PhysicalOlapScan[time_dim]
 ------------------------------PhysicalProject
---------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (-1, 3, 4))
+--------------------------------filter(OR[AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],AND[(household_demographics.hd_dep_count = 4),(household_demographics.hd_vehicle_count <= 6)],AND[(household_demographics.hd_dep_count = 3),(household_demographics.hd_vehicle_count <= 5)]] and hd_dep_count IN (-1, 3, 4))
 ----------------------------------PhysicalOlapScan[household_demographics]
 --------------------------PhysicalProject
 ----------------------------filter((store.s_store_name = 'ese'))
@@ -63,7 +63,7 @@ PhysicalResultSink
 ----------------------------------filter((time_dim.t_hour = 9) and (time_dim.t_minute >= 30))
 ------------------------------------PhysicalOlapScan[time_dim]
 ----------------------------PhysicalProject
-------------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (-1, 3, 4))
+------------------------------filter(OR[AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],AND[(household_demographics.hd_dep_count = 4),(household_demographics.hd_vehicle_count <= 6)],AND[(household_demographics.hd_dep_count = 3),(household_demographics.hd_vehicle_count <= 5)]] and hd_dep_count IN (-1, 3, 4))
 --------------------------------PhysicalOlapScan[household_demographics]
 ------------------------PhysicalProject
 --------------------------filter((store.s_store_name = 'ese'))
@@ -83,7 +83,7 @@ PhysicalResultSink
 --------------------------------filter((time_dim.t_hour = 10) and (time_dim.t_minute < 30))
 ----------------------------------PhysicalOlapScan[time_dim]
 --------------------------PhysicalProject
-----------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (-1, 3, 4))
+----------------------------filter(OR[AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],AND[(household_demographics.hd_dep_count = 4),(household_demographics.hd_vehicle_count <= 6)],AND[(household_demographics.hd_dep_count = 3),(household_demographics.hd_vehicle_count <= 5)]] and hd_dep_count IN (-1, 3, 4))
 ------------------------------PhysicalOlapScan[household_demographics]
 ----------------------PhysicalProject
 ------------------------filter((store.s_store_name = 'ese'))
@@ -103,7 +103,7 @@ PhysicalResultSink
 ------------------------------filter((time_dim.t_hour = 10) and (time_dim.t_minute >= 30))
 --------------------------------PhysicalOlapScan[time_dim]
 ------------------------PhysicalProject
---------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (-1, 3, 4))
+--------------------------filter(OR[AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],AND[(household_demographics.hd_dep_count = 4),(household_demographics.hd_vehicle_count <= 6)],AND[(household_demographics.hd_dep_count = 3),(household_demographics.hd_vehicle_count <= 5)]] and hd_dep_count IN (-1, 3, 4))
 ----------------------------PhysicalOlapScan[household_demographics]
 --------------------PhysicalProject
 ----------------------filter((store.s_store_name = 'ese'))
@@ -123,7 +123,7 @@ PhysicalResultSink
 ----------------------------filter((time_dim.t_hour = 11) and (time_dim.t_minute < 30))
 ------------------------------PhysicalOlapScan[time_dim]
 ----------------------PhysicalProject
-------------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (-1, 3, 4))
+------------------------filter(OR[AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],AND[(household_demographics.hd_dep_count = 4),(household_demographics.hd_vehicle_count <= 6)],AND[(household_demographics.hd_dep_count = 3),(household_demographics.hd_vehicle_count <= 5)]] and hd_dep_count IN (-1, 3, 4))
 --------------------------PhysicalOlapScan[household_demographics]
 ------------------PhysicalProject
 --------------------filter((store.s_store_name = 'ese'))
@@ -143,7 +143,7 @@ PhysicalResultSink
 --------------------------filter((time_dim.t_hour = 11) and (time_dim.t_minute >= 30))
 ----------------------------PhysicalOlapScan[time_dim]
 --------------------PhysicalProject
-----------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (-1, 3, 4))
+----------------------filter(OR[AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],AND[(household_demographics.hd_dep_count = 4),(household_demographics.hd_vehicle_count <= 6)],AND[(household_demographics.hd_dep_count = 3),(household_demographics.hd_vehicle_count <= 5)]] and hd_dep_count IN (-1, 3, 4))
 ------------------------PhysicalOlapScan[household_demographics]
 ----------------PhysicalProject
 ------------------filter((store.s_store_name = 'ese'))
@@ -163,7 +163,7 @@ PhysicalResultSink
 ------------------------filter((time_dim.t_hour = 12) and (time_dim.t_minute < 30))
 --------------------------PhysicalOlapScan[time_dim]
 ------------------PhysicalProject
---------------------filter(((((household_demographics.hd_dep_count = -1) AND (household_demographics.hd_vehicle_count <= 1)) OR ((household_demographics.hd_dep_count = 4) AND (household_demographics.hd_vehicle_count <= 6))) OR ((household_demographics.hd_dep_count = 3) AND (household_demographics.hd_vehicle_count <= 5))) and hd_dep_count IN (-1, 3, 4))
+--------------------filter(OR[AND[(household_demographics.hd_dep_count = -1),(household_demographics.hd_vehicle_count <= 1)],AND[(household_demographics.hd_dep_count = 4),(household_demographics.hd_vehicle_count <= 6)],AND[(household_demographics.hd_dep_count = 3),(household_demographics.hd_vehicle_count <= 5)]] and hd_dep_count IN (-1, 3, 4))
 ----------------------PhysicalOlapScan[household_demographics]
 --------------PhysicalProject
 ----------------filter((store.s_store_name = 'ese'))
