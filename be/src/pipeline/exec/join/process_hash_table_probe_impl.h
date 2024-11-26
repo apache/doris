@@ -161,7 +161,7 @@ template <int JoinOpType>
 template <typename HashTableType>
 typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_side(
         HashTableType& hash_table_ctx, size_t probe_rows, bool with_other_join_conjuncts,
-        const uint8_t* null_map, bool need_judge_null) {
+        const uint8_t* null_map) {
     // may over batch size 1 for some outer join case
     _probe_indexs.resize(_batch_size + 1);
     _build_indexs.resize(_batch_size + 1);
@@ -181,8 +181,7 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
 
         hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map, true,
                                             false, hash_table_ctx.hash_table->get_bucket_size());
-        hash_table_ctx.hash_table->pre_build_idxs(hash_table_ctx.bucket_nums,
-                                                  need_judge_null ? null_map : nullptr);
+        hash_table_ctx.hash_table->pre_build_idxs(hash_table_ctx.bucket_nums);
         int64_t arena_memory_usage = hash_table_ctx.serialized_keys_size(false);
         COUNTER_SET(_parent->_probe_arena_memory_usage, arena_memory_usage);
         COUNTER_UPDATE(_parent->_memory_used_counter, arena_memory_usage);
@@ -192,13 +191,12 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
 }
 
 template <int JoinOpType>
-template <bool need_judge_null, typename HashTableType, bool with_other_conjuncts,
-          bool is_mark_join>
+template <typename HashTableType, bool with_other_conjuncts, bool is_mark_join>
 Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_ctx,
                                                      const uint8_t* null_map,
                                                      vectorized::MutableBlock& mutable_block,
                                                      vectorized::Block* output_block,
-                                                     uint32_t probe_rows, JoinProbeMethod method) {
+                                                     uint32_t probe_rows) {
     if (_right_col_len && !_build_block) {
         return Status::InternalError("build block is nullptr");
     }
@@ -208,14 +206,15 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     auto last_probe_index = probe_index;
     {
         SCOPED_TIMER(_init_probe_side_timer);
-        _init_probe_side<HashTableType>(hash_table_ctx, probe_rows, with_other_conjuncts, null_map,
-                                        need_judge_null);
+        _init_probe_side<HashTableType>(hash_table_ctx, probe_rows, with_other_conjuncts, null_map);
     }
 
     auto& mcol = mutable_block.mutable_columns();
 
     uint32_t current_offset = 0;
-    if (method == JoinProbeMethod::FIND_NULL_AWARE_WITH_OTHER_CONJUNCTS) {
+    if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+         JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
+        with_other_conjuncts) {
         SCOPED_TIMER(_search_hashtable_timer);
 
         /// If `_build_index_for_null_probe_key` is not zero, it means we are in progress of handling probe null key.
@@ -231,7 +230,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     hash_table_ctx.hash_table->find_null_aware_with_other_conjuncts(
                             hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), probe_index,
                             build_index, probe_rows, _probe_indexs.data(), _build_indexs.data(),
-                            _null_flags.data(), _picking_null_keys);
+                            _null_flags.data(), _picking_null_keys, null_map);
             probe_index = new_probe_idx;
             build_index = new_build_idx;
             current_offset = new_current_offset;
@@ -251,10 +250,11 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     } else {
         SCOPED_TIMER(_search_hashtable_timer);
         auto [new_probe_idx, new_build_idx, new_current_offset] =
-                hash_table_ctx.hash_table->template find_batch<JoinOpType, need_judge_null>(
+                hash_table_ctx.hash_table->template find_batch<JoinOpType>(
                         hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), probe_index,
                         build_index, cast_set<int32_t>(probe_rows), _probe_indexs.data(),
-                        _probe_visited, _build_indexs.data(), method);
+                        _probe_visited, _build_indexs.data(), null_map, with_other_conjuncts,
+                        is_mark_join, !_parent->_mark_join_conjuncts.empty());
         probe_index = new_probe_idx;
         build_index = new_build_idx;
         current_offset = new_current_offset;
@@ -287,12 +287,13 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     output_block->swap(mutable_block.to_block());
 
     if constexpr (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
-        return do_mark_join_conjuncts<with_other_conjuncts>(
-                output_block,
-                method == JoinProbeMethod::
-                                        PROCESS_NULL_AWARE_LEFT_HALF_JOIN_FOR_EMPTY_BUILD_SIDE // empty build side will return false to instead null
-                        ? nullptr
-                        : null_map);
+        bool ignore_null_map =
+                (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                 JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
+                hash_table_ctx.hash_table
+                        ->empty_build_side(); // empty build side will return false to instead null
+        return do_mark_join_conjuncts<with_other_conjuncts>(output_block,
+                                                            ignore_null_map ? nullptr : null_map);
     } else if constexpr (with_other_conjuncts) {
         return do_other_join_conjuncts(output_block, hash_table_ctx.hash_table->get_visited(),
                                        hash_table_ctx.hash_table->has_null_key());
@@ -687,36 +688,15 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
                                                   vectorized::Block* output_block,
                                                   uint32_t probe_rows, bool is_mark_join,
                                                   bool have_other_join_conjunct) {
-    JoinProbeMethod method = hash_table_ctx.hash_table->template get_method<JoinOpType>(
-            !_parent->_mark_join_conjuncts.empty(), is_mark_join, have_other_join_conjunct);
-    // need_keep_null_bucket_idx is true means hash_table_ctx.bucket_nums may contains 'bucket_size' value
-    bool need_keep_null_bucket_idx = false;
-    if (null_map) {
-        // if we keep null key in hash table, this means that we need null = null, just treat null as normal data and handle it normally.
-        if (!hash_table_ctx.hash_table->keep_null_key()) {
-            if (method == JoinProbeMethod::FIND_BATCH_LEFT_SEMI_ANTI &&
-                JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-                // NULL_AWARE_LEFT_ANTI_JOIN will actually return null, but in FIND_BATCH_LEFT_SEMI_ANTI we treat null directly as false, so need_judge_null needs to be true here to make null return false.
-                need_keep_null_bucket_idx = true;
-            }
-        }
-        // FIND_NULL_AWARE_WITH_OTHER_CONJUNCTS has a special mechanism to obtain null data (at bucket_size slot), so we keep null bucket idx and may keep null key in hash table
-        if (method == JoinProbeMethod::FIND_NULL_AWARE_WITH_OTHER_CONJUNCTS) {
-            need_keep_null_bucket_idx = true;
-        }
-    }
-
     Status res;
     std::visit(
-            [&](auto is_mark_join, auto have_other_join_conjunct, auto need_judge_null) {
-                res = do_process<need_judge_null, HashTableType, have_other_join_conjunct,
-                                 is_mark_join>(hash_table_ctx,
-                                               null_map ? null_map->data() : nullptr, mutable_block,
-                                               output_block, probe_rows, method);
+            [&](auto is_mark_join, auto have_other_join_conjunct) {
+                res = do_process<HashTableType, have_other_join_conjunct, is_mark_join>(
+                        hash_table_ctx, null_map ? null_map->data() : nullptr, mutable_block,
+                        output_block, probe_rows);
             },
             vectorized::make_bool_variant(is_mark_join),
-            vectorized::make_bool_variant(have_other_join_conjunct),
-            vectorized::make_bool_variant(need_keep_null_bucket_idx));
+            vectorized::make_bool_variant(have_other_join_conjunct));
     return res;
 }
 

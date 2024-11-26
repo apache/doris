@@ -64,11 +64,10 @@ struct ProcessHashTableProbe {
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
     // TODO: opt the visited here to reduce the size of hash table
-    template <bool need_judge_null, typename HashTableType, bool with_other_conjuncts,
-              bool is_mark_join>
+    template <typename HashTableType, bool with_other_conjuncts, bool is_mark_join>
     Status do_process(HashTableType& hash_table_ctx, const uint8_t* null_map,
                       vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
-                      uint32_t probe_rows, JoinProbeMethod method);
+                      uint32_t probe_rows);
     // In the presence of other join conjunct, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
@@ -82,7 +81,7 @@ struct ProcessHashTableProbe {
     template <typename HashTableType>
     typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
                                                    bool with_other_join_conjuncts,
-                                                   const uint8_t* null_map, bool need_judge_null);
+                                                   const uint8_t* null_map);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
