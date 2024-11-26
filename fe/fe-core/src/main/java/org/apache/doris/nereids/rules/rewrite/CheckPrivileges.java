@@ -63,6 +63,7 @@ public class CheckPrivileges extends ColumnPruning {
     @Override
     public Plan visitLogicalView(LogicalView<? extends Plan> view, PruneContext context) {
         checkColumnPrivileges(view.getView(), computeUsedColumns(view, context.requiredSlots));
+
         // stop check privilege in the view
         return view;
     }
