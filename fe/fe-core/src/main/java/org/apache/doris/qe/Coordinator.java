@@ -2766,17 +2766,18 @@ public class Coordinator implements CoordInterface {
                                 .addAll(nodeScanRange.getValue());
                     }
                 }
-                params.instanceExecParams.add(instanceParam);
+                List<FInstanceExecParam> instanceExecParams = new ArrayList<>();
+                instanceExecParams.add(instanceParam);
                 for (int i = 1; i < parallelExecInstanceNum; i++) {
-                    params.instanceExecParams.add(new FInstanceExecParam(
+                    instanceExecParams.add(new FInstanceExecParam(
                             null, addressScanRange.getKey(), 0, params));
                 }
                 int index = 0;
                 for (Pair<Integer, Map<Integer, List<TScanRangeParams>>> nodeScanRangeMap : scanRange) {
-                    params.instanceExecParams.get(index % params.instanceExecParams.size())
-                            .addBucketSeq(nodeScanRangeMap.first);
+                    instanceExecParams.get(index % instanceExecParams.size()).addBucketSeq(nodeScanRangeMap.first);
                     index++;
                 }
+                params.instanceExecParams.addAll(instanceExecParams);
             } else {
                 int expectedInstanceNum = 1;
                 if (parallelExecInstanceNum > 1) {
