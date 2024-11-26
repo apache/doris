@@ -486,9 +486,10 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
 
     if (res != HS_SUCCESS) {
         *database = nullptr;
-        return Status::RuntimeError("hs_compile regex pattern error:" +
-                                    std::string(compile_err->message));
+        std::string error_message = compile_err->message;
         hs_free_compile_error(compile_err);
+        // Do not call FunctionContext::set_error here, since we do not want to cancel the query here.
+        return Status::RuntimeError<false>("hs_compile regex pattern error:" + error_message);
     }
     hs_free_compile_error(compile_err);
 
@@ -496,7 +497,8 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
         hs_free_database(*database);
         *database = nullptr;
         *scratch = nullptr;
-        return Status::RuntimeError("hs_alloc_scratch allocate scratch space error");
+        // Do not call FunctionContext::set_error here, since we do not want to cancel the query here.
+        return Status::RuntimeError<false>("hs_alloc_scratch allocate scratch space error");
     }
 
     return Status::OK();
