@@ -200,33 +200,6 @@ Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc
     return Status::OK();
 }
 
-Status RuntimeFilterMgr::update_filter(const PPublishFilterRequest* request,
-                                       butil::IOBufAsZeroCopyInputStream* data) {
-    SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
-    UpdateRuntimeFilterParams params(request, data);
-    int filter_id = request->filter_id();
-    std::vector<std::shared_ptr<IRuntimeFilter>> filters;
-    // The code is organized for upgrade compatibility to prevent infinite waiting
-    // old way update filter the code should be deleted after the upgrade is complete.
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        auto iter = _consumer_map.find(filter_id);
-        if (iter == _consumer_map.end()) {
-            return Status::InternalError("update_filter meet unknown filter: {}, role: CONSUMER.",
-                                         filter_id);
-        }
-        for (auto& holder : iter->second) {
-            filters.emplace_back(holder.filter);
-        }
-        iter->second.clear();
-    }
-    for (auto filter : filters) {
-        RETURN_IF_ERROR(filter->update_filter(&params));
-    }
-
-    return Status::OK();
-}
-
 void RuntimeFilterMgr::set_runtime_filter_params(
         const TRuntimeFilterParams& runtime_filter_params) {
     std::lock_guard l(_lock);
@@ -434,6 +407,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         DCHECK_LE(merged_size, cnt_val->producer_size);
         cnt_val->merge_time += (MonotonicMillis() - start_merge);
         merge_time = cnt_val->merge_time;
+        cnt_val->local_merge_time +=
+                request->has_local_merge_time() ? request->local_merge_time() : 0;
     }
 
     if (merged_size == cnt_val->producer_size) {
@@ -473,6 +448,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             closure->request_->set_is_pipeline(request->has_is_pipeline() &&
                                                request->is_pipeline());
             closure->request_->set_merge_time(merge_time);
+            closure->request_->set_local_merge_time(cnt_val->local_merge_time);
             *closure->request_->mutable_query_id() = request->query_id();
             if (has_attachment) {
                 closure->cntl_->request_attachment().append(request_attachment);
