@@ -14,17 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-suite("test_show_commands_nereids") {
-    checkNereidsExecute("show engines;")
-    qt_cmd_1("show engines;")
-    checkNereidsExecute("show storage engines;")
-    qt_cmd_2("show storage engines;")    
-    // can not use qt to check, the output may change.
-
-    checkNereidsExecute("""show frontends;""")
-    checkNereidsExecute("""show backends;""")
-    checkNereidsExecute("""show whitelist;""")
-    checkNereidsExecute("""show triggers;""")
-    checkNereidsExecute("""show load profile \"\\";""")
+suite("test_nereids_encrypt_test") {
+    def dbName="test_nereids_encrypt_test_db"
+    def encryptkeyName="test_nereids_encrypt_test_key"
+    sql """ create database IF NOT EXISTS ${dbName}; """
+    sql """ use ${dbName}; """
+    checkNereidsExecute("drop encryptkey if exists ${encryptkeyName}")    
+    sql """CREATE ENCRYPTKEY ${encryptkeyName} AS "ABCD123456789";"""
+    qt_check_encrypt_1("SHOW ENCRYPTKEYS FROM ${dbName}")
+    checkNereidsExecute("drop encryptkey ${encryptkeyName}")
+    qt_check_encrypt_2("SHOW ENCRYPTKEYS FROM ${dbName}")    
+    checkNereidsExecute("drop encryptkey if exists ${encryptkeyName}")
+    qt_check_encrypt_3("SHOW ENCRYPTKEYS FROM ${dbName}")        
 }
