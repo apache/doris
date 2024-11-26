@@ -317,6 +317,7 @@ import org.apache.doris.nereids.DorisParser.ShowStorageEnginesContext;
 import org.apache.doris.nereids.DorisParser.ShowSyncJobContext;
 import org.apache.doris.nereids.DorisParser.ShowTableCreationContext;
 import org.apache.doris.nereids.DorisParser.ShowTableIdContext;
+import org.apache.doris.nereids.DorisParser.ShowTableStatusContext;
 import org.apache.doris.nereids.DorisParser.ShowTabletStorageFormatContext;
 import org.apache.doris.nereids.DorisParser.ShowTabletsBelongContext;
 import org.apache.doris.nereids.DorisParser.ShowTrashContext;
@@ -604,6 +605,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
@@ -5452,6 +5454,33 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
         }
         return new ShowConvertLSCCommand(databaseName);
+    
+    }
+    
+    @Override
+    public LogicalPlan visitShowTableStatus(ShowTableStatusContext ctx) {
+        String databaseName = null;
+        String ctlName = null;
+        String wild = null;
+
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                databaseName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                ctlName = nameParts.get(0);
+                databaseName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in create table should be [ctl.][db.]");
+            }
+        }
+
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                wild = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
+            }
+        }
+        return new ShowTableStatusCommand(ctlName, databaseName, wild);
     }
 }
 
