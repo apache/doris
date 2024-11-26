@@ -94,6 +94,9 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
             RETURN_IF_ERROR(bloom_filter_index_writer->flush());
             i += 1024;
         }
+        if (value_count == 3072) {
+            RETURN_IF_ERROR(bloom_filter_index_writer->add_values(vals + 3071, 1));
+        }
         RETURN_IF_ERROR(bloom_filter_index_writer->finish(file_writer.get(), index_meta));
         EXPECT_TRUE(file_writer->close().ok());
         EXPECT_EQ(BLOOM_FILTER_INDEX, index_meta->type());
@@ -172,7 +175,7 @@ Status test_bloom_filter_index_reader_writer_template(
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_int) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     int* val = new int[num];
     for (int i = 0; i < num; ++i) {
         // there will be 3 bloom filter pages
@@ -188,7 +191,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_int) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_bigint) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     int64_t* val = new int64_t[num];
     for (int i = 0; i < num; ++i) {
         // there will be 3 bloom filter pages
@@ -204,7 +207,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_bigint) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_largeint) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     int128_t* val = new int128_t[num];
     for (int i = 0; i < num; ++i) {
         // there will be 3 bloom filter pages
@@ -220,7 +223,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_largeint) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_varchar_type) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     std::string* val = new std::string[num];
     for (int i = 0; i < num; ++i) {
         // there will be 3 bloom filter pages
@@ -241,7 +244,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_varchar_type) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_char) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     std::string* val = new std::string[num];
     for (int i = 0; i < num; ++i) {
         // there will be 3 bloom filter pages
@@ -262,7 +265,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_char) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_date) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     uint24_t* val = new uint24_t[num];
     for (int i = 0; i < num; ++i) {
         // there will be 3 bloom filter pages
@@ -278,7 +281,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_date) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_datetime) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     int64_t* val = new int64_t[num];
     for (int i = 0; i < num; ++i) {
         // there will be 3 bloom filter pages
@@ -294,7 +297,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_datetime) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_decimal) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     decimal12_t* val = new decimal12_t[num];
     for (int i = 0; i < num; ++i) {
         // there will be 3 bloom filter pages
@@ -310,7 +313,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_primary_key_bloom_filter_index) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     std::vector<std::string> val_strings(num);
     for (size_t i = 0; i < num; ++i) {
         val_strings[i] = "primary_key_" + std::to_string(i);
@@ -329,7 +332,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_primary_key_bloom_filter_index) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_primary_key_bloom_filter_index_int) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     int* val = new int[num];
     for (int i = 0; i < num; ++i) {
         // there will be 3 bloom filter pages
@@ -346,7 +349,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_primary_key_bloom_filter_index_int
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_datev2) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     uint32_t* val = new uint32_t[num];
     for (size_t i = 0; i < num; ++i) {
         val[i] = 20210101 + i; // YYYYMMDD
@@ -361,7 +364,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_datev2) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_datetimev2) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     uint64_t* val = new uint64_t[num];
     for (size_t i = 0; i < num; ++i) {
         val[i] = 20210101000000 + i; // YYYYMMDDHHMMSS
@@ -376,7 +379,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_datetimev2) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_decimal32) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     int32_t* val = new int32_t[num];
     for (size_t i = 0; i < num; ++i) {
         val[i] = static_cast<int32_t>(i * 100 + 1);
@@ -391,7 +394,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal32) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_decimal64) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     ;
     int64_t* val = new int64_t[num];
     for (size_t i = 0; i < num; ++i) {
@@ -407,7 +410,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal64) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_ipv4) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     uint32_t* val = new uint32_t[num];
     for (size_t i = 0; i < num; ++i) {
         val[i] = (192 << 24) | (168 << 16) | (i >> 8) | (i & 0xFF);
@@ -422,7 +425,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ipv4) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_decimal128i) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     int128_t* val = new int128_t[num];
 
     int128_t base_value = int128_t(1000000000ULL) * int128_t(1000000000ULL);
@@ -442,7 +445,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal128i) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_decimal256) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     using Decimal256Type = wide::Int256;
 
     Decimal256Type* val = new Decimal256Type[num];
@@ -468,7 +471,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal256) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_ipv6) {
-    size_t num = 1024 * 3 - 1;
+    size_t num = 1024 * 3;
     uint128_t* val = new uint128_t[num];
     for (size_t i = 0; i < num; ++i) {
         val[i] = (uint128_t(0x20010DB800000000) << 64) | uint128_t(i);
