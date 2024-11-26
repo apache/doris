@@ -60,7 +60,6 @@ statementBase
     | supportedShowStatement            #supportedShowStatementAlias
     | supportedLoadStatement            #supportedLoadStatementAlias
     | supportedRecoverStatement         #supportedRecoverStatementAlias
-    | supportedLoadStatement            #supportedLoadfStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -238,6 +237,7 @@ supportedShowStatement
 
 supportedLoadStatement
     : SYNC                                                                          #sync
+    | createRoutineLoad
     ;
 
 unsupportedOtherStatement
@@ -350,10 +350,6 @@ unsupportedShowStatement
     | SHOW COPY ((FROM | IN) database=multipartIdentifier)?
         whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
-    ;
-
-supportedLoadStatement
-    : createRoutineLoad
     ;
 
 createRoutineLoad
