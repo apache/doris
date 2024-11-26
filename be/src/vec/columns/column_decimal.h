@@ -104,9 +104,6 @@ private:
 public:
     std::string get_name() const override { return TypeName<T>::get(); }
 
-    bool is_numeric() const override { return false; }
-    bool is_column_decimal() const override { return true; }
-
     size_t size() const override { return data.size(); }
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
     size_t allocated_bytes() const override { return data.allocated_bytes(); }

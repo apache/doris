@@ -151,8 +151,6 @@ public:
     ColumnVector(std::initializer_list<T> il) : data {il} {}
 
 public:
-    bool is_numeric() const override { return IsNumber<T>; }
-
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
