@@ -17,27 +17,13 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.ImmutableSet;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Test;
 
-import java.util.Set;
-
 public class EliminateGroupByKeyByUniformTest extends TestWithFeService implements MemoPatternMatchSupported {
-    private static final MockUp<SessionVariable> mockUpForSubClass = new MockUp<SessionVariable>() {
-        @Mock
-        public Set<Integer> getEnableNereidsRules() {
-            return ImmutableSet.of(RuleType.valueOf("ELIMINATE_GROUP_BY_KEY_BY_UNIFORM").type());
-        }
-    };
-
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
