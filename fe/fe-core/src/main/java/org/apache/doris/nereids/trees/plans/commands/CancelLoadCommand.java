@@ -62,10 +62,10 @@ public class CancelLoadCommand extends CancelCommand implements ForwardWithSync 
         validate(ctx);
         CancelLoadStmt cancelStmt = null;
         if (whereClause instanceof CompoundPredicate) {
-            cancelStmt = new CancelLoadStmt(dbName, legacyWhereClause, label, null, state);
-        } else {
             cancelStmt = new CancelLoadStmt(dbName, legacyWhereClause, label,
                 ((org.apache.doris.analysis.CompoundPredicate) legacyWhereClause).getOp(), state);
+        } else {
+            cancelStmt = new CancelLoadStmt(dbName, legacyWhereClause, label, null, state);
         }
         try {
             ctx.getEnv().getJobManager().cancelLoadJob(cancelStmt);

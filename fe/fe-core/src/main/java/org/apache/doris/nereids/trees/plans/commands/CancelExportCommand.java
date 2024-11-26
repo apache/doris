@@ -61,10 +61,10 @@ public class CancelExportCommand extends CancelCommand implements ForwardWithSyn
         validate(ctx);
         CancelExportStmt cancelStmt = null;
         if (whereClause instanceof CompoundPredicate) {
-            cancelStmt = new CancelExportStmt(dbName, legacyWhereClause, label, null, state);
-        } else {
             cancelStmt = new CancelExportStmt(dbName, legacyWhereClause, label,
-                    ((org.apache.doris.analysis.CompoundPredicate) legacyWhereClause).getOp(), state);
+                ((org.apache.doris.analysis.CompoundPredicate) legacyWhereClause).getOp(), state);
+        } else {
+            cancelStmt = new CancelExportStmt(dbName, legacyWhereClause, label, null, state);
         }
         ctx.getEnv().getExportMgr().cancelExportJob(cancelStmt);
     }

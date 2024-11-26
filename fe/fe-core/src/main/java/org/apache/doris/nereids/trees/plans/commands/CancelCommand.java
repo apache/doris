@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -69,7 +70,16 @@ public abstract class CancelCommand extends Command implements ForwardWithSync {
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
-        return ExpressionTranslator.translate(expression, planTranslatorContext);
+        ExpressionToExpr translator = new ExpressionToExpr();
+        return expression.accept(translator, planTranslatorContext);
+    }
+
+    private static class ExpressionToExpr extends ExpressionTranslator {
+        @Override
+        public Expr visitUnboundSlot(UnboundSlot unboundSlot, PlanTranslatorContext context) {
+            String inputCol = unboundSlot.getName();
+            return new SlotRef(null, inputCol);
+        }
     }
 
     /**
