@@ -34,6 +34,7 @@
 #include <memory>
 #include <ostream>
 #include <tuple>
+#include <utility>
 
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
@@ -652,7 +653,7 @@ bool OrcReader::_check_literal_can_push_down(const VExprSPtr& expr, uint16_t chi
     const auto* literal = static_cast<const VLiteral*>(expr->get_child(child_id).get());
     auto [valid, orc_literal, _] = _make_orc_literal(slot_ref, literal);
     if (valid) {
-        _vliteral_to_orc_literal[literal] = orc_literal;
+        _vliteral_to_orc_literal.insert(std::make_pair(literal, orc_literal));
     }
     return valid;
 }
@@ -728,7 +729,7 @@ void OrcReader::_build_less_than(const VExprSPtr& expr,
     DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     DCHECK(_vliteral_to_orc_literal.contains(literal));
-    auto orc_literal = _vliteral_to_orc_literal[literal];
+    auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
     builder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
 }
 
@@ -742,7 +743,7 @@ void OrcReader::_build_less_than_equals(const VExprSPtr& expr,
     DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     DCHECK(_vliteral_to_orc_literal.contains(literal));
-    auto orc_literal = _vliteral_to_orc_literal[literal];
+    auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
     builder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
 }
 
@@ -756,7 +757,7 @@ void OrcReader::_build_equals(const VExprSPtr& expr,
     DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     DCHECK(_vliteral_to_orc_literal.contains(literal));
-    auto orc_literal = _vliteral_to_orc_literal[literal];
+    auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
     builder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
 }
 
@@ -772,7 +773,7 @@ void OrcReader::_build_filter_in(const VExprSPtr& expr,
         DCHECK(expr->children()[i]->is_literal());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
         DCHECK(_vliteral_to_orc_literal.contains(literal));
-        auto orc_literal = _vliteral_to_orc_literal[literal];
+        auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
         literals.emplace_back(orc_literal);
     }
     DCHECK(!literals.empty());
@@ -789,29 +790,45 @@ void OrcReader::_build_is_null(const VExprSPtr& expr,
     builder->isNull(slot_ref->expr_name(), predicate_type);
 }
 
-void OrcReader::_build_search_argument(const VExprSPtr& expr,
+bool OrcReader::_build_search_argument(const VExprSPtr& expr,
                                        std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
+    // OPTIMIZE: check expr only once
+    if (!_check_expr_can_push_down(expr)) {
+        return false;
+    }
     switch (expr->op()) {
-    case TExprOpcode::COMPOUND_AND:
+    case TExprOpcode::COMPOUND_AND: {
         builder->startAnd();
+        bool at_least_one_can_push_down = false;
         for (const auto& child : expr->children()) {
-            _build_search_argument(child, builder);
+            if (_build_search_argument(child, builder)) {
+                at_least_one_can_push_down = true;
+            }
         }
+        DCHECK(at_least_one_can_push_down);
         builder->end();
         break;
-    case TExprOpcode::COMPOUND_OR:
+    }
+    case TExprOpcode::COMPOUND_OR: {
         builder->startOr();
+        bool all_can_push_down = true;
         for (const auto& child : expr->children()) {
-            _build_search_argument(child, builder);
+            if (!_build_search_argument(child, builder)) {
+                all_can_push_down = false;
+            }
         }
+        DCHECK(all_can_push_down);
         builder->end();
         break;
-    case TExprOpcode::COMPOUND_NOT:
-        builder->startNot();
+    }
+    case TExprOpcode::COMPOUND_NOT: {
         DCHECK_EQ(expr->get_num_children(), 1);
-        _build_search_argument(expr->get_child(0), builder);
+        builder->startNot();
+        auto res = _build_search_argument(expr->get_child(0), builder);
+        DCHECK(res);
         builder->end();
         break;
+    }
     case TExprOpcode::GE:
         builder->startNot();
         _build_less_than(expr, builder);
@@ -863,6 +880,7 @@ void OrcReader::_build_search_argument(const VExprSPtr& expr,
         // should not reach here, because _check_expr_can_push_down has already checked
         __builtin_unreachable();
     }
+    return true;
 }
 
 bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
@@ -877,8 +895,7 @@ bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
     for (const auto& expr_ctx : conjuncts) {
         _vslot_ref_to_orc_predicate_data_type.clear();
         _vliteral_to_orc_literal.clear();
-        if (_check_expr_can_push_down(expr_ctx->root())) {
-            _build_search_argument(expr_ctx->root(), builder);
+        if (_build_search_argument(expr_ctx->root(), builder)) {
             at_least_one_can_push_down = true;
         }
     }

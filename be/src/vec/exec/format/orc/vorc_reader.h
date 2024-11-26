@@ -306,7 +306,7 @@ private:
                           std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     void _build_is_null(const VExprSPtr& expr,
                         std::unique_ptr<orc::SearchArgumentBuilder>& builder);
-    void _build_search_argument(const VExprSPtr& expr,
+    bool _build_search_argument(const VExprSPtr& expr,
                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _init_search_argument(const VExprContextSPtrs& conjuncts);
 
