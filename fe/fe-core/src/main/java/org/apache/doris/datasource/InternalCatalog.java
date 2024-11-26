@@ -941,7 +941,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
 
-            dropTableInternal(db, table, stmt.isForceDrop(), watch, costTimes);
+            dropTableInternal(db, table, stmt.isView(), stmt.isForceDrop(), watch, costTimes);
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e.getMysqlErrorCode());
         } finally {
@@ -949,18 +949,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         watch.stop();
         costTimes.put("6:total", watch.getTime());
-        LOG.info("finished dropping table: {} from db: {}, is force: {} cost: {}",
-                tableName, dbName, stmt.isForceDrop(), costTimes);
+        LOG.info("finished dropping table: {} from db: {}, is view: {}, is force: {}, cost: {}",
+                tableName, dbName, stmt.isView(), stmt.isForceDrop(), costTimes);
     }
 
     // drop table without any check.
-    public void dropTableWithoutCheck(Database db, Table table, boolean forceDrop) throws DdlException {
+    public void dropTableWithoutCheck(Database db, Table table, boolean isView, boolean forceDrop) throws DdlException {
         if (!db.writeLockIfExist()) {
             return;
         }
         try {
             LOG.info("drop table {} without check, force: {}", table.getQualifiedName(), forceDrop);
-            dropTableInternal(db, table, forceDrop, null, null);
+            dropTableInternal(db, table, isView, forceDrop, null, null);
         } catch (Exception e) {
             LOG.warn("drop table without check", e);
             throw e;
@@ -970,7 +970,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     // Drop a table, the db lock must hold.
-    private void dropTableInternal(Database db, Table table, boolean forceDrop,
+    private void dropTableInternal(Database db, Table table, boolean isView, boolean forceDrop,
             StopWatch watch, Map<String, Long> costTimes) throws DdlException {
         table.writeLock();
         String tableName = table.getName();
@@ -1001,7 +1001,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                 db.getId(), table.getId());
-        DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, forceDrop, recycleTime);
+        DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, isView, forceDrop, recycleTime);
         Env.getCurrentEnv().getEditLog().logDropTable(info);
         Env.getCurrentEnv().getMtmvService().dropTable(table);
     }
@@ -1641,10 +1641,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
                         Long.toString(olapTable.rowStorePageSize()));
             }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE,
-                        Long.toString(olapTable.storagePageSize()));
-            }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD,
                         olapTable.skipWriteIndexOnLoad().toString());
@@ -2172,8 +2168,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storeRowColumn(), binlogConfig,
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
-                            tbl.variantEnableFlattenNested(),
-                            tbl.storagePageSize());
+                            tbl.variantEnableFlattenNested());
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -2663,14 +2658,6 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         olapTable.setRowStorePageSize(rowStorePageSize);
 
-        long storagePageSize = PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
-        try {
-            storagePageSize = PropertyAnalyzer.analyzeStoragePageSize(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        olapTable.setStoragePageSize(storagePageSize);
-
         // check data sort properties
         int keyColumnSize = CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) ? keysDesc.keysColumnSize() :
                 keysDesc.getClusterKeysColumnNames().size();
@@ -2922,6 +2909,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (colocateGroup != null) {
                 if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
                     throw new AnalysisException("Random distribution for colocate table is unsupported");
+                }
+                if (isAutoBucket) {
+                    throw new AnalysisException("Auto buckets for colocate table is unsupported");
                 }
                 String fullGroupName = GroupId.getFullGroupName(db.getId(), colocateGroup);
                 ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
@@ -3232,7 +3222,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             try {
                 dropTable(db, tableId, true, false, 0L);
                 if (hadLogEditCreateTable) {
-                    DropInfo info = new DropInfo(db.getId(), tableId, olapTable.getName(), -1L, true, 0L);
+                    DropInfo info = new DropInfo(db.getId(), tableId, olapTable.getName(), -1L, false, true, 0L);
                     Env.getCurrentEnv().getEditLog().logDropTable(info);
                 }
             } catch (Exception ex) {

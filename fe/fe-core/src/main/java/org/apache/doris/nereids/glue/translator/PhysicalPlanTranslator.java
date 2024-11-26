@@ -542,45 +542,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 (ArrayList<String>) labels);
 
         sinkFragment.setSink(resultFileSink);
-
-        // TODO: do parallel sink, we should do it in Nereids, but now we impl here temporarily
-        //   because impl in Nereids affect too many things
-        if (fileSink.requestProperties(context.getConnectContext()).equals(PhysicalProperties.GATHER)) {
-            return sinkFragment;
-        } else {
-            // create output tuple
-            TupleDescriptor fileStatusDesc = ResultFileSink.constructFileStatusTupleDesc(context.getDescTable());
-
-            // create exchange node
-            ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), sinkFragment.getPlanRoot());
-            exchangeNode.setPartitionType(TPartitionType.UNPARTITIONED);
-            exchangeNode.setNumInstances(1);
-
-            // create final result sink
-            TResultSinkType resultSinkType = context.getConnectContext() != null
-                    ? context.getConnectContext().getResultSinkType() : null;
-            ResultSink resultSink = new ResultSink(exchangeNode.getId(), resultSinkType);
-
-            // create top fragment
-            PlanFragment topFragment = new PlanFragment(context.nextFragmentId(), exchangeNode,
-                    DataPartition.UNPARTITIONED);
-            topFragment.addChild(sinkFragment);
-            topFragment.setSink(resultSink);
-            context.addPlanFragment(topFragment);
-
-            // update sink fragment and result file sink
-            DataStreamSink streamSink = new DataStreamSink(exchangeNode.getId());
-            streamSink.setOutputPartition(DataPartition.UNPARTITIONED);
-            resultFileSink.resetByDataStreamSink(streamSink);
-            resultFileSink.setOutputTupleId(fileStatusDesc.getId());
-            sinkFragment.setDestination(exchangeNode);
-
-            // set out expr and tuple correct
-            exchangeNode.resetTupleIds(Lists.newArrayList(fileStatusDesc.getId()));
-            topFragment.resetOutputExprs(fileStatusDesc);
-
-            return topFragment;
-        }
+        return sinkFragment;
     }
 
     /* ********************************************************************************************

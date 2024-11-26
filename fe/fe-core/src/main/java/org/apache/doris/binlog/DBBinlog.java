@@ -22,7 +22,9 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
@@ -121,34 +123,7 @@ public class DBBinlog {
 
         allBinlogs.add(binlog);
         binlogSize += BinlogUtils.getApproximateMemoryUsage(binlog);
-
-        if (binlog.getType() == TBinlogType.DROP_PARTITION) {
-            DropPartitionInfo info = DropPartitionInfo.fromJson(binlog.data);
-            if (info != null && info.getPartitionId() > 0) {
-                droppedPartitions.add(Pair.of(info.getPartitionId(), binlog.getCommitSeq()));
-            }
-        } else if (binlog.getType() == TBinlogType.DROP_TABLE) {
-            DropTableRecord record = DropTableRecord.fromJson(binlog.data);
-            if (record != null && record.getTableId() > 0) {
-                droppedTables.add(Pair.of(record.getTableId(), binlog.getCommitSeq()));
-            }
-        } else if (binlog.getType() == TBinlogType.ALTER_JOB) {
-            AlterJobRecord record = AlterJobRecord.fromJson(binlog.data);
-            if (record != null && record.isSchemaChangeJob() && record.isJobFinished()) {
-                for (Long indexId : record.getOriginIndexIdList()) {
-                    if (indexId != null && indexId > 0) {
-                        droppedIndexes.add(Pair.of(indexId, binlog.getCommitSeq()));
-                    }
-                }
-            }
-        } else if (binlog.getType() == TBinlogType.TRUNCATE_TABLE) {
-            TruncateTableRecord record = TruncateTableRecord.fromJson(binlog.data);
-            if (record != null) {
-                for (long partitionId : record.getOldPartitionIds()) {
-                    droppedPartitions.add(Pair.of(partitionId, binlog.getCommitSeq()));
-                }
-            }
-        }
+        recordDroppedResources(binlog);
 
         if (tableIds == null) {
             return;
@@ -202,31 +177,7 @@ public class DBBinlog {
                 return;
             }
 
-            if (binlog.getType() == TBinlogType.DROP_PARTITION && raw instanceof DropPartitionInfo) {
-                long partitionId = ((DropPartitionInfo) raw).getPartitionId();
-                if (partitionId > 0) {
-                    droppedPartitions.add(Pair.of(partitionId, binlog.getCommitSeq()));
-                }
-            } else if (binlog.getType() == TBinlogType.DROP_TABLE && raw instanceof DropTableRecord) {
-                long tableId = ((DropTableRecord) raw).getTableId();
-                if (tableId > 0) {
-                    droppedTables.add(Pair.of(tableId, binlog.getCommitSeq()));
-                }
-            } else if (binlog.getType() == TBinlogType.ALTER_JOB && raw instanceof AlterJobRecord) {
-                AlterJobRecord alterJobRecord = (AlterJobRecord) raw;
-                if (alterJobRecord.isJobFinished() && alterJobRecord.isSchemaChangeJob()) {
-                    for (Long indexId : alterJobRecord.getOriginIndexIdList()) {
-                        if (indexId != null && indexId > 0) {
-                            droppedIndexes.add(Pair.of(indexId, binlog.getCommitSeq()));
-                        }
-                    }
-                }
-            } else if (binlog.getType() == TBinlogType.TRUNCATE_TABLE && raw instanceof TruncateTableRecord) {
-                TruncateTableRecord truncateTableRecord = (TruncateTableRecord) raw;
-                for (long partitionId : truncateTableRecord.getOldPartitionIds()) {
-                    droppedPartitions.add(Pair.of(partitionId, binlog.getCommitSeq()));
-                }
-            }
+            recordDroppedResources(binlog, raw);
 
             switch (binlog.getType()) {
                 case CREATE_TABLE:
@@ -668,6 +619,86 @@ public class DBBinlog {
             }
         } finally {
             lock.readLock().unlock();
+        }
+    }
+
+    private void recordDroppedResources(TBinlog binlog) {
+        recordDroppedResources(binlog, null);
+    }
+
+    // A method to record the dropped tables, indexes, and partitions.
+    private void recordDroppedResources(TBinlog binlog, Object raw) {
+        recordDroppedResources(binlog.getType(), binlog.getCommitSeq(), binlog.getData(), raw);
+    }
+
+    private void recordDroppedResources(TBinlogType binlogType, long commitSeq, String data, Object raw) {
+        if (raw == null) {
+            switch (binlogType) {
+                case DROP_PARTITION:
+                    raw = DropPartitionInfo.fromJson(data);
+                    break;
+                case DROP_TABLE:
+                    raw = DropTableRecord.fromJson(data);
+                    break;
+                case ALTER_JOB:
+                    raw = AlterJobRecord.fromJson(data);
+                    break;
+                case TRUNCATE_TABLE:
+                    raw = TruncateTableRecord.fromJson(data);
+                    break;
+                case REPLACE_TABLE:
+                    raw = ReplaceTableOperationLog.fromJson(data);
+                    break;
+                case BARRIER:
+                    raw = BarrierLog.fromJson(data);
+                    break;
+                default:
+                    break;
+            }
+            if (raw == null) {
+                return;
+            }
+        }
+
+        recordDroppedResources(binlogType, commitSeq, raw);
+    }
+
+    private void recordDroppedResources(TBinlogType binlogType, long commitSeq, Object raw) {
+        if (binlogType == TBinlogType.DROP_PARTITION && raw instanceof DropPartitionInfo) {
+            long partitionId = ((DropPartitionInfo) raw).getPartitionId();
+            if (partitionId > 0) {
+                droppedPartitions.add(Pair.of(partitionId, commitSeq));
+            }
+        } else if (binlogType == TBinlogType.DROP_TABLE && raw instanceof DropTableRecord) {
+            long tableId = ((DropTableRecord) raw).getTableId();
+            if (tableId > 0) {
+                droppedTables.add(Pair.of(tableId, commitSeq));
+            }
+        } else if (binlogType == TBinlogType.ALTER_JOB && raw instanceof AlterJobRecord) {
+            AlterJobRecord alterJobRecord = (AlterJobRecord) raw;
+            if (alterJobRecord.isJobFinished() && alterJobRecord.isSchemaChangeJob()) {
+                for (Long indexId : alterJobRecord.getOriginIndexIdList()) {
+                    if (indexId != null && indexId > 0) {
+                        droppedIndexes.add(Pair.of(indexId, commitSeq));
+                    }
+                }
+            }
+        } else if (binlogType == TBinlogType.TRUNCATE_TABLE && raw instanceof TruncateTableRecord) {
+            TruncateTableRecord truncateTableRecord = (TruncateTableRecord) raw;
+            for (long partitionId : truncateTableRecord.getOldPartitionIds()) {
+                droppedPartitions.add(Pair.of(partitionId, commitSeq));
+            }
+        } else if (binlogType == TBinlogType.REPLACE_TABLE && raw instanceof ReplaceTableOperationLog) {
+            ReplaceTableOperationLog record = (ReplaceTableOperationLog) raw;
+            if (!record.isSwapTable()) {
+                droppedTables.add(Pair.of(record.getOrigTblId(), commitSeq));
+            }
+        } else if (binlogType == TBinlogType.BARRIER && raw instanceof BarrierLog) {
+            BarrierLog log = (BarrierLog) raw;
+            // keep compatible with doris 2.0/2.1
+            if (log.hasBinlog()) {
+                recordDroppedResources(log.getBinlogType(), commitSeq, log.getBinlog(), null);
+            }
         }
     }
 }

@@ -729,8 +729,13 @@ public class Coordinator implements CoordInterface {
         DataSink topDataSink = topParams.fragment.getSink();
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
-            Boolean enableParallelResultSink = queryOptions.isEnableParallelResultSink()
-                    && topDataSink instanceof ResultSink;
+            Boolean enableParallelResultSink = false;
+            if (topDataSink instanceof ResultSink) {
+                enableParallelResultSink = queryOptions.isEnableParallelResultSink();
+            } else {
+                enableParallelResultSink = queryOptions.isEnableParallelOutfile();
+            }
+
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             Set<TNetworkAddress> addrs = new HashSet<>();
             for (FInstanceExecParam param : topParams.instanceExecParams) {
@@ -1432,31 +1437,8 @@ public class Coordinator implements CoordInterface {
                     destParams.instanceExecParams.get(0).bucketSeqSet.add(0);
                 }
                 // process bucket shuffle join on fragment without scan node
-                TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
                 while (bucketSeq < bucketNum) {
-                    TPlanFragmentDestination dest = new TPlanFragmentDestination();
-
-                    dest.fragment_instance_id = new TUniqueId(-1, -1);
-                    dest.server = dummyServer;
-                    dest.setBrpcServer(dummyServer);
-
-                    Set<TNetworkAddress> hostSet = new HashSet<>();
-                    for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
-                        FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
-                        if (destParams.ignoreDataDistribution
-                                && hostSet.contains(instanceExecParams.host)) {
-                            continue;
-                        }
-                        hostSet.add(instanceExecParams.host);
-                        if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
-                            dest.fragment_instance_id = instanceExecParams.instanceId;
-                            dest.server = toRpcHost(instanceExecParams.host);
-                            dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
-                            instanceExecParams.recvrId = params.destinations.size();
-                            break;
-                        }
-                    }
-
+                    TPlanFragmentDestination dest = setDestination(destParams, params.destinations.size(), bucketSeq);
                     bucketSeq++;
                     params.destinations.add(dest);
                 }
@@ -1501,6 +1483,50 @@ public class Coordinator implements CoordInterface {
                 }
             }
         }
+    }
+
+    private TPlanFragmentDestination setDestination(FragmentExecParams destParams, int recvrId, int bucketSeq)
+            throws Exception {
+        TPlanFragmentDestination dest = new TPlanFragmentDestination();
+        TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
+        dest.fragment_instance_id = new TUniqueId(-1, -1);
+        dest.server = dummyServer;
+        dest.setBrpcServer(dummyServer);
+
+        if (destParams.ignoreDataDistribution) {
+            Map<TNetworkAddress, Pair<TUniqueId, Set<Integer>>> hostToInstanceIdAndBucketSeq
+                    = new HashMap<>();
+            for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
+                FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
+                hostToInstanceIdAndBucketSeq.putIfAbsent(instanceExecParams.host,
+                        Pair.of(instanceExecParams.instanceId, new HashSet<>()));
+                hostToInstanceIdAndBucketSeq.get(instanceExecParams.host).second.addAll(
+                        instanceExecParams.bucketSeqSet);
+            }
+            for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
+                FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
+                if (hostToInstanceIdAndBucketSeq.get(instanceExecParams.host).second.contains(bucketSeq)) {
+                    dest.fragment_instance_id = hostToInstanceIdAndBucketSeq.get(instanceExecParams.host)
+                            .first;
+                    dest.server = toRpcHost(instanceExecParams.host);
+                    dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
+                    instanceExecParams.recvrId = recvrId;
+                    break;
+                }
+            }
+        } else {
+            for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
+                FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
+                if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
+                    dest.fragment_instance_id = instanceExecParams.instanceId;
+                    dest.server = toRpcHost(instanceExecParams.host);
+                    dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
+                    instanceExecParams.recvrId = recvrId;
+                    break;
+                }
+            }
+        }
+        return dest;
     }
 
     private void computeMultiCastFragmentParams() throws Exception {
@@ -1555,31 +1581,9 @@ public class Coordinator implements CoordInterface {
                         destParams.instanceExecParams.get(0).bucketSeqSet.add(0);
                     }
                     // process bucket shuffle join on fragment without scan node
-                    TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
                     while (bucketSeq < bucketNum) {
-                        TPlanFragmentDestination dest = new TPlanFragmentDestination();
-
-                        dest.fragment_instance_id = new TUniqueId(-1, -1);
-                        dest.server = dummyServer;
-                        dest.setBrpcServer(dummyServer);
-
-                        Set<TNetworkAddress> hostSet = new HashSet<>();
-                        for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
-                            FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
-                            if (destParams.ignoreDataDistribution
-                                    && hostSet.contains(instanceExecParams.host)) {
-                                continue;
-                            }
-                            hostSet.add(instanceExecParams.host);
-                            if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
-                                dest.fragment_instance_id = instanceExecParams.instanceId;
-                                dest.server = toRpcHost(instanceExecParams.host);
-                                dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
-                                instanceExecParams.recvrId = params.destinations.size();
-                                break;
-                            }
-                        }
-
+                        TPlanFragmentDestination dest = setDestination(destParams, params.destinations.size(),
+                                bucketSeq);
                         bucketSeq++;
                         destinations.add(dest);
                     }
@@ -1886,11 +1890,17 @@ public class Coordinator implements CoordInterface {
                             return scanNode.getId().asInt() == planNodeId;
                         }).findFirst();
 
+                        /**
+                         * Ignore storage data distribution iff:
+                         * 1. `parallelExecInstanceNum * numBackends` is larger than scan ranges.
+                         * 2. Use Nereids planner.
+                         */
                         boolean sharedScan = true;
                         int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                 leftMostNode.getNumInstances());
-                        boolean ignoreStorageDataDistribution = fragment.useSerialSource(context);
-                        if (ignoreStorageDataDistribution) {
+                        boolean ignoreStorageDataDistribution = node.isPresent()
+                                && fragment.useSerialSource(context);
+                        if (node.isPresent() && ignoreStorageDataDistribution) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource

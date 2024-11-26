@@ -104,6 +104,7 @@ DECLARE_Int32(arrow_flight_sql_port);
 // For ADBC client fetch result, default is empty, the ADBC client uses the backend ip to fetch the result.
 // If ADBC client cannot access the backend ip, can set public_access_ip to modify the fetch result ip.
 DECLARE_mString(public_access_ip);
+DECLARE_Int32(public_access_port);
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -584,6 +585,8 @@ DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
 DECLARE_mBool(enable_bthread_transmit_block);
+DECLARE_Int32(brpc_arrow_flight_work_pool_threads);
+DECLARE_Int32(brpc_arrow_flight_work_pool_max_queue_size);
 
 // The maximum amount of data that can be processed by a stream load
 DECLARE_mInt64(streaming_load_max_mb);
@@ -693,6 +696,9 @@ DECLARE_mInt32(result_buffer_cancelled_interval_time);
 
 // arrow flight result sink buffer rows size, default 4096 * 8
 DECLARE_mInt32(arrow_flight_result_sink_buffer_size_rows);
+// The timeout for ADBC Client to wait for data using arrow flight reader.
+// If the query is very complex and no result is generated after this time, consider increasing this timeout.
+DECLARE_mInt32(arrow_flight_reader_brpc_controller_timeout_ms);
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DECLARE_mInt32(priority_queue_remaining_tasks_increased_frequency);
@@ -1004,8 +1010,6 @@ DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
 // The batch size for sending data by brpc streaming client
 DECLARE_mInt64(brpc_streaming_client_batch_bytes);
 DECLARE_mInt64(block_cache_wait_timeout_ms);
-DECLARE_mInt64(cache_lock_long_tail_threshold);
-DECLARE_Int64(file_cache_recycle_keys_size);
 
 DECLARE_Bool(enable_brpc_builtin_services);
 
@@ -1084,6 +1088,15 @@ DECLARE_Bool(enable_ttl_cache_evict_using_lru);
 DECLARE_mBool(enbale_dump_error_file);
 // limit the max size of error log on disk
 DECLARE_mInt64(file_cache_error_log_limit_bytes);
+DECLARE_mInt64(cache_lock_long_tail_threshold);
+DECLARE_Int64(file_cache_recycle_keys_size);
+// Base compaction may retrieve and produce some less frequently accessed data,
+// potentially affecting the file cache hit rate.
+// This configuration determines whether to retain the output within the file cache.
+// Make your choice based on the following considerations:
+// If your file cache is ample enough to accommodate all the data in your database,
+// enable this option; otherwise, it is recommended to leave it disabled.
+DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

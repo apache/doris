@@ -1907,6 +1907,12 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
         return;
     }
 
+    response->set_tablet_id(tablet_id);
+    int64_t delete_bitmap_num = 0;
+    int64_t delete_bitmap_byte = 0;
+    bool test = false;
+    TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_test", &test);
+
     for (size_t i = 0; i < rowset_ids.size(); i++) {
         // create a new transaction every time, avoid using one transaction that takes too long
         std::unique_ptr<Transaction> txn;
@@ -1931,11 +1937,40 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
         std::unique_ptr<RangeGetIterator> it;
         int64_t last_ver = -1;
         int64_t last_seg_id = -1;
+        int64_t round = 0;
         do {
-            err = txn->get(start_key, end_key, &it);
+            if (test) {
+                LOG(INFO) << "test";
+                err = txn->get(start_key, end_key, &it, false, 2);
+            } else {
+                err = txn->get(start_key, end_key, &it);
+            }
+            TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_err", &round, &err);
+            int64_t retry = 0;
+            while (err == TxnErrorCode::TXN_TOO_OLD && retry < 3) {
+                txn = nullptr;
+                err = txn_kv_->create_txn(&txn);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::CREATE>(err);
+                    ss << "failed to init txn, retry=" << retry << ", internal round=" << round;
+                    msg = ss.str();
+                    return;
+                }
+                if (test) {
+                    err = txn->get(start_key, end_key, &it, false, 2);
+                } else {
+                    err = txn->get(start_key, end_key, &it);
+                }
+                retry++;
+                LOG(INFO) << "retry get delete bitmap, tablet=" << tablet_id << ", retry=" << retry
+                          << ", internal round=" << round
+                          << ", delete_bitmap_num=" << delete_bitmap_num
+                          << ", delete_bitmap_byte=" << delete_bitmap_byte;
+            }
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
-                ss << "internal error, failed to get delete bitmap, ret=" << err;
+                ss << "internal error, failed to get delete bitmap, internal round=" << round
+                   << ", ret=" << err;
                 msg = ss.str();
                 return;
             }
@@ -1960,18 +1995,39 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                     response->add_segment_delete_bitmaps(std::string(v));
                     last_ver = ver;
                     last_seg_id = seg_id;
+                    delete_bitmap_num++;
+                    delete_bitmap_byte += v.length();
                 } else {
                     TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_code", &code);
                     if (code != MetaServiceCode::OK) {
-                        msg = "test get get_delete_bitmap fail,code=" + MetaServiceCode_Name(code);
+                        ss << "test get get_delete_bitmap fail, code=" << MetaServiceCode_Name(code)
+                           << ", internal round=" << round;
+                        msg = ss.str();
                         return;
                     }
+                    delete_bitmap_byte += v.length();
                     response->mutable_segment_delete_bitmaps()->rbegin()->append(v);
                 }
             }
+            if (delete_bitmap_byte > config::max_get_delete_bitmap_byte) {
+                code = MetaServiceCode::KV_TXN_GET_ERR;
+                ss << "tablet=" << tablet_id << ", get_delete_bitmap_byte=" << delete_bitmap_byte
+                   << ",exceed max byte";
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            round++;
             start_key = it->next_begin_key(); // Update to next smallest key for iteration
         } while (it->more());
+        LOG(INFO) << "get delete bitmap for tablet=" << tablet_id << ", rowset=" << rowset_ids[i]
+                  << ", start version=" << begin_versions[i] << ", end version=" << end_versions[i]
+                  << ", internal round=" << round << ", delete_bitmap_num=" << delete_bitmap_num
+                  << ", delete_bitmap_byte=" << delete_bitmap_byte;
     }
+    LOG(INFO) << "finish get delete bitmap for tablet=" << tablet_id
+              << ", delete_bitmap_num=" << delete_bitmap_num
+              << ", delete_bitmap_byte=" << delete_bitmap_byte;
 
     if (request->has_idx()) {
         std::unique_ptr<Transaction> txn;

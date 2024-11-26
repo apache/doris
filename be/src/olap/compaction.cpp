@@ -44,6 +44,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
+#include "io/io_common.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
@@ -339,8 +340,9 @@ bool CompactionMixin::handle_ordered_data_compaction() {
     if (!config::enable_ordered_data_compaction) {
         return false;
     }
-    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION) {
-        // The remote file system does not support to link files.
+    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION ||
+        compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+        // The remote file system and full compaction does not support to link files.
         return false;
     }
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -607,11 +609,9 @@ Status Compaction::do_inverted_index_compaction() {
                 fs, std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
                 _cur_tablet_schema->get_inverted_index_storage_format(),
                 rowset->rowset_meta()->inverted_index_file_info(seg_id));
-        bool open_idx_file_cache = false;
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                                 open_idx_file_cache),
-                "inverted_index_file_reader init failed");
+                inverted_index_file_reader->init(config::inverted_index_read_buffer_size),
+                "inverted_index_file_reader init faiqled");
         inverted_index_file_readers[m.second] = std::move(inverted_index_file_reader);
     }
 
@@ -779,9 +779,8 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                                     InvertedIndexDescriptor::get_index_file_path_prefix(*seg_path)},
                             _cur_tablet_schema->get_inverted_index_storage_format(),
                             rowset->rowset_meta()->inverted_index_file_info(i));
-                    bool open_idx_file_cache = false;
                     auto st = inverted_index_file_reader->init(
-                            config::inverted_index_read_buffer_size, open_idx_file_cache);
+                            config::inverted_index_read_buffer_size);
                     index_file_path = inverted_index_file_reader->get_index_file_path(index_meta);
                     DBUG_EXECUTE_IF(
                             "Compaction::construct_skip_inverted_index_index_file_reader_init_"
@@ -1184,8 +1183,12 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
         ctx.compaction_level = _engine.cumu_compaction_policy(compaction_policy)
                                        ->new_compaction_level(_input_rowsets);
     }
-
-    ctx.write_file_cache = compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION;
+    // We presume that the data involved in cumulative compaction is sufficiently 'hot'
+    // and should always be retained in the cache.
+    // TODO(gavin): Ensure that the retention of hot data is implemented with precision.
+    ctx.write_file_cache = (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) ||
+                           (config::enable_file_cache_keep_base_compaction_output &&
+                            compaction_type() == ReaderType::READER_BASE_COMPACTION);
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));

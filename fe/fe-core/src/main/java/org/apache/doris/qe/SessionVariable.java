@@ -264,8 +264,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_STORAGE_DATA_DISTRIBUTION = "ignore_storage_data_distribution";
 
-    public static final String USE_SERIAL_EXCHANGE = "use_serial_exchange";
-
     public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
 
     // Limit the max count of scanners to prevent generate too many scanners.
@@ -1109,10 +1107,6 @@ public class SessionVariable implements Serializable, Writable {
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
     private boolean ignoreStorageDataDistribution = true;
 
-    @VariableMgr.VarAttr(name = USE_SERIAL_EXCHANGE, fuzzy = true,
-            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
-    private boolean useSerialExchange = false;
-
     @VariableMgr.VarAttr(
             name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             description = {"是否在pipelineX引擎上开启local shuffle优化",
@@ -1200,7 +1194,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableSyncRuntimeFilterSize = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
-    private boolean enableParallelResultSink = true;
+    private boolean enableParallelResultSink = false;
 
     @VariableMgr.VarAttr(name = "sort_phase_num", fuzzy = true, needForward = true,
             description = {"如设置为1，则只生成1阶段sort，设置为2，则只生成2阶段sort，设置其它值，优化器根据代价选择sort类型",
@@ -1918,7 +1912,7 @@ public class SessionVariable implements Serializable, Writable {
                 "Maximum table width to enable auto analyze, "
                     + "table with more columns than this value will not be auto analyzed."},
             flag = VariableMgr.GLOBAL)
-    public int autoAnalyzeTableWidthThreshold = 100;
+    public int autoAnalyzeTableWidthThreshold = 300;
 
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
             description = {"该参数定义自动ANALYZE例程的开始时间",
@@ -1983,7 +1977,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "exceeds (100 - table_stats_health_threshold)% since the last "
                             + "statistics collection operation, the statistics for this table are"
                             + "considered outdated."})
-    public int tableStatsHealthThreshold = 60;
+    public int tableStatsHealthThreshold = 90;
 
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
             description = {"是否开启基于结构信息的物化视图透明改写",
@@ -2329,7 +2323,6 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
-        this.useSerialExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
@@ -3849,6 +3842,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
         tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
+        tResult.setRuntimeBloomFilterMaxSize(runtimeBloomFilterMaxSize);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
 
         if (cpuResourceLimit > 0) {
@@ -3924,6 +3918,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);
         tResult.setEnableParallelResultSink(enableParallelResultSink);
+        tResult.setEnableParallelOutfile(enableParallelOutfile);
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);
         tResult.setSerdeDialect(getSerdeDialect());
@@ -4529,10 +4524,6 @@ public class SessionVariable implements Serializable, Writable {
             default:
                 throw new IllegalArgumentException("Unknown serde dialect: " + serdeDialect);
         }
-    }
-
-    public boolean isUseSerialExchange() {
-        return useSerialExchange && getEnableLocalExchange();
     }
 
     public boolean isEnableCooldownReplicaAffinity() {

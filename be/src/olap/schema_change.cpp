@@ -1431,7 +1431,7 @@ Status SchemaChangeJob::_validate_alter_result(const TAlterTabletReqV2& request)
     for (auto& pair : version_rowsets) {
         RowsetSharedPtr rowset = pair.second;
         if (!rowset->check_file_exist()) {
-            return Status::Error<FILE_NOT_EXIST>(
+            return Status::Error<NOT_FOUND>(
                     "SchemaChangeJob::_validate_alter_result meet invalid rowset");
         }
     }

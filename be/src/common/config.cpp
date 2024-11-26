@@ -65,6 +65,7 @@ DEFINE_Int32(brpc_port, "8060");
 DEFINE_Int32(arrow_flight_sql_port, "-1");
 
 DEFINE_mString(public_access_ip, "");
+DEFINE_Int32(public_access_port, "-1");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -535,6 +536,8 @@ DEFINE_Int32(brpc_light_work_pool_threads, "-1");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 DEFINE_mBool(enable_bthread_transmit_block, "true");
+DEFINE_Int32(brpc_arrow_flight_work_pool_threads, "-1");
+DEFINE_Int32(brpc_arrow_flight_work_pool_max_queue_size, "-1");
 
 //Enable brpc builtin services, see:
 //https://brpc.apache.org/docs/server/basics/#disable-built-in-services-completely
@@ -643,7 +646,11 @@ DEFINE_Int32(load_process_safe_mem_permit_percent, "5");
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
 
+// arrow flight result sink buffer rows size, default 4096 * 8
 DEFINE_mInt32(arrow_flight_result_sink_buffer_size_rows, "32768");
+// The timeout for ADBC Client to wait for data using arrow flight reader.
+// If the query is very complex and no result is generated after this time, consider increasing this timeout.
+DEFINE_mInt32(arrow_flight_reader_brpc_controller_timeout_ms, "300000");
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
@@ -950,8 +957,6 @@ DEFINE_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
 // number of s3 scanner thread pool queue size
 DEFINE_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
 DEFINE_mInt64(block_cache_wait_timeout_ms, "1000");
-DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
-DEFINE_Int64(file_cache_recycle_keys_size, "1000000");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DEFINE_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
@@ -1043,6 +1048,9 @@ DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
 DEFINE_mBool(enbale_dump_error_file, "true");
 // limit the max size of error log on disk
 DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
+DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
+DEFINE_Int64(file_cache_recycle_keys_size, "1000000");
+DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");

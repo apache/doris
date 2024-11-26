@@ -336,7 +336,7 @@ Status ColumnReader::new_inverted_index_iterator(
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
         if (_inverted_index) {
-            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
+            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.io_ctx, read_options.stats,
                                                           read_options.runtime_state, iterator));
         }
     }

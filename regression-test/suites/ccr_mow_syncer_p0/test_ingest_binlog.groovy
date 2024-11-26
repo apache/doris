@@ -27,16 +27,16 @@ suite("test_mow_ingest_binlog") {
     def test_num = 0
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
-           CREATE TABLE if NOT EXISTS ${tableName} 
+           CREATE TABLE if NOT EXISTS ${tableName}
            (
                `test` INT,
                `id` INT
            )
            ENGINE=OLAP
            UNIQUE KEY(`test`, `id`)
-           DISTRIBUTED BY HASH(id) BUCKETS 1 
-           PROPERTIES ( 
-                "enable_unique_key_merge_on_write" = "true",
+           DISTRIBUTED BY HASH(id) BUCKETS 1
+           PROPERTIES (
+               "enable_unique_key_merge_on_write" = "true",
                "replication_allocation" = "tag.location.default: 1"
            )
         """
@@ -44,19 +44,19 @@ suite("test_mow_ingest_binlog") {
 
     target_sql "DROP TABLE IF EXISTS ${tableName}"
     target_sql """
-                  CREATE TABLE if NOT EXISTS ${tableName} 
-                  (
-                      `test` INT,
-                      `id` INT
-                  )
-                  ENGINE=OLAP
-                  UNIQUE KEY(`test`, `id`)
-                  DISTRIBUTED BY HASH(id) BUCKETS 1 
-                  PROPERTIES ( 
-                        "enable_unique_key_merge_on_write" = "true",
-                      "replication_allocation" = "tag.location.default: 1"
-                  )
-              """
+          CREATE TABLE if NOT EXISTS ${tableName}
+          (
+              `test` INT,
+              `id` INT
+          )
+          ENGINE=OLAP
+          UNIQUE KEY(`test`, `id`)
+          DISTRIBUTED BY HASH(id) BUCKETS 1
+          PROPERTIES (
+               "enable_unique_key_merge_on_write" = "true",
+              "replication_allocation" = "tag.location.default: 1"
+          )
+        """
     assertTrue(syncer.getTargetMeta("${tableName}"))
 
 

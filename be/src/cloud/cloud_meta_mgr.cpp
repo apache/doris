@@ -1203,7 +1203,7 @@ int64_t CloudMetaMgr::get_segment_file_size(const RowsetMeta& rs_meta) {
         auto st = fs->file_size(segment_path, &segment_file_size);
         if (!st.ok()) {
             segment_file_size = 0;
-            if (st.is<FILE_NOT_EXIST>()) {
+            if (st.is<NOT_FOUND>()) {
                 LOG(INFO) << "cloud table size correctness check get segment size 0 because "
                              "file not exist! msg:"
                           << st.msg() << ", segment path:" << segment_path;
@@ -1239,7 +1239,7 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
                 auto st = fs->file_size(inverted_index_file_path, &file_size);
                 if (!st.ok()) {
                     file_size = 0;
-                    if (st.is<FILE_NOT_EXIST>()) {
+                    if (st.is<NOT_FOUND>()) {
                         LOG(INFO) << "cloud table size correctness check get inverted index v1 "
                                      "0 because file not exist! msg:"
                                   << st.msg()
@@ -1265,7 +1265,7 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
             auto st = fs->file_size(inverted_index_file_path, &file_size);
             if (!st.ok()) {
                 file_size = 0;
-                if (st.is<FILE_NOT_EXIST>()) {
+                if (st.is<NOT_FOUND>()) {
                     LOG(INFO) << "cloud table size correctness check get inverted index v2 "
                                  "0 because file not exist! msg:"
                               << st.msg() << ", inverted index path:" << inverted_index_file_path;

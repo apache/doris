@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
@@ -275,8 +276,8 @@ public class NereidsPlanner extends Planner {
         //   2. ut test. In ut test, FeConstants.enableInternalSchemaDb is false or FeConstants.runningUnitTest is true
         if (FeConstants.enableInternalSchemaDb && !FeConstants.runningUnitTest
                 && !cascadesContext.isLeadingDisableJoinReorder()) {
-            List<LogicalOlapScan> scans = cascadesContext.getRewritePlan()
-                    .collectToList(LogicalOlapScan.class::isInstance);
+            List<CatalogRelation> scans = cascadesContext.getRewritePlan()
+                    .collectToList(CatalogRelation.class::isInstance);
             Optional<String> disableJoinReorderReason = StatsCalculator
                     .disableJoinReorderIfStatsInvalid(scans, cascadesContext);
             disableJoinReorderReason.ifPresent(statementContext::setDisableJoinReorderReason);
