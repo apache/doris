@@ -667,8 +667,13 @@ public:
                 FINALLY_CLOSE(meta_out);
                 FINALLY_CLOSE(data_out);
                 FINALLY_CLOSE(index_out);
-                FINALLY_CLOSE(_dir);
-                FINALLY_CLOSE(_index_writer);
+                if constexpr (field_is_numeric_type(field_type)) {
+                    FINALLY_CLOSE(_dir);
+                } else if constexpr (field_is_slice_type(field_type)) {
+                    FINALLY_CLOSE(_index_writer);
+                    // After closing the _index_writer, it needs to be reset to null to prevent issues of not closing it or closing it multiple times.
+                    _index_writer.reset();
+                }
             })
 
             return Status::OK();
