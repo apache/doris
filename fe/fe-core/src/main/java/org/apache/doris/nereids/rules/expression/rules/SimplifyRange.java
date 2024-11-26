@@ -92,12 +92,12 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
     /** rewrite */
     public static Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
         ValueDesc valueDesc = expr.accept(new RangeInference(), context);
-        Expression exprForNonNull = valueDesc.toExpressionForNonNull();
-        if (exprForNonNull == null) {
+        Expression toExpr = valueDesc.toExpression();
+        if (toExpr == null) {
             // this mean cannot simplify
-            return valueDesc.exprForNonNull;
+            return valueDesc.toExpr;
         }
-        return exprForNonNull;
+        return toExpr;
     }
 
     private static class RangeInference extends ExpressionVisitor<ValueDesc, ExpressionRewriteContext> {
@@ -197,18 +197,18 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             }
 
             // use UnknownValue to wrap different references
-            return new UnknownValue(context, valuePerRefs, originExpr, exprOp);
+            return new UnknownValue(context, originExpr, originExpr, valuePerRefs, exprOp);
         }
     }
 
     private abstract static class ValueDesc {
         ExpressionRewriteContext context;
-        Expression exprForNonNull;
+        Expression toExpr;
         Expression reference;
 
-        public ValueDesc(ExpressionRewriteContext context, Expression reference, Expression exprForNonNull) {
+        public ValueDesc(ExpressionRewriteContext context, Expression reference, Expression toExpr) {
             this.context = context;
-            this.exprForNonNull = exprForNonNull;
+            this.toExpr = toExpr;
             this.reference = reference;
         }
 
@@ -220,28 +220,28 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (count == discrete.values.size()) {
                 return range;
             }
-            Expression exprForNonNull = FoldConstantRuleOnFE.evaluate(
-                    ExpressionUtils.or(range.exprForNonNull, discrete.exprForNonNull), context);
+            Expression toExpr = FoldConstantRuleOnFE.evaluate(
+                    ExpressionUtils.or(range.toExpr, discrete.toExpr), context);
             List<ValueDesc> sourceValues = reverseOrder
                     ? ImmutableList.of(discrete, range)
                     : ImmutableList.of(range, discrete);
-            return new UnknownValue(context, sourceValues, exprForNonNull, ExpressionUtils::or);
+            return new UnknownValue(context, range.reference, toExpr, sourceValues, ExpressionUtils::or);
         }
 
         public abstract ValueDesc intersect(ValueDesc other);
 
         public static ValueDesc intersect(ExpressionRewriteContext context, RangeValue range, DiscreteValue discrete) {
-            DiscreteValue result = new DiscreteValue(context, discrete.reference, discrete.exprForNonNull);
+            DiscreteValue result = new DiscreteValue(context, discrete.reference, discrete.toExpr);
             discrete.values.stream().filter(x -> range.range.contains(x)).forEach(result.values::add);
             if (!result.values.isEmpty()) {
                 return result;
             }
-            Expression originExprForNonNull = FoldConstantRuleOnFE.evaluate(
-                    ExpressionUtils.and(range.exprForNonNull, discrete.exprForNonNull), context);
-            return new EmptyValue(context, range.reference, originExprForNonNull);
+            Expression originExpr = FoldConstantRuleOnFE.evaluate(
+                    ExpressionUtils.and(range.toExpr, discrete.toExpr), context);
+            return new EmptyValue(context, range.reference, originExpr);
         }
 
-        public abstract Expression toExpressionForNonNull();
+        public abstract Expression toExpression();
 
         public static ValueDesc range(ExpressionRewriteContext context, ComparisonPredicate predicate) {
             Literal value = (Literal) predicate.right();
@@ -271,8 +271,8 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
     private static class EmptyValue extends ValueDesc {
 
-        public EmptyValue(ExpressionRewriteContext context, Expression reference, Expression exprForNonNull) {
-            super(context, reference, exprForNonNull);
+        public EmptyValue(ExpressionRewriteContext context, Expression reference, Expression toExpr) {
+            super(context, reference, toExpr);
         }
 
         @Override
@@ -286,7 +286,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         }
 
         @Override
-        public Expression toExpressionForNonNull() {
+        public Expression toExpression() {
             if (reference.nullable()) {
                 return new And(new IsNull(reference), new NullLiteral(BooleanType.INSTANCE));
             } else {
@@ -303,8 +303,8 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
     private static class RangeValue extends ValueDesc {
         Range<Literal> range;
 
-        public RangeValue(ExpressionRewriteContext context, Expression reference, Expression exprForNonNull) {
-            super(context, reference, exprForNonNull);
+        public RangeValue(ExpressionRewriteContext context, Expression reference, Expression toExpr) {
+            super(context, reference, toExpr);
         }
 
         @Override
@@ -312,26 +312,26 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (other instanceof EmptyValue) {
                 return other.union(this);
             }
-            try {
-                if (other instanceof RangeValue) {
-                    Expression originExprForNonNull = FoldConstantRuleOnFE.evaluate(
-                            ExpressionUtils.or(exprForNonNull, other.exprForNonNull), context);
-                    RangeValue o = (RangeValue) other;
-                    if (range.isConnected(o.range)) {
-                        RangeValue rangeValue = new RangeValue(context, reference, originExprForNonNull);
-                        rangeValue.range = range.span(o.range);
-                        return rangeValue;
-                    }
-                    return new UnknownValue(context, ImmutableList.of(this, other),
-                            originExprForNonNull, ExpressionUtils::or);
+            if (other instanceof RangeValue) {
+                Expression originExpr = FoldConstantRuleOnFE.evaluate(
+                        ExpressionUtils.or(toExpr, other.toExpr), context);
+                RangeValue o = (RangeValue) other;
+                if (range.isConnected(o.range)) {
+                    RangeValue rangeValue = new RangeValue(context, reference, originExpr);
+                    rangeValue.range = range.span(o.range);
+                    return rangeValue;
                 }
-                return union(context, this, (DiscreteValue) other, false);
-            } catch (Exception e) {
-                Expression originExprForNonNull = FoldConstantRuleOnFE.evaluate(
-                        ExpressionUtils.or(exprForNonNull, other.exprForNonNull), context);
-                return new UnknownValue(context, ImmutableList.of(this, other),
-                        originExprForNonNull, ExpressionUtils::or);
+                return new UnknownValue(context, reference, originExpr,
+                        ImmutableList.of(this, other), ExpressionUtils::or);
             }
+            if (other instanceof DiscreteValue) {
+                return union(context, this, (DiscreteValue) other, false);
+            }
+            Expression originExpr = FoldConstantRuleOnFE.evaluate(
+                    ExpressionUtils.or(toExpr, other.toExpr), context);
+            Expression newReference = reference.equals(other.reference) ? reference : originExpr;
+            return new UnknownValue(context, newReference, originExpr,
+                    ImmutableList.of(this, other), ExpressionUtils::or);
         }
 
         @Override
@@ -339,29 +339,29 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (other instanceof EmptyValue) {
                 return other.intersect(this);
             }
-            try {
-                if (other instanceof RangeValue) {
-                    Expression originExprForNonNull = FoldConstantRuleOnFE.evaluate(
-                            ExpressionUtils.and(exprForNonNull, other.exprForNonNull), context);
-                    RangeValue o = (RangeValue) other;
-                    if (range.isConnected(o.range)) {
-                        RangeValue rangeValue = new RangeValue(context, reference, originExprForNonNull);
-                        rangeValue.range = range.intersection(o.range);
-                        return rangeValue;
-                    }
-                    return new EmptyValue(context, reference, originExprForNonNull);
+            if (other instanceof RangeValue) {
+                Expression originExpr = FoldConstantRuleOnFE.evaluate(
+                        ExpressionUtils.and(toExpr, other.toExpr), context);
+                RangeValue o = (RangeValue) other;
+                if (range.isConnected(o.range)) {
+                    RangeValue rangeValue = new RangeValue(context, reference, originExpr);
+                    rangeValue.range = range.intersection(o.range);
+                    return rangeValue;
                 }
-                return intersect(context, this, (DiscreteValue) other);
-            } catch (Exception e) {
-                Expression originExprForNonNull = FoldConstantRuleOnFE.evaluate(
-                        ExpressionUtils.and(exprForNonNull, other.exprForNonNull), context);
-                return new UnknownValue(context, ImmutableList.of(this, other),
-                        originExprForNonNull, ExpressionUtils::and);
+                return new EmptyValue(context, reference, originExpr);
             }
+            if (other instanceof DiscreteValue) {
+                return intersect(context, this, (DiscreteValue) other);
+            }
+            Expression originExpr = FoldConstantRuleOnFE.evaluate(
+                    ExpressionUtils.and(toExpr, other.toExpr), context);
+            Expression newReference = reference.equals(other.reference) ? reference : originExpr;
+            return new UnknownValue(context, newReference, originExpr,
+                    ImmutableList.of(this, other), ExpressionUtils::and);
         }
 
         @Override
-        public Expression toExpressionForNonNull() {
+        public Expression toExpression() {
             List<Expression> result = Lists.newArrayList();
             if (range.hasLowerBound()) {
                 if (range.lowerBoundType() == BoundType.CLOSED) {
@@ -403,13 +403,13 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         Set<Literal> values;
 
         public DiscreteValue(ExpressionRewriteContext context,
-                Expression reference, Expression exprForNonNull, Literal... values) {
-            this(context, reference, exprForNonNull, Arrays.asList(values));
+                Expression reference, Expression toExpr, Literal... values) {
+            this(context, reference, toExpr, Arrays.asList(values));
         }
 
         public DiscreteValue(ExpressionRewriteContext context,
-                Expression reference, Expression exprForNonNull, Collection<Literal> values) {
-            super(context, reference, exprForNonNull);
+                Expression reference, Expression toExpr, Collection<Literal> values) {
+            super(context, reference, toExpr);
             this.values = Sets.newTreeSet(values);
         }
 
@@ -418,22 +418,22 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (other instanceof EmptyValue) {
                 return other.union(this);
             }
-            try {
-                if (other instanceof DiscreteValue) {
-                    Expression originExprForNonNull = FoldConstantRuleOnFE.evaluate(
-                            ExpressionUtils.or(exprForNonNull, other.exprForNonNull), context);
-                    DiscreteValue discreteValue = new DiscreteValue(context, reference, originExprForNonNull);
-                    discreteValue.values.addAll(((DiscreteValue) other).values);
-                    discreteValue.values.addAll(this.values);
-                    return discreteValue;
-                }
-                return union(context, (RangeValue) other, this, true);
-            } catch (Exception e) {
-                Expression originExprForNonNull = FoldConstantRuleOnFE.evaluate(
-                        ExpressionUtils.or(exprForNonNull, other.exprForNonNull), context);
-                return new UnknownValue(context, ImmutableList.of(this, other),
-                        originExprForNonNull, ExpressionUtils::or);
+            if (other instanceof DiscreteValue) {
+                Expression originExpr = FoldConstantRuleOnFE.evaluate(
+                        ExpressionUtils.or(toExpr, other.toExpr), context);
+                DiscreteValue discreteValue = new DiscreteValue(context, reference, originExpr);
+                discreteValue.values.addAll(((DiscreteValue) other).values);
+                discreteValue.values.addAll(this.values);
+                return discreteValue;
             }
+            if (other instanceof RangeValue) {
+                return union(context, (RangeValue) other, this, true);
+            }
+            Expression originExpr = FoldConstantRuleOnFE.evaluate(
+                    ExpressionUtils.or(toExpr, other.toExpr), context);
+            Expression newReference = reference.equals(other.reference) ? reference : originExpr;
+            return new UnknownValue(context, newReference, originExpr,
+                    ImmutableList.of(this, other), ExpressionUtils::or);
         }
 
         @Override
@@ -441,30 +441,30 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (other instanceof EmptyValue) {
                 return other.intersect(this);
             }
-            try {
-                if (other instanceof DiscreteValue) {
-                    Expression originExprForNonNull = FoldConstantRuleOnFE.evaluate(
-                            ExpressionUtils.and(exprForNonNull, other.exprForNonNull), context);
-                    DiscreteValue discreteValue = new DiscreteValue(context, reference, originExprForNonNull);
-                    discreteValue.values.addAll(((DiscreteValue) other).values);
-                    discreteValue.values.retainAll(this.values);
-                    if (discreteValue.values.isEmpty()) {
-                        return new EmptyValue(context, reference, originExprForNonNull);
-                    } else {
-                        return discreteValue;
-                    }
+            if (other instanceof DiscreteValue) {
+                Expression originExpr = FoldConstantRuleOnFE.evaluate(
+                        ExpressionUtils.and(toExpr, other.toExpr), context);
+                DiscreteValue discreteValue = new DiscreteValue(context, reference, originExpr);
+                discreteValue.values.addAll(((DiscreteValue) other).values);
+                discreteValue.values.retainAll(this.values);
+                if (discreteValue.values.isEmpty()) {
+                    return new EmptyValue(context, reference, originExpr);
+                } else {
+                    return discreteValue;
                 }
-                return intersect(context, (RangeValue) other, this);
-            } catch (Exception e) {
-                Expression originExprForNonNull = FoldConstantRuleOnFE.evaluate(
-                        ExpressionUtils.and(exprForNonNull, other.exprForNonNull), context);
-                return new UnknownValue(context, ImmutableList.of(this, other),
-                        originExprForNonNull, ExpressionUtils::and);
             }
+            if (other instanceof RangeValue) {
+                return intersect(context, (RangeValue) other, this);
+            }
+            Expression originExpr = FoldConstantRuleOnFE.evaluate(
+                    ExpressionUtils.and(toExpr, other.toExpr), context);
+            Expression newReference = reference.equals(other.reference) ? reference : originExpr;
+            return new UnknownValue(context, newReference, originExpr,
+                    ImmutableList.of(this, other), ExpressionUtils::and);
         }
 
         @Override
-        public Expression toExpressionForNonNull() {
+        public Expression toExpression() {
             // NOTICE: it's related with `InPredicateToEqualToRule`
             // They are same processes, so must change synchronously.
             if (values.size() == 1) {
@@ -498,41 +498,45 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             mergeExprOp = null;
         }
 
-        public UnknownValue(ExpressionRewriteContext context,
-                List<ValueDesc> sourceValues, Expression exprForNonNull, BinaryOperator<Expression> mergeExprOp) {
-            super(context, sourceValues.get(0).reference, exprForNonNull);
+        public UnknownValue(ExpressionRewriteContext context, Expression reference, Expression toExpr,
+                List<ValueDesc> sourceValues, BinaryOperator<Expression> mergeExprOp) {
+            super(context, reference, toExpr);
             this.sourceValues = ImmutableList.copyOf(sourceValues);
             this.mergeExprOp = mergeExprOp;
         }
 
         @Override
         public ValueDesc union(ValueDesc other) {
-            Expression originExprForNonNull = FoldConstantRuleOnFE.evaluate(
-                    ExpressionUtils.or(exprForNonNull, other.exprForNonNull), context);
-            return new UnknownValue(context, ImmutableList.of(this, other), originExprForNonNull, ExpressionUtils::or);
+            Expression originExpr = FoldConstantRuleOnFE.evaluate(
+                    ExpressionUtils.or(toExpr, other.toExpr), context);
+            Expression newReference = reference.equals(other.reference) ? reference : originExpr;
+            return new UnknownValue(context, newReference, originExpr,
+                    ImmutableList.of(this, other), ExpressionUtils::or);
         }
 
         @Override
         public ValueDesc intersect(ValueDesc other) {
-            Expression originExprForNonNull = FoldConstantRuleOnFE.evaluate(
-                    ExpressionUtils.and(exprForNonNull, other.exprForNonNull), context);
-            return new UnknownValue(context, ImmutableList.of(this, other), originExprForNonNull, ExpressionUtils::and);
+            Expression originExpr = FoldConstantRuleOnFE.evaluate(
+                    ExpressionUtils.and(toExpr, other.toExpr), context);
+            Expression newReference = reference.equals(other.reference) ? reference : originExpr;
+            return new UnknownValue(context, newReference, originExpr,
+                    ImmutableList.of(this, other), ExpressionUtils::and);
         }
 
         @Override
-        public Expression toExpressionForNonNull() {
+        public Expression toExpression() {
             if (sourceValues.isEmpty()) {
-                return exprForNonNull;
+                return toExpr;
             }
-            Expression result = sourceValues.get(0).toExpressionForNonNull();
+            Expression result = sourceValues.get(0).toExpression();
             for (int i = 1; i < sourceValues.size(); i++) {
-                result = mergeExprOp.apply(result, sourceValues.get(i).toExpressionForNonNull());
+                result = mergeExprOp.apply(result, sourceValues.get(i).toExpression());
             }
             result = FoldConstantRuleOnFE.evaluate(result, context);
             // ATTN: we must return original expr, because OrToIn is implemented with MutableState,
             //   newExpr will lose these states leading to dead loop by OrToIn -> SimplifyRange -> FoldConstantByFE
-            if (result.equals(exprForNonNull)) {
-                return exprForNonNull;
+            if (result.equals(toExpr)) {
+                return toExpr;
             }
             return result;
         }
