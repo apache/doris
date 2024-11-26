@@ -285,11 +285,12 @@ void MemInfo::refresh_proc_meminfo() {
         mem_available = _mem_info_bytes["MemAvailable"];
     }
     if (_s_cgroup_mem_refresh_state) {
-        // Note, CgroupV2 MemAvailable is usually a bit smaller than Process MemAvailable.
+        // Note, CgroupV2 MemAvailable is usually a little smaller than Process MemAvailable.
         // Process `MemAvailable = MemFree - LowWaterMark + (PageCache - min(PageCache / 2, LowWaterMark))`,
         // from `MemAvailable` in `/proc/meminfo`, calculated by OS.
-        // CgroupV2 `MemAvailable = cgroup_mem_limit - cgroup_mem_usage`, `cgroup_mem_usage` may still
-        // include some cache.
+        // CgroupV2 `MemAvailable = cgroup_mem_limit - cgroup_mem_usage`,
+        // `cgroup_mem_usage = memory.current - inactive_file - slab_reclaimable`, in fact,
+        // there seems to be some memory that can be reused in `cgroup_mem_usage`.
         if (mem_available < 0) {
             mem_available = _s_cgroup_mem_limit - _s_cgroup_mem_usage;
         } else {
