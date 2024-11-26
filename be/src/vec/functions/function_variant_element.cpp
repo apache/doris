@@ -127,7 +127,9 @@ private:
             *result = ColumnObject::create(true);
             // src subcolumns empty but src row count may not be 0
             (*result)->assume_mutable()->insert_many_defaults(src.size());
-            ((ColumnObject&)(*result)).finalize();
+            // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
+            auto& variant = assert_cast<const ColumnObject&>(*(*result));
+            const_cast<ColumnObject&>(variant).finalize();
             return Status::OK();
         }
         if (src.is_scalar_variant() &&

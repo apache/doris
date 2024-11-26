@@ -1858,7 +1858,8 @@ private:
             auto& variant = assert_cast<const ColumnObject&>(*col_from);
             ColumnPtr col_to = data_type_to->create_column();
             if (!variant.is_finalized()) {
-                ((ColumnObject&)variant).finalize();
+                // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
+                const_cast<ColumnObject&>(variant).finalize();
             }
             // It's important to convert as many elements as possible in this context. For instance,
             // if the root of this variant column is a number column, converting it to a number column

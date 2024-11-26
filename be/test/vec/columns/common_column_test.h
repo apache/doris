@@ -1098,7 +1098,7 @@ public:
         check_res_file("get_raw_data", res);
     }
 
-    //If is_fixed_and_contiguous, returns the underlying data array, otherwise throws an exception.
+    //If returns the underlying data array, otherwise throws an exception.
     //virtual Int64
     //get_int (size_t) const
     static void assert_get_int_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
@@ -1138,15 +1138,6 @@ public:
     static void getNameAssert(IColumn& column, const string expect_name) {
         ASSERT_EQ(expect_name, column.get_name());
     }
-    //virtual const char *
-    //get_family_name () const =0, same with get_name
-    static void getFamilyNameAssert(IColumn& column, const string expect_name) {
-        ASSERT_EQ(expect_name, column.get_family_name());
-    }
-
-    static void isFixedAndContiguousAssert(IColumn& column, const bool expect_value) {
-        ASSERT_EQ(expect_value, column.is_fixed_and_contiguous());
-    }
 
     // size related we can check from checked file to make sure the size is right
     //
@@ -1175,22 +1166,6 @@ public:
             res.push_back(data);
         }
         check_res_file("size", res);
-    }
-
-    // assert size_of_value_if_fixed
-    // Define the custom assert callback function to verify size_of_value_if_fixed behavior
-    static void assert_size_of_value_if_fixed_callback(MutableColumns& load_cols,
-                                                       DataTypeSerDeSPtrs serders) {
-        // just check cols size_of_value_if_fixed is the same as assert_res
-        std::vector<std::vector<string>> res;
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            std::vector<string> data;
-            auto& source_column = load_cols[i];
-            auto actual_str_value = std::to_string(source_column->size_of_value_if_fixed());
-            data.push_back(actual_str_value);
-            res.push_back(data);
-        }
-        check_res_file("size_of_value_if_fixed", res);
     }
 
     // assert byte_size
@@ -1525,8 +1500,10 @@ public:
     }
 
     //virtual Ptr
-    //replicate (const Offsets &offsets) always used in ColumnConst.convert_to_full_column, so
-    // we should make a situation that the column is not full column, and then we can use replicate to make it full column
+    //replicate (const Offsets &offsets)
+    // 1. used in ColumnConst.convert_to_full_column,
+    //   we should make a situation that the column is not full column, and then we can use replicate to make it full column
+    // 2. used in some agg calculate
     static void assert_replicate_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         // Create an empty column to verify `replicate` functionality
         // check replicate with different offsets
@@ -1534,44 +1511,47 @@ public:
         std::vector<std::vector<string>> res;
         auto option = DataTypeSerDe::FormatOptions();
         std::vector<size_t> check_length = {0, 1, 10, 100, 1000, 10000, 100000};
-        //       IColumn::Offsets offsets;
-        //       for (size_t i = 0; i < check_length.size(); i++) {
-        //           offsets.push_back(check_length[i]);
-        //       }
-        for (auto cl = check_length.begin(); cl < check_length.end(); ++cl) {
-            for (size_t i = 0; i < load_cols.size(); ++i) {
-                //               auto origin_size = load_cols[0]->size();
-                // here will heap_use_after_free
-                //               ColumnConst* const_col = ColumnConst::create(load_cols[i]->clone_resized(1), *cl);
-                auto source_column = load_cols[i]->shrink(*cl);
-                std::cout << "now we are in replicate column : " << load_cols[i]->get_name()
-                          << " with check length: " << *cl
-                          << " for column size : " << source_column->size() << std::endl;
-                //               auto ptr = const_col->convert_to_full_column();
-                auto ptr = source_column->replicate(*cl);
-                // check size
-                EXPECT_EQ(ptr->size(), *cl);
-                // check after replicate with assert_res
-                auto ser_col = ColumnString::create();
-                ser_col->reserve(ptr->size());
-                VectorBufferWriter buffer_writer(*ser_col.get());
-                std::vector<string> data;
-                data.push_back("column: " + source_column->get_name() + " with check size: " +
-                               std::to_string(*cl) + " with ptr: " + std::to_string(ptr->size()));
-                for (size_t j = 0; j < ptr->size(); ++j) {
-                    if (auto st = serders[i]->serialize_one_cell_to_json(*ptr, j, buffer_writer,
-                                                                         option);
-                        !st) {
-                        std::cerr << "Failed to serialize column " << i << " at row " << j
-                                  << std::endl;
-                        break;
-                    }
-                    buffer_writer.commit();
-                    std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                    data.push_back(actual_str_value);
-                }
-                res.push_back(data);
+        //       std::vector<size_t> check_length = {10, 9};
+        //       size_t sum = std::reduce(check_length.begin(), check_length.end(), 0, std::plus<size_t>());
+        IColumn::Offsets offsets;
+        for (size_t i = 0; i < check_length.size(); i++) {
+            offsets.push_back(check_length[i]);
+        }
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            //               auto origin_size = load_cols[0]->size();
+            // here will heap_use_after_free
+            //               ColumnConst* const_col = ColumnConst::create(load_cols[i]->clone_resized(1), *cl);
+            if (load_cols[i]->size() != check_length.size()) {
+                EXPECT_ANY_THROW(load_cols[i]->replicate(offsets));
             }
+            auto source_column = load_cols[i]->shrink(check_length.size());
+            std::cout << "now we are in replicate column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size() << std::endl;
+            //               auto ptr = const_col->convert_to_full_column();
+            // here will return different ptr
+            auto ptr = source_column->replicate(offsets);
+            // check ptr
+            EXPECT_NE(ptr.get(), source_column.get());
+            // check after replicate with assert_res
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(ptr->size());
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            std::vector<string> data;
+            data.push_back("column: " + source_column->get_name() +
+                           " with generate col size: " + std::to_string(ptr->size()));
+            for (size_t j = 0; j < ptr->size(); ++j) {
+                // check size
+                if (auto st =
+                            serders[i]->serialize_one_cell_to_json(*ptr, j, buffer_writer, option);
+                    !st) {
+                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    break;
+                }
+                buffer_writer.commit();
+                std::string actual_str_value = ser_col->get_data_at(j).to_string();
+                data.push_back(actual_str_value);
+            }
+            res.push_back(data);
         }
         check_res_file("replicate", res);
     }
@@ -1886,6 +1866,44 @@ public:
     // column size changed calculation:
     //  size, reserve, resize, empty, byte_size, allocated_bytes, clone_resized, get_shrinked_column
     //  cut(LIMIT operation), shrink
+
+    // get_shrinked_column should only happened in char-type column or nested char-type column,
+    // other column just return the origin column without any data changed, so check file content should be the same as the origin column
+    //  just shrink the end zeros for char-type column which happened in segmentIterator
+    //    eg. column_desc: char(6), insert into char(3), the char(3) will padding the 3 zeros at the end for writing to disk.
+    //       but we select should just print the char(3) without the padding zeros
+    //  limit and topN operation will trigger this function call
+    void shrink_padding_chars_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
+        auto option = DataTypeSerDe::FormatOptions();
+        std::vector<std::vector<string>> res;
+        for (size_t i = 0; i < load_cols.size(); i++) {
+            auto& source_column = load_cols[i];
+            std::cout << "now we are in shrink_padding_chars column : " << load_cols[i]->get_name()
+                      << " for column size : " << source_column->size() << std::endl;
+            source_column->shrink_padding_chars();
+            // check after get_shrinked_column: 1 in selector present the load cols data is selected and data should be default value
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(source_column->size());
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            std::vector<string> data;
+            data.push_back("column: " + source_column->get_name() +
+                           " with shrinked column size: " + std::to_string(source_column->size()));
+            for (size_t j = 0; j < source_column->size(); ++j) {
+                if (auto st = serders[i]->serialize_one_cell_to_json(*source_column, j,
+                                                                     buffer_writer, option);
+                    !st) {
+                    std::cerr << "Failed to serialize column " << i << " at row " << j << std::endl;
+                    break;
+                }
+                buffer_writer.commit();
+                std::string actual_str_value = ser_col->get_data_at(j).to_string();
+                data.push_back(actual_str_value);
+            }
+            res.push_back(data);
+        }
+        check_res_file("shrink_padding_chars", res);
+    }
+
     void sizeAssert(MutableColumnPtr col, size_t expect_size) {
         EXPECT_EQ(col->size(), expect_size);
     }
@@ -1949,19 +1967,6 @@ public:
     void cloneResizedAssert(MutableColumnPtr col, size_t expect_size) {
         auto new_col = col->clone_resized(expect_size);
         EXPECT_EQ(new_col->size(), expect_size);
-    }
-
-    // get_shrinked_column should only happened in char-type column or nested char-type column
-    //  just shrink the end zeros for char-type column which happened in segmentIterator
-    //    eg. column_desc: char(6), insert into char(3), the char(3) will padding the 3 zeros at the end for writing to disk.
-    //       but we select should just print the char(3) without the padding zeros
-    //  limit and topN operation will trigger this function call
-    void getShrinkedColumnAssert(MutableColumnPtr col, size_t spcific_size_defined) {
-        EXPECT_TRUE(col->could_shrinked_column());
-        auto new_col = col->get_shrinked_column();
-        for (size_t i = 0; i < new_col->size(); i++) {
-            EXPECT_EQ(col->get_data_at(i).size, spcific_size_defined);
-        }
     }
 
     //serialize and deserialize which usually used in AGG function:
@@ -2104,12 +2109,10 @@ public:
     //  now just used in filter column, according to the selector to
     //  select size of row_ids for column by given column, which only used for predict_column and column_dictionary, column_nullable sometimes in Schema::get_predicate_column_ptr() also will return)
     void filterBySelectorAssert(vectorized::IColumn::MutablePtr col, std::vector<uint16_t> selector,
-                                const IDataType& dt, MutableColumnPtr should_sel_col,
+                                DataTypeSerDeSPtr serder, MutableColumnPtr should_sel_col,
                                 size_t expect_size) {
-        // only used in column_nullable and predict_column, column_dictionary
-        EXPECT_TRUE(col->is_nullable() || col->is_column_dictionary() ||
-                    col->is_predicate_column());
         // for every data type should assert behavior in own UT case
+        DataTypeSerDe::FormatOptions option;
         col->clear();
         col->insert_many_defaults(should_sel_col->size());
         std::cout << "col size:" << col->size() << std::endl;
@@ -2117,7 +2120,27 @@ public:
         Status st = col->filter_by_selector(selector.data(), expect_size, sel);
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(sel->size(), expect_size);
-        printColumn(*sel, dt);
+        std::vector<std::vector<string>> res;
+        std::vector<string> data;
+        auto ser_col = ColumnString::create();
+        ser_col->reserve(sel->size());
+        VectorBufferWriter buffer_writer(*ser_col.get());
+        data.push_back("column: " + col->get_name() +
+                       " with selector: " + std::to_string(*selector.data()) +
+                       " with ptr: " + std::to_string(sel->size()));
+        for (size_t j = 0; j < sel->size(); ++j) {
+            if (auto ret = serder->serialize_one_cell_to_json(*sel, j, buffer_writer, option);
+                !ret) {
+                std::cerr << "Failed to serialize column "
+                          << " at row " << j << std::endl;
+                break;
+            }
+            buffer_writer.commit();
+            std::string actual_str_value = ser_col->get_data_at(j).to_string();
+            data.push_back(actual_str_value);
+        }
+        res.push_back(data);
+        check_res_file("filter_by_selector-" + col->get_name(), res);
     }
 
     void assertPermutationsWithLimit(const IColumn::Permutation& lhs,

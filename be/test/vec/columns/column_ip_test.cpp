@@ -135,7 +135,6 @@ TEST_F(ColumnIPTest, FieldTest) {
 TEST_F(ColumnIPTest, GetRawDataTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
-    //    ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
     check_data(ip_cols, {serde[1]}, ';', {2}, data_files[0], assert_get_raw_data_callback<IPv6>);
 }
@@ -181,14 +180,6 @@ TEST_F(ColumnIPTest, SizeTest) {
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_size_callback);
-}
-
-TEST_F(ColumnIPTest, SizeOfValueIfFixedTest) {
-    // insert from data csv and assert insert result
-    MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_size_of_value_if_fixed_callback);
 }
 
 TEST_F(ColumnIPTest, ByteSizeTest) {
@@ -305,8 +296,8 @@ TEST_F(ColumnIPTest, PermutationAndSortTest) {
     ip_cols.push_back(column_ipv6->get_ptr());
     load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
     // this function will make res not equal ?!
-    //    assertColumnPermutations(column_ipv4->assume_mutable_ref(), dt_ipv4);
-    //    assertColumnPermutations(column_ipv6->assume_mutable_ref(), dt_ipv6);
+    assertColumnPermutations(column_ipv4->assume_mutable_ref(), dt_ipv4);
+    assertColumnPermutations(column_ipv6->assume_mutable_ref(), dt_ipv6);
     //    assertColumnPermutations(column_ipv4->assume_mutable_ref(), IndexInRangeUInt32Transform());
     //    assertColumnPermutations(column_ipv6->assume_mutable_ref(), IndexInRangeUInt64Transform());
 }

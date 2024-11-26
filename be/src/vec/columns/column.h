@@ -220,8 +220,8 @@ public:
     // insert the data of target columns into self column according to positions
     // positions[i] means index of srcs whitch need to insert_from
     // the virtual function overhead of multiple calls to insert_from can be reduced to once
-    void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
-                                  std::vector<size_t> positions);
+    virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
+                                          const std::vector<size_t>& positions) = 0;
 
     /// Appends a batch elements from other column with the same type
     /// Also here should make sure indices_end is bigger than indices_begin
@@ -480,14 +480,6 @@ public:
       */
     virtual Ptr replicate(const Offsets& offsets) const = 0;
 
-    /// Appends one field multiple times. Can be optimized in inherited classes.
-    // this function has not used ??
-    //    virtual void insert_many(const Field& field, size_t length) {
-    //        for (size_t i = 0; i < length; ++i) {
-    //            insert(field);
-    //        }
-    //    }
-
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
       * For default implementation, see column_impl.h
@@ -603,21 +595,10 @@ public:
       * To avoid confusion between these cases, we don't have isContiguous method.
       */
 
-    /// Values in column are represented as continuous memory segment of fixed size. Implies values_have_fixed_size.
-    virtual bool is_fixed_and_contiguous() const { return false; }
-
-    /// If is_fixed_and_contiguous, returns the underlying data array, otherwise throws an exception.
     virtual StringRef get_raw_data() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Column {} is not a contiguous block of memory", get_name());
         return StringRef {};
-    }
-
-    /// If values_have_fixed_size, returns size of value, otherwise throw an exception.
-    virtual size_t size_of_value_if_fixed() const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Values of column {} are not fixed size.", get_name());
-        return 0;
     }
 
     /// Returns ratio of values in column, that are equal to default value of column.
@@ -632,8 +613,6 @@ public:
     virtual bool is_variable_length() const { return false; }
 
     virtual bool is_column_string() const { return false; }
-
-    virtual bool is_predicate_column() const { return false; }
 
     virtual bool is_column_string64() const { return false; }
 
@@ -677,7 +656,6 @@ public:
     String dump_structure() const;
 
     // only used in agg value replace for column which is not variable length, eg.BlockReader::_copy_value_data
-    // ColumnString should replace according to 0,1,2... ,size,0,1,2...
     // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
     // replace data to default value if null, used to avoid null data output decimal check failure
@@ -710,6 +688,9 @@ protected:
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector, size_t begin,
                                       size_t end) const;
+    template <typename Derived>
+    void insert_from_multi_column_impl(const std::vector<const IColumn*>& srcs,
+                                       const std::vector<size_t>& positions);
 };
 
 using ColumnPtr = IColumn::Ptr;
