@@ -56,11 +56,6 @@ public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        // Set<Integer> enableNereidsRules = jobContext.getCascadesContext().getConnectContext()
-        //         .getSessionVariable().getEnableNereidsRules();
-        // if (!enableNereidsRules.contains(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM.type())) {
-        //     return plan;
-        // }
         Optional<CTEId> cteId = jobContext.getCascadesContext().getCurrentTree();
         if (cteId.isPresent()) {
             return plan;
