@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
@@ -400,6 +401,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowBrokerCommand(ShowBrokerCommand showBrokerCommand, C context) {
         return visitCommand(showBrokerCommand, context);
+    }
+
+    default R visitShowLoadProfileCommand(ShowLoadProfileCommand showLoadProfileCommand, C context) {
+        return visitCommand(showLoadProfileCommand, context);
     }
 
     default R visitDropRoleCommand(DropRoleCommand dropRoleCommand, C context) {
