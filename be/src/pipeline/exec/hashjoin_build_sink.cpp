@@ -130,18 +130,6 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         if (!_should_build_hash_table) {
             return;
         }
-        // The build side hash key column maybe no need output, but we need to keep the column in block
-        // because it is used to compare with probe side hash key column
-        auto p = _parent->cast<HashJoinBuildSinkOperatorX>();
-        if (p._should_keep_hash_key_column && _build_col_ids.size() == 1) {
-            p._should_keep_column_flags[_build_col_ids[0]] = true;
-        }
-
-        if (_shared_state->build_block) {
-            // release the memory of unused column in probe stage
-            _shared_state->build_block->clear_column_mem_not_keep(
-                    p._should_keep_column_flags, bool(p._shared_hashtable_controller));
-        }
 
         if (p._shared_hashtable_controller) {
             p._shared_hashtable_controller->signal_finish(p.node_id());
