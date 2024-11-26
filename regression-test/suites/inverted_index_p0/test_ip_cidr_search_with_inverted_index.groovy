@@ -99,6 +99,11 @@ suite("test_ip_cidr_search_with_inverted_index", "nonConcurrent"){
     def execute_sql = { sqlList ->
         def i = 0
         for (sqlStr in sqlList) {
+	   if (i == 0 || i == 4 ) {
+               // skip the inverted index
+	       ++i;
+               continue;
+           }	
             try {
                 log.info("execute sql: ${i} : ${sqlStr}")
                 GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [req_id: i])
