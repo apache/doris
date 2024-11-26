@@ -29,6 +29,7 @@
 #include <string>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exprs/bloom_filter_func.h"
@@ -344,7 +345,10 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
             pquery_id->set_hi(_state->get_query_ctx()->query_id().hi);
             pquery_id->set_lo(_state->get_query_ctx()->query_id().lo);
             closure->cntl_->set_timeout_ms(
-                    std::min(3600, _state->get_query_ctx()->execution_timeout()) * 1000);
+                    get_execution_rpc_timeout_ms(_state->get_query_ctx()->execution_timeout()));
+            if (config::execution_ignore_eovercrowded) {
+                closure->cntl_->ignore_eovercrowded();
+            }
 
             closure->request_->set_filter_id(filter_id);
             closure->request_->set_filter_size(cnt_val->global_size);
@@ -453,8 +457,13 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             if (has_attachment) {
                 closure->cntl_->request_attachment().append(request_attachment);
             }
+
             closure->cntl_->set_timeout_ms(
-                    std::min(3600, _state->get_query_ctx()->execution_timeout()) * 1000);
+                    get_execution_rpc_timeout_ms(_state->get_query_ctx()->execution_timeout()));
+            if (config::execution_ignore_eovercrowded) {
+                closure->cntl_->ignore_eovercrowded();
+            }
+
             // set fragment-id
             if (target.__isset.target_fragment_ids) {
                 for (auto& target_fragment_id : target.target_fragment_ids) {
