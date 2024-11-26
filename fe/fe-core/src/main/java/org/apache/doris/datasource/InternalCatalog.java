@@ -443,7 +443,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else {
                 if (!db.tryWriteLock(100, TimeUnit.SECONDS)) {
                     LOG.warn("try lock failed, create database failed {}", fullDbName);
-                    ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT, "create database " + fullDbName + " time out");
+                    ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT,
+                            "create database " + fullDbName + " time out");
                 }
                 try {
                     unprotectCreateDb(db);
