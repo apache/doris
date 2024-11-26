@@ -101,6 +101,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA > 5 + 1 and TA > 10", "cast(TA as smallint) > 6 and TA > 10");
         assertRewrite("(TA > 1 and TA > 10) or TA > 20", "TA > 10");
         assertRewrite("(TA > 1 or TA > 10) and TA > 20", "TA > 20");
+        assertRewrite("(TA < 1 and TA > 10) or TA = 20 and TB > 10", "(TA is null and null) or TA = 20 and TB > 10");
         assertRewrite("(TA + TB > 1 or TA + TB > 10) and TA + TB > 20", "TA + TB > 20");
         assertRewrite("TA > 10 or TA > 10", "TA > 10");
         assertRewrite("(TA > 10 or TA > 20) and (TB > 10 and TB < 20)", "TA > 10 and (TB > 10 and TB < 20) ");
