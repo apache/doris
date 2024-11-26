@@ -47,8 +47,7 @@ public class LabelNameInfo {
      * @param label tblName
      */
     public LabelNameInfo(String db, String label) {
-        Objects.requireNonNull(label, "require tbl object");
-        Objects.requireNonNull(db, "require db object");
+        Objects.requireNonNull(label, "require label object");
         this.label = label;
         if (Env.isStoredTableNamesLowerCase()) {
             this.label = label.toLowerCase();
