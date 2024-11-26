@@ -221,8 +221,8 @@ public:
     // insert the data of target columns into self column according to positions
     // positions[i] means index of srcs whitch need to insert_from
     // the virtual function overhead of multiple calls to insert_from can be reduced to once
-    void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
-                                  std::vector<size_t> positions);
+    virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
+                                          const std::vector<size_t>& positions) = 0;
 
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
@@ -247,12 +247,6 @@ public:
                                        uint32_t dict_num = 0) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method insert_many_dict_data is not supported for " + get_name());
-    }
-
-    virtual void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                         uint32_t* start_offset_array, size_t num) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method insert_many_binary_data is not supported for " + get_name());
     }
 
     /// Insert binary data into column from a continuous buffer, the implementation maybe copy all binary data
@@ -607,21 +601,10 @@ public:
       * To avoid confusion between these cases, we don't have isContiguous method.
       */
 
-    /// Values in column are represented as continuous memory segment of fixed size. Implies values_have_fixed_size.
-    virtual bool is_fixed_and_contiguous() const { return false; }
-
-    /// If is_fixed_and_contiguous, returns the underlying data array, otherwise throws an exception.
     virtual StringRef get_raw_data() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Column {} is not a contiguous block of memory", get_name());
         return StringRef {};
-    }
-
-    /// If values_have_fixed_size, returns size of value, otherwise throw an exception.
-    virtual size_t size_of_value_if_fixed() const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Values of column {} are not fixed size.", get_name());
-        return 0;
     }
 
     /// Returns ratio of values in column, that are equal to default value of column.
@@ -712,6 +695,9 @@ protected:
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector, size_t begin,
                                       size_t end) const;
+    template <typename Derived>
+    void insert_from_multi_column_impl(const std::vector<const IColumn*>& srcs,
+                                       const std::vector<size_t>& positions);
 };
 
 using ColumnPtr = IColumn::Ptr;

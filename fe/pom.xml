@@ -857,15 +857,6 @@ under the License.
                 <artifactId>json-simple</artifactId>
                 <version>${json-simple.version}</version>
             </dependency>
-            <!--SLF4J requires only one binding implementation to be present at runtime. 
-            By setting the scope of other bindings, such as slf4j-reload4j, to test, 
-            we ensure that only the explicitly specified binding, like log4j-slf4j-impl, 
-            is used in the production environment, preventing runtime conflicts.-->
-            <dependency>
-                <groupId>org.slf4j</groupId>
-                <artifactId>slf4j-reload4j</artifactId>
-                <scope>test</scope>
-            </dependency>
             <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-engine -->
             <dependency>
                 <groupId>org.junit.jupiter</groupId>

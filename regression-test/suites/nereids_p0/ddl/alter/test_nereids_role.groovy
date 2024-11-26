@@ -17,10 +17,10 @@
 
 import org.junit.Assert;
 
-suite("test_nereids_role", "account") {
-    def role= 'nereids_account_role_test'
-    def user = 'nereids_acount_role_user_test'
-    def dbName = 'nereids_account_role_test_db'
+suite("test_nereids_role_x", "account") {
+    def role= 'nereids_account_role_test_x'
+    def user = 'nereids_acount_role_user_test_x'
+    def dbName = 'nereids_account_role_test_db_x'
     def pwd = 'C123_567p'
 
     try_sql("DROP ROLE ${role}")
@@ -28,8 +28,8 @@ suite("test_nereids_role", "account") {
     sql """DROP DATABASE IF EXISTS ${dbName}"""
     sql """CREATE DATABASE IF NOT EXISTS ${dbName}"""
     sql """CREATE ROLE ${role}"""
-    sql """GRANT SELECT_PRIV ON ${context.config.defaultDb} TO ROLE '${role}'"""
-    sql """GRANT SELECT_PRIV ON ${dbName} TO ROLE '${role}'"""
+    sql """GRANT SELECT_PRIV ON internal.${context.config.defaultDb}.* TO ROLE '${role}'"""
+    sql """GRANT SELECT_PRIV ON internal.${dbName}.* TO ROLE '${role}'"""
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}' DEFAULT ROLE '${role}'"""
     def result1 = connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         sql "show databases like '${dbName}'"

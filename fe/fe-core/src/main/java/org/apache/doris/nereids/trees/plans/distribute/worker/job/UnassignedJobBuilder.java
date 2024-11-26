@@ -130,7 +130,8 @@ public class UnassignedJobBuilder {
             return unassignedJob;
         }
 
-        throw new IllegalStateException("Unsupported build UnassignedJob for fragment: "
+        throw new IllegalStateException("Cannot generate unassignedJob for fragment"
+                + " has both OlapScanNode and Other ScanNode: "
                 + planFragment.getExplainString(TExplainLevel.VERBOSE));
     }
 

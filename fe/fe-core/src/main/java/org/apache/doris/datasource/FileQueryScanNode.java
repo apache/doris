@@ -76,6 +76,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * FileQueryScanNode for querying the file access type of catalog, now only support
@@ -261,6 +262,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
     }
 
+    // Serialize the table to be scanned to BE's jni reader
+    protected Optional<String> getSerializedTable() {
+        return Optional.empty();
+    }
+
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
@@ -368,6 +374,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 scanBackendIds.add(backend.getId());
             }
         }
+
+        getSerializedTable().ifPresent(params::setSerializedTable);
 
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setCreateScanRangeFinishTime();
