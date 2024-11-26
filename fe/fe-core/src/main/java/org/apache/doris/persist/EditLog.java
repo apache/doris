@@ -306,7 +306,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_TABLE: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenameTable(info);
-                    Env.getCurrentEnv().getBinlogManager().addTableRename(info, logId);
+                    env.getBinlogManager().addTableRename(info, logId);
                     break;
                 }
                 case OperationType.OP_MODIFY_VIEW_DEF: {
@@ -318,7 +318,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_PARTITION: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenamePartition(info);
-                    Env.getCurrentEnv().getBinlogManager().addTableRename(info, logId);
+                    env.getBinlogManager().addPartitionRename(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_COLUMN: {
@@ -366,7 +366,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_ROLLUP: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenameRollup(info);
-                    Env.getCurrentEnv().getBinlogManager().addTableRename(info, logId);
+                    env.getBinlogManager().addRollupRename(info, logId);
                     break;
                 }
                 case OperationType.OP_LOAD_START:
@@ -898,6 +898,7 @@ public class EditLog {
                 case OperationType.OP_REPLACE_TABLE: {
                     ReplaceTableOperationLog log = (ReplaceTableOperationLog) journal.getData();
                     env.getAlterInstance().replayReplaceTable(log);
+                    env.getBinlogManager().addReplaceTable(log, logId);
                     break;
                 }
                 case OperationType.OP_CREATE_SQL_BLOCK_RULE: {
@@ -985,11 +986,13 @@ public class EditLog {
                     final TableAddOrDropInvertedIndicesInfo info =
                             (TableAddOrDropInvertedIndicesInfo) journal.getData();
                     env.getSchemaChangeHandler().replayModifyTableAddOrDropInvertedIndices(info);
+                    env.getBinlogManager().addModifyTableAddOrDropInvertedIndices(info, logId);
                     break;
                 }
                 case OperationType.OP_INVERTED_INDEX_JOB: {
                     IndexChangeJob indexChangeJob = (IndexChangeJob) journal.getData();
                     env.getSchemaChangeHandler().replayIndexChangeJob(indexChangeJob);
+                    env.getBinlogManager().addIndexChangeJob(indexChangeJob, logId);
                     break;
                 }
                 case OperationType.OP_CLEAN_LABEL: {
@@ -1588,13 +1591,13 @@ public class EditLog {
     public void logRollupRename(TableInfo tableInfo) {
         long logId = logEdit(OperationType.OP_RENAME_ROLLUP, tableInfo);
         LOG.info("log rollup rename, logId : {}, infos: {}", logId, tableInfo);
-        Env.getCurrentEnv().getBinlogManager().addTableRename(tableInfo, logId);
+        Env.getCurrentEnv().getBinlogManager().addRollupRename(tableInfo, logId);
     }
 
     public void logPartitionRename(TableInfo tableInfo) {
         long logId = logEdit(OperationType.OP_RENAME_PARTITION, tableInfo);
         LOG.info("log partition rename, logId : {}, infos: {}", logId, tableInfo);
-        Env.getCurrentEnv().getBinlogManager().addTableRename(tableInfo, logId);
+        Env.getCurrentEnv().getBinlogManager().addPartitionRename(tableInfo, logId);
     }
 
     public void logColumnRename(TableRenameColumnInfo info) {
@@ -1950,7 +1953,9 @@ public class EditLog {
     }
 
     public void logReplaceTable(ReplaceTableOperationLog log) {
-        logEdit(OperationType.OP_REPLACE_TABLE, log);
+        long logId = logEdit(OperationType.OP_REPLACE_TABLE, log);
+        LOG.info("add replace table binlog, logId: {}, infos: {}", logId, log);
+        Env.getCurrentEnv().getBinlogManager().addReplaceTable(log, logId);
     }
 
     public void logBatchRemoveTransactions(BatchRemoveTransactionsOperationV2 op) {
@@ -2055,11 +2060,17 @@ public class EditLog {
     }
 
     public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {
-        logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES, info);
+        long logId = logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES, info);
+        LOG.info("walter log modify table add or drop inverted indices, infos: {}, json: {}",
+                info, info.toJson(), new RuntimeException("test"));
+        Env.getCurrentEnv().getBinlogManager().addModifyTableAddOrDropInvertedIndices(info, logId);
     }
 
     public void logIndexChangeJob(IndexChangeJob indexChangeJob) {
-        logEdit(OperationType.OP_INVERTED_INDEX_JOB, indexChangeJob);
+        long logId = logEdit(OperationType.OP_INVERTED_INDEX_JOB, indexChangeJob);
+        LOG.info("walter log inverted index job, infos: {}, json: {}",
+                indexChangeJob, indexChangeJob.toJson(), new RuntimeException("test"));
+        Env.getCurrentEnv().getBinlogManager().addIndexChangeJob(indexChangeJob, logId);
     }
 
     public void logCleanLabel(CleanLabelOperationLog log) {

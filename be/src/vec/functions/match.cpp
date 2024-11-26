@@ -109,12 +109,11 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     if (source_col->is_column_array()) {
         array_col = check_and_get_column<ColumnArray>(source_col.get());
         if (array_col && !array_col->get_data().is_column_string()) {
-            return Status::NotSupported(
-                    fmt::format("unsupported nested array of type {} for function {}",
-                                is_column_nullable(array_col->get_data())
-                                        ? array_col->get_data().get_name()
-                                        : array_col->get_data().get_family_name(),
-                                get_name()));
+            return Status::NotSupported(fmt::format(
+                    "unsupported nested array of type {} for function {}",
+                    is_column_nullable(array_col->get_data()) ? array_col->get_data().get_name()
+                                                              : array_col->get_data().get_name(),
+                    get_name()));
         }
 
         if (is_column_nullable(array_col->get_data())) {

@@ -98,7 +98,7 @@ struct AggregateFunctionCollectSetData {
     }
 
     void read(BufferReadable& buf) {
-        size_t new_size = 0;
+        uint64_t new_size = 0;
         read_var_uint(new_size, buf);
         ElementNativeType x;
         for (size_t i = 0; i < new_size; ++i) {

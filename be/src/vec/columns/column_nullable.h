@@ -143,11 +143,10 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void shrink_padding_chars() override;
+
     bool is_variable_length() const override { return nested_column->is_variable_length(); }
 
-    const char* get_family_name() const override { return "Nullable"; }
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override {
@@ -246,12 +245,6 @@ public:
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
-        _push_false_to_nullmap(num);
-        get_nested_column().insert_many_binary_data(data_array, len_array, start_offset_array, num);
-    }
-
     void insert_default() override {
         get_nested_column().insert_default();
         get_null_map_data().push_back(1);
@@ -310,16 +303,6 @@ public:
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        append_data_by_selector_impl<ColumnNullable>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        append_data_by_selector_impl<ColumnNullable>(res, selector, begin, end);
-    }
-
     ColumnPtr convert_column_if_overflow() override {
         nested_column = nested_column->convert_column_if_overflow();
         return get_ptr();
@@ -343,6 +326,7 @@ public:
     void set_datetime_type() override { get_nested_column().set_datetime_type(); }
 
     bool is_nullable() const override { return true; }
+    bool is_concrete_nullable() const override { return true; }
     bool is_bitmap() const override { return get_nested_column().is_bitmap(); }
     bool is_hll() const override { return get_nested_column().is_hll(); }
     bool is_column_decimal() const override { return get_nested_column().is_column_decimal(); }
@@ -350,16 +334,10 @@ public:
     bool is_column_array() const override { return get_nested_column().is_column_array(); }
     bool is_column_map() const override { return get_nested_column().is_column_map(); }
     bool is_column_struct() const override { return get_nested_column().is_column_struct(); }
-    bool is_fixed_and_contiguous() const override { return false; }
 
     bool is_exclusive() const override {
         return IColumn::is_exclusive() && nested_column->is_exclusive() &&
                get_null_map_column().is_exclusive();
-    }
-
-    size_t size_of_value_if_fixed() const override {
-        return get_null_map_column().size_of_value_if_fixed() +
-               nested_column->size_of_value_if_fixed();
     }
 
     bool only_null() const override { return size() == 1 && is_null_at(0); }

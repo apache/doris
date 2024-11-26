@@ -22,6 +22,10 @@
 
 #include <atomic>
 #include <initializer_list>
+#include <type_traits>
+#include <vector>
+
+namespace doris {
 
 /** Copy-on-write shared ptr.
   * Allows to work with shared immutable objects and sometimes unshare and mutate you own unique copy.
@@ -391,9 +395,14 @@ public:
   *
   * See example in "cow_columns.cpp".
   */
+namespace vectorized {
+class IColumn;
+}
 template <typename Base, typename Derived>
 class COWHelper : public Base {
 public:
+    static_assert(std::is_base_of_v<doris::vectorized::IColumn, Base>,
+                  "COWHelper only use in IColumn");
     using Ptr = typename Base::template immutable_ptr<Derived>;
     using MutablePtr = typename Base::template mutable_ptr<Derived>;
 
@@ -405,9 +414,25 @@ public:
     typename Base::MutablePtr clone() const override {
         return typename Base::MutablePtr(new Derived(static_cast<const Derived&>(*this)));
     }
+    void append_data_by_selector(typename Base::MutablePtr& res,
+                                 const typename Base::Selector& selector) const override {
+        this->template append_data_by_selector_impl<Derived>(res, selector);
+    }
+
+    void append_data_by_selector(typename Base::MutablePtr& res,
+                                 const typename Base::Selector& selector, size_t begin,
+                                 size_t end) const override {
+        this->template append_data_by_selector_impl<Derived>(res, selector, begin, end);
+    }
+
+    void insert_from_multi_column(const std::vector<const vectorized::IColumn*>& srcs,
+                                  const std::vector<size_t>& positions) override {
+        this->template insert_from_multi_column_impl<Derived>(srcs, positions);
+    }
 
 protected:
     MutablePtr shallow_mutate() const {
         return MutablePtr(static_cast<Derived*>(Base::shallow_mutate().get()));
     }
 };
+} // namespace doris

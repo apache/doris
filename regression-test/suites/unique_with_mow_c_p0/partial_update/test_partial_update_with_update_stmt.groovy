@@ -57,10 +57,9 @@ suite("test_primary_key_partial_update_with_update_stmt", "p0") {
             """
 
             // case 1: partially update normally
-            test {
-                sql """ update ${tableName} set score = 4000 where id = 1 """
-                exception "Column has no default value"
-            }
+            sql """
+                update ${tableName} set score = 4000 where id = 1
+            """
 
             sql "sync"
 
@@ -69,15 +68,12 @@ suite("test_primary_key_partial_update_with_update_stmt", "p0") {
             """
 
             // case 2: partially update non-exist key
-            test {
-                def result1 = sql """
+            def result1 = sql """
                 update ${tableName} set score = 2000 where id = 3
             """
-                /*assertTrue(result1.size() == 1)
-                assertTrue(result1[0].size() == 1)
-                assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")*/
-                exception "Column has no default value"
-            }
+            assertTrue(result1.size() == 1)
+            assertTrue(result1[0].size() == 1)
+            assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
 
             sql "sync"
 

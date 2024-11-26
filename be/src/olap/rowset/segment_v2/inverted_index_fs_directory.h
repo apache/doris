@@ -210,6 +210,39 @@ protected:
     void readInternal(uint8_t* b, const int32_t len) override;
 };
 
+class DorisFSDirectory::FSIndexOutput : public lucene::store::BufferedIndexOutput {
+protected:
+    void flushBuffer(const uint8_t* b, const int32_t size) override;
+
+public:
+    FSIndexOutput() = default;
+    void init(const io::FileSystemSPtr& fs, const char* path);
+    ~FSIndexOutput() override;
+    void close() override;
+    int64_t length() const override;
+
+    void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
+
+private:
+    io::FileWriterPtr _writer;
+    io::FileWriterOptions _opts;
+};
+
+class DorisFSDirectory::FSIndexOutputV2 : public lucene::store::BufferedIndexOutput {
+private:
+    io::FileWriter* _index_v2_file_writer = nullptr;
+
+protected:
+    void flushBuffer(const uint8_t* b, const int32_t size) override;
+
+public:
+    FSIndexOutputV2() = default;
+    void init(io::FileWriter* file_writer);
+    ~FSIndexOutputV2() override;
+    void close() override;
+    int64_t length() const override;
+};
+
 /**
  * Factory function to create DorisFSDirectory
  */

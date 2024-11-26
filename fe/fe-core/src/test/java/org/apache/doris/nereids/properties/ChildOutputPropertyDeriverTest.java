@@ -47,9 +47,11 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -133,7 +135,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         // check merged
@@ -172,7 +174,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         // check merged
@@ -211,7 +213,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         // check merged
@@ -251,7 +253,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         // check merged
@@ -291,7 +293,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         // check merged
@@ -331,7 +333,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         // check merged
@@ -371,7 +373,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         Assertions.assertEquals(-1, actual.getTableId());
@@ -412,7 +414,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         Assertions.assertEquals(-1, actual.getTableId());
@@ -453,7 +455,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         Assertions.assertEquals(-1, actual.getTableId());
@@ -576,7 +578,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         // check merged
@@ -626,7 +628,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED, actual.getShuffleType());
         // check merged
@@ -659,7 +661,7 @@ class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(leftHash, actual);
     }
@@ -712,7 +714,7 @@ class ChildOutputPropertyDeriverTest {
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
-        Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
         Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED, actual.getShuffleType());
         Assertions.assertEquals(Lists.newArrayList(partition).stream()
@@ -836,5 +838,51 @@ class ChildOutputPropertyDeriverTest {
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
         PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
         Assertions.assertEquals(PhysicalProperties.GATHER, result);
+    }
+
+    @Test
+    void testRepeatReturnAny() {
+        SlotReference c1 = new SlotReference(
+                new ExprId(1), "c1", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference c2 = new SlotReference(
+                new ExprId(2), "c2", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference c3 = new SlotReference(
+                new ExprId(3), "c3", TinyIntType.INSTANCE, true, ImmutableList.of());
+        PhysicalRepeat<GroupPlan> repeat = new PhysicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(c1, c2), ImmutableList.of(c1), ImmutableList.of(c1, c3)),
+                ImmutableList.of(c1, c2, c3),
+                logicalProperties,
+                groupPlan
+        );
+        GroupExpression groupExpression = new GroupExpression(repeat);
+        new Group(null, groupExpression, null);
+        PhysicalProperties child = PhysicalProperties.createHash(
+                ImmutableList.of(new ExprId(1), new ExprId(2)), ShuffleType.EXECUTION_BUCKETED);
+        ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
+        Assertions.assertEquals(PhysicalProperties.ANY, result);
+    }
+
+    @Test
+    void testRepeatReturnChild() {
+        SlotReference c1 = new SlotReference(
+                new ExprId(1), "c1", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference c2 = new SlotReference(
+                new ExprId(2), "c2", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference c3 = new SlotReference(
+                new ExprId(3), "c3", TinyIntType.INSTANCE, true, ImmutableList.of());
+        PhysicalRepeat<GroupPlan> repeat = new PhysicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(c1, c2), ImmutableList.of(c1), ImmutableList.of(c1, c3)),
+                ImmutableList.of(c1, c2, c3),
+                logicalProperties,
+                groupPlan
+        );
+        GroupExpression groupExpression = new GroupExpression(repeat);
+        new Group(null, groupExpression, null);
+        PhysicalProperties child = PhysicalProperties.createHash(
+                ImmutableList.of(new ExprId(1)), ShuffleType.EXECUTION_BUCKETED);
+        ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
+        PhysicalProperties result = deriver.getOutputProperties(null, groupExpression);
+        Assertions.assertEquals(child, result);
     }
 }

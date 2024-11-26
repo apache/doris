@@ -283,7 +283,10 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
         } else if (has_normal_percent || has_disposable_percent || has_index_percent ||
                    has_ttl_percent) {
             return Status::InvalidArgument(
-                    "cache percent config must either be all set or all unset.");
+                    "cache percent (ttl_percent, index_percent, normal_percent, "
+                    "disposable_percent) must either be all set or all unset. "
+                    "when all unset, use default: ttl_percent=50, index_percent=5, "
+                    "normal_percent=40, disposable_percent=5.");
         }
         if ((normal_percent + disposable_percent + index_percent + ttl_percent) != 100) {
             return Status::InvalidArgument("The sum of cache percent config must equal 100.");

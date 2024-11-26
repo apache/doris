@@ -122,7 +122,7 @@ public:
 
     void reserve(size_t n) override { _codes.reserve(n); }
 
-    const char* get_family_name() const override { return "ColumnDictionary"; }
+    std::string get_name() const override { return "ColumnDictionary"; }
 
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);
@@ -158,10 +158,6 @@ public:
         __builtin_unreachable();
     }
 
-    bool is_fixed_and_contiguous() const override { return true; }
-
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
-
     [[noreturn]] StringRef get_raw_data() const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "get_raw_data not supported in ColumnDictionary");
@@ -196,20 +192,6 @@ public:
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "replicate not supported in ColumnDictionary");
-        __builtin_unreachable();
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "append_data_by_selector is not supported in ColumnDictionary!");
-        __builtin_unreachable();
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "append_data_by_selector is not supported in ColumnDictionary!");
         __builtin_unreachable();
     }
 

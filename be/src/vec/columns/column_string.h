@@ -85,6 +85,7 @@ private:
     /// For convenience, every string ends with terminating zero byte. Note that strings could contain zero bytes in the middle.
     Chars chars;
 
+    // Start position of i-th element.
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return offsets[i - 1]; }
 
     /// Size of i-th element, including terminating zero.
@@ -105,7 +106,7 @@ public:
     bool is_variable_length() const override { return true; }
     // used in string ut testd
     void sanity_check() const;
-    const char* get_family_name() const override { return "String"; }
+    std::string get_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
 
@@ -117,8 +118,7 @@ public:
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override { return true; }
+    void shrink_padding_chars() override;
 
     Field operator[](size_t n) const override {
         assert(n < size());
@@ -267,29 +267,6 @@ public:
             offsets_ptr[i] = tail_offset + offsets_[i + 1] - begin_offset;
         }
         DCHECK(chars.size() == offsets.back());
-    }
-
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
-        size_t new_size = 0;
-        for (size_t i = 0; i < num; i++) {
-            new_size += len_array[i];
-        }
-
-        const size_t old_size = chars.size();
-        check_chars_length(old_size + new_size, offsets.size() + num);
-        chars.resize(old_size + new_size);
-
-        Char* data = chars.data();
-        size_t offset = old_size;
-        for (size_t i = 0; i < num; i++) {
-            uint32_t len = len_array[i];
-            uint32_t start_offset = start_offset_array[i];
-            // memcpy will deal len == 0, not do it here
-            memcpy(data + offset, data_array + start_offset, len);
-            offset += len;
-            offsets.push_back(offset);
-        }
     }
 
     void insert_many_strings(const StringRef* strings, size_t num) override {
@@ -510,16 +487,6 @@ public:
                          IColumn::Permutation& res) const override;
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<ColumnStr<T>>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<ColumnStr<T>>(res, selector, begin, end);
-    }
 
     void reserve(size_t n) override;
 

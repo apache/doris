@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.SlidingWindowCounter;
 import org.apache.doris.mysql.privilege.Auth;
@@ -138,6 +139,9 @@ public class GroupCommitManager {
     }
 
     private long getWalQueueSize(Backend backend, PGetWalQueueSizeRequest request) {
+        if (FeConstants.runningUnitTest) {
+            return 0;
+        }
         PGetWalQueueSizeResponse response = null;
         long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
         long size = 0;

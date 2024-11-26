@@ -49,7 +49,7 @@ private:
               _data(src._data.begin(), src._data.end()) {}
 
 public:
-    const char* get_family_name() const override { return "ColumnFixedLengthObject"; }
+    std::string get_name() const override { return "ColumnFixedLengthObject"; }
 
     size_t size() const override { return _item_count; }
 
@@ -250,16 +250,6 @@ public:
         return res;
     }
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
-    }
-
     size_t byte_size() const override { return _data.size(); }
 
     size_t item_size() const { return _item_size; }
@@ -294,8 +284,7 @@ public:
         memcpy(_data.data() + old_size, data + begin_offset, total_mem_size);
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
+    void insert_many_strings(const StringRef* strings, size_t num) override {
         if (UNLIKELY(num == 0)) {
             return;
         }
@@ -304,10 +293,8 @@ public:
         resize(old_count + num);
         auto* dst = _data.data() + old_count * _item_size;
         for (size_t i = 0; i < num; i++) {
-            auto* src = data_array + start_offset_array[i];
-            uint32_t len = len_array[i];
             dst += i * _item_size;
-            memcpy(dst, src, len);
+            memcpy(dst, strings[i].data, strings[i].size);
         }
     }
 

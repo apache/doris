@@ -98,10 +98,9 @@ public:
         }
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
+    void insert_many_strings(const StringRef* strings, size_t num) override {
         for (size_t i = 0; i < num; i++) {
-            insert_binary_data(data_array + start_offset_array[i], len_array[i]);
+            insert_binary_data(strings[i].data, strings[i].size);
         }
     }
 
@@ -126,7 +125,7 @@ public:
 
     void resize(size_t n) override { data.resize(n); }
 
-    const char* get_family_name() const override { return TypeName<T>::get(); }
+    std::string get_name() const override { return TypeName<T>::get(); }
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
@@ -208,9 +207,6 @@ public:
         // TODO add hash function
     }
 
-    bool is_fixed_and_contiguous() const override { return true; }
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
-
     StringRef get_raw_data() const override {
         return StringRef(reinterpret_cast<const char*>(data.data()), data.size());
     }
@@ -234,16 +230,6 @@ public:
     T& get_element(size_t n) { return data[n]; }
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<ColumnComplexType<T>>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<ColumnComplexType<T>>(res, selector, begin,
-                                                                          end);
-    }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);

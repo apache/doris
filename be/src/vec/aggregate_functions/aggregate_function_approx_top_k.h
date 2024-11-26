@@ -85,7 +85,7 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena* arena) const override {
         auto readStringBinaryInto = [](Arena& arena, BufferReadable& buf) {
-            size_t size = 0;
+            uint64_t size = 0;
             read_var_uint(size, buf);
 
             if (UNLIKELY(size > DEFAULT_MAX_STRING_SIZE)) {
@@ -101,7 +101,7 @@ public:
         auto& set = this->data(place).value;
         set.clear();
 
-        size_t size = 0;
+        uint64_t size = 0;
         read_var_uint(size, buf);
         if (UNLIKELY(size > TOP_K_MAX_SIZE)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,

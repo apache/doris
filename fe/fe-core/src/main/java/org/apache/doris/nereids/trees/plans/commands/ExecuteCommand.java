@@ -72,10 +72,12 @@ public class ExecuteCommand extends Command {
         executor.setParsedStmt(planAdapter);
         // If it's not a short circuit query or schema version is different(indicates schema changed),
         // need to do reanalyze and plan
-        boolean needAnalyze = !executor.getContext().getStatementContext().isShortCircuitQuery()
-                || (preparedStmtCtx.shortCircuitQueryContext.isPresent()
+        boolean isShortCircuit = executor.getContext().getStatementContext().isShortCircuitQuery();
+        boolean hasShortCircuitContext = preparedStmtCtx.shortCircuitQueryContext.isPresent();
+        boolean schemaVersionMismatch = hasShortCircuitContext
                     && preparedStmtCtx.shortCircuitQueryContext.get().tbl.getBaseSchemaVersion()
-                != preparedStmtCtx.shortCircuitQueryContext.get().schemaVersion);
+                    != preparedStmtCtx.shortCircuitQueryContext.get().schemaVersion;
+        boolean needAnalyze = !isShortCircuit || schemaVersionMismatch || !hasShortCircuitContext;
         if (needAnalyze) {
             // execute real statement
             preparedStmtCtx.shortCircuitQueryContext = Optional.empty();

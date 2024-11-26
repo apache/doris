@@ -76,6 +76,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * FileQueryScanNode for querying the file access type of catalog, now only support
@@ -261,6 +262,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
     }
 
+    // Serialize the table to be scanned to BE's jni reader
+    protected Optional<String> getSerializedTable() {
+        return Optional.empty();
+    }
+
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
@@ -297,6 +303,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
                 scanRangeLocations.add(curLocations);
+                scanBackendIds.add(backendId);
                 return;
             }
         }
@@ -346,6 +353,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 // However, even one ScanNode instance can provide maximum scanning concurrency.
                 scanRangeLocations.add(curLocations);
                 setLocationPropertiesIfNecessary(backend, locationType, locationProperties);
+                scanBackendIds.add(backend.getId());
             }
         } else {
             List<Split> inputSplits = getSplits();
@@ -363,8 +371,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
                     totalFileSize += split.getLength();
                 }
+                scanBackendIds.add(backend.getId());
             }
         }
+
+        getSerializedTable().ifPresent(params::setSerializedTable);
 
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setCreateScanRangeFinishTime();

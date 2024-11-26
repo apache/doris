@@ -337,7 +337,7 @@ public:
 
     void resize(size_t n) override { data.resize(n); }
 
-    const char* get_family_name() const override;
+    std::string get_name() const override { return TypeName<T>::get(); }
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
@@ -373,17 +373,6 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
-    }
-
-    bool is_fixed_and_contiguous() const override { return true; }
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
     StringRef get_raw_data() const override {
         return StringRef(reinterpret_cast<const char*>(data.data()), data.size());
     }
