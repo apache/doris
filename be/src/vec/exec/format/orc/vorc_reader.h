@@ -649,8 +649,9 @@ private:
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
     //support iceberg position delete .
     std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
-    std::unordered_map<const VLiteral*, std::tuple<orc::Literal, orc::PredicateDataType>>
-            _vliteral_to_orc_literal_and_type;
+    std::unordered_map<const VSlotRef*, orc::PredicateDataType>
+            _vslot_ref_to_orc_predicate_data_type;
+    std::unordered_map<const VLiteral*, orc::Literal> _vliteral_to_orc_literal;
 };
 
 class ORCFileInputStream : public orc::InputStream, public ProfileCollector {
