@@ -122,7 +122,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public BackupHandler(Env env) {
-        super("backupHandler", 3000L);
+        super("backupHandler", Config.backup_handler_update_interval_millis);
         this.env = env;
     }
 

@@ -23,11 +23,6 @@ import java.util.concurrent.CompletableFuture
 
 // test update and delete command
 suite("txn_insert_concurrent_insert_ud") {
-    if (isCloudMode()) {
-        logger.info("cloud txn load does not support mow")
-        return
-    }
-
     def tableName = "txn_insert_concurrent_insert_ud"
     List<String> errors = new ArrayList<>()
 
@@ -88,7 +83,7 @@ suite("txn_insert_concurrent_insert_ud") {
     }
     sql """ sync """
 
-    def dbName = "regression_test_insert_p2"
+    def dbName = "regression_test_insert_p2_transaction"
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
     logger.info("url: ${url}")
 
