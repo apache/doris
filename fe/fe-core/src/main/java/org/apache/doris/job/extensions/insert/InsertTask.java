@@ -204,6 +204,9 @@ public class InsertTask extends AbstractTask {
 
     @Override
     public void onFail() throws JobException {
+        if (isCanceled.get()) {
+            return;
+        }
         isFinished.set(true);
         super.onFail();
     }
