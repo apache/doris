@@ -49,6 +49,10 @@ public class CheckPrivileges extends ColumnPruning {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        // Only enter once, if repeated, the permissions of the table in the view will be checked
+        if (jobContext.getCascadesContext().getStatementContext().isViewPrivChecked()) {
+            return plan;
+        }
         this.jobContext = jobContext;
         super.rewriteRoot(plan, jobContext);
 
@@ -59,7 +63,7 @@ public class CheckPrivileges extends ColumnPruning {
     @Override
     public Plan visitLogicalView(LogicalView<? extends Plan> view, PruneContext context) {
         checkColumnPrivileges(view.getView(), computeUsedColumns(view, context.requiredSlots));
-
+        jobContext.getCascadesContext().getStatementContext().setViewPrivChecked(true);
         // stop check privilege in the view
         return view;
     }
