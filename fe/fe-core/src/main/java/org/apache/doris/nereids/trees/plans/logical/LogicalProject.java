@@ -245,9 +245,12 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 builder.addUniformSlotAndLiteral(proj.toSlot(), proj.child(0));
             } else if (proj.child(0) instanceof Slot) {
                 Slot slot = (Slot) proj.child(0);
-                if (child(0).getLogicalProperties().getTrait().isUniformAndHasConstValue(slot)) {
+                DataTrait childTrait = child(0).getLogicalProperties().getTrait();
+                if (childTrait.isUniformAndHasConstValue(slot)) {
                     builder.addUniformSlotAndLiteral(proj.toSlot(),
                             child(0).getLogicalProperties().getTrait().getUniformValue(slot).get());
+                } else if (childTrait.isUniform(slot)) {
+                    builder.addUniformSlot(proj.toSlot());
                 }
             }
         }
