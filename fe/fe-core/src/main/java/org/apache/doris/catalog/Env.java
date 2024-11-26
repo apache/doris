@@ -4609,6 +4609,9 @@ public class Env {
                     return;
                 }
             }
+            if (!isReplay && table.isAutoBucket()) {
+                throw new DdlException("table " + table.getName() + " is auto buckets");
+            }
             ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullAssignedGroupName);
             if (groupSchema == null) {
                 // user set a new colocate group,
