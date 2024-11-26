@@ -377,7 +377,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * @return
      */
     public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
-        if (!supportPartitionPruned()) {
+        if (!supportInternalPartitionPruned()) {
             return SelectedPartitions.NOT_PRUNED;
         }
         if (CollectionUtils.isEmpty(this.getPartitionColumns(snapshot))) {
@@ -410,11 +410,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     /**
-     * Does it support partition cpruned， If so, this method needs to be overridden in subclasses
+     * Does it support Internal partition pruned, If so, this method needs to be overridden in subclasses
+     * Internal partition pruned : Implement partition pruning logic without relying on external APIs.
      *
      * @return
      */
-    public boolean supportPartitionPruned() {
+    public boolean supportInternalPartitionPruned() {
         return false;
     }
 }

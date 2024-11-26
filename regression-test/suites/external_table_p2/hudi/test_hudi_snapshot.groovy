@@ -52,7 +52,7 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
         qt_q05 """SELECT age, COUNT(*) AS user_count FROM ${table_name} GROUP BY age ORDER BY user_count DESC LIMIT 5;"""
 
         // Query users with purchase records and limit output
-        qt_q06 """SELECT user_id, purchases FROM ${table_name} WHERE array_size(purchases) > 0 ORDER BY user_id LIMIT 5;"""
+        qt_q06 """SELECT user_id, purchases FROM ${table_name} WHERE array_size(purchases) > 0 ORDER BY user_id,event_time LIMIT 5;"""
 
         // Query users with a specific tag and limit output
         qt_q07 """SELECT * FROM ${table_name} WHERE array_contains(tags, 'others') ORDER BY event_time LIMIT 5;"""
@@ -64,7 +64,7 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
         qt_q09 """SELECT * FROM ${table_name} WHERE struct_element(struct_element(address, 'coordinates'), 'latitude') BETWEEN 0 AND 100 AND struct_element(struct_element(address, 'coordinates'), 'longitude') BETWEEN 0 AND 100 ORDER BY event_time LIMIT 5;"""
 
         // Query records with ratings above a specific value and limit output
-        qt_q10 """SELECT * FROM ${table_name} WHERE rating > 4.5 ORDER BY rating DESC LIMIT 5;"""
+        qt_q10 """SELECT * FROM ${table_name} WHERE rating > 4.5 ORDER BY rating DESC,event_time LIMIT 5;"""
 
         // Query all users' signup dates and limit output
         qt_q11 """SELECT user_id, signup_date FROM ${table_name} ORDER BY signup_date DESC LIMIT 10;"""
@@ -73,13 +73,13 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
         qt_q12 """SELECT * FROM ${table_name} WHERE struct_element(address, 'postal_code') = '80312' ORDER BY event_time LIMIT 5;"""
 
         // Query users with profile pictures and limit output
-        qt_q13 """SELECT user_id, profile_picture FROM ${table_name} WHERE profile_picture IS NOT NULL ORDER BY user_id LIMIT 5;"""
+        qt_q13 """SELECT user_id, profile_picture FROM ${table_name} WHERE profile_picture IS NOT NULL ORDER BY user_id,event_time LIMIT 5;"""
 
         // Query users by signup date and limit output
-        qt_q14 """SELECT * FROM ${table_name} WHERE signup_date = '2024-01-15' ORDER BY user_id LIMIT 5;"""
+        qt_q14 """SELECT * FROM ${table_name} WHERE signup_date = '2024-01-15' ORDER BY user_id,event_time LIMIT 5;"""
 
         // Query the total count of purchases for each user and limit output
-        qt_q15 """SELECT user_id, array_size(purchases) AS purchase_count FROM ${table_name} ORDER BY purchase_count DESC LIMIT 5;"""
+        qt_q15 """SELECT user_id, array_size(purchases) AS purchase_count FROM ${table_name} ORDER BY purchase_count,event_time DESC LIMIT 5;"""
     }
 
     test_hudi_snapshot_querys("user_activity_log_cow_non_partition")

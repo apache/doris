@@ -40,6 +40,7 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.maxcompute.source.MaxComputeSplit.SplitType;
 import org.apache.doris.datasource.property.constants.MCProperties;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
@@ -50,6 +51,7 @@ import org.apache.doris.thrift.TMaxComputeFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.aliyun.odps.OdpsType;
+import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.table.TableIdentifier;
 import com.aliyun.odps.table.configuration.ArrowOptions;
 import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
@@ -60,6 +62,7 @@ import com.aliyun.odps.table.read.split.InputSplitAssigner;
 import com.aliyun.odps.table.read.split.impl.IndexedInputSplit;
 import com.google.common.collect.Maps;
 import jline.internal.Log;
+import lombok.Setter;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -86,14 +89,26 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     private static final LocationPath ROW_OFFSET_PATH = new LocationPath("/row_offset", Maps.newHashMap());
     private static final LocationPath BYTE_SIZE_PATH = new LocationPath("/byte_size", Maps.newHashMap());
 
+    @Setter
+    private SelectedPartitions selectedPartitions = null;
+
+    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc,
+            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv) {
+        this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
+                selectedPartitions, needCheckColumnPriv);
+    }
+
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
-        this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE, needCheckColumnPriv);
+        this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
+                SelectedPartitions.NOT_PRUNED, needCheckColumnPriv);
     }
 
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-                              StatisticalType statisticalType, boolean needCheckColumnPriv) {
+                              StatisticalType statisticalType, SelectedPartitions selectedPartitions,
+            boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         table = (MaxComputeExternalTable) desc.getTable();
+        this.selectedPartitions = selectedPartitions;
     }
 
     @Override
@@ -117,9 +132,24 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         rangeDesc.setSize(maxComputeSplit.getLength());
     }
 
-    void createTableBatchReadSession() throws UserException {
+    boolean createTableBatchReadSession() throws UserException {
         List<String> requiredPartitionColumns = new ArrayList<>();
         List<String> orderedRequiredDataColumns = new ArrayList<>();
+
+        List<PartitionSpec> requiredPartitionSpecs = new ArrayList<>();
+        //if requiredPartitionSpecs is empty, get all partition data.
+        if (!table.getPartitionColumns().isEmpty() && selectedPartitions != SelectedPartitions.NOT_PRUNED) {
+            this.totalPartitionNum = selectedPartitions.totalPartitionNum;
+            this.selectedPartitionNum = selectedPartitions.selectedPartitions.size();
+
+            if (selectedPartitions.selectedPartitions.isEmpty()) {
+                //no need read any partition data.
+                return false;
+            }
+            selectedPartitions.selectedPartitions.forEach(
+                    (key, value) -> requiredPartitionSpecs.add(new PartitionSpec(key))
+            );
+        }
 
         Set<String> requiredSlots =
                 desc.getSlots().stream().map(e -> e.getColumn().getName()).collect(Collectors.toSet());
@@ -150,6 +180,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                             .withSettings(mcCatalog.getSettings())
                             .withSplitOptions(mcCatalog.getSplitOption())
                             .requiredPartitionColumns(requiredPartitionColumns)
+                            .requiredPartitions(requiredPartitionSpecs)
                             .requiredDataColumns(orderedRequiredDataColumns)
                             .withArrowOptions(
                                     ArrowOptions.newBuilder()
@@ -162,7 +193,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         } catch (java.io.IOException e) {
             throw new RuntimeException(e);
         }
-
+        return true;
     }
 
     @Override
@@ -430,7 +461,10 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {
             return result;
         }
-        createTableBatchReadSession();
+
+        if (!createTableBatchReadSession()) {
+            return result;
+        }
 
         try {
             String scanSessionSerialize =  serializeSession(tableBatchReadSession);

@@ -579,7 +579,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else if (table instanceof TrinoConnectorExternalTable) {
             scanNode = new TrinoConnectorScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else if (table instanceof MaxComputeExternalTable) {
-            scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+            scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor,
+                    fileScan.getSelectedPartitions(), false);
         } else if (table instanceof LakeSoulExternalTable) {
             scanNode = new LakeSoulScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else {
@@ -652,6 +653,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (fileScan.getTableSnapshot().isPresent()) {
             ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
         }
+        HudiScanNode hudiScanNode = (HudiScanNode) scanNode;
+        hudiScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
         return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
     }
 

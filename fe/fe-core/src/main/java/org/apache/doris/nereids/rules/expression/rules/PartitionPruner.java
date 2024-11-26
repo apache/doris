@@ -55,7 +55,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     /** Different type of table may have different partition prune behavior. */
     public enum PartitionTableType {
         OLAP,
-        HIVE
+        EXTERNAL
     }
 
     private PartitionPruner(List<OnePartitionEvaluator> partitions, Expression partitionPredicate) {
