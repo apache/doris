@@ -63,8 +63,6 @@ statementBase
     | unsupportedStatement              #unsupported
     ;
 
-
-
 unsupportedStatement
     : unsupportedUseStatement
     | unsupportedDmlStatement
@@ -237,7 +235,7 @@ supportedShowStatement
 
 supportedLoadStatement
     : SYNC                                                                          #sync
-    | createRoutineLoad
+    | createRoutineLoad                                                             #createRoutineLoadAlias
     ;
 
 unsupportedOtherStatement
