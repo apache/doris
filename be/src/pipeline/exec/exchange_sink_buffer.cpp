@@ -159,8 +159,6 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
             RETURN_IF_ERROR(
                     BeExecVersionManager::check_be_exec_version(request.block->be_exec_version()));
             COUNTER_UPDATE(_parent->memory_used_counter(), request.block->ByteSizeLong());
-            COUNTER_SET(_parent->peak_memory_usage_counter(),
-                        _parent->memory_used_counter()->value());
         }
         _instance_to_package_queue[ins_id].emplace(std::move(request));
         _total_queue_size++;
