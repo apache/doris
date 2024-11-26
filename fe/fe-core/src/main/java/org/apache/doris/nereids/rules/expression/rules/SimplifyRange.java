@@ -197,7 +197,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             }
 
             // use UnknownValue to wrap different references
-            return new UnknownValue(context, originExpr, originExpr, valuePerRefs, exprOp);
+            return new UnknownValue(context, originExpr, valuePerRefs, exprOp);
         }
     }
 
@@ -225,7 +225,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             List<ValueDesc> sourceValues = reverseOrder
                     ? ImmutableList.of(discrete, range)
                     : ImmutableList.of(range, discrete);
-            return new UnknownValue(context, range.reference, toExpr, sourceValues, ExpressionUtils::or);
+            return new UnknownValue(context, toExpr, sourceValues, ExpressionUtils::or);
         }
 
         public abstract ValueDesc intersect(ValueDesc other);
@@ -321,7 +321,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
                     rangeValue.range = range.span(o.range);
                     return rangeValue;
                 }
-                return new UnknownValue(context, reference, originExpr,
+                return new UnknownValue(context, originExpr,
                         ImmutableList.of(this, other), ExpressionUtils::or);
             }
             if (other instanceof DiscreteValue) {
@@ -329,8 +329,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             }
             Expression originExpr = FoldConstantRuleOnFE.evaluate(
                     ExpressionUtils.or(toExpr, other.toExpr), context);
-            Expression newReference = reference.equals(other.reference) ? reference : originExpr;
-            return new UnknownValue(context, newReference, originExpr,
+            return new UnknownValue(context, originExpr,
                     ImmutableList.of(this, other), ExpressionUtils::or);
         }
 
@@ -355,8 +354,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             }
             Expression originExpr = FoldConstantRuleOnFE.evaluate(
                     ExpressionUtils.and(toExpr, other.toExpr), context);
-            Expression newReference = reference.equals(other.reference) ? reference : originExpr;
-            return new UnknownValue(context, newReference, originExpr,
+            return new UnknownValue(context, originExpr,
                     ImmutableList.of(this, other), ExpressionUtils::and);
         }
 
@@ -431,8 +429,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             }
             Expression originExpr = FoldConstantRuleOnFE.evaluate(
                     ExpressionUtils.or(toExpr, other.toExpr), context);
-            Expression newReference = reference.equals(other.reference) ? reference : originExpr;
-            return new UnknownValue(context, newReference, originExpr,
+            return new UnknownValue(context, originExpr,
                     ImmutableList.of(this, other), ExpressionUtils::or);
         }
 
@@ -458,8 +455,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             }
             Expression originExpr = FoldConstantRuleOnFE.evaluate(
                     ExpressionUtils.and(toExpr, other.toExpr), context);
-            Expression newReference = reference.equals(other.reference) ? reference : originExpr;
-            return new UnknownValue(context, newReference, originExpr,
+            return new UnknownValue(context, originExpr,
                     ImmutableList.of(this, other), ExpressionUtils::and);
         }
 
@@ -498,9 +494,16 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             mergeExprOp = null;
         }
 
-        public UnknownValue(ExpressionRewriteContext context, Expression reference, Expression toExpr,
+        public UnknownValue(ExpressionRewriteContext context, Expression toExpr,
                 List<ValueDesc> sourceValues, BinaryOperator<Expression> mergeExprOp) {
-            super(context, reference, toExpr);
+            Expression newReference = sourceValues[0].reference;
+            for (int i = 1; i < sourceValues.size(); i++) {
+                if (!newReference.equals(sourceValues[i].reference)) {
+                    newReference = toExpr;
+                    break;
+                }
+            }
+            super(context, newReference, toExpr);
             this.sourceValues = ImmutableList.copyOf(sourceValues);
             this.mergeExprOp = mergeExprOp;
         }
@@ -509,8 +512,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         public ValueDesc union(ValueDesc other) {
             Expression originExpr = FoldConstantRuleOnFE.evaluate(
                     ExpressionUtils.or(toExpr, other.toExpr), context);
-            Expression newReference = reference.equals(other.reference) ? reference : originExpr;
-            return new UnknownValue(context, newReference, originExpr,
+            return new UnknownValue(context, originExpr,
                     ImmutableList.of(this, other), ExpressionUtils::or);
         }
 
@@ -518,8 +520,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         public ValueDesc intersect(ValueDesc other) {
             Expression originExpr = FoldConstantRuleOnFE.evaluate(
                     ExpressionUtils.and(toExpr, other.toExpr), context);
-            Expression newReference = reference.equals(other.reference) ? reference : originExpr;
-            return new UnknownValue(context, newReference, originExpr,
+            return new UnknownValue(context, originExpr,
                     ImmutableList.of(this, other), ExpressionUtils::and);
         }
 
