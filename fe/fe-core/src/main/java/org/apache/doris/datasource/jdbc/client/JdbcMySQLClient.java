@@ -401,6 +401,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createHllType();
             case "BITMAP":
                 return Type.BITMAP;
+            case "VARIANT":
+                return ScalarType.createVariantType();
             default:
                 return Type.UNSUPPORTED;
         }

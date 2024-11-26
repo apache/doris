@@ -132,6 +132,8 @@ private:
                                   int rows);
     Status _cast_string_to_json(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                 int rows);
+    Status _cast_string_to_variant(const SlotDescriptor* slot_desc, Block* block, int column_index,
+                                   int rows);
     jobject _get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType);
 
     bool _closed = false;
@@ -160,6 +162,9 @@ private:
 
     std::map<int, int> _map_column_idx_to_cast_idx_json;
     std::vector<DataTypePtr> _input_json_string_types;
+
+    std::map<int, int> _map_column_idx_to_cast_idx_variant;
+    std::vector<DataTypePtr> _input_variant_string_types;
 
     JdbcStatistic _jdbc_statistic;
 };
