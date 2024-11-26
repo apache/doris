@@ -50,6 +50,8 @@ public:
 
     Status _process_conjuncts(RuntimeState* state) override;
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
+    Status start_scanners(
+            const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) override;
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     int parent_id() { return _parent->node_id(); }
@@ -65,6 +67,7 @@ private:
     // KVCache<std::string> _kv_cache;
     std::unique_ptr<vectorized::ShardedKVCache> _kv_cache;
     TupleId _output_tuple_id = -1;
+    bool _batch_split_mode = false;
 };
 
 class FileScanOperatorX final : public ScanOperatorX<FileScanLocalState> {
