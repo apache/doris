@@ -356,7 +356,6 @@ terminal String
     KW_DEMAND,
     KW_DESC,
     KW_DESCRIBE,
-    KW_DETAIL,
     KW_DIAGNOSE,
     KW_DIAGNOSIS,
     KW_DISK,
@@ -5071,7 +5070,7 @@ opt_detailed ::=
     {:
         RESULT = false;
     :}
-    | KW_WITH KW_DETAIL
+    | KW_ALL
     {:
         RESULT = true;
     :}
@@ -8212,8 +8211,6 @@ keyword ::=
     | KW_DECIMALV2:id
     {: RESULT = id; :}
     | KW_DECIMALV3:id
-    {: RESULT = id; :}
-    | KW_DETAIL:id
     {: RESULT = id; :}
     | KW_DIAGNOSE:id
     {: RESULT = id; :}

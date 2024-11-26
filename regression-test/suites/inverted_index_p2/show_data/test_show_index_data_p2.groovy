@@ -185,8 +185,8 @@ suite("test_show_index_data_p2", "p2") {
         Thread.sleep(90000)
         Awaitility.await().atMost(10, TimeUnit.MINUTES).untilAsserted(() -> {
             Thread.sleep(10000)
-            def result = sql """ show data with detail;"""
-            logger.info("show data with detail result is: ${result}")
+            def result = sql """ show data all;"""
+            logger.info("show data all; result is: ${result}")
             def currentLocalIndexSize = convert_size.call(result[0][4])
             def currentSegmentIndexSize = convert_size.call(result[0][3])
 
@@ -218,8 +218,8 @@ suite("test_show_index_data_p2", "p2") {
             logger.info("currentLocalIndexSize2 is: ${currentLocalIndexSize2}, currentSegmentIndexSize2 is: ${currentSegmentIndexSize2}")
             assertTrue(check_size_equal(currentLocalIndexSize, currentLocalIndexSize2))
             assertTrue(check_size_equal(currentSegmentIndexSize, currentSegmentIndexSize2))
-            logger.info("show data with detail localIndexSize is: " + localIndexSize)
-            logger.info("show data with detail localSegmentSize is: " + localSegmentSize)
+            logger.info("show data all localIndexSize is: " + localIndexSize)
+            logger.info("show data all localSegmentSize is: " + localSegmentSize)
         });
     }
 
