@@ -152,6 +152,7 @@ suite("test_index_compaction_unique_keys_arr", "array_contains_inverted_index") 
                 index index_score (score) using inverted
             ) ENGINE=OLAP
             UNIQUE KEY(`id`)
+            CLUSTER BY (`score`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ( 
