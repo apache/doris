@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
 
@@ -84,9 +85,9 @@ public:
 
     std::vector<SenderQueue*> sender_queues() const { return _sender_queues; }
 
-    Status add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
-                     ::google::protobuf::Closure** done, const int64_t wait_for_worker,
-                     const uint64_t time_to_find_recvr);
+    Status add_block(std::unique_ptr<PBlock> pblock, int sender_id, int be_number,
+                     int64_t packet_seq, ::google::protobuf::Closure** done,
+                     const int64_t wait_for_worker, const uint64_t time_to_find_recvr);
 
     void add_block(Block* block, int sender_id, bool use_move);
 
@@ -157,8 +158,6 @@ private:
     RuntimeProfile::Counter* _decompress_timer = nullptr;
     RuntimeProfile::Counter* _decompress_bytes = nullptr;
 
-    // Number of rows received
-    RuntimeProfile::Counter* _rows_produced_counter = nullptr;
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
     RuntimeProfile::Counter* _max_wait_worker_time = nullptr;
@@ -181,7 +180,7 @@ public:
 
     Status get_batch(Block* next_block, bool* eos);
 
-    Status add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
+    Status add_block(std::unique_ptr<PBlock> pblock, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done, const int64_t wait_for_worker,
                      const uint64_t time_to_find_recvr);
 
@@ -205,8 +204,6 @@ public:
 
 protected:
     friend class pipeline::ExchangeLocalState;
-    Status _inner_get_batch_without_lock(Block* block, bool* eos);
-
     void try_set_dep_ready_without_lock();
 
     // To record information about several variables in the event of a DCHECK failure.
@@ -260,7 +257,41 @@ protected:
     Status _cancel_status;
     int _num_remaining_senders;
     std::unique_ptr<MemTracker> _queue_mem_tracker;
-    std::list<std::pair<BlockUPtr, size_t>> _block_queue;
+
+    // `BlockItem` is used in `_block_queue` to handle both local and remote exchange blocks.
+    // For local exchange blocks, `BlockUPtr` is used directly without any modification.
+    // For remote exchange blocks, the `pblock` is stored in `BlockItem`.
+    // When `getBlock` is called, the `pblock` is deserialized into a usable block.
+    struct BlockItem {
+        Status get_block(BlockUPtr& block) {
+            if (!_block) {
+                DCHECK(_pblock);
+                SCOPED_RAW_TIMER(&_deserialize_time);
+                _block = Block::create_unique();
+                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_block->deserialize(*_pblock));
+            }
+            block.swap(_block);
+            _block.reset();
+            return Status::OK();
+        }
+
+        size_t block_byte_size() const { return _block_byte_size; }
+        int64_t deserialize_time() const { return _deserialize_time; }
+        BlockItem() = default;
+        BlockItem(BlockUPtr&& block, size_t block_byte_size)
+                : _block(std::move(block)), _block_byte_size(block_byte_size) {}
+
+        BlockItem(std::unique_ptr<PBlock>&& pblock, size_t block_byte_size)
+                : _block(nullptr), _pblock(std::move(pblock)), _block_byte_size(block_byte_size) {}
+
+    private:
+        BlockUPtr _block;
+        std::unique_ptr<PBlock> _pblock;
+        size_t _block_byte_size = 0;
+        int64_t _deserialize_time = 0;
+    };
+
+    std::list<BlockItem> _block_queue;
 
     // sender_id
     std::unordered_set<int> _sender_eos_set;

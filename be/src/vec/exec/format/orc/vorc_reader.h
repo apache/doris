@@ -18,9 +18,9 @@
 #pragma once
 
 #include <cctz/time_zone.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <orc/OrcFile.hh>
@@ -51,6 +51,8 @@
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
+#include "vec/exprs/vliteral.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class RuntimeState;
@@ -79,13 +81,6 @@ class DataBuffer;
 namespace doris::vectorized {
 
 class ORCFileInputStream;
-
-struct OrcPredicate {
-    std::string col_name;
-    orc::PredicateDataType data_type;
-    std::vector<orc::Literal> literals;
-    SQLFilterOp op;
-};
 
 struct LazyReadContext {
     VExprContextSPtrs conjuncts;
@@ -228,6 +223,8 @@ private:
         RuntimeProfile::Counter* decode_value_time = nullptr;
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
         RuntimeProfile::Counter* filter_block_time = nullptr;
+        RuntimeProfile::Counter* selected_row_group_count = nullptr;
+        RuntimeProfile::Counter* evaluated_row_group_count = nullptr;
     };
 
     class ORCFilterImpl : public orc::ORCFilter {
@@ -291,8 +288,23 @@ private:
                         bool* is_hive1_orc);
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
-    bool _init_search_argument(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    std::tuple<bool, orc::Literal, orc::PredicateDataType> _make_orc_literal(
+            const VSlotRef* slot_ref, const VLiteral* literal);
+    bool _check_slot_can_push_down(const VExprSPtr& expr);
+    bool _check_rest_children_can_push_down(const VExprSPtr& expr);
+    bool _check_expr_can_push_down(const VExprSPtr& expr);
+    bool _build_less_than(const VExprSPtr& expr,
+                          std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_less_than_equals(const VExprSPtr& expr,
+                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_equals(const VExprSPtr& expr, std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_filter_in(const VExprSPtr& expr,
+                          std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_is_null(const VExprSPtr& expr,
+                        std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_search_argument(const VExprSPtr& expr,
+                                std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _init_search_argument(const VExprContextSPtrs& conjuncts);
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_system_properties();
@@ -578,11 +590,14 @@ private:
     bool _is_hive1_orc_or_use_idx = false;
 
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
+    // TODO: check if we can remove _col_name_to_file_col_name_low_case
+    std::unordered_map<std::string, std::string> _col_name_to_file_col_name_low_case;
     std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;
     std::unique_ptr<ORCFileInputStream> _file_input_stream;
     Statistics _statistics;
     OrcProfile _orc_profile;
+    orc::ReaderMetrics _reader_metrics;
 
     std::unique_ptr<orc::ColumnVectorBatch> _batch;
     std::unique_ptr<orc::Reader> _reader;
