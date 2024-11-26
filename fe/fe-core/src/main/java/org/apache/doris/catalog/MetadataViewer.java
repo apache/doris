@@ -167,7 +167,7 @@ public class MetadataViewer {
         return getTabletDistribution(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
     }
 
-    private static List<List<String>> getTabletDistribution(
+    public static List<List<String>> getTabletDistribution(
             String dbName, String tblName, PartitionNames partitionNames)
             throws DdlException {
         DecimalFormat df = new DecimalFormat("00.00 %");
