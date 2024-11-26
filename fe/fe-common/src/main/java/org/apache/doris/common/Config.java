@@ -2638,7 +2638,7 @@ public class Config extends ConfigBase {
     })
     public static boolean ignore_unknown_metadata_module = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
+    @ConfField(mutable = true, description = {
             "从主节点同步image文件的超时时间，用户可根据${meta_dir}/image文件夹下面的image文件大小和节点间的网络环境调整，"
                     + "单位为秒，默认值300",
             "The timeout for FE Follower/Observer synchronizing an image file from the FE Master, can be adjusted by "
