@@ -234,6 +234,7 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
           _parquet_disable_dictionary(parquet_disable_dictionary),
           _parquet_version(parquet_version),
           _iceberg_schema_json(iceberg_schema_json) {
+    _iceberg_schema = nullptr;
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
