@@ -34,6 +34,9 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundType;
+import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
+import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
@@ -215,12 +218,33 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         long chosenPartitionLimit = Long.MAX_VALUE;
         long chosenRowNumberPartitionLimit = Long.MAX_VALUE;
         boolean hasRowNumber = false;
+        long atLeastLimit = -1;
         for (NamedExpression windowExpr : windowExpressions) {
             if (windowExpr == null || windowExpr.children().size() != 1
                     || !(windowExpr.child(0) instanceof WindowExpression)) {
                 continue;
             }
             WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
+
+            Optional<WindowFrame> windowFrame = windowFunc.getWindowFrame();
+            if (windowFrame.isPresent()) {
+                WindowFrame frame = windowFrame.get();
+                FrameUnitsType frameUnits = frame.getFrameUnits();
+                FrameBoundary rightBoundary = frame.getRightBoundary();
+                if (rightBoundary.getFrameBoundType() == FrameBoundType.UNBOUNDED_FOLLOWING) {
+                    return null;
+                } else if (frameUnits == FrameUnitsType.ROWS
+                        && rightBoundary.getFrameBoundType().isFollowing()
+                        && rightBoundary.getBoundOffset().isPresent()
+                        && rightBoundary.getBoundOffset().get() instanceof IntegerLikeLiteral) {
+                    IntegerLikeLiteral intLiteral
+                            = (IntegerLikeLiteral) rightBoundary.getBoundOffset().get();
+                    long offset = intLiteral.getLongValue();
+                    if (offset + 1 > atLeastLimit) {
+                        atLeastLimit = offset + 1;
+                    }
+                }
+            }
 
             // Check the window function name.
             if (!(windowFunc.getFunction() instanceof RowNumber
@@ -235,7 +259,6 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             }
 
             // Check the window type and window frame.
-            Optional<WindowFrame> windowFrame = windowFunc.getWindowFrame();
             if (windowFrame.isPresent()) {
                 WindowFrame frame = windowFrame.get();
                 if (!(frame.getLeftBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING
@@ -307,7 +330,9 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 && chosenRowNumberPartitionLimit == Long.MAX_VALUE)) {
             return null;
         } else {
-            return Pair.of(chosenWindowFunc, hasRowNumber ? chosenRowNumberPartitionLimit : chosenPartitionLimit);
+            return Pair.of(chosenWindowFunc,
+                    Math.max(atLeastLimit, hasRowNumber ? chosenRowNumberPartitionLimit : chosenPartitionLimit)
+            );
         }
     }
 
