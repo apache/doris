@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
 // schema change and modify replica num
 suite("txn_insert_with_schema_change") {
     def tableName = "txn_insert_with_schema_change"
-    def dbName = "regression_test_insert_p2"
+    def dbName = "regression_test_insert_p2_transaction"
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
     logger.info("url: ${url}")
 
