@@ -156,7 +156,8 @@ Status BaseTablet::capture_sub_txn_rs_readers(int64_t version,
                   << ", tablet=" << tablet_id() << ", set tmp version=" << tmp_version;
         rowset->set_version(Version(tmp_version, tmp_version));
         if (rowset->rowset_meta()->has_delete_predicate()) {
-            rowset->rowset_meta()->mutable_delete_predicate()->set_version(tmp_version);
+            rowset->rowset_meta()->mutable_delete_predicate()->set_version(
+                    cast_set<int32_t>(tmp_version));
         }
         if (rowset != nullptr) {
             RowsetReaderSharedPtr rs_reader;
