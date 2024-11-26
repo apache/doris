@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
@@ -28,6 +29,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -40,6 +42,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,9 +50,11 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -370,5 +375,53 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected Optional<SchemaCacheValue> getSchemaCacheValue() {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         return cache.getSchemaValue(dbName, name);
+    }
+
+    /**
+     * Retrieve all partitions and initialize SelectedPartitions
+     *
+     * @param snapshotId if not support mvcc, ignore this
+     * @return
+     */
+    public SelectedPartitions initSelectedPartitions(OptionalLong snapshotId) {
+        if (!supportPartitionPruned()) {
+            return SelectedPartitions.NOT_PRUNED;
+        }
+        if (CollectionUtils.isEmpty(this.getPartitionColumns(snapshotId))) {
+            return SelectedPartitions.NOT_PRUNED;
+        }
+        Map<String, PartitionItem> nameToPartitionItems = getNameToPartitionItems(snapshotId);
+        return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false);
+    }
+
+    /**
+     * get partition map
+     * If partition related operations are supported, this method needs to be implemented in the subclass
+     *
+     * @param snapshotId if not support mvcc, ignore this
+     * @return partitionName ==> PartitionItem
+     */
+    public Map<String, PartitionItem> getNameToPartitionItems(OptionalLong snapshotId) {
+        return Collections.emptyMap();
+    }
+
+    /**
+     * get partition column list
+     * If partition related operations are supported, this method needs to be implemented in the subclass
+     *
+     * @param snapshotId if not support mvcc, ignore this
+     * @return
+     */
+    public List<Column> getPartitionColumns(OptionalLong snapshotId) {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Does it support partition cpruned， If so, this method needs to be overridden in subclasses
+     *
+     * @return
+     */
+    public boolean supportPartitionPruned() {
+        return false;
     }
 }
