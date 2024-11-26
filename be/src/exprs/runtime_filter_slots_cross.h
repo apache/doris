@@ -79,6 +79,24 @@ public:
         return Status::OK();
     }
 
+    void copy_to_shared_context(vectorized::SharedCollectedDataContextPtr& context) {
+        for (auto filter : _runtime_filters) {
+            context->runtime_filters[filter->filter_id()] = filter->get_shared_context_ref();
+        }
+    }
+
+    Status copy_from_shared_context(vectorized::SharedCollectedDataContextPtr& context) {
+        for (auto filter : _runtime_filters) {
+            auto filter_id = filter->filter_id();
+            auto ret = context->runtime_filters.find(filter_id);
+            if (ret == context->runtime_filters.end()) {
+                return Status::Aborted("invalid runtime filter id is: {}", filter_id);
+            }
+            filter->get_shared_context_ref() = ret->second;
+        }
+        return Status::OK();
+    }
+
     bool empty() const { return _runtime_filters.empty(); }
 
 private:

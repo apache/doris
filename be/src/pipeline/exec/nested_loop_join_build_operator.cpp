@@ -30,20 +30,18 @@ struct RuntimeFilterBuild {
         if (_parent->runtime_filters().empty()) {
             return Status::OK();
         }
-        VRuntimeFilterSlotsCross runtime_filter_slots(_parent->runtime_filters(),
-                                                      _parent->filter_src_expr_ctxs());
 
-        RETURN_IF_ERROR(runtime_filter_slots.init(state));
+        RETURN_IF_ERROR(_parent->runtime_filter_slots()->init(state));
 
-        if (!runtime_filter_slots.empty() && !_parent->build_blocks()->empty()) {
+        if (!_parent->runtime_filter_slots()->empty() && !_parent->build_blocks()->empty()) {
             SCOPED_TIMER(_parent->runtime_filter_compute_timer());
             for (auto& build_block : *_parent->build_blocks()) {
-                RETURN_IF_ERROR(runtime_filter_slots.insert(&build_block));
+                RETURN_IF_ERROR(_parent->runtime_filter_slots()->insert(&build_block));
             }
         }
         {
             SCOPED_TIMER(_parent->publish_runtime_filter_timer());
-            RETURN_IF_ERROR(runtime_filter_slots.publish(state));
+            RETURN_IF_ERROR(_parent->runtime_filter_slots()->publish(state));
         }
 
         return Status::OK();
@@ -69,6 +67,31 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
         RETURN_IF_ERROR(state->register_producer_runtime_filter(p._runtime_filter_descs[i],
                                                                 &_runtime_filters[i], false));
     }
+
+    _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
+    for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
+    }
+    _runtime_filter_slots =
+            std::make_shared<VRuntimeFilterSlotsCross>(runtime_filters(), _filter_src_expr_ctxs);
+
+    _should_collected_blocks = true;
+    if (state->enable_share_hash_table_for_broadcast_join()) {
+        _should_collected_blocks = info.task_idx == 0;
+        if (_should_collected_blocks) {
+            p._shared_collected_data_controller->set_builder_and_consumers(
+                    state->fragment_instance_id(), p.node_id());
+        }
+    }
+
+    profile()->add_info_string("ShareHashTableEnabled",
+                               std::to_string(state->enable_share_hash_table_for_broadcast_join()));
+    profile()->add_info_string("BuildShareHashTable", std::to_string(_should_collected_blocks));
+    if (!_should_collected_blocks) {
+        _dependency->block();
+        p._shared_collected_data_controller->append_dependency(p.node_id(),
+                                                               _dependency->shared_from_this());
+    }
     return Status::OK();
 }
 
@@ -76,11 +99,6 @@ Status NestedLoopJoinBuildSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
-    auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
-    _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
-    for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
-    }
     return Status::OK();
 }
 
@@ -108,7 +126,11 @@ Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
 Status NestedLoopJoinBuildSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>::open(state));
     size_t num_build_tuples = _child->row_desc().tuple_descriptors().size();
-
+    if (state->enable_share_hash_table_for_broadcast_join()) {
+        _shared_collected_data_controller =
+                state->get_query_ctx()->get_shared_collected_data_controller();
+        _shared_collected_data_context = _shared_collected_data_controller->get_context(node_id());
+    }
     for (size_t i = 0; i < num_build_tuples; ++i) {
         TupleDescriptor* build_tuple_desc = _child->row_desc().tuple_descriptors()[i];
         auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
@@ -136,10 +158,44 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
         }
     }
 
-    if (eos) {
+    if (local_state._should_collected_blocks && eos) {
         RuntimeFilterBuild rf_ctx(&local_state);
         RETURN_IF_ERROR(rf_ctx(state));
 
+        if (_shared_collected_data_controller) {
+            _shared_collected_data_context->status = Status::OK();
+            _shared_collected_data_context->complete_build_stage = true;
+            _shared_collected_data_context->build_blocks_ptr =
+                    local_state._shared_state->build_blocks;
+            local_state.runtime_filter_slots()->copy_to_shared_context(
+                    _shared_collected_data_context);
+            _shared_collected_data_controller->signal_finish(node_id());
+        }
+    } else if (!local_state._should_collected_blocks &&
+               _shared_collected_data_context->complete_build_stage) {
+        DCHECK(_shared_collected_data_controller != nullptr);
+        DCHECK(_shared_collected_data_context != nullptr);
+        // the instance which is not build hash table, it's should wait the signal of hash table build finished.
+        // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit,
+        if (!_shared_collected_data_context->signaled) {
+            return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
+        }
+
+        if (!_shared_collected_data_context->status.ok()) {
+            return _shared_collected_data_context->status;
+        }
+
+        RETURN_IF_ERROR(local_state.runtime_filter_slots()->copy_from_shared_context(
+                _shared_collected_data_context));
+
+        local_state.profile()->add_info_string(
+                "SharedCollectedDataFrom",
+                print_id(_shared_collected_data_controller->get_builder_fragment_instance_id(
+                        node_id())));
+        local_state._shared_state->build_blocks = _shared_collected_data_context->build_blocks_ptr;
+    }
+
+    if (eos) {
         // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338
         if (_is_output_left_side_only && ((_join_op == TJoinOp::type::LEFT_SEMI_JOIN &&
                                            local_state._shared_state->build_blocks->empty()) ||

@@ -19,8 +19,10 @@
 
 #include <stdint.h>
 
+#include "exprs/runtime_filter_slots_cross.h"
 #include "operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
+#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris::pipeline {
 
@@ -38,7 +40,6 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
 
-    vectorized::VExprContextSPtrs& filter_src_expr_ctxs() { return _filter_src_expr_ctxs; }
     RuntimeProfile::Counter* runtime_filter_compute_timer() {
         return _runtime_filter_compute_timer;
     }
@@ -47,11 +48,16 @@ public:
         return _publish_runtime_filter_timer;
     }
 
+    std::shared_ptr<VRuntimeFilterSlotsCross> runtime_filter_slots() {
+        return _runtime_filter_slots;
+    }
+
 private:
     friend class NestedLoopJoinBuildSinkOperatorX;
     uint64_t _build_rows = 0;
     uint64_t _total_mem_usage = 0;
-
+    bool _should_collected_blocks = true;
+    std::shared_ptr<VRuntimeFilterSlotsCross> _runtime_filter_slots;
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 };
 
@@ -84,6 +90,8 @@ private:
     friend class NestedLoopJoinBuildSinkLocalState;
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
+    std::shared_ptr<vectorized::SharedCollectedDataController> _shared_collected_data_controller;
+    vectorized::SharedCollectedDataContextPtr _shared_collected_data_context = nullptr;
 
     const bool _is_output_left_side_only;
     RowDescriptor _row_descriptor;

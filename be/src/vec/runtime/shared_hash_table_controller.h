@@ -73,13 +73,27 @@ struct SharedHashTableContext {
 
 using SharedHashTableContextPtr = std::shared_ptr<SharedHashTableContext>;
 
-class SharedHashTableController {
+template <typename ContextTypePtr>
+class BaseController {
 public:
+    using ContextType = typename std::pointer_traits<ContextTypePtr>::element_type;
     /// set hash table builder's fragment instance id and consumers' fragment instance id
     void set_builder_and_consumers(TUniqueId builder, int node_id);
     TUniqueId get_builder_fragment_instance_id(int my_node_id);
-    SharedHashTableContextPtr get_context(int my_node_id);
+    ContextTypePtr get_context(int my_node_id);
     void signal_finish(int my_node_id);
+
+    std::mutex _mutex;
+    // For pipelineX, we update all dependencies once hash table is built;
+    std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::Dependency>>> _dependencies;
+    std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::Dependency>>>
+            _finish_dependencies;
+    std::map<int /*node id*/, TUniqueId /*fragment instance id*/> _builder_fragment_ids;
+    std::map<int /*node id*/, ContextTypePtr> _shared_contexts;
+};
+
+class SharedHashTableController : public BaseController<SharedHashTableContextPtr> {
+public:
     void append_dependency(int node_id, std::shared_ptr<pipeline::Dependency> dep,
                            std::shared_ptr<pipeline::Dependency> finish_dep) {
         std::lock_guard<std::mutex> lock(_mutex);
@@ -90,15 +104,27 @@ public:
         _dependencies[node_id].push_back(dep);
         _finish_dependencies[node_id].push_back(finish_dep);
     }
+};
 
-private:
-    std::mutex _mutex;
-    // For pipelineX, we update all dependencies once hash table is built;
-    std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::Dependency>>> _dependencies;
-    std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::Dependency>>>
-            _finish_dependencies;
-    std::map<int /*node id*/, TUniqueId /*fragment instance id*/> _builder_fragment_ids;
-    std::map<int /*node id*/, SharedHashTableContextPtr> _shared_contexts;
+struct SharedCollectedDataContext {
+    SharedCollectedDataContext() = default;
+    Status status;
+    std::map<int, RuntimeFilterContextSPtr> runtime_filters;
+    std::atomic<bool> signaled = false;
+    std::atomic<bool> complete_build_stage = false;
+    std::shared_ptr<std::vector<Block>> build_blocks_ptr;
+};
+using SharedCollectedDataContextPtr = std::shared_ptr<SharedCollectedDataContext>;
+
+class SharedCollectedDataController : public BaseController<SharedCollectedDataContextPtr> {
+public:
+    void append_dependency(int node_id, std::shared_ptr<pipeline::Dependency> dep) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (!_dependencies.contains(node_id)) {
+            _dependencies.insert({node_id, {}});
+        }
+        _dependencies[node_id].push_back(dep);
+    }
 };
 
 } // namespace vectorized
