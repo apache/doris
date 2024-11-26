@@ -1897,7 +1897,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // index id -> index schema
             Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
 
-            //for multi add colmuns clauses
+            //for multi add columns clauses
             //index id -> index col_unique_id supplier
             Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
             for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
@@ -2711,7 +2711,7 @@ public class SchemaChangeHandler extends AlterHandler {
         // the column name in CreateIndexClause is not check case sensitivity,
         // when send index description to BE, there maybe cannot find column by name,
         // so here update column name in CreateIndexClause after checkColumn for indexDef,
-        // there will use the column name in olapTable insead of the column name in CreateIndexClause.
+        // there will use the column name in olapTable instead of the column name in CreateIndexClause.
         alterIndex.setColumns(indexDef.getColumns());
         alterIndex.setColumnUniqueIds(indexDef.getColumnUniqueIds());
         newIndexes.add(alterIndex);
