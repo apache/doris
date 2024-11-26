@@ -1594,9 +1594,7 @@ RuntimeFilterType IRuntimeFilter::get_real_type() {
 }
 
 bool IRuntimeFilter::need_sync_filter_size() {
-    return (type() == RuntimeFilterType::IN_OR_BLOOM_FILTER ||
-            type() == RuntimeFilterType::BLOOM_FILTER) &&
-           _wrapper->get_build_bf_cardinality() && !_is_broadcast_join;
+    return _wrapper->get_build_bf_cardinality() && !_is_broadcast_join;
 }
 
 void IRuntimeFilter::update_filter(std::shared_ptr<RuntimePredicateWrapper> wrapper,
