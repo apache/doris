@@ -427,14 +427,6 @@ bool DataTypeStruct::is_comparable() const {
                        [](auto&& elem) { return elem->is_comparable(); });
 }
 
-size_t DataTypeStruct::get_maximum_size_of_value_in_memory() const {
-    size_t res = 0;
-    for (const auto& elem : elems) {
-        res += elem->get_maximum_size_of_value_in_memory();
-    }
-    return res;
-}
-
 size_t DataTypeStruct::get_size_of_value_in_memory() const {
     size_t res = 0;
     for (const auto& elem : elems) {

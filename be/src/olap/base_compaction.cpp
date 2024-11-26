@@ -23,6 +23,7 @@
 #include <mutex>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/compaction.h"
@@ -35,6 +36,8 @@
 #include "util/trace.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 using namespace ErrorCode;
 
 BaseCompaction::BaseCompaction(StorageEngine& engine, const TabletSharedPtr& tablet)
@@ -184,7 +187,8 @@ Status BaseCompaction::pick_rowsets_to_compact() {
         // set to 1 to void divide by zero
         base_size = 1;
     }
-    double cumulative_base_ratio = static_cast<double>(cumulative_total_size) / base_size;
+    double cumulative_base_ratio =
+            cast_set<double>(cumulative_total_size) / cast_set<double>(base_size);
 
     if (cumulative_base_ratio > min_data_ratio) {
         VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->tablet_id()

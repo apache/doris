@@ -1389,12 +1389,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public List<Long> getPartitionIds() {
-        readLock();
-        try {
-            return new ArrayList<>(idToPartition.keySet());
-        } finally {
-            readUnlock();
-        }
+        return new ArrayList<>(idToPartition.keySet());
     }
 
     public Set<String> getCopiedBfColumns() {

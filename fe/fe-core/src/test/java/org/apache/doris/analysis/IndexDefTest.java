@@ -77,8 +77,8 @@ public class IndexDefTest {
 
     @Test
     public void toSql() {
-        Assert.assertEquals("INDEX index1 (`col1`) USING INVERTED COMMENT 'balabala'", def.toSql());
-        Assert.assertEquals("INDEX index1 ON table1 (`col1`) USING INVERTED COMMENT 'balabala'",
+        Assert.assertEquals("INDEX `index1` (`col1`) USING INVERTED COMMENT 'balabala'", def.toSql());
+        Assert.assertEquals("INDEX `index1` ON table1 (`col1`) USING INVERTED COMMENT 'balabala'",
                 def.toSql("table1"));
     }
 }
