@@ -32,6 +32,7 @@
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
+#include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
 #include "vec/columns/column_const.h"
@@ -100,6 +101,24 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 fmt::format("WaitForLocalExchangeBuffer{}", i), TUnit ::TIME_NS, timer_name, 1));
     }
     _wait_broadcast_buffer_timer = ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
+
+    size_t local_size = 0;
+    for (int i = 0; i < channels.size(); ++i) {
+        if (channels[i]->is_local()) {
+            local_size++;
+            _last_local_channel_idx = i;
+        }
+    }
+    only_local_exchange = local_size == channels.size();
+
+    if (!only_local_exchange) {
+        _sink_buffer = p.get_sink_buffer();
+        register_channels(_sink_buffer.get());
+        _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                      "ExchangeSinkQueueDependency", true);
+        _sink_buffer->set_dependency(_queue_dependency, this);
+    }
+
     return Status::OK();
 }
 
@@ -149,20 +168,10 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
 
-    if (!only_local_exchange) {
-        _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id, _sender_id,
-                                                            _state->be_number(), state, this);
-        register_channels(_sink_buffer.get());
-        _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                      "ExchangeSinkQueueDependency", true);
-        _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
-    }
-
     if ((_part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
         _broadcast_dependency = Dependency::create_shared(
                 _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
-        _sink_buffer->set_broadcast_dependency(_broadcast_dependency);
         _broadcast_pb_mem_limiter =
                 vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
     } else if (local_size > 0) {
@@ -360,6 +369,7 @@ Status ExchangeSinkOperatorX::open(RuntimeState* state) {
         }
         RETURN_IF_ERROR(vectorized::VExpr::open(_tablet_sink_expr_ctxs, state));
     }
+    _sink_buffer = _create_buffer();
     return Status::OK();
 }
 
@@ -632,6 +642,16 @@ void ExchangeSinkLocalState::register_channels(pipeline::ExchangeSinkBuffer* buf
     for (auto& channel : channels) {
         channel->register_exchange_buffer(buffer);
     }
+    // The target ins_id of multiple channels may be the same.
+    // The calculation logic here is the same as that of _working_channels_count.
+    std::set<InstanceLoId> ins_id_set;
+    for (auto& channel : channels) {
+        auto ins_id = channel->ins_id();
+        if (!channel->is_local() && !ins_id_set.contains(ins_id)) {
+            buffer->register_sink(ins_id);
+            ins_id_set.insert(ins_id);
+        }
+    }
 }
 
 Status ExchangeSinkOperatorX::channel_add_rows(
@@ -680,7 +700,7 @@ std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
                        ", Sink Buffer: (_is_finishing = {}, blocks in queue: {}, queue capacity: "
                        "{}, queue dep: {}), _reach_limit: {}, working channels: {}",
                        _sink_buffer->_is_finishing.load(), _sink_buffer->_total_queue_size,
-                       _sink_buffer->_queue_capacity, (void*)_sink_buffer->_queue_dependency.get(),
+                       _sink_buffer->_queue_capacity, (void*)_queue_dependency.get(),
                        _reach_limit.load(), _working_channels_count.load());
     }
     return fmt::to_string(debug_string_buffer);
@@ -732,6 +752,35 @@ DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
         }
     }
     return DataSinkOperatorX<ExchangeSinkLocalState>::required_data_distribution();
+}
+
+std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::_create_buffer() {
+    PUniqueId id;
+    id.set_hi(_state->query_id().hi);
+    id.set_lo(_state->query_id().lo);
+    auto sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id, state());
+    for (const auto& _dest : _dests) {
+        const auto& dest_fragment_instance_id = _dest.fragment_instance_id;
+        // There is no need to check for duplicate dest_fragment_instance_id here.
+        // The construct_request function already handles this check internally.
+        sink_buffer->construct_request(dest_fragment_instance_id);
+    }
+    return sink_buffer;
+}
+
+std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::get_sink_buffer() {
+    if (_child) {
+        if (std::dynamic_pointer_cast<SortSourceOperatorX>(_child)) {
+            return _create_buffer();
+        }
+        if (std::dynamic_pointer_cast<LocalExchangeSourceOperatorX>(_child)) {
+            return _create_buffer();
+        }
+    }
+    if (_state->enable_shared_exchange_sink_buffer()) {
+        return _sink_buffer;
+    }
+    return _create_buffer();
 }
 
 } // namespace doris::pipeline
