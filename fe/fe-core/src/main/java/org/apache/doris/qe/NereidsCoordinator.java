@@ -140,7 +140,6 @@ public class NereidsCoordinator extends Coordinator {
             ScanNode scanNode = scanNodeIdToReplicaIds.getKey();
             ScanRanges scanReplicas = scanNodeIdToReplicaIds.getValue();
             instanceExecParam.perNodeScanRanges.put(scanNode.getId().asInt(), scanReplicas.params);
-            instanceExecParam.perNodeSharedScans.put(scanNode.getId().asInt(), isShareScan);
         }
     }
 
@@ -157,7 +156,6 @@ public class NereidsCoordinator extends Coordinator {
                 List<TScanRangeParams> scanBucketTablets = instanceExecParam.perNodeScanRanges.computeIfAbsent(
                         scanNode.getId().asInt(), id -> Lists.newArrayList());
                 scanBucketTablets.addAll(scanRanges.params);
-                instanceExecParam.perNodeSharedScans.put(scanNode.getId().asInt(), isShareScan);
 
                 if (scanNode instanceof OlapScanNode) {
                     OlapScanNode olapScanNode = (OlapScanNode) scanNode;
