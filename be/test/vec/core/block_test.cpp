@@ -1028,160 +1028,444 @@ TEST(BlockTest, BasicOperations) {
 }
 
 TEST(BlockTest, ColumnOperations) {
-    vectorized::Block block;
-    auto col1 = vectorized::ColumnVector<Int32>::create();
-    auto col2 = vectorized::ColumnVector<Int32>::create();
-    auto col3 = vectorized::ColumnVector<Int32>::create();
-    vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
-
-    // Setup test data
-    block.insert({col1->get_ptr(), type, "col1"});
-    block.insert({col2->get_ptr(), type, "col2"});
-    block.insert({col3->get_ptr(), type, "col3"});
-
-    // Test get_by_position
-    EXPECT_EQ("col1", block.get_by_position(0).name);
-    EXPECT_EQ("col2", block.get_by_position(1).name);
-    EXPECT_EQ("col3", block.get_by_position(2).name);
-
-    // Test safe_get_by_position
-    EXPECT_EQ("col1", block.safe_get_by_position(0).name);
-    EXPECT_THROW(block.safe_get_by_position(10), Exception);
-
-    // Test get_by_name
-    EXPECT_EQ("col1", block.get_by_name("col1").name);
-    EXPECT_THROW(block.get_by_name("non_existent"), Exception);
-
-    // Test try_get_by_name
-    EXPECT_NE(nullptr, block.try_get_by_name("col1"));
-    EXPECT_EQ(nullptr, block.try_get_by_name("non_existent"));
-
-    // Test has
-    EXPECT_TRUE(block.has("col1"));
-    EXPECT_FALSE(block.has("non_existent"));
-
-    // Test get_position_by_name
-    EXPECT_EQ(0, block.get_position_by_name("col1"));
-    EXPECT_EQ(1, block.get_position_by_name("col2"));
-    EXPECT_THROW(block.get_position_by_name("non_existent"), Exception);
-
-    // Test get_names
-    auto names = block.get_names();
-    EXPECT_EQ(3, names.size());
-    EXPECT_EQ("col1", names[0]);
-    EXPECT_EQ("col2", names[1]);
-    EXPECT_EQ("col3", names[2]);
-
-    // Test get_data_type
-    EXPECT_EQ(type, block.get_data_type(0));
-    EXPECT_EQ(type, block.get_data_type(1));
-    EXPECT_EQ(type, block.get_data_type(2));
-
-    // Test get_data_types
-    auto types = block.get_data_types();
-    EXPECT_EQ(3, types.size());
-    for (const auto& t : types) {
-        EXPECT_EQ(type, t);
-    }
-
-    // Test replace_by_position
-    auto new_col = vectorized::ColumnVector<Int32>::create();
-    block.replace_by_position(0, new_col->get_ptr());
-    EXPECT_EQ(0, block.get_by_position(0).column->size());
-
-    // Test replace_by_position with rvalue
-    auto another_col = vectorized::ColumnVector<Int32>::create();
-    block.replace_by_position(1, another_col->get_ptr());
-    EXPECT_EQ(0, block.get_by_position(1).column->size());
-
-    // Test replace_by_position_if_const
-    auto const_col = vectorized::ColumnVector<Int32>::create();
-    const_col->insert_value(1);
-    auto const_column = vectorized::ColumnConst::create(const_col->get_ptr(), 1);
-    block.replace_by_position(2, const_column->get_ptr());
-
-    // Verify it's const column before replacement
-    EXPECT_NE(nullptr,
-              typeid_cast<const vectorized::ColumnConst*>(block.get_by_position(2).column.get()));
-
-    // Replace const column with full column
-    block.replace_by_position_if_const(2);
-
-    // Verify it's no longer const column after replacement
-    EXPECT_EQ(nullptr,
-              typeid_cast<const vectorized::ColumnConst*>(block.get_by_position(2).column.get()));
-
-    // Test iterator functionality
-    size_t count = 0;
-    for (const auto& col : block) {
-        EXPECT_EQ(type, col.type);
-        count++;
-    }
-    EXPECT_EQ(3, count);
-
-    // Test const iterator functionality
-    const auto& const_block = block;
-    count = 0;
-    for (const auto& col : const_block) {
-        EXPECT_EQ(type, col.type);
-        count++;
-    }
-    EXPECT_EQ(3, count);
-
-    // Test get_columns_with_type_and_name
-    const auto& columns = block.get_columns_with_type_and_name();
-    EXPECT_EQ(3, columns.size());
-    EXPECT_EQ("col1", columns[0].name);
-    EXPECT_EQ("col2", columns[1].name);
-    EXPECT_EQ("col3", columns[2].name);
-
-    // Test sort_columns
+    // Test with empty block
     {
-        vectorized::Block unsorted_block;
+        vectorized::Block empty_block;
+        
+        // Test get operations with empty block
+        EXPECT_DEATH(empty_block.get_by_position(0), "");
+        EXPECT_THROW(empty_block.safe_get_by_position(0), Exception);
+        EXPECT_THROW(empty_block.get_by_name("non_existent"), Exception);
+        EXPECT_EQ(nullptr, empty_block.try_get_by_name("non_existent"));
+        
+        // Test has
+        EXPECT_FALSE(empty_block.has("non_existent"));
+
+        // Test get_position_by_name
+        EXPECT_THROW(empty_block.get_position_by_name("non_existent"), Exception);
+        
+        // Test get_names
+        auto names = empty_block.get_names();
+        EXPECT_EQ(0, names.size());
+        
+        // Test get_data_types
+        auto types = empty_block.get_data_types();
+        EXPECT_EQ(0, types.size());
+        
+        // Test replace_by_position
+        auto col = vectorized::ColumnVector<Int32>::create();
+        vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
+        EXPECT_DEATH(empty_block.replace_by_position(0, col->get_ptr()), "");
+        
+        // Test replace_by_position_if_const
+        EXPECT_DEATH(empty_block.replace_by_position_if_const(0), "");
+
+        // Test get_columns_with_type_and_name
+        const auto& columns = empty_block.get_columns_with_type_and_name();
+        EXPECT_EQ(0, columns.size());
+    }
+
+    // Test with regular columns
+    {
+        vectorized::Block block;
+        auto col1 = vectorized::ColumnVector<Int32>::create();
+        auto col2 = vectorized::ColumnVector<Int32>::create();
+        auto col3 = vectorized::ColumnVector<Int32>::create();
+        vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
+
+        // Setup test data
+        block.insert({col1->get_ptr(), type, "col1"});
+        block.insert({col2->get_ptr(), type, "col2"});
+        block.insert({col3->get_ptr(), type, "col3"});
+
+        // Test get_by_position
+        EXPECT_EQ("col1", block.get_by_position(0).name);
+        EXPECT_EQ("col2", block.get_by_position(1).name);
+        EXPECT_EQ("col3", block.get_by_position(2).name);
+        EXPECT_DEATH(block.get_by_position(3), "");
+
+        // Test safe_get_by_position
+        EXPECT_EQ("col1", block.safe_get_by_position(0).name);
+        EXPECT_THROW(block.safe_get_by_position(10), Exception);
+
+        // Test get_by_name
+        EXPECT_EQ("col1", block.get_by_name("col1").name);
+        EXPECT_THROW(block.get_by_name("non_existent"), Exception);
+
+        // Test try_get_by_name
+        EXPECT_NE(nullptr, block.try_get_by_name("col1"));
+        EXPECT_EQ(nullptr, block.try_get_by_name("non_existent"));
+
+        // Test has
+        EXPECT_TRUE(block.has("col1")); 
+        EXPECT_FALSE(block.has("non_existent"));
+
+        // Test get_position_by_name
+        EXPECT_EQ(0, block.get_position_by_name("col1"));
+        EXPECT_EQ(1, block.get_position_by_name("col2"));
+        EXPECT_THROW(block.get_position_by_name("non_existent"), Exception);
+
+        // Test get_names
+        auto names = block.get_names();
+        EXPECT_EQ(3, names.size());
+        EXPECT_EQ("col1", names[0]);
+        EXPECT_EQ("col2", names[1]);
+        EXPECT_EQ("col3", names[2]);
+
+        // Test get_data_type
+        EXPECT_EQ(type, block.get_data_type(0));
+        EXPECT_EQ(type, block.get_data_type(1));
+        EXPECT_EQ(type, block.get_data_type(2));
+
+        // Test get_data_types
+        auto types = block.get_data_types();
+        EXPECT_EQ(3, types.size());
+        for (const auto& t : types) {
+            EXPECT_EQ(type, t);
+        }
+
+        // Test replace_by_position
+        auto new_col = vectorized::ColumnVector<Int32>::create();
+        block.replace_by_position(0, new_col->get_ptr());
+        EXPECT_EQ(0, block.get_by_position(0).column->size());
+        EXPECT_DEATH(block.replace_by_position(10, new_col->get_ptr()), "");
+
+        // Test replace_by_position_if_const
+        auto const_col = vectorized::ColumnVector<Int32>::create();
+        const_col->insert_value(1);
+        auto const_column = vectorized::ColumnConst::create(const_col->get_ptr(), 1);
+        block.replace_by_position(2, const_column->get_ptr());
+
+        // Verify it's const column before replacement
+        EXPECT_NE(nullptr,
+                  typeid_cast<const vectorized::ColumnConst*>(block.get_by_position(2).column.get()));
+
+        // Replace const column with full column
+        block.replace_by_position_if_const(2);
+        EXPECT_DEATH(block.replace_by_position_if_const(10), "");
+
+        // Verify it's no longer const column after replacement
+        EXPECT_EQ(nullptr,
+                  typeid_cast<const vectorized::ColumnConst*>(block.get_by_position(2).column.get()));
+
+        // Test get_columns_with_type_and_name
+        const auto& columns = block.get_columns_with_type_and_name();
+        EXPECT_EQ(3, columns.size());
+        EXPECT_EQ("col1", columns[0].name);
+        EXPECT_EQ("col2", columns[1].name);
+        EXPECT_EQ("col3", columns[2].name);
+    }
+
+    // Test with const columns 
+    {
+        vectorized::Block block;
+        vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
+
+        // Create and insert const columns
+        auto base_col1 = vectorized::ColumnVector<Int32>::create();
+        base_col1->insert_value(42);
+        auto const_col1 = vectorized::ColumnConst::create(base_col1->get_ptr(), 10);
+        block.insert({const_col1->get_ptr(), type, "const_col1"});
+
+        auto base_col2 = vectorized::ColumnVector<Int32>::create();
+        base_col2->insert_value(24);
+        auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), 5);
+        block.insert({const_col2->get_ptr(), type, "const_col2"});
+
+        // Test get_by_position
+        EXPECT_EQ("const_col1", block.get_by_position(0).name);
+        EXPECT_EQ("const_col2", block.get_by_position(1).name);
+        EXPECT_DEATH(block.get_by_position(2), "");
+
+        // Test safe_get_by_position
+        EXPECT_EQ("const_col1", block.safe_get_by_position(0).name);
+        EXPECT_THROW(block.safe_get_by_position(10), Exception);
+
+        // Test get_by_name
+        EXPECT_EQ("const_col1", block.get_by_name("const_col1").name);
+        EXPECT_THROW(block.get_by_name("non_existent"), Exception);
+
+        // Test try_get_by_name
+        EXPECT_NE(nullptr, block.try_get_by_name("const_col1"));
+        EXPECT_EQ(nullptr, block.try_get_by_name("non_existent"));
+
+        // Test has
+        EXPECT_TRUE(block.has("const_col1"));
+        EXPECT_FALSE(block.has("non_existent"));
+
+        // Test get_position_by_name
+        EXPECT_EQ(0, block.get_position_by_name("const_col1"));
+        EXPECT_EQ(1, block.get_position_by_name("const_col2"));
+        EXPECT_THROW(block.get_position_by_name("non_existent"), Exception);
+
+        // Test get_names
+        auto names = block.get_names();
+        EXPECT_EQ(2, names.size());
+        EXPECT_EQ("const_col1", names[0]);
+        EXPECT_EQ("const_col2", names[1]);
+
+        // Test get_data_type
+        EXPECT_EQ(type, block.get_data_type(0));
+        EXPECT_EQ(type, block.get_data_type(1));
+
+        // Test get_data_types
+        auto types = block.get_data_types();
+        EXPECT_EQ(2, types.size());
+        for (const auto& t : types) {
+            EXPECT_EQ(type, t);
+        }
+
+        // Test replace_by_position
+        auto new_const_col = vectorized::ColumnVector<Int32>::create();
+        new_const_col->insert_value(100);
+        auto new_const = vectorized::ColumnConst::create(new_const_col->get_ptr(), 10);
+        block.replace_by_position(0, new_const->get_ptr());
+        EXPECT_EQ(10, block.get_by_position(0).column->size());
+        EXPECT_DEATH(block.replace_by_position(10, new_const->get_ptr()), "");
+
+        // Test replace_by_position_if_const
+        block.replace_by_position_if_const(0);
+        EXPECT_EQ(nullptr,
+                typeid_cast<const vectorized::ColumnConst*>(block.get_by_position(0).column.get()));
+        EXPECT_DEATH(block.replace_by_position_if_const(10), "");
+
+        // Test get_columns_with_type_and_name
+        const auto& columns = block.get_columns_with_type_and_name();
+        EXPECT_EQ(2, columns.size());
+        EXPECT_EQ("const_col1", columns[0].name);
+        EXPECT_EQ("const_col2", columns[1].name);
+    }
+
+    // Test with nullable columns
+    {
+        vectorized::Block block;
+        vectorized::DataTypePtr base_type(std::make_shared<vectorized::DataTypeInt32>());
+        auto nullable_type = vectorized::make_nullable(base_type);
+
+        // Create and insert nullable columns
+        auto col1 = vectorized::ColumnVector<Int32>::create();
+        auto nullable_col1 = vectorized::make_nullable(col1->get_ptr());
+        block.insert({nullable_col1, nullable_type, "nullable_col1"});
+
+        auto col2 = vectorized::ColumnVector<Int32>::create();
+        auto nullable_col2 = vectorized::make_nullable(col2->get_ptr());
+        block.insert({nullable_col2, nullable_type, "nullable_col2"});
+
+        // Test get_by_position
+        EXPECT_EQ("nullable_col1", block.get_by_position(0).name);
+        EXPECT_EQ("nullable_col2", block.get_by_position(1).name);
+        EXPECT_DEATH(block.get_by_position(2), "");
+
+        // Test safe_get_by_position
+        EXPECT_EQ("nullable_col1", block.safe_get_by_position(0).name);
+        EXPECT_THROW(block.safe_get_by_position(10), Exception);
+
+        // Test get_by_name
+        EXPECT_EQ("nullable_col1", block.get_by_name("nullable_col1").name);
+        EXPECT_THROW(block.get_by_name("non_existent"), Exception);
+
+        // Test try_get_by_name
+        EXPECT_NE(nullptr, block.try_get_by_name("nullable_col1"));
+        EXPECT_EQ(nullptr, block.try_get_by_name("non_existent"));
+
+        // Test has
+        EXPECT_TRUE(block.has("nullable_col1"));
+        EXPECT_FALSE(block.has("non_existent"));
+
+        // Test get_position_by_name
+        EXPECT_EQ(0, block.get_position_by_name("nullable_col1"));
+        EXPECT_EQ(1, block.get_position_by_name("nullable_col2"));
+        EXPECT_THROW(block.get_position_by_name("non_existent"), Exception);
+
+        // Test get_names
+        auto names = block.get_names();
+        EXPECT_EQ(2, names.size());
+        EXPECT_EQ("nullable_col1", names[0]);
+        EXPECT_EQ("nullable_col2", names[1]);
+
+        // Test get_data_type
+        EXPECT_EQ(nullable_type, block.get_data_type(0));
+        EXPECT_EQ(nullable_type, block.get_data_type(1));
+
+        // Test get_data_types
+        auto types = block.get_data_types();
+        EXPECT_EQ(2, types.size());
+        for (const auto& t : types) {
+            EXPECT_EQ(nullable_type, t);
+        }
+
+        // Test replace_by_position
+        auto new_col = vectorized::ColumnVector<Int32>::create();
+        auto new_nullable = vectorized::make_nullable(new_col->get_ptr());
+        block.replace_by_position(0, new_nullable);
+        EXPECT_EQ(0, block.get_by_position(0).column->size());
+        EXPECT_DEATH(block.replace_by_position(10, new_nullable), "");
+
+        // Test replace_by_position_if_const
+        block.replace_by_position_if_const(0);
+        EXPECT_NE(nullptr,
+                typeid_cast<const vectorized::ColumnNullable*>(block.get_by_position(0).column.get()));
+        EXPECT_DEATH(block.replace_by_position_if_const(10), "");
+
+        // Test get_columns_with_type_and_name
+        const auto& columns = block.get_columns_with_type_and_name();
+        EXPECT_EQ(2, columns.size());
+        EXPECT_EQ("nullable_col1", columns[0].name);
+        EXPECT_EQ("nullable_col2", columns[1].name);
+    }
+}
+
+TEST(BlockTest, SortColumns) {
+    // Test sort_columns with empty block
+    {
+        vectorized::Block empty_block;
+        auto sorted_empty = empty_block.sort_columns();
+        EXPECT_EQ(0, sorted_empty.columns());
+        EXPECT_EQ(0, sorted_empty.rows());
+    }
+
+    // Test sort_columns with regular columns
+    {
+        vectorized::Block block;
         auto type = std::make_shared<vectorized::DataTypeInt32>();
 
         // Insert columns in random order
-        {
-            auto col_c = vectorized::ColumnVector<Int32>::create();
-            unsorted_block.insert({std::move(col_c), type, "c"});
-        }
-        {
-            auto col_a = vectorized::ColumnVector<Int32>::create();
-            unsorted_block.insert({std::move(col_a), type, "a"});
-        }
-        {
-            auto col_b = vectorized::ColumnVector<Int32>::create();
-            unsorted_block.insert({std::move(col_b), type, "b"});
-        }
+        auto col_c = vectorized::ColumnVector<Int32>::create();
+        col_c->insert_value(1);
+        block.insert({col_c->get_ptr(), type, "c"});
 
-        // Verify original order
-        auto original_names = unsorted_block.get_names();
-        EXPECT_EQ("c", original_names[0]);
-        EXPECT_EQ("a", original_names[1]);
-        EXPECT_EQ("b", original_names[2]);
+        auto col_a = vectorized::ColumnVector<Int32>::create();
+        col_a->insert_value(2);
+        block.insert({col_a->get_ptr(), type, "a"});
 
-        // Sort columns and verify
-        auto sorted_block = unsorted_block.sort_columns();
+        auto col_b = vectorized::ColumnVector<Int32>::create();
+        col_b->insert_value(3);
+        block.insert({col_b->get_ptr(), type, "b"});
+
+        // Sort and verify
+        auto sorted_block = block.sort_columns();
         auto sorted_names = sorted_block.get_names();
-
-        // Verify alphabetical order
         EXPECT_EQ("c", sorted_names[0]);
         EXPECT_EQ("b", sorted_names[1]);
         EXPECT_EQ("a", sorted_names[2]);
 
-        // Verify original block remains unchanged
-        original_names = unsorted_block.get_names();
-        EXPECT_EQ("c", original_names[0]);
-        EXPECT_EQ("a", original_names[1]);
-        EXPECT_EQ("b", original_names[2]);
+        // Verify data is preserved
+        EXPECT_EQ(1, sorted_block.get_by_position(0).column->get_int(0));
+        EXPECT_EQ(3, sorted_block.get_by_position(1).column->get_int(0));
+        EXPECT_EQ(2, sorted_block.get_by_position(2).column->get_int(0));
+    }
 
-        // Verify column count remains the same
-        EXPECT_EQ(unsorted_block.columns(), sorted_block.columns());
+    // Test sort_columns with const columns
+    {
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+        // Create and insert const columns in random order
+        auto base_c = vectorized::ColumnVector<Int32>::create();
+        base_c->insert_value(42);
+        auto const_c = vectorized::ColumnConst::create(base_c->get_ptr(), 10);
+        block.insert({const_c->get_ptr(), type, "c"});
+
+        auto base_a = vectorized::ColumnVector<Int32>::create();
+        base_a->insert_value(24);
+        auto const_a = vectorized::ColumnConst::create(base_a->get_ptr(), 10);
+        block.insert({const_a->get_ptr(), type, "a"});
+
+        auto base_b = vectorized::ColumnVector<Int32>::create();
+        base_b->insert_value(33);
+        auto const_b = vectorized::ColumnConst::create(base_b->get_ptr(), 10);
+        block.insert({const_b->get_ptr(), type, "b"});
+
+        // Sort and verify
+        auto sorted_block = block.sort_columns();
+        auto sorted_names = sorted_block.get_names();
+        EXPECT_EQ("c", sorted_names[0]);
+        EXPECT_EQ("b", sorted_names[1]);
+        EXPECT_EQ("a", sorted_names[2]);
+
+        // Verify const values are preserved
+        EXPECT_EQ(42, sorted_block.get_by_position(0).column->get_int(0));
+        EXPECT_EQ(33, sorted_block.get_by_position(1).column->get_int(0));
+        EXPECT_EQ(24, sorted_block.get_by_position(2).column->get_int(0));
+
+        // Verify columns remain const
+        for (size_t i = 0; i < 3; ++i) {
+            EXPECT_NE(nullptr, 
+                typeid_cast<const vectorized::ColumnConst*>(sorted_block.get_by_position(i).column.get()));
+        }
+    }
+
+    // Test sort_columns with nullable columns
+    {
+        vectorized::Block block;
+        auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+        auto nullable_type = vectorized::make_nullable(base_type);
+
+        // Create and insert nullable columns in random order
+        auto col_c = vectorized::ColumnVector<Int32>::create();
+        col_c->insert_value(1);
+        auto nullable_c = vectorized::make_nullable(col_c->get_ptr());
+        block.insert({nullable_c, nullable_type, "c"});
+
+        auto col_a = vectorized::ColumnVector<Int32>::create();
+        col_a->insert_value(2);
+        auto nullable_a = vectorized::make_nullable(col_a->get_ptr());
+        block.insert({nullable_a, nullable_type, "a"});
+
+        auto col_b = vectorized::ColumnVector<Int32>::create();
+        col_b->insert_value(3);
+        auto nullable_b = vectorized::make_nullable(col_b->get_ptr());
+        block.insert({nullable_b, nullable_type, "b"});
+
+        // Sort and verify
+        auto sorted_block = block.sort_columns();
+        auto sorted_names = sorted_block.get_names();
+        EXPECT_EQ("c", sorted_names[0]);
+        EXPECT_EQ("b", sorted_names[1]);
+        EXPECT_EQ("a", sorted_names[2]);
+
+        // Verify nullable status is preserved
+        for (size_t i = 0; i < 3; ++i) {
+            EXPECT_TRUE(sorted_block.get_by_position(i).type->is_nullable());
+        }
+    }
+
+    // Test sort_columns with mixed column types
+    {
+        vectorized::Block block;
+        auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+        auto nullable_type = vectorized::make_nullable(base_type);
+
+        // Insert regular column
+        auto regular_col = vectorized::ColumnVector<Int32>::create();
+        regular_col->insert_value(1);
+        block.insert({regular_col->get_ptr(), base_type, "c"});
+
+        // Insert const column
+        auto const_base = vectorized::ColumnVector<Int32>::create();
+        const_base->insert_value(2);
+        auto const_col = vectorized::ColumnConst::create(const_base->get_ptr(), 1);
+        block.insert({const_col->get_ptr(), base_type, "a"});
+
+        // Insert nullable column
+        auto nullable_base = vectorized::ColumnVector<Int32>::create();
+        nullable_base->insert_value(3);
+        auto nullable_col = vectorized::make_nullable(nullable_base->get_ptr());
+        block.insert({nullable_col, nullable_type, "b"});
+
+        // Sort and verify
+        auto sorted_block = block.sort_columns();
+        auto sorted_names = sorted_block.get_names();
+        EXPECT_EQ("c", sorted_names[0]);
+        EXPECT_EQ("b", sorted_names[1]);
+        EXPECT_EQ("a", sorted_names[2]);
 
         // Verify column types are preserved
-        EXPECT_EQ(type, sorted_block.get_data_type(0));
-        EXPECT_EQ(type, sorted_block.get_data_type(1));
-        EXPECT_EQ(type, sorted_block.get_data_type(2));
+        EXPECT_EQ(nullptr, 
+            typeid_cast<const vectorized::ColumnConst*>(sorted_block.get_by_position(0).column.get()));
+        EXPECT_TRUE(sorted_block.get_by_position(1).type->is_nullable());
+        EXPECT_NE(nullptr,
+            typeid_cast<const vectorized::ColumnConst*>(sorted_block.get_by_position(2).column.get()));
     }
 }
 
