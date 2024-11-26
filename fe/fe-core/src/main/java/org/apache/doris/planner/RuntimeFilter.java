@@ -216,8 +216,11 @@ public final class RuntimeFilter {
         tFilter.setIsBroadcastJoin(isBroadcastJoin);
         tFilter.setHasLocalTargets(hasLocalTargets);
         tFilter.setHasRemoteTargets(hasRemoteTargets);
+        boolean hasSerialTargets = false;
         for (RuntimeFilterTarget target : targets) {
             tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
+            hasSerialTargets = hasSerialTargets
+                    || (target.node.isSerialOperator() && target.node.fragment.useSerialSource(ConnectContext.get()));
         }
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
@@ -228,6 +231,7 @@ public final class RuntimeFilter {
         if (runtimeFilterType.equals(TRuntimeFilterType.MIN_MAX)) {
             tFilter.setMinMaxType(tMinMaxRuntimeFilterType);
         }
+        tFilter.setHasSerialTargets(hasSerialTargets);
         tFilter.setOptRemoteRf(hasRemoteTargets);
         tFilter.setBloomFilterSizeCalculatedByNdv(bloomFilterSizeCalculatedByNdv);
         if (builderNode instanceof HashJoinNode) {

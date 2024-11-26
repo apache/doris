@@ -391,6 +391,7 @@ protected:
     bool _has_remote_target;
     // will apply to local node
     bool _has_local_target;
+    bool _has_serial_targets = false;
     // filter is ready for consumer
     std::atomic<RuntimeFilterState> _rf_state_atomic;
     // role consumer or producer

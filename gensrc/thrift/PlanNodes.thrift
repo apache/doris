@@ -1294,6 +1294,8 @@ struct TRuntimeFilterDesc {
   15: optional bool null_aware;
 
   16: optional bool sync_filter_size;
+
+  17: optional bool has_serial_targets
 }
 
 

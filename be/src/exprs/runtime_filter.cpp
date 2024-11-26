@@ -1352,6 +1352,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     _has_local_target = desc->has_local_targets;
     _has_remote_target = desc->has_remote_targets;
     _expr_order = desc->expr_order;
+    _has_serial_targets = desc->__isset.has_serial_targets && desc->has_serial_targets;
     vectorized::VExprContextSPtr build_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
 
@@ -1371,9 +1372,11 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     // 1. Only 1 join key
     // 2. Bloom filter
     // 3. Size of all bloom filters will be same (size will be sync or this is a broadcast join).
-    params.build_bf_exactly =
-            build_bf_exactly && (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER ||
-                                 _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
+    // 4. Has no serial targets (which need to merge all bloom filters which should have the same size)
+    params.build_bf_exactly = build_bf_exactly &&
+                              (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER ||
+                               _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) &&
+                              !_has_serial_targets;
 
     params.bloom_filter_size_calculated_by_ndv = desc->bloom_filter_size_calculated_by_ndv;
 
@@ -1539,9 +1542,11 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile(uint64_t local_merge_
 std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
             "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, "
-            "build_bf_cardinality: {}, error_msg: {}",
+            "build_bf_cardinality: {}, _has_remote_target: {}, _has_local_target: "
+            "{}, _has_serial_targets: {}, error_msg: {}",
             _filter_id, to_string(_runtime_filter_type), _is_broadcast_join,
-            _wrapper->get_build_bf_cardinality(), _wrapper->_context->err_msg);
+            _wrapper->get_build_bf_cardinality(), _has_remote_target, _has_local_target,
+            _has_serial_targets, _wrapper->_context->err_msg);
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
