@@ -344,7 +344,8 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
             auto* pquery_id = closure->request_->mutable_query_id();
             pquery_id->set_hi(_state->get_query_ctx()->query_id().hi);
             pquery_id->set_lo(_state->get_query_ctx()->query_id().lo);
-            closure->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(_state->execution_timeout));
+            closure->cntl_->set_timeout_ms(
+                    get_execution_rpc_timeout_ms(_state->get_query_ctx()->execution_timeout()));
             if (config::execution_ignore_eovercrowded) {
                 closure->cntl_->ignore_eovercrowded();
             }
@@ -457,7 +458,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 closure->cntl_->request_attachment().append(request_attachment);
             }
 
-            closure->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(_state->execution_timeout));
+            closure->cntl_->set_timeout_ms(
+                    get_execution_rpc_timeout_ms(_state->get_query_ctx()->execution_timeout()));
             if (config::execution_ignore_eovercrowded) {
                 closure->cntl_->ignore_eovercrowded();
             }
