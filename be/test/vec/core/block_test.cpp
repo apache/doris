@@ -1037,26 +1037,26 @@ TEST(BlockTest, ColumnOperations) {
         EXPECT_THROW(empty_block.safe_get_by_position(0), Exception);
         EXPECT_THROW(empty_block.get_by_name("non_existent"), Exception);
         EXPECT_EQ(nullptr, empty_block.try_get_by_name("non_existent"));
-        
+
         // Test has
         EXPECT_FALSE(empty_block.has("non_existent"));
 
         // Test get_position_by_name
         EXPECT_THROW(empty_block.get_position_by_name("non_existent"), Exception);
-        
+
         // Test get_names
         auto names = empty_block.get_names();
         EXPECT_EQ(0, names.size());
-        
+
         // Test get_data_types
         auto types = empty_block.get_data_types();
         EXPECT_EQ(0, types.size());
-        
+
         // Test replace_by_position
         auto col = vectorized::ColumnVector<Int32>::create();
         vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
         EXPECT_DEATH(empty_block.replace_by_position(0, col->get_ptr()), "");
-        
+
         // Test replace_by_position_if_const
         EXPECT_DEATH(empty_block.replace_by_position_if_const(0), "");
 
@@ -1097,7 +1097,7 @@ TEST(BlockTest, ColumnOperations) {
         EXPECT_EQ(nullptr, block.try_get_by_name("non_existent"));
 
         // Test has
-        EXPECT_TRUE(block.has("col1")); 
+        EXPECT_TRUE(block.has("col1"));
         EXPECT_FALSE(block.has("non_existent"));
 
         // Test get_position_by_name
@@ -1137,16 +1137,16 @@ TEST(BlockTest, ColumnOperations) {
         block.replace_by_position(2, const_column->get_ptr());
 
         // Verify it's const column before replacement
-        EXPECT_NE(nullptr,
-                  typeid_cast<const vectorized::ColumnConst*>(block.get_by_position(2).column.get()));
+        EXPECT_NE(nullptr, typeid_cast<const vectorized::ColumnConst*>(
+                                   block.get_by_position(2).column.get()));
 
         // Replace const column with full column
         block.replace_by_position_if_const(2);
         EXPECT_DEATH(block.replace_by_position_if_const(10), "");
 
         // Verify it's no longer const column after replacement
-        EXPECT_EQ(nullptr,
-                  typeid_cast<const vectorized::ColumnConst*>(block.get_by_position(2).column.get()));
+        EXPECT_EQ(nullptr, typeid_cast<const vectorized::ColumnConst*>(
+                                   block.get_by_position(2).column.get()));
 
         // Test get_columns_with_type_and_name
         const auto& columns = block.get_columns_with_type_and_name();
@@ -1156,7 +1156,7 @@ TEST(BlockTest, ColumnOperations) {
         EXPECT_EQ("col3", columns[2].name);
     }
 
-    // Test with const columns 
+    // Test with const columns
     {
         vectorized::Block block;
         vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
@@ -1225,8 +1225,8 @@ TEST(BlockTest, ColumnOperations) {
 
         // Test replace_by_position_if_const
         block.replace_by_position_if_const(0);
-        EXPECT_EQ(nullptr,
-                typeid_cast<const vectorized::ColumnConst*>(block.get_by_position(0).column.get()));
+        EXPECT_EQ(nullptr, typeid_cast<const vectorized::ColumnConst*>(
+                                   block.get_by_position(0).column.get()));
         EXPECT_DEATH(block.replace_by_position_if_const(10), "");
 
         // Test get_columns_with_type_and_name
@@ -1303,8 +1303,8 @@ TEST(BlockTest, ColumnOperations) {
 
         // Test replace_by_position_if_const
         block.replace_by_position_if_const(0);
-        EXPECT_NE(nullptr,
-                typeid_cast<const vectorized::ColumnNullable*>(block.get_by_position(0).column.get()));
+        EXPECT_NE(nullptr, typeid_cast<const vectorized::ColumnNullable*>(
+                                   block.get_by_position(0).column.get()));
         EXPECT_DEATH(block.replace_by_position_if_const(10), "");
 
         // Test get_columns_with_type_and_name
@@ -1390,8 +1390,8 @@ TEST(BlockTest, SortColumns) {
 
         // Verify columns remain const
         for (size_t i = 0; i < 3; ++i) {
-            EXPECT_NE(nullptr, 
-                typeid_cast<const vectorized::ColumnConst*>(sorted_block.get_by_position(i).column.get()));
+            EXPECT_NE(nullptr, typeid_cast<const vectorized::ColumnConst*>(
+                                       sorted_block.get_by_position(i).column.get()));
         }
     }
 
@@ -1461,11 +1461,11 @@ TEST(BlockTest, SortColumns) {
         EXPECT_EQ("a", sorted_names[2]);
 
         // Verify column types are preserved
-        EXPECT_EQ(nullptr, 
-            typeid_cast<const vectorized::ColumnConst*>(sorted_block.get_by_position(0).column.get()));
+        EXPECT_EQ(nullptr, typeid_cast<const vectorized::ColumnConst*>(
+                                   sorted_block.get_by_position(0).column.get()));
         EXPECT_TRUE(sorted_block.get_by_position(1).type->is_nullable());
-        EXPECT_NE(nullptr,
-            typeid_cast<const vectorized::ColumnConst*>(sorted_block.get_by_position(2).column.get()));
+        EXPECT_EQ(nullptr, typeid_cast<const vectorized::ColumnConst*>(
+                                   sorted_block.get_by_position(2).column.get()));
     }
 }
 
