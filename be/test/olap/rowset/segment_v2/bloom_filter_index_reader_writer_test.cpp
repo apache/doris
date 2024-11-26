@@ -312,6 +312,27 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal) {
     delete[] val;
 }
 
+TEST_F(BloomFilterIndexReaderWriterTest, test_primary_key_bloom_filter_index_char) {
+    size_t num = 1024 * 3;
+    std::string* val = new std::string[num];
+    for (int i = 0; i < num; ++i) {
+        // there will be 3 bloom filter pages
+        val[i] = "primary_key_" + std::to_string(10000 + i);
+    }
+    Slice* slices = new Slice[num];
+    for (int i = 0; i < num; ++i) {
+        // there will be 3 bloom filter pages
+        slices[i] = Slice(val[i].c_str(), val[i].size());
+    }
+    std::string file_name = "primary_key_bloom_filter_index_char";
+    Slice not_exist_value("primary_key_not_exist_char");
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_CHAR>(
+            file_name, slices, num, 1, &not_exist_value, true, true);
+    EXPECT_TRUE(st.ok());
+    delete[] val;
+    delete[] slices;
+}
+
 TEST_F(BloomFilterIndexReaderWriterTest, test_primary_key_bloom_filter_index) {
     size_t num = 1024 * 3;
     std::vector<std::string> val_strings(num);
