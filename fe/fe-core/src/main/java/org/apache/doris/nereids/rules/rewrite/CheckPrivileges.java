@@ -50,12 +50,12 @@ public class CheckPrivileges extends ColumnPruning {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         // Only enter once, if repeated, the permissions of the table in the view will be checked
-        if (jobContext.getCascadesContext().getStatementContext().isViewPrivChecked()) {
+        if (jobContext.getCascadesContext().getStatementContext().isPrivChecked()) {
             return plan;
         }
         this.jobContext = jobContext;
         super.rewriteRoot(plan, jobContext);
-        jobContext.getCascadesContext().getStatementContext().setViewPrivChecked(true);
+        jobContext.getCascadesContext().getStatementContext().setPrivChecked(true);
         // don't rewrite plan
         return plan;
     }

@@ -174,7 +174,7 @@ public class StatementContext implements Closeable {
 
     private Backend groupCommitMergeBackend;
 
-    private boolean viewPrivChecked;
+    private boolean privChecked;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -583,11 +583,11 @@ public class StatementContext implements Closeable {
         this.groupCommitMergeBackend = groupCommitMergeBackend;
     }
 
-    public boolean isViewPrivChecked() {
-        return viewPrivChecked;
+    public boolean isPrivChecked() {
+        return privChecked;
     }
 
-    public void setViewPrivChecked(boolean viewPrivChecked) {
-        this.viewPrivChecked = viewPrivChecked;
+    public void setPrivChecked(boolean privChecked) {
+        this.privChecked = privChecked;
     }
 }
