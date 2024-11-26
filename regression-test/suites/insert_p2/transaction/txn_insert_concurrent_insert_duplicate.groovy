@@ -21,8 +21,8 @@ import java.sql.Statement
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CompletableFuture
 
-suite("txn_insert_concurrent_insert_mor") {
-    def tableName = "txn_insert_concurrent_insert_mor"
+suite("txn_insert_concurrent_insert_duplicate") {
+    def tableName = "txn_insert_concurrent_insert_duplicate"
     List<String> errors = new ArrayList<>()
 
     for (int i = 0; i < 3; i++) {
@@ -48,11 +48,10 @@ suite("txn_insert_concurrent_insert_mor") {
                 L_SHIPMODE     CHAR(10) NOT NULL,
                 L_COMMENT      VARCHAR(44) NOT NULL
             )
-            UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
+            DUPLICATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
             PROPERTIES (
-                "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "false"
+                "replication_num" = "1"
             )
         """
 
@@ -82,7 +81,7 @@ suite("txn_insert_concurrent_insert_mor") {
     }
     sql """ sync """
 
-    def dbName = "regression_test_insert_p2"
+    def dbName = "regression_test_insert_p2_transaction"
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
     logger.info("url: ${url}")
 
@@ -93,9 +92,9 @@ suite("txn_insert_concurrent_insert_mor") {
      * 3. insert into ${tableName}_1 select * from ${tableName}_2 where L_ORDERKEY < 3000000; (2999666 rows)
      *
      * suppose there is 'threadNum' concurrency, the rows of each table should be:
-     * t0: from t2: 6001215
+     * t0: from t2: 6001215 * threadNum
      *     from t1: unknown, depend on the commit order
-     * t1: from t2: 2999666
+     * t1: from t2: 2999666 * threadNum
      */
     def sqls = [
             "insert into ${tableName}_0 select * from ${tableName}_2 where L_ORDERKEY < 1000000;",
@@ -151,13 +150,11 @@ suite("txn_insert_concurrent_insert_mor") {
 
     logger.info("error num: " + errors.size() + ", errors: " + errors)
 
-    def t0_row_count = 6001215
     def result = sql """ select count() from ${tableName}_0 """
-    logger.info("${tableName}_0 row count: ${result}, expected: ${t0_row_count}")
+    logger.info("${tableName}_0 row count: ${result}, expected: ${6001215 * threadNum}")
 
-    def t1_row_count = 2999666
     def result2 = sql """ select count() from ${tableName}_1 """
-    logger.info("${tableName}_1 row count: ${result2}, expected: ${t1_row_count}")
+    logger.info("${tableName}_1 row count: ${result2}, expected: ${2999666 * threadNum}")
 
     def tables = sql """ show tables from $dbName """
     logger.info("tables: $tables")
@@ -168,7 +165,7 @@ suite("txn_insert_concurrent_insert_mor") {
         }
     }
 
-    assertEquals(t0_row_count, result[0][0])
-    assertEquals(t1_row_count, result2[0][0])
+    assertTrue(result[0][0] >= 6001215 * threadNum)
+    assertEquals(2999666 * threadNum, result2[0][0])
     assertEquals(0, errors.size())
 }
