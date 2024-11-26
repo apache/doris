@@ -25,6 +25,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
+import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
@@ -322,6 +323,44 @@ public class BinlogManager {
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, record);
     }
 
+    public void addTableRename(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        TBinlogType type = TBinlogType.RENAME_TABLE;
+        String data = info.toJson();
+        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
+        addBarrierLog(log, commitSeq);
+    }
+
+    public void addColumnRename(TableRenameColumnInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        TBinlogType type = TBinlogType.RENAME_COLUMN;
+        String data = info.toJson();
+        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
+        addBarrierLog(log, commitSeq);
+    }
+
+    public void addModifyComment(ModifyCommentOperationLog info, long commitSeq) {
+        long dbId = info.getDbId();
+        long tableId = info.getTblId();
+        TBinlogType type = TBinlogType.MODIFY_COMMENT;
+        String data = info.toJson();
+        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
+        addBarrierLog(log, commitSeq);
+    }
+
+    // add Modify view
+    public void addModifyViewDef(AlterViewInfo alterViewInfo, long commitSeq) {
+        long dbId = alterViewInfo.getDbId();
+        long tableId = alterViewInfo.getTableId();
+        TBinlogType type = TBinlogType.MODIFY_VIEW_DEF;
+        String data = alterViewInfo.toJson();
+        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
+
+        addBarrierLog(log, commitSeq);
+    }
+
     // get binlog by dbId, return first binlog.version > version
     public Pair<TStatus, TBinlog> getBinlog(long dbId, long tableId, long prevCommitSeq) {
         TStatus status = new TStatus(TStatusCode.OK);
@@ -356,33 +395,6 @@ public class BinlogManager {
         } finally {
             lock.readLock().unlock();
         }
-    }
-
-    public void addTableRename(TableInfo info, long commitSeq) {
-        long dbId = info.getDbId();
-        long tableId = info.getTableId();
-        TBinlogType type = TBinlogType.RENAME_TABLE;
-        String data = info.toJson();
-        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
-        addBarrierLog(log, commitSeq);
-    }
-
-    public void addColumnRename(TableRenameColumnInfo info, long commitSeq) {
-        long dbId = info.getDbId();
-        long tableId = info.getTableId();
-        TBinlogType type = TBinlogType.RENAME_COLUMN;
-        String data = info.toJson();
-        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
-        addBarrierLog(log, commitSeq);
-    }
-
-    public void addModifyComment(ModifyCommentOperationLog info, long commitSeq) {
-        long dbId = info.getDbId();
-        long tableId = info.getTblId();
-        TBinlogType type = TBinlogType.MODIFY_COMMENT;
-        String data = info.toJson();
-        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
-        addBarrierLog(log, commitSeq);
     }
 
     // get the dropped partitions of the db.

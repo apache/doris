@@ -1140,6 +1140,7 @@ enum TBinlogType {
   RENAME_TABLE = 14,
   RENAME_COLUMN = 15,
   MODIFY_COMMENT = 16,
+  MODIFY_VIEW_DEF = 17,
 
   // Keep some IDs for allocation so that when new binlog types are added in the
   // future, the changes can be picked back to the old versions without breaking
@@ -1156,8 +1157,7 @@ enum TBinlogType {
   //    MODIFY_XXX = 17,
   //    MIN_UNKNOWN = 18,
   //    UNKNOWN_3 = 19,
-  MIN_UNKNOWN = 17,
-  UNKNOWN_2 = 18,
+  MIN_UNKNOWN = 18,
   UNKNOWN_3 = 19,
   UNKNOWN_4 = 20,
   UNKNOWN_5 = 21,
