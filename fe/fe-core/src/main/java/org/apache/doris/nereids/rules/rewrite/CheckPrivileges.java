@@ -55,7 +55,7 @@ public class CheckPrivileges extends ColumnPruning {
         }
         this.jobContext = jobContext;
         super.rewriteRoot(plan, jobContext);
-
+        jobContext.getCascadesContext().getStatementContext().setViewPrivChecked(true);
         // don't rewrite plan
         return plan;
     }
@@ -63,7 +63,6 @@ public class CheckPrivileges extends ColumnPruning {
     @Override
     public Plan visitLogicalView(LogicalView<? extends Plan> view, PruneContext context) {
         checkColumnPrivileges(view.getView(), computeUsedColumns(view, context.requiredSlots));
-        jobContext.getCascadesContext().getStatementContext().setViewPrivChecked(true);
         // stop check privilege in the view
         return view;
     }
