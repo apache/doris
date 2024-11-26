@@ -76,6 +76,8 @@ suite("test_ddl_file_auth","p0,auth_call") {
                     "catalog" = "internal"
                 );"""
         sql """use ${dbName}"""
+        checkNereidsExecute("SHOW FILE;")
+        checkNereidsExecute("SHOW FILE FROM ${dbName};")
         def res = sql """SHOW FILE FROM ${dbName};"""
         assertTrue(res.size() == 1)
 

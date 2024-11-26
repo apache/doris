@@ -45,7 +45,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
@@ -533,7 +532,6 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     } else if (const auto* src_nullable_column =
                        check_and_get_column<vectorized::ColumnNullable>(src_column_ptr)) {
         auto src_nested_column_ptr = src_nullable_column->get_nested_column_ptr();
-        const auto* src_int_64 = assert_cast<const ColumnInt64*>(src_nested_column_ptr.get());
         const auto& null_map_data = src_nullable_column->get_null_map_data();
         dst_values.reserve(rows);
         for (size_t i = 0; i < rows; i++) {
@@ -547,7 +545,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
 
         for (size_t i = 0; i < rows; i++) {
             dst_values.emplace_back((null_map_data[i] != 0) ? _auto_inc_id_allocator.next_id()
-                                                            : src_int_64->get_element(i));
+                                                            : src_nested_column_ptr->get_int(i));
         }
     } else {
         return Status::OK();

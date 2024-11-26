@@ -344,11 +344,11 @@ class StatisticsUtilTest {
         tableMeta.partitionChanged.set(false);
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test update rows changed more than threshold.
+        // Test row count changed more than threshold.
         new MockUp<OlapTable>() {
             @Mock
             public long getRowCount() {
-                return 120;
+                return 111;
             }
         };
         new MockUp<TableStatsMeta>() {
@@ -358,12 +358,29 @@ class StatisticsUtilTest {
             }
         };
         tableMeta.partitionChanged.set(false);
-        tableMeta.updatedRows.set(200);
+        tableMeta.updatedRows.set(80);
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
-        // Test update rows changed less than threshold
+        // Test update rows changed more than threshold
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 101;
+            }
+        };
         tableMeta.partitionChanged.set(false);
-        tableMeta.updatedRows.set(100);
+        tableMeta.updatedRows.set(91);
+        Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
+
+        // Test row count and update rows changed less than threshold
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 100;
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        tableMeta.updatedRows.set(85);
         Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(table, Pair.of("index", column.getName())));
 
     }

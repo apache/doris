@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -329,7 +330,7 @@ public class MTMVPartitionUtil {
         }
         for (String relatedPartitionName : relatedPartitionNames) {
             MTMVSnapshotIf relatedPartitionCurrentSnapshot = relatedTable
-                    .getPartitionSnapshot(relatedPartitionName, context);
+                    .getPartitionSnapshot(relatedPartitionName, context, OptionalLong.empty());
             if (!mtmv.getRefreshSnapshot()
                     .equalsWithRelatedPartition(mtmvPartitionName, relatedPartitionName,
                             relatedPartitionCurrentSnapshot)) {
@@ -446,7 +447,7 @@ public class MTMVPartitionUtil {
         if (!baseTable.needAutoRefresh()) {
             return true;
         }
-        MTMVSnapshotIf baseTableCurrentSnapshot = baseTable.getTableSnapshot(context);
+        MTMVSnapshotIf baseTableCurrentSnapshot = baseTable.getTableSnapshot(context, OptionalLong.empty());
         return mtmv.getRefreshSnapshot()
                 .equalsWithBaseTable(mtmvPartitionName, new BaseTableInfo(baseTable), baseTableCurrentSnapshot);
     }
@@ -482,7 +483,7 @@ public class MTMVPartitionUtil {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
             for (String relatedPartitionName : relatedPartitionNames) {
                 MTMVSnapshotIf partitionSnapshot = relatedTable
-                        .getPartitionSnapshot(relatedPartitionName, context);
+                        .getPartitionSnapshot(relatedPartitionName, context, OptionalLong.empty());
                 refreshPartitionSnapshot.getPartitions()
                         .put(relatedPartitionName, partitionSnapshot);
             }
@@ -497,7 +498,7 @@ public class MTMVPartitionUtil {
                 continue;
             }
             refreshPartitionSnapshot.addTableSnapshot(baseTableInfo,
-                    ((MTMVRelatedTableIf) table).getTableSnapshot(context));
+                    ((MTMVRelatedTableIf) table).getTableSnapshot(context, OptionalLong.empty()));
         }
         return refreshPartitionSnapshot;
     }

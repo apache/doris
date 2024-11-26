@@ -158,10 +158,6 @@ public:
         __builtin_unreachable();
     }
 
-    bool is_fixed_and_contiguous() const override { return true; }
-
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
-
     [[noreturn]] StringRef get_raw_data() const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "get_raw_data not supported in ColumnDictionary");

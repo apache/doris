@@ -118,7 +118,7 @@ public class IndexDef {
 
     public String toSql(String tableName) {
         StringBuilder sb = new StringBuilder("INDEX ");
-        sb.append(indexName);
+        sb.append("`" + indexName + "`");
         if (tableName != null && !tableName.isEmpty()) {
             sb.append(" ON ").append(tableName);
         }

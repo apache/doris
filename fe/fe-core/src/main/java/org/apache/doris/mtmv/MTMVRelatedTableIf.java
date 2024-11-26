@@ -26,6 +26,7 @@ import org.apache.doris.common.DdlException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -38,9 +39,10 @@ public interface MTMVRelatedTableIf extends TableIf {
      * Note: This method is called every time there is a refresh and transparent rewrite,
      * so if this method is slow, it will significantly reduce query performance
      *
+     * @param snapshotId
      * @return partitionName->PartitionItem
      */
-    Map<String, PartitionItem> getAndCopyPartitionItems() throws AnalysisException;
+    Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) throws AnalysisException;
 
     /**
      * getPartitionType LIST/RANGE/UNPARTITIONED
@@ -70,12 +72,14 @@ public interface MTMVRelatedTableIf extends TableIf {
      * If snapshots have already been obtained in bulk in the context,
      * the results should be obtained directly from the context
      *
+     * @param snapshotId
      * @param partitionName
      * @param context
      * @return partition snapshot at current time
      * @throws AnalysisException
      */
-    MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context) throws AnalysisException;
+    MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context, OptionalLong snapshotId)
+            throws AnalysisException;
 
     /**
      * getTableSnapshot
@@ -83,11 +87,12 @@ public interface MTMVRelatedTableIf extends TableIf {
      * If snapshots have already been obtained in bulk in the context,
      * the results should be obtained directly from the context
      *
+     * @param snapshotId
      * @param context
      * @return table snapshot at current time
      * @throws AnalysisException
      */
-    MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) throws AnalysisException;
+    MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId) throws AnalysisException;
 
     /**
      * Does the current type of table allow timed triggering

@@ -218,7 +218,7 @@ public:
         parquet_reader->set_delete_rows(&_iceberg_delete_rows);
     }
 
-    Status _gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv);
+    Status _gen_col_name_maps(const FieldDescriptor& field_desc);
 
 protected:
     std::unique_ptr<GenericReader> _create_equality_reader(

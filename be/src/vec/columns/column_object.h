@@ -465,12 +465,6 @@ public:
                                "insert_many_dict_data" + get_name());
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_binary_data" + get_name());
-    }
-
     void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
                                             const size_t num) override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -529,11 +523,6 @@ public:
 
     StringRef get_raw_data() const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_raw_data" + get_name());
-    }
-
-    size_t size_of_value_if_fixed() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "size_of_value_if_fixed" + get_name());
     }
 
     StringRef get_data_at(size_t) const override {
