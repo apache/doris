@@ -18,6 +18,7 @@
 #include "vec/core/block.h"
 
 #include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest-death-test.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
@@ -781,6 +782,7 @@ TEST(BlockTest, BasicOperations) {
         EXPECT_NO_THROW(empty_block.clear());
         EXPECT_NO_THROW(empty_block.clear_names());
         EXPECT_NO_THROW(empty_block.reserve(0));
+        EXPECT_DEATH(empty_block.erase(0), "Block is empty");
     }
 
     // Test with regular columns
@@ -817,7 +819,7 @@ TEST(BlockTest, BasicOperations) {
         EXPECT_EQ(1, block.columns());
         EXPECT_EQ("col1", block.get_by_position(0).name);
 
-        // Insert duplicate name (should update existing)
+        // Insert duplicate name
         block.insert({col2->get_ptr(), type, "col1"});
         EXPECT_EQ(2, block.columns());
 
@@ -847,6 +849,9 @@ TEST(BlockTest, BasicOperations) {
 
         // Erase by invalid name
         EXPECT_THROW(block.erase("non_existent"), Exception);
+
+        // Erase by invalid position
+        EXPECT_DEATH(block.erase(10), "Position out of bound in Block::erase");
 
         // Erase with erase_not_in
         std::vector<int> empty_vec;
@@ -932,6 +937,9 @@ TEST(BlockTest, BasicOperations) {
         // Erase by invalid name
         EXPECT_THROW(block.erase("non_existent"), Exception);
 
+        // Erase by invalid position
+        EXPECT_DEATH(block.erase(10), "Position out of bound in Block::erase");
+
         // Erase with erase_not_in
         std::vector<int> empty_vec;
         EXPECT_NO_THROW(block.erase_not_in(empty_vec));
@@ -1008,6 +1016,9 @@ TEST(BlockTest, BasicOperations) {
 
         // Erase by invalid name
         EXPECT_THROW(block.erase("non_existent"), Exception);
+
+        // Erase by invalid position
+        EXPECT_DEATH(block.erase(10), "Position out of bound in Block::erase");
 
         // Erase with erase_not_in
         std::vector<int> empty_vec;
