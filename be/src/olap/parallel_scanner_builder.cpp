@@ -45,7 +45,8 @@ Status ParallelScannerBuilder::build_scanners(std::list<VScannerSPtr>& scanners)
 Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
-    for (auto&& [tablet, version] : _tablets) {
+    for (auto&& [tablet, version, sub_txn_ids] : _tablets) {
+        version += sub_txn_ids.size();
         DCHECK(_all_read_sources.contains(tablet->tablet_id()));
         auto& entire_read_source = _all_read_sources[tablet->tablet_id()];
 
@@ -109,7 +110,8 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
                         scanners.emplace_back(
                                 _build_scanner(tablet, version, _key_ranges,
                                                {std::move(partitial_read_source.rs_splits),
-                                                entire_read_source.delete_predicates}));
+                                                entire_read_source.delete_predicates},
+                                               sub_txn_ids));
 
                         partitial_read_source = {};
                         split = RowSetSplits(reader->clone());
@@ -152,7 +154,8 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
 #endif
             scanners.emplace_back(_build_scanner(tablet, version, _key_ranges,
                                                  {std::move(partitial_read_source.rs_splits),
-                                                  entire_read_source.delete_predicates}));
+                                                  entire_read_source.delete_predicates},
+                                                 sub_txn_ids));
         }
     }
 
@@ -164,10 +167,19 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
  */
 Status ParallelScannerBuilder::_load() {
     _total_rows = 0;
-    for (auto&& [tablet, version] : _tablets) {
+    for (auto&& [tablet, version, sub_txn_ids] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
         auto& read_source = _all_read_sources[tablet_id];
-        RETURN_IF_ERROR(tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false));
+        if (sub_txn_ids.empty() || version > 0) {
+            RETURN_IF_ERROR(
+                    tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false));
+        }
+        if (!sub_txn_ids.empty()) {
+            LOG(INFO) << "capture sub txn rs readers, size=" << sub_txn_ids.size()
+                      << ", tablet_id=" << tablet_id << ", version=" << version;
+            RETURN_IF_ERROR(tablet->capture_sub_txn_rs_readers(version, sub_txn_ids,
+                                                               &read_source.rs_splits));
+        }
         if (!_state->skip_delete_predicate()) {
             read_source.fill_delete_predicates();
         }
@@ -200,9 +212,11 @@ Status ParallelScannerBuilder::_load() {
 
 std::shared_ptr<NewOlapScanner> ParallelScannerBuilder::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
-        TabletReader::ReadSource&& read_source) {
-    NewOlapScanner::Params params {_state,  _scanner_profile.get(), key_ranges, std::move(tablet),
-                                   version, std::move(read_source), _limit,     _is_preaggregation};
+        TabletReader::ReadSource&& read_source, const std::vector<int64_t>& sub_txn_ids) {
+    NewOlapScanner::Params params {
+            _state,     _scanner_profile.get(), key_ranges, std::move(tablet),
+            version,    std::move(read_source), _limit,     _is_preaggregation,
+            sub_txn_ids};
     return NewOlapScanner::create_shared(_parent, std::move(params));
 }
 

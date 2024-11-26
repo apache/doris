@@ -20,7 +20,6 @@ package org.apache.doris.load;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TTabletCommitInfo;
-import org.apache.doris.transaction.SubTransactionState.SubTransactionType;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
@@ -44,7 +43,7 @@ public class TxnDeleteJob extends DeleteJob {
     @Override
     public long beginTxn() throws Exception {
         TransactionEntry txnEntry = ConnectContext.get().getTxnEntry();
-        this.transactionId = txnEntry.beginTransaction(targetTbl, SubTransactionType.DELETE);
+        this.transactionId = txnEntry.beginTransaction(targetTbl);
         this.label = txnEntry.getLabel();
         return this.transactionId;
     }
@@ -55,7 +54,7 @@ public class TxnDeleteJob extends DeleteJob {
         TransactionEntry txnEntry = ConnectContext.get().getTxnEntry();
         txnEntry.addTabletCommitInfos(transactionId, targetTbl,
                 tabletCommitInfos.stream().map(c -> new TTabletCommitInfo(c.getTabletId(), c.getBackendId()))
-                        .collect(Collectors.toList()), SubTransactionType.DELETE);
+                        .collect(Collectors.toList()));
 
         StringBuilder sb = new StringBuilder();
         sb.append("{'label':'").append(label).append("', 'status':'").append(TransactionStatus.PREPARE.name())

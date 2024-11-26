@@ -100,6 +100,7 @@ struct TPaloScanRange {
   7: optional list<TKeyRange> partition_column_ranges
   8: optional string index_name
   9: optional string table_name
+  10: optional list<i64> sub_txn_ids
 }
 
 enum TFileFormatType {

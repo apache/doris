@@ -42,6 +42,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_get_tablet("ms", "get_tablet");
 BvarLatencyRecorderWithTag g_bvar_ms_prepare_rowset("ms", "prepare_rowset");
 BvarLatencyRecorderWithTag g_bvar_ms_commit_rowset("ms", "commit_rowset");
 BvarLatencyRecorderWithTag g_bvar_ms_update_tmp_rowset("ms", "update_tmp_rowset");
+BvarLatencyRecorderWithTag g_bvar_ms_get_tmp_rowset("ms", "get_tmp_rowset");
 BvarLatencyRecorderWithTag g_bvar_ms_get_rowset("ms", "get_rowset");
 BvarLatencyRecorderWithTag g_bvar_ms_drop_index("ms", "drop_index");
 BvarLatencyRecorderWithTag g_bvar_ms_prepare_index("ms", "prepare_index");

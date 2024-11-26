@@ -388,19 +388,10 @@ suite("txn_insert") {
             order_qt_select46 """select * from ${table}_1"""
             sql """ begin; """
             sql """ insert into ${table}_0 select * from ${table}_1 where k1 = 1 or k1 = 2; """
-            test {
-                sql """ delete from ${table}_0 where k1 = 1 or k1 = 2; """
-                exception "Can not delete because there is a insert operation for the same table"
-            }
+            sql """ delete from ${table}_0 where k1 = 1 or k1 = 2; """
             sql """ insert into ${table}_1 select * from ${table}_0 where k1 = 1 or k1 = 2; """
-            test {
-                sql """ delete from ${table}_0 where k1 = 1 or k1 = 2; """
-                exception "Can not delete because there is a insert operation for the same table"
-            }
-            test {
-                sql """ delete from ${table}_1 where k1 = 1; """
-                exception "Can not delete because there is a insert operation for the same table"
-            }
+            sql """ delete from ${table}_0 where k1 = 1 or k1 = 2; """
+            sql """ delete from ${table}_1 where k1 = 1; """
             sql """ commit; """
             sql "sync"
             order_qt_select47 """select * from ${table}_0"""
@@ -546,7 +537,7 @@ suite("txn_insert") {
 
         // 15. insert into mow tables
         if (use_nereids_planner) {
-            def unique_table = "txn_insert_ut"
+            def unique_table = "txn_insert_ut_i"
             for (def i in 0..2) {
                 sql """ drop table if exists ${unique_table}_${i} """
                 sql """
@@ -561,6 +552,7 @@ suite("txn_insert") {
                     PROPERTIES (
                 """ + (i == 2 ? "\"function_column.sequence_col\"='score', " : "") +
                         """
+                        "enable_unique_key_merge_on_write" = "false",
                         "replication_num" = "1"
                     );
                 """
@@ -739,6 +731,7 @@ suite("txn_insert") {
                     UNIQUE KEY(`id`)
                     DISTRIBUTED BY HASH(`id`) BUCKETS 1
                     PROPERTIES (
+                        "enable_unique_key_merge_on_write" = "false",
                         "enable_mow_light_delete" = "false",
                         "replication_num" = "1"
                     );
@@ -756,10 +749,7 @@ suite("txn_insert") {
                 sql """ insert into ${unique_table}_2(id, score) select id, score from ${unique_table}_0; """
                 sql """ insert into ${unique_table}_2(id, score) select id, score from ${unique_table}_1; """
                 sql """ update ${unique_table}_2 set score = score + 100 where id in (select id from ${unique_table}_0); """
-                test {
-                    sql """ delete from ${unique_table}_2 where id <= 1; """
-                    // exception "Can not delete because there is a insert operation for the same table"
-                }
+                sql """ delete from ${unique_table}_2 where id <= 1; """
                 sql """ commit """
 
                 sql """ insert into ${unique_table}_3(id, score) select id, score from ${unique_table}_0; """

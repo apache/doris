@@ -1004,6 +1004,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_load_job = false;
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_sub_transactions_in_transaction_load = 50;
+
     /*
      * One master daemon thread will update database used data quota for db txn manager
      * every db_used_data_quota_update_interval_secs

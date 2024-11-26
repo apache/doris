@@ -138,6 +138,12 @@ Status CloudTablet::merge_rowsets_schema() {
     return Status::OK();
 }
 
+Status CloudTablet::capture_sub_txn_rowsets(const std::vector<int64_t>& sub_txn_ids,
+                                            std::vector<RowsetSharedPtr>* rowsets) {
+    return _engine.meta_mgr().get_tmp_rowset(tablet_schema(), index_id(), tablet_id(), sub_txn_ids,
+                                             *rowsets);
+}
+
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
 Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) {

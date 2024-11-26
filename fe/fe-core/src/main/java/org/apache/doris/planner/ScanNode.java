@@ -797,14 +797,13 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         }
 
         assert versions.size() == partitions.size() : "the got num versions is not equals to acquired num versions";
-        if (versions.stream().anyMatch(x -> x <= 0)) {
-            int size = versions.size();
-            for (int i = 0; i < size; ++i) {
-                if (versions.get(i) <= 0) {
-                    LOG.warn("partition {} getVisibleVersion error, the visibleVersion is {}",
-                            partitions.get(i).getId(), versions.get(i));
+        for (int i = 0; i < versions.size(); ++i) {
+            if (versions.get(i) <= 0) {
+                LOG.warn("partition {} getVisibleVersion error, the visibleVersion is {}",
+                        partitions.get(i).getId(), versions.get(i));
+                if (!ConnectContext.get().isTxnModel()) {
                     throw new UserException("partition " + partitions.get(i).getId()
-                        + " getVisibleVersion error, the visibleVersion is " + versions.get(i));
+                            + " getVisibleVersion error, the visibleVersion is " + versions.get(i));
                 }
             }
         }

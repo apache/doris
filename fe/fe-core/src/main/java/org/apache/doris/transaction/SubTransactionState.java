@@ -18,7 +18,6 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.thrift.TSubTxnType;
 import org.apache.doris.thrift.TTabletCommitInfo;
 
 import lombok.Getter;
@@ -32,42 +31,11 @@ public class SubTransactionState {
     private Table table;
     @Getter
     private List<TTabletCommitInfo> tabletCommitInfos;
-    @Getter
-    private SubTransactionType subTransactionType;
 
-    public enum SubTransactionType {
-        INSERT,
-        DELETE
-    }
-
-    public SubTransactionState(long subTransactionId, Table table, List<TTabletCommitInfo> tabletCommitInfos,
-            SubTransactionType subTransactionType) {
+    public SubTransactionState(long subTransactionId, Table table, List<TTabletCommitInfo> tabletCommitInfos) {
         this.subTransactionId = subTransactionId;
         this.table = table;
         this.tabletCommitInfos = tabletCommitInfos;
-        this.subTransactionType = subTransactionType;
-    }
-
-    public static SubTransactionType getSubTransactionType(TSubTxnType subTxnType) {
-        switch (subTxnType) {
-            case INSERT:
-                return SubTransactionType.INSERT;
-            case DELETE:
-                return SubTransactionType.DELETE;
-            default:
-                throw new IllegalArgumentException("Unknown sub txn type: " + subTxnType);
-        }
-    }
-
-    public static TSubTxnType getSubTransactionType(SubTransactionType subTxnType) {
-        switch (subTxnType) {
-            case INSERT:
-                return TSubTxnType.INSERT;
-            case DELETE:
-                return TSubTxnType.DELETE;
-            default:
-                throw new IllegalArgumentException("Unknown sub txn type: " + subTxnType);
-        }
     }
 
     @Override
@@ -76,7 +44,6 @@ public class SubTransactionState {
                 + "subTransactionId=" + subTransactionId
                 + ", table=" + table
                 + ", tabletCommitInfos=" + tabletCommitInfos
-                + ", subTransactionType=" + subTransactionType
                 + '}';
     }
 }

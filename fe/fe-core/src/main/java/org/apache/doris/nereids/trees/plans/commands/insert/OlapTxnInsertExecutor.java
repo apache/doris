@@ -24,7 +24,6 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
-import org.apache.doris.transaction.SubTransactionState.SubTransactionType;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -56,7 +55,7 @@ public class OlapTxnInsertExecutor extends OlapInsertExecutor {
                 throw new AnalysisException("Transaction insert expect label " + txnEntry.getLabel()
                         + ", but got " + this.labelName);
             }
-            this.txnId = txnEntry.beginTransaction(table, SubTransactionType.INSERT);
+            this.txnId = txnEntry.beginTransaction(table);
             this.labelName = txnEntry.getLabel();
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
@@ -75,8 +74,7 @@ public class OlapTxnInsertExecutor extends OlapInsertExecutor {
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             cleanTransaction();
         } else {
-            txnEntry.addTabletCommitInfos(txnId, (Table) table, coordinator.getCommitInfos(),
-                    SubTransactionType.INSERT);
+            txnEntry.addTabletCommitInfos(txnId, (Table) table, coordinator.getCommitInfos());
         }
     }
 

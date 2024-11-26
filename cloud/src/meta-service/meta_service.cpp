@@ -1418,6 +1418,108 @@ static bool try_fetch_and_parse_schema(Transaction* txn, RowsetMetaCloudPB& rows
     return true;
 }
 
+void MetaServiceImpl::get_tmp_rowset(::google::protobuf::RpcController* controller,
+                                     const GetTmpRowsetRequest* request,
+                                     GetTmpRowsetResponse* response,
+                                     ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_tmp_rowset);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(get_tmp_rowset)
+    if (!request->has_index_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty index id";
+        return;
+    }
+    if (!request->has_tablet_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty tablet id";
+        return;
+    }
+    if (request->txn_ids().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty txn ids";
+        return;
+    }
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create txn";
+        return;
+    }
+    std::vector<std::string> tmp_rowset_keys;
+    std::vector<std::optional<std::string>> tmp_rowset_values;
+    tmp_rowset_keys.reserve(request->txn_ids().size());
+    tmp_rowset_values.reserve(request->txn_ids().size());
+    int64_t tablet_id = request->tablet_id();
+    int64_t index_id = request->index_id();
+    // TODO avoid too many txn ids, should limit in fe
+    for (const auto& txn_id : request->txn_ids()) {
+        tmp_rowset_keys.push_back(meta_rowset_tmp_key({instance_id, txn_id, tablet_id}));
+    }
+    err = txn->batch_get(&tmp_rowset_values, tmp_rowset_keys);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        ss << "failed to batch get tmp rowset, instance_id=" << instance_id
+           << " tablet_id=" << tablet_id << " err=" << err;
+        msg = ss.str();
+        LOG(WARNING) << msg;
+        return;
+    }
+    // get referenced schema
+    std::unordered_map<int32_t, doris::TabletSchemaCloudPB*> version_to_schema;
+    for (size_t i = 0; i < tmp_rowset_keys.size(); ++i) {
+        if (!tmp_rowset_values[i].has_value()) [[unlikely]] {
+            code = MetaServiceCode::KV_TXN_GET_ERR;
+            ss << "failed to get tmp rowset, err=not found, instance_id=" << instance_id
+               << " tablet_id=" << tablet_id << " txn_id=" << request->txn_ids(i)
+               << " key=" << hex(tmp_rowset_keys[i]);
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+        auto rowset_meta = response->add_rowset_meta();
+        if (!rowset_meta->ParseFromArray(tmp_rowset_values[i]->data(),
+                                         tmp_rowset_values[i]->size())) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            ss << "malformed rowset meta value, instance_id=" << instance_id
+               << " tablet_id=" << tablet_id << " txn_id=" << request->txn_ids(i)
+               << " key=" << hex(tmp_rowset_keys[i]);
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+        // set tablet schema
+        if (rowset_meta->has_tablet_schema()) continue;
+        if (!rowset_meta->has_schema_version()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            ss << "rowset_meta must have either schema or schema_version, instance_id="
+               << instance_id << " tablet_id=" << tablet_id << " txn_id=" << request->txn_ids(i)
+               << " key=" << hex(tmp_rowset_keys[i]);
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+        if (auto it = version_to_schema.find(rowset_meta->schema_version());
+            it != version_to_schema.end()) {
+            rowset_meta->mutable_tablet_schema()->CopyFrom(*it->second);
+        } else {
+            auto key = meta_schema_key({instance_id, index_id, rowset_meta->schema_version()});
+            if (!try_fetch_and_parse_schema(txn.get(), *rowset_meta, key, code, msg)) {
+                return;
+            }
+            version_to_schema.emplace(rowset_meta->schema_version(),
+                                      rowset_meta->mutable_tablet_schema());
+        }
+    }
+}
+
 void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                                  const GetRowsetRequest* request, GetRowsetResponse* response,
                                  ::google::protobuf::Closure* done) {

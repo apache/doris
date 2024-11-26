@@ -143,6 +143,10 @@ public:
                            const CreateRowsetRequest* request, CreateRowsetResponse* response,
                            ::google::protobuf::Closure* done) override;
 
+    void get_tmp_rowset(::google::protobuf::RpcController* controller,
+                        const GetTmpRowsetRequest* request, GetTmpRowsetResponse* response,
+                        ::google::protobuf::Closure* done) override;
+
     void get_rowset(::google::protobuf::RpcController* controller, const GetRowsetRequest* request,
                     GetRowsetResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -448,6 +452,12 @@ public:
                            const CreateRowsetRequest* request, CreateRowsetResponse* response,
                            ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::update_tmp_rowset, controller, request, response, done);
+    }
+
+    void get_tmp_rowset(::google::protobuf::RpcController* controller,
+                        const GetTmpRowsetRequest* request, GetTmpRowsetResponse* response,
+                        ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_tmp_rowset, controller, request, response, done);
     }
 
     void get_rowset(::google::protobuf::RpcController* controller, const GetRowsetRequest* request,
