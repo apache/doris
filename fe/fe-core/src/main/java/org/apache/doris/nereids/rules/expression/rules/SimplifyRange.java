@@ -496,12 +496,27 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
         public UnknownValue(ExpressionRewriteContext context, Expression toExpr,
                 List<ValueDesc> sourceValues, BinaryOperator<Expression> mergeExprOp) {
-            super(context, genReference(sourceValues, toExpr), toExpr);
+            super(context, getReference(sourceValues, toExpr), toExpr);
             this.sourceValues = ImmutableList.copyOf(sourceValues);
             this.mergeExprOp = mergeExprOp;
         }
 
-        private static Expression genReference(List<ValueDesc> sourceValues, Expression toExpr) {
+        // reference is used to simplify multiple ValueDescs.
+        // when ValueDesc A op ValueDesc B, only A and B's references equals,
+        // can reduce them, like A op B = A.
+        // If A and B's reference not equal, A op B will always get UnknownValue(A op B).
+        //
+        // for example:
+        // 1. RangeValue(a < 10, reference=a) union RangeValue(a > 20, reference=a)
+        //    = UnknownValue1(a < 10 or a > 20, reference=a)
+        // 2. RangeValue(a < 10, reference=a) union RangeValue(b > 20, reference=b)
+        //    = UnknownValue2(a < 10 or b > 20, reference=(a < 10 or b > 20))
+        // then given EmptyValue(, reference=a) E,
+        // 1. since E and UnknownValue1's reference equals, then
+        //    E union UnknownValue1 = E.union(UnknownValue1) = UnknownValue1,
+        // 2. since E and UnknownValue2's reference not equals, then
+        //    E union UnknownValue2 = UnknownValue3(E union UnknownValue2, reference=E union UnknownValue2)
+        private static Expression getReference(List<ValueDesc> sourceValues, Expression toExpr) {
             Expression reference = sourceValues.get(0).reference;
             for (int i = 1; i < sourceValues.size(); i++) {
                 if (!reference.equals(sourceValues.get(i).reference)) {
