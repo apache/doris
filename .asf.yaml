@@ -125,7 +125,6 @@ github:
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker
-          - ShellCheck
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
