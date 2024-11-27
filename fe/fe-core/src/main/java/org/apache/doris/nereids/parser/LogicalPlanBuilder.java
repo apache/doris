@@ -251,6 +251,7 @@ import org.apache.doris.nereids.DorisParser.ShowSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.ShowStorageEnginesContext;
 import org.apache.doris.nereids.DorisParser.ShowTableIdContext;
 import org.apache.doris.nereids.DorisParser.ShowTabletsBelongContext;
+import org.apache.doris.nereids.DorisParser.ShowTrashContext;
 import org.apache.doris.nereids.DorisParser.ShowTriggersContext;
 import org.apache.doris.nereids.DorisParser.ShowVariablesContext;
 import org.apache.doris.nereids.DorisParser.ShowViewContext;
@@ -531,6 +532,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
@@ -4409,6 +4411,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowTriggers(ShowTriggersContext ctx) {
         return new ShowTriggersCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowTrash(ShowTrashContext ctx) {
+        if (ctx.ON() != null) {
+            String backend = stripQuotes(ctx.STRING_LITERAL().getText());
+            new ShowTrashCommand(backend);
+        } else {
+            return new ShowTrashCommand();
+        }
+        return new ShowTrashCommand();
     }
 
     @Override
