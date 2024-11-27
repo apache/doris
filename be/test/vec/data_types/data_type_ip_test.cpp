@@ -116,8 +116,8 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .precision = size_t(-1),
             .scale = size_t(-1),
             .is_null_literal = false,
-            .is_value_represented_by_number = false,
-            .is_value_represented_by_integer = false,
+            .is_value_represented_by_number = true,
+            .is_value_represented_by_integer = true,
             .is_value_represented_by_unsigned_integer = true,
             .pColumnMeta = col_meta6.get()
             //                .is_value_unambiguously_represented_in_contiguous_memory_region = true
@@ -148,7 +148,6 @@ TEST_F(DataTypeIPTest, FromAndToStringTest) {
     // test ipv4
     assert_to_string_from_string_assert(ip_cols[0]->get_ptr(), dt_ipv4);
     // test ipv6
-    // why uint128 is not support from_string???
     assert_to_string_from_string_assert(ip_cols[1]->get_ptr(), dt_ipv6);
 }
 
