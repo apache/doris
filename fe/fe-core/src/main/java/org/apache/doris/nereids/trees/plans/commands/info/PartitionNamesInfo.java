@@ -15,77 +15,56 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 
-/*
- * To represent following stmt:
- *      PARTITION p1
- *      TEMPORARY PARTITION p1
- *      PARTITION (p1, p2)
- *      TEMPORARY PARTITION (p1, p2)
- *      PARTITIONS (p1, p2)
- *      TEMPORARY PARTITIONS (p1, p2)
+/**
+ * PartitionNamesInfo
  */
-public class PartitionNames implements ParseNode, Writable {
-
-    @SerializedName(value = "partitionNames")
+public class PartitionNamesInfo {
+    // Default partition count to collect statistic for external table.
+    private static final long DEFAULT_PARTITION_COUNT = 100;
     private final List<String> partitionNames;
     // true if these partitions are temp partitions
-    @SerializedName(value = "isTemp")
     private final boolean isTemp;
     private final boolean isStar;
     private final long count;
-    // Default partition count to collect statistic for external table.
-    private static final long DEFAULT_PARTITION_COUNT = 100;
 
-    public PartitionNames(boolean isTemp, List<String> partitionNames) {
+    public PartitionNamesInfo(boolean isTemp, List<String> partitionNames) {
         this.partitionNames = partitionNames;
         this.isTemp = isTemp;
         this.isStar = false;
         this.count = 0;
     }
 
-    public PartitionNames(PartitionNames other) {
+    public PartitionNamesInfo(PartitionNamesInfo other) {
         this.partitionNames = Lists.newArrayList(other.partitionNames);
         this.isTemp = other.isTemp;
         this.isStar = other.isStar;
         this.count = 0;
     }
 
-    public PartitionNames(boolean isStar) {
+    public PartitionNamesInfo(boolean isStar) {
         this.partitionNames = null;
         this.isTemp = false;
         this.isStar = isStar;
         this.count = 0;
     }
 
-    public PartitionNames(long partitionCount) {
+    public PartitionNamesInfo(long partitionCount) {
         this.partitionNames = null;
         this.isTemp = false;
         this.isStar = false;
-        this.count = partitionCount;
-    }
-
-    // for nereids
-    public PartitionNames(boolean isTemp, List<String> partitionNames, boolean isStar, long partitionCount) {
-        this.partitionNames = partitionNames;
-        this.isTemp = isTemp;
-        this.isStar = isStar;
         this.count = partitionCount;
     }
 
@@ -97,10 +76,6 @@ public class PartitionNames implements ParseNode, Writable {
         return isTemp;
     }
 
-    /**
-     * @return for OLAP table, only in overwrite situation, overwrite auto detect partition
-     *         for External table, all partitions.
-     */
     public boolean isStar() {
         return isStar;
     }
@@ -109,8 +84,10 @@ public class PartitionNames implements ParseNode, Writable {
         return count;
     }
 
-    @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws UserException {
         if (isStar && count > 0) {
             throw new AnalysisException("All partition and partition count couldn't be set at the same time.");
         }
@@ -126,7 +103,9 @@ public class PartitionNames implements ParseNode, Writable {
         }
     }
 
-    @Override
+    /**
+     * toSql
+     */
     public String toSql() {
         if (partitionNames == null || partitionNames.isEmpty()) {
             return "";
@@ -141,19 +120,12 @@ public class PartitionNames implements ParseNode, Writable {
         return sb.toString();
     }
 
+    public PartitionNames translateToLegacyPartitionNames() {
+        return new PartitionNames(isTemp, partitionNames, isStar, count);
+    }
+
     @Override
     public String toString() {
         return toSql();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static PartitionNames read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, PartitionNames.class);
     }
 }

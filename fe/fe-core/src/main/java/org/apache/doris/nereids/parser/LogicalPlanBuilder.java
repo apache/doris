@@ -49,6 +49,7 @@ import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AddConstraintContext;
+import org.apache.doris.nereids.DorisParser.AdminShowReplicaDistributionContext;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
@@ -64,6 +65,7 @@ import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.ArrayLiteralContext;
 import org.apache.doris.nereids.DorisParser.ArrayRangeContext;
 import org.apache.doris.nereids.DorisParser.ArraySliceContext;
+import org.apache.doris.nereids.DorisParser.BaseTableRefContext;
 import org.apache.doris.nereids.DorisParser.BitOperationContext;
 import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
@@ -158,6 +160,7 @@ import org.apache.doris.nereids.DorisParser.MvPartitionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
+import org.apache.doris.nereids.DorisParser.OptScanParamsContext;
 import org.apache.doris.nereids.DorisParser.OutFileClauseContext;
 import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
 import org.apache.doris.nereids.DorisParser.PartitionSpecContext;
@@ -189,6 +192,7 @@ import org.apache.doris.nereids.DorisParser.RefreshScheduleContext;
 import org.apache.doris.nereids.DorisParser.RefreshTriggerContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
+import org.apache.doris.nereids.DorisParser.RelationHintContext;
 import org.apache.doris.nereids.DorisParser.ReplaceContext;
 import org.apache.doris.nereids.DorisParser.ResumeMTMVContext;
 import org.apache.doris.nereids.DorisParser.RollupDefContext;
@@ -238,6 +242,7 @@ import org.apache.doris.nereids.DorisParser.ShowPluginsContext;
 import org.apache.doris.nereids.DorisParser.ShowPrivilegesContext;
 import org.apache.doris.nereids.DorisParser.ShowProcContext;
 import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
+import org.apache.doris.nereids.DorisParser.ShowReplicaDistributionContext;
 import org.apache.doris.nereids.DorisParser.ShowRepositoriesContext;
 import org.apache.doris.nereids.DorisParser.ShowRolesContext;
 import org.apache.doris.nereids.DorisParser.ShowSmallFilesContext;
@@ -254,6 +259,7 @@ import org.apache.doris.nereids.DorisParser.SimpleColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
+import org.apache.doris.nereids.DorisParser.SpecifiedPartitionContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StatementDefaultContext;
 import org.apache.doris.nereids.DorisParser.StepPartitionDefContext;
@@ -266,7 +272,9 @@ import org.apache.doris.nereids.DorisParser.SyncContext;
 import org.apache.doris.nereids.DorisParser.SystemVariableContext;
 import org.apache.doris.nereids.DorisParser.TableAliasContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
+import org.apache.doris.nereids.DorisParser.TableSnapshotContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
+import org.apache.doris.nereids.DorisParser.TabletListContext;
 import org.apache.doris.nereids.DorisParser.TimestampaddContext;
 import org.apache.doris.nereids.DorisParser.TimestampdiffContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
@@ -513,6 +521,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
@@ -559,6 +568,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.MTMVPartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.MaxValue;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
@@ -576,6 +586,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ShowCreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -4412,6 +4423,88 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowProc(ShowProcContext ctx) {
         String path = stripQuotes(ctx.path.getText());
         return new ShowProcCommand(path);
+    }
+
+    private TableScanParams visitOptScanParamsContex(OptScanParamsContext ctx) {
+        if (ctx != null) {
+            Map<String, String> map = visitPropertyItemList(ctx.properties);
+            return new TableScanParams(ctx.funcName.getText(), map);
+        }
+        return null;
+    }
+
+    private TableSnapshot visitTableSnapshotContext(TableSnapshotContext ctx) {
+        if (ctx != null) {
+            if (ctx.TIME() != null) {
+                return new TableSnapshot(stripQuotes(ctx.time.getText()));
+            } else {
+                return new TableSnapshot(Long.parseLong(ctx.version.getText()));
+            }
+        }
+        return null;
+    }
+
+    private List<String> visitRelationHintContext(RelationHintContext ctx) {
+        final List<String> relationHints;
+        if (ctx != null) {
+            relationHints = typedVisit(ctx);
+        } else {
+            relationHints = ImmutableList.of();
+        }
+        return relationHints;
+    }
+
+    private PartitionNamesInfo visitSpecifiedPartitionContext(SpecifiedPartitionContext ctx) {
+        if (ctx != null) {
+            List<String> partitions = new ArrayList<>();
+            boolean isTempPart = ctx.TEMPORARY() != null;
+            if (ctx.identifier() != null) {
+                partitions.add(ctx.identifier().getText());
+            } else {
+                partitions.addAll(visitIdentifierList(ctx.identifierList()));
+            }
+            return new PartitionNamesInfo(isTempPart, partitions);
+        }
+        return null;
+    }
+
+    private List<Long> visitTabletListContext(TabletListContext ctx) {
+        List<Long> tabletIdList = new ArrayList<>();
+        if (ctx != null && ctx.tabletIdList != null) {
+            ctx.tabletIdList.stream().forEach(tabletToken -> {
+                tabletIdList.add(Long.parseLong(tabletToken.getText()));
+            });
+        }
+        return tabletIdList;
+    }
+
+    private TableRefInfo visitBaseTableRefContext(BaseTableRefContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        TableScanParams scanParams = visitOptScanParamsContex(ctx.optScanParams());
+        TableSnapshot tableSnapShot = visitTableSnapshotContext(ctx.tableSnapshot());
+        PartitionNamesInfo partitionNameInfo = visitSpecifiedPartitionContext(ctx.specifiedPartition());
+        List<Long> tabletIdList = visitTabletListContext(ctx.tabletList());
+
+        String tableAlias = null;
+        if (ctx.tableAlias().strictIdentifier() != null) {
+            tableAlias = ctx.tableAlias().getText();
+        }
+        TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
+        List<String> hints = visitRelationHintContext(ctx.relationHint());
+        return new TableRefInfo(new TableNameInfo(nameParts), scanParams, tableSnapShot, partitionNameInfo,
+                                    tabletIdList, tableAlias, tableSample, hints);
+    }
+
+    @Override
+    public LogicalPlan visitShowReplicaDistribution(ShowReplicaDistributionContext ctx) {
+        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
+        return new ShowReplicaDistributionCommand(tableRefInfo);
+    }
+
+    @Override
+    public LogicalPlan visitAdminShowReplicaDistribution(AdminShowReplicaDistributionContext ctx) {
+        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
+        return new ShowReplicaDistributionCommand(tableRefInfo);
     }
 
     @Override
