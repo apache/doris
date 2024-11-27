@@ -476,12 +476,15 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
     }
 
     public void dropWorkloadSchedPolicy(DropWorkloadSchedPolicyStmt dropStmt) throws UserException {
+        dropWorkloadSchedPolicy(dropStmt.getPolicyName(), dropStmt.isIfExists());
+    }
+
+    public void dropWorkloadSchedPolicy(String policyName, boolean isExists) throws UserException {
         writeLock();
         try {
-            String policyName = dropStmt.getPolicyName();
             WorkloadSchedPolicy schedPolicy = nameToPolicy.get(policyName);
             if (schedPolicy == null) {
-                if (dropStmt.isIfExists()) {
+                if (isExists) {
                     return;
                 } else {
                     throw new UserException("workload schedule policy " + policyName + " not exists");
