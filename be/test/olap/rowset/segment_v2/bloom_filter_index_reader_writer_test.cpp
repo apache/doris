@@ -69,6 +69,7 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
     std::string fname = dname + "/" + file_name;
     auto fs = io::global_local_filesystem();
     {
+        size_t expect_size = 0;
         io::FileWriterPtr file_writer;
         RETURN_IF_ERROR(fs->create_file(fname, &file_writer));
 
@@ -92,15 +93,26 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
                 bloom_filter_index_writer->add_nulls(null_count);
             }
             RETURN_IF_ERROR(bloom_filter_index_writer->flush());
+            auto bf_size = BloomFilter::optimal_bit_num(num, 0.05) / 8;
+            expect_size += bf_size + 1;
             i += 1024;
         }
         if (value_count == 3072) {
             RETURN_IF_ERROR(bloom_filter_index_writer->add_values(vals + 3071, 1));
+            auto bf_size = BloomFilter::optimal_bit_num(1, 0.05) / 8;
+            expect_size += bf_size + 1;
         }
         RETURN_IF_ERROR(bloom_filter_index_writer->finish(file_writer.get(), index_meta));
         EXPECT_TRUE(file_writer->close().ok());
         EXPECT_EQ(BLOOM_FILTER_INDEX, index_meta->type());
         EXPECT_EQ(bf_options.strategy, index_meta->bloom_filter_index().hash_strategy());
+        if constexpr (!field_is_slice_type(type)) {
+            EXPECT_EQ(expect_size, bloom_filter_index_writer->size());
+        }
+        if (use_primary_key_bloom_filter) {
+            std::cout << "primary key bf size is " << bloom_filter_index_writer->size()
+                      << std::endl;
+        }
     }
     return Status::OK();
 }
@@ -185,6 +197,56 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_int) {
     std::string file_name = "bloom_filter_int";
     int not_exist_value = 18888;
     auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_INT>(
+            file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_string) {
+    size_t num = 1024 * 3;
+    std::vector<std::string> val_strings(num);
+    for (size_t i = 0; i < num; ++i) {
+        val_strings[i] = "string_test_" + std::to_string(i + 1);
+    }
+    Slice* val = new Slice[num];
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = Slice(val_strings[i]);
+    }
+
+    std::string file_name = "bloom_filter_string";
+    Slice not_exist_value("string_test_not_exist");
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_STRING>(
+            file_name, val, num, 1, &not_exist_value, true);
+    EXPECT_TRUE(st.ok());
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_unsigned_int) {
+    size_t num = 1024 * 3;
+    uint32_t* val = new uint32_t[num];
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = static_cast<uint32_t>(i + 1);
+    }
+
+    std::string file_name = "bloom_filter_unsigned_int";
+    uint32_t not_exist_value = 0xFFFFFFFF;
+    auto st =
+            test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>(
+                    file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_smallint) {
+    size_t num = 1024 * 3;
+    int16_t* val = new int16_t[num];
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = static_cast<int16_t>(i + 1);
+    }
+
+    std::string file_name = "bloom_filter_smallint";
+    int16_t not_exist_value = -1;
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_SMALLINT>(
             file_name, val, num, 1, &not_exist_value);
     EXPECT_TRUE(st.ok());
     delete[] val;
@@ -431,14 +493,14 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal64) {
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_ipv4) {
-    size_t num = 1024 * 3;
+    size_t num = 1024 * 3; // 3072
     uint32_t* val = new uint32_t[num];
     for (size_t i = 0; i < num; ++i) {
-        val[i] = (192 << 24) | (168 << 16) | (i >> 8) | (i & 0xFF);
+        val[i] = (192 << 24) | (168 << 16) | (i & 0xFFFF);
     }
 
     std::string file_name = "bloom_filter_ipv4";
-    uint32_t not_exist_value = (10 << 24) | (0 << 16) | (0 << 8) | 1;
+    uint32_t not_exist_value = (10 << 24) | (0 << 16) | (0 << 8) | 1; // 10.0.0.1
     auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_IPV4>(
             file_name, val, num, 1, &not_exist_value);
     EXPECT_TRUE(st.ok());
@@ -507,103 +569,94 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ipv6) {
     delete[] val;
 }
 
-void test_ngram_bloom_filter_index_reader_writer(const std::string& file_name, Slice* values,
-                                                 size_t num_values, uint8_t gram_size,
-                                                 uint16_t bf_size) {
-    ColumnIndexMetaPB meta;
-    {
-        auto type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
-        auto fs = io::global_local_filesystem();
-        std::string fname = dname + "/" + file_name;
-        io::FileWriterPtr file_writer;
-        Status st = fs->create_file(fname, &file_writer);
-        EXPECT_TRUE(st.ok()) << st.to_string();
+template <FieldType type>
+Status write_ngram_bloom_filter_index_file(const std::string& file_name, Slice* values,
+                                           size_t num_values, const TypeInfo* type_info,
+                                           BloomFilterIndexWriter* bf_index_writer,
+                                           ColumnIndexMetaPB* meta) {
+    auto fs = io::global_local_filesystem();
+    std::string fname = dname + "/" + file_name;
+    io::FileWriterPtr file_writer;
+    Status st = fs->create_file(fname, &file_writer);
+    EXPECT_TRUE(st.ok()) << st.to_string();
 
-        BloomFilterOptions bf_options;
-        std::unique_ptr<BloomFilterIndexWriter> bf_index_writer;
-        st = NGramBloomFilterIndexWriterImpl::create(bf_options, type_info, gram_size, bf_size,
-                                                     &bf_index_writer);
+    size_t i = 0;
+    while (i < num_values) {
+        size_t num = std::min(static_cast<size_t>(1024), num_values - i);
+        st = bf_index_writer->add_values(values + i, num);
+        EXPECT_TRUE(st.ok());
+        st = bf_index_writer->flush();
+        EXPECT_TRUE(st.ok());
+        i += num;
+    }
+
+    st = bf_index_writer->finish(file_writer.get(), meta);
+    EXPECT_TRUE(st.ok()) << "Writer finish status: " << st.to_string();
+    EXPECT_TRUE(file_writer->close().ok());
+
+    return Status::OK();
+}
+
+Status read_and_test_ngram_bloom_filter_index_file(const std::string& file_name, size_t num_values,
+                                                   uint8_t gram_size, uint16_t bf_size,
+                                                   const ColumnIndexMetaPB& meta,
+                                                   const std::vector<std::string>& test_patterns) {
+    BloomFilterIndexReader* reader = nullptr;
+    std::unique_ptr<BloomFilterIndexIterator> iter;
+    get_bloom_filter_reader_iter(file_name, meta, &reader, &iter);
+
+    NgramTokenExtractor extractor(gram_size);
+    uint16_t gram_bf_size = bf_size;
+
+    size_t total_pages = (num_values + 1023) / 1024;
+    for (size_t page = 0; page < total_pages; ++page) {
+        std::unique_ptr<BloomFilter> bf;
+        auto st = iter->read_bloom_filter(page, &bf);
         EXPECT_TRUE(st.ok());
 
-        size_t i = 0;
-        {
-            size_t num = std::min(static_cast<size_t>(1024), num_values - i);
-            st = bf_index_writer->add_values(values + i, num);
-            EXPECT_TRUE(st.ok());
-            st = bf_index_writer->flush();
-            EXPECT_TRUE(st.ok());
-            i += num;
-        }
-        if (i < num_values) {
-            size_t num = num_values - i;
-            st = bf_index_writer->add_values(values + i, num);
-            EXPECT_TRUE(st.ok());
-            st = bf_index_writer->flush();
-            EXPECT_TRUE(st.ok());
-            i += num;
-        }
-
-        st = bf_index_writer->finish(file_writer.get(), &meta);
-        EXPECT_TRUE(st.ok()) << "writer finish status:" << st.to_string();
-        EXPECT_TRUE(file_writer->close().ok());
-    }
-    {
-        BloomFilterIndexReader* reader = nullptr;
-        std::unique_ptr<BloomFilterIndexIterator> iter;
-        get_bloom_filter_reader_iter(file_name, meta, &reader, &iter);
-
-        std::vector<std::string> test_patterns = {"ngram15", "ngram1000", "ngram1499",
-                                                  "non-existent-string"};
-
-        NgramTokenExtractor extractor(gram_size);
-        uint16_t gram_bf_size = bf_size;
-
-        {
-            std::unique_ptr<BloomFilter> bf;
-            auto st = iter->read_bloom_filter(0, &bf);
+        for (const auto& pattern : test_patterns) {
+            std::unique_ptr<BloomFilter> query_bf;
+            st = BloomFilter::create(NGRAM_BLOOM_FILTER, &query_bf, gram_bf_size);
             EXPECT_TRUE(st.ok());
 
-            for (const auto& pattern : test_patterns) {
-                std::unique_ptr<BloomFilter> query_bf;
-                st = BloomFilter::create(NGRAM_BLOOM_FILTER, &query_bf, gram_bf_size);
-                EXPECT_TRUE(st.ok());
-
-                if (extractor.string_like_to_bloom_filter(pattern.data(), pattern.size(),
-                                                          *query_bf)) {
-                    bool contains = bf->contains(*query_bf);
-                    bool expected = false;
-                    if (pattern == "ngram15" || pattern == "ngram1000") {
-                        expected = true;
-                    }
-                    EXPECT_EQ(contains, expected) << "Pattern: " << pattern;
+            if (extractor.string_like_to_bloom_filter(pattern.data(), pattern.size(), *query_bf)) {
+                bool contains = bf->contains(*query_bf);
+                bool expected = false;
+                if ((page == 0 && (pattern == "ngram15" || pattern == "ngram1000")) ||
+                    (page == 1 && pattern == "ngram1499")) {
+                    expected = true;
                 }
+                EXPECT_EQ(contains, expected) << "Pattern: " << pattern << ", Page: " << page;
             }
         }
-        {
-            if (num_values > 1024) {
-                std::unique_ptr<BloomFilter> bf;
-                auto st = iter->read_bloom_filter(1, &bf);
-                EXPECT_TRUE(st.ok());
-
-                for (const auto& pattern : test_patterns) {
-                    std::unique_ptr<BloomFilter> query_bf;
-                    st = BloomFilter::create(NGRAM_BLOOM_FILTER, &query_bf, gram_bf_size);
-                    EXPECT_TRUE(st.ok());
-
-                    if (extractor.string_like_to_bloom_filter(pattern.data(), pattern.size(),
-                                                              *query_bf)) {
-                        bool contains = bf->contains(*query_bf);
-                        bool expected = false;
-                        if (pattern == "ngram1499") {
-                            expected = true;
-                        }
-                        EXPECT_EQ(contains, expected) << "Pattern: " << pattern;
-                    }
-                }
-            }
-        }
-        delete reader;
     }
+
+    delete reader;
+    return Status::OK();
+}
+
+template <FieldType type>
+Status test_ngram_bloom_filter_index_reader_writer(const std::string& file_name, Slice* values,
+                                                   size_t num_values, uint8_t gram_size,
+                                                   uint16_t bf_size) {
+    const auto* type_info = get_scalar_type_info<type>();
+    ColumnIndexMetaPB meta;
+
+    BloomFilterOptions bf_options;
+    std::unique_ptr<BloomFilterIndexWriter> bf_index_writer;
+    RETURN_IF_ERROR(NGramBloomFilterIndexWriterImpl::create(bf_options, type_info, gram_size,
+                                                            bf_size, &bf_index_writer));
+
+    RETURN_IF_ERROR(write_ngram_bloom_filter_index_file<type>(
+            file_name, values, num_values, type_info, bf_index_writer.get(), &meta));
+
+    std::vector<std::string> test_patterns = {"ngram15", "ngram1000", "ngram1499",
+                                              "non-existent-string"};
+
+    RETURN_IF_ERROR(read_and_test_ngram_bloom_filter_index_file(file_name, num_values, gram_size,
+                                                                bf_size, meta, test_patterns));
+
+    return Status::OK();
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_ngram_bloom_filter) {
@@ -617,11 +670,57 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ngram_bloom_filter) {
         slices[i] = Slice(val[i].data(), val[i].size());
     }
 
-    std::string file_name = "bloom_filter_ngram";
     uint8_t gram_size = 5;
     uint16_t bf_size = 65535;
 
-    test_ngram_bloom_filter_index_reader_writer(file_name, slices.data(), num, gram_size, bf_size);
+    auto st = test_ngram_bloom_filter_index_reader_writer<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
+            "bloom_filter_ngram_varchar", slices.data(), num, gram_size, bf_size);
+    EXPECT_TRUE(st.ok());
+    st = test_ngram_bloom_filter_index_reader_writer<FieldType::OLAP_FIELD_TYPE_CHAR>(
+            "bloom_filter_ngram_char", slices.data(), num, gram_size, bf_size);
+    EXPECT_TRUE(st.ok());
+    st = test_ngram_bloom_filter_index_reader_writer<FieldType::OLAP_FIELD_TYPE_STRING>(
+            "bloom_filter_ngram_string", slices.data(), num, gram_size, bf_size);
+    EXPECT_TRUE(st.ok());
+    st = test_ngram_bloom_filter_index_reader_writer<FieldType::OLAP_FIELD_TYPE_INT>(
+            "bloom_filter_ngram_string", slices.data(), num, gram_size, bf_size);
+    EXPECT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), TStatusCode::NOT_IMPLEMENTED_ERROR);
+}
+void test_ngram_bloom_filter_with_size(uint16_t bf_size) {
+    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
+    ColumnIndexMetaPB meta;
+
+    BloomFilterOptions bf_options;
+    size_t num = 1500;
+    std::vector<std::string> val(num);
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = "ngram" + std::to_string(i);
+    }
+    std::vector<Slice> slices(num);
+    for (size_t i = 0; i < num; ++i) {
+        slices[i] = Slice(val[i].data(), val[i].size());
+    }
+    size_t total_pages = (num + 1024 - 1) / 1024;
+    uint8_t gram_size = 5;
+
+    std::unique_ptr<BloomFilterIndexWriter> bf_index_writer;
+    auto st = NGramBloomFilterIndexWriterImpl::create(bf_options, type_info, gram_size, bf_size,
+                                                      &bf_index_writer);
+    EXPECT_TRUE(st.ok());
+
+    std::string file_name = "bloom_filter_ngram_varchar_size_" + std::to_string(bf_size);
+    st = write_ngram_bloom_filter_index_file<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
+            file_name, slices.data(), num, type_info, bf_index_writer.get(), &meta);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(bf_index_writer->size(), static_cast<uint64_t>(bf_size) * total_pages);
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_ngram_bloom_filter_size) {
+    std::vector<uint16_t> bf_sizes = {1024, 2048, 4096, 8192, 16384, 32768, 65535};
+    for (uint16_t bf_size : bf_sizes) {
+        test_ngram_bloom_filter_with_size(bf_size);
+    }
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_unsupported_type) {
