@@ -395,9 +395,15 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
-        return isDateOutOfRange(dateTime)
-                ? new NullLiteral(DateTimeType.INSTANCE)
-                : new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
-                        dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
+        if (isDateOutOfRange(dateTime)) {
+            return new NullLiteral(DateTimeType.INSTANCE);
+        } else {
+            if (checkRange(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth())
+                    || checkDate(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth())) {
+                throw new AnalysisException("datetime [" + dateTime + "] is invalid of range");
+            }
+            return new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                    dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
+        }
     }
 }

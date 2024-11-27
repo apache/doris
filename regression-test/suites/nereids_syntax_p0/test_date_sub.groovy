@@ -68,4 +68,14 @@ suite("test_date_sub") {
     qt_sql """ SELECT TIMESTAMPDIFF(DAY,'2003-02-01','2003-05-01') """
     qt_sql """ SELECT TIMESTAMPDIFF(WEEK,'2003-02-01','2003-05-01') """
 
+    qt_select "SELECT DATE_SUB(CAST('0000-02-28 00:00:00' AS DATETIMEV1),interval -40 hour),bit_Test(1,0);"
+    explain {
+        sql("SELECT DATE_SUB(CAST('0000-02-28 00:00:00' AS DATETIMEV1),interval -40 hour),bit_Test(1,0);")
+        contains "hours_sub"
+    }
+    qt_select "SELECT DATE_SUB(CAST('0000-02-28 00:00:00' AS DATETIMEV2),interval -40 hour),bit_Test(1,0);"
+    explain {
+        sql("SELECT DATE_SUB(CAST('0000-02-28 00:00:00' AS DATETIMEV2),interval -40 hour),bit_Test(1,0);")
+        contains "hours_sub"
+    }
 }
