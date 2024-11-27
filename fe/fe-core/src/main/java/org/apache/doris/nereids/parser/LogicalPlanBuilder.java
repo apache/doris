@@ -58,6 +58,7 @@ import org.apache.doris.nereids.DorisParser.AlterRoleContext;
 import org.apache.doris.nereids.DorisParser.AlterStorageVaultContext;
 import org.apache.doris.nereids.DorisParser.AlterViewContext;
 import org.apache.doris.nereids.DorisParser.AlterWorkloadGroupContext;
+import org.apache.doris.nereids.DorisParser.AlterWorkloadPolicyContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.ArrayLiteralContext;
@@ -435,6 +436,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
@@ -4310,6 +4312,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, String> properties = ctx.propertyClause() != null
                         ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
         return new AlterWorkloadGroupCommand(ctx.name.getText(), properties);
+    }
+
+    @Override
+    public LogicalPlan visitAlterWorkloadPolicy(AlterWorkloadPolicyContext ctx) {
+        Map<String, String> properties = ctx.propertyClause() != null
+                        ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        return new AlterWorkloadPolicyCommand(ctx.name.getText(), properties);
     }
 
     @Override
