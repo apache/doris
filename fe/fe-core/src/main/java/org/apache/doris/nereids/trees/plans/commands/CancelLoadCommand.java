@@ -17,13 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.CancelLoadStmt;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.ExportJobState;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -49,8 +47,6 @@ public class CancelLoadCommand extends CancelCommand implements ForwardWithSync 
 
     private Expression whereClause;
 
-    private Expr legacyWhereClause;
-
     public CancelLoadCommand(String dbName, Expression whereClause) {
         super(PlanType.CANCEL_EXPORT_COMMAND);
         this.dbName = dbName;
@@ -60,17 +56,10 @@ public class CancelLoadCommand extends CancelCommand implements ForwardWithSync 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
-        CancelLoadStmt cancelStmt = null;
-        if (whereClause instanceof CompoundPredicate) {
-            cancelStmt = new CancelLoadStmt(dbName, legacyWhereClause, label,
-                ((org.apache.doris.analysis.CompoundPredicate) legacyWhereClause).getOp(), state);
-        } else {
-            cancelStmt = new CancelLoadStmt(dbName, legacyWhereClause, label, null, state);
-        }
         try {
-            ctx.getEnv().getJobManager().cancelLoadJob(cancelStmt);
+            ctx.getEnv().getJobManager().cancelLoadJob(dbName, label, state, (BinaryOperator) whereClause);
         } catch (JobException e) {
-            ctx.getEnv().getLoadManager().cancelLoadJob(cancelStmt);
+            ctx.getEnv().getLoadManager().cancelLoadJob(dbName, label, state, (BinaryOperator) whereClause);
         }
     }
 
@@ -96,8 +85,6 @@ public class CancelLoadCommand extends CancelCommand implements ForwardWithSync 
                 throw new AnalysisException("Only support PENDING/EXPORTING, invalid state: " + state);
             }
         }
-
-        legacyWhereClause = translateToLegacyExpr(ctx, whereClause);
     }
 
     @Override

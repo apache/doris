@@ -17,12 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.CancelExportStmt;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.ExportJobState;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -48,8 +46,6 @@ public class CancelExportCommand extends CancelCommand implements ForwardWithSyn
 
     private Expression whereClause;
 
-    private Expr legacyWhereClause;
-
     public CancelExportCommand(String dbName, Expression whereClause) {
         super(PlanType.CANCEL_EXPORT_COMMAND);
         this.dbName = dbName;
@@ -59,14 +55,7 @@ public class CancelExportCommand extends CancelCommand implements ForwardWithSyn
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
-        CancelExportStmt cancelStmt = null;
-        if (whereClause instanceof CompoundPredicate) {
-            cancelStmt = new CancelExportStmt(dbName, legacyWhereClause, label,
-                ((org.apache.doris.analysis.CompoundPredicate) legacyWhereClause).getOp(), state);
-        } else {
-            cancelStmt = new CancelExportStmt(dbName, legacyWhereClause, label, null, state);
-        }
-        ctx.getEnv().getExportMgr().cancelExportJob(cancelStmt);
+        ctx.getEnv().getExportMgr().cancelExportJob(label, state, (BinaryOperator) whereClause, dbName);
     }
 
     private void validate(ConnectContext ctx) throws UserException {
@@ -91,8 +80,6 @@ public class CancelExportCommand extends CancelCommand implements ForwardWithSyn
                 throw new AnalysisException("Only support PENDING/EXPORTING, invalid state: " + state);
             }
         }
-
-        legacyWhereClause = translateToLegacyExpr(ctx, whereClause);
     }
 
     @Override
