@@ -289,7 +289,8 @@ public:
     bool need_sync_filter_size();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr, uint64_t local_merge_time);
+    Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr,
+                          uint64_t local_merge_time);
 
     void init_profile(RuntimeProfile* parent_profile);
 
