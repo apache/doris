@@ -389,12 +389,12 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
             totalRows.add(Arrays.asList("", "Total", DebugUtil.printByteWithUnit(totalSize),
                     String.valueOf(totalReplicaCount), "", DebugUtil.printByteWithUnit(totalRemoteSize)));
         } else {
-            totalRows.add(Arrays.asList("", "Total", DebugUtil.printByteWithUnit(totalSize),
-                    String.valueOf(totalReplicaCount), "", DebugUtil.printByteWithUnit(totalRemoteSize),
+            totalRows.add(Arrays.asList("", "Total", String.valueOf(totalReplicaCount), "",
+                    DebugUtil.printByteWithUnit(totalSize), DebugUtil.printByteWithUnit(totalLocalSegmentSize),
                     DebugUtil.printByteWithUnit(totalLocalInvertedSize),
-                    DebugUtil.printByteWithUnit(totalLocalSegmentSize),
-                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize),
-                    DebugUtil.printByteWithUnit(totalRemoteSegmentSize)));
+                    DebugUtil.printByteWithUnit(totalRemoteSize),
+                    DebugUtil.printByteWithUnit(totalRemoteSegmentSize),
+                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize)));
         }
     }
 

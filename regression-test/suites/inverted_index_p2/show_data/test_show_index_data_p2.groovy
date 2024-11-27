@@ -113,10 +113,9 @@ suite("test_show_index_data_p2", "p2") {
             "disable_auto_compaction" = "true"
         );
     """
-    def tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
 
     def compaction = {
-        
+        def tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
         for (def tablet in tablets) {
             int beforeSegmentCount = 0
             String tablet_id = tablet.TabletId
@@ -195,7 +194,7 @@ suite("test_show_index_data_p2", "p2") {
             } else if (expect_idx == FileSizeChange.SMALLER) {
                 assertTrue(currentLocalIndexSize < localIndexSize)
             } else {
-                assertTrue(currentLocalIndexSize == localIndexSize)
+                assertTrue(check_size_equal(currentLocalIndexSize, localIndexSize))
             }
 
             if (expect_data == FileSizeChange.LARGER) {
@@ -203,7 +202,7 @@ suite("test_show_index_data_p2", "p2") {
             } else if (expect_data == FileSizeChange.SMALLER) {
                 assertTrue(currentSegmentIndexSize < localSegmentSize)
             } else {
-                assertTrue(currentSegmentIndexSize == localSegmentSize)
+                assertTrue(check_size_equal(currentSegmentIndexSize, localSegmentSize))
             }
 
             assertTrue(currentLocalIndexSize != 0)
@@ -224,6 +223,7 @@ suite("test_show_index_data_p2", "p2") {
     }
 
     def schema_change = {
+        def tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
         Set<String> rowsetids = new HashSet<>();
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
@@ -267,6 +267,7 @@ suite("test_show_index_data_p2", "p2") {
     }
 
     def build_index = {
+        def tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
         Set<String> rowsetids = new HashSet<>();
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
@@ -286,9 +287,12 @@ suite("test_show_index_data_p2", "p2") {
             }
         }
         sql """ ALTER TABLE ${show_table_name} ADD INDEX status_idx (status) using inverted; """
-        sql """ build index status_idx on ${show_table_name}"""
+        if (!isCloudMode()) {
+            sql """ build index status_idx on ${show_table_name}"""
+        }
         Awaitility.await().atMost(60, TimeUnit.MINUTES).untilAsserted(() -> {
             Thread.sleep(30000)
+            tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
             for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
                 (code, out, err) = curl("GET", tablet.CompactionStatus)
@@ -310,6 +314,7 @@ suite("test_show_index_data_p2", "p2") {
     }
 
     def drop_index = {
+        def tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
         Set<String> rowsetids = new HashSet<>();
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
@@ -331,6 +336,7 @@ suite("test_show_index_data_p2", "p2") {
         sql """ DROP INDEX status_idx on ${show_table_name}"""
         Awaitility.await().atMost(60, TimeUnit.MINUTES).untilAsserted(() -> {
             Thread.sleep(30000)
+            tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
             for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
                 (code, out, err) = curl("GET", tablet.CompactionStatus)
