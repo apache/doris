@@ -330,7 +330,7 @@ struct TPaimonFileDesc {
     11: optional string file_format
     12: optional TPaimonDeletionFileDesc deletion_file;
     13: optional map<string, string> hadoop_conf // deprecated
-    14: optional string paimon_table
+    14: optional string paimon_table  // deprecated
 }
 
 struct TMaxComputeFileDesc {
@@ -420,6 +420,13 @@ struct TFileScanRangeParams {
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
     21: optional Types.TUniqueId load_id
     22: optional TTextSerdeType  text_serde_type 
+    // used by flexible partial update
+    23: optional string sequence_map_col
+    // table from FE, used for jni scanner
+    // BE can use table director:
+    //    1. Reduce the access to HMS and HDFS on the JNI side.
+    //    2. There will be no inconsistency between the fe and be tables.
+    24: optional string serialized_table
 }
 
 struct TFileRangeDesc {

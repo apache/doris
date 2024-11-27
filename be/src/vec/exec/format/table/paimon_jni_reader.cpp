@@ -40,7 +40,8 @@ const std::string PaimonJniReader::HADOOP_OPTION_PREFIX = "hadoop.";
 
 PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                                  RuntimeState* state, RuntimeProfile* profile,
-                                 const TFileRangeDesc& range)
+                                 const TFileRangeDesc& range,
+                                 const TFileScanRangeParams* range_params)
         : JniReader(file_slot_descs, state, profile) {
     std::vector<std::string> column_names;
     std::vector<std::string> column_types;
@@ -61,8 +62,8 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
             std::to_string(range.table_format_params.paimon_params.last_update_time);
     params["required_fields"] = join(column_names, ",");
     params["columns_types"] = join(column_types, "#");
-    if (range.table_format_params.paimon_params.__isset.paimon_table) {
-        params["paimon_table"] = range.table_format_params.paimon_params.paimon_table;
+    if (range_params->__isset.serialized_table) {
+        params["serialized_table"] = range_params->serialized_table;
     }
 
     // Used to create paimon option
