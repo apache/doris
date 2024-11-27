@@ -807,7 +807,7 @@ class Syncer {
 
                         tarPartition.value.version = srcPartition.value.version
                         long partitionId = fakePartitionId == -1 ? tarPartition.key : fakePartitionId
-                        long version = fakeVersion == -1 ? partitionRecord.version : fakeVersion
+                        long version = fakeVersion == -1 ? srcPartition.value.version : fakeVersion
 
                         TIngestBinlogRequest request = new TIngestBinlogRequest()
                         TUniqueId uid = new TUniqueId(-1, -1)
