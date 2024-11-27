@@ -354,9 +354,12 @@ public:
     void set_finish_dependency(
             const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
 
-    int64_t get_synced_size() const { return _synced_size; }
-
-    bool isset_synced_size() const { return _synced_size != -1; }
+    int64_t get_synced_size() const {
+        if (_synced_size == -1) {
+            return Status::InternalError("sync filter size meet error, filter: {}", debug_string());
+        }
+        return _synced_size;
+    }
 
 protected:
     // serialize _wrapper to protobuf
