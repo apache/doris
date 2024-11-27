@@ -71,7 +71,7 @@ suite("test_outfile_complex_type", "p0") {
     // parquet file format
     def format = "parquet"
     def outfile_url = outfile_to_S3("${format}")
-    qt_select_load_parquet """ SELECT dt, id, hex(price), hex(hll_t), hex(device_id) FROM S3 (
+    qt_select_load_parquet """ SELECT dt, id, hex(price), hex(hll_t) FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
@@ -83,7 +83,7 @@ suite("test_outfile_complex_type", "p0") {
     // orc file foramt
     format = "orc"
     outfile_url = outfile_to_S3("${format}")
-    qt_select_load_orc """ SELECT dt, id, hex(price), hex(hll_t), hex(device_id) FROM S3 (
+    qt_select_load_orc """ SELECT dt, id, hex(price), hex(hll_t) FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
@@ -92,10 +92,10 @@ suite("test_outfile_complex_type", "p0") {
             );
             """
 
-    // orc file foramt
+    // csv file foramt
     format = "csv"
     outfile_url = outfile_to_S3("${format}")
-    qt_select_load_orc """ SELECT * FROM S3 (
+    qt_select_load_csv """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
