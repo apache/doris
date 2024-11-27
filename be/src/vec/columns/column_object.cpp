@@ -82,6 +82,7 @@
 #endif
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 namespace {
 
 DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable) {
@@ -653,7 +654,7 @@ bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
         defaults_ratio.push_back(data[i]->get_ratio_of_default_rows());
     }
     double default_ratio = std::accumulate(defaults_ratio.begin(), defaults_ratio.end(), 0.0) /
-                           defaults_ratio.size();
+                           static_cast<double>(defaults_ratio.size());
     return default_ratio >= config::variant_ratio_of_defaults_as_sparse_column;
 }
 
@@ -1294,7 +1295,11 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
     if (!json.IsObject()) {
         return nullptr;
     }
-    rapidjson::Value name(current_key.data(), current_key.size());
+    /*! RapidJSON uses 32-bit array/string indices even on 64-bit platforms,
+    instead of using \c size_t. Users may override the SizeType by defining
+    \ref RAPIDJSON_NO_SIZETYPEDEFINE.
+    */
+    rapidjson::Value name(current_key.data(), cast_set<unsigned>(current_key.size()));
     auto it = json.FindMember(name);
     if (it == json.MemberEnd()) {
         return nullptr;
@@ -1312,7 +1317,7 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
 // 3. empty root jsonb value(not null)
 // 4. type is nothing
 bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type,
-                     TypeIndex base_type_id, int row, const PathInData& path) {
+                     TypeIndex base_type_id, size_t row, const PathInData& path) {
     // skip nulls
     if (nullable && nullable->is_null_at(row)) {
         return true;
@@ -1348,7 +1353,7 @@ Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                                 const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
                                 TypeIndex base_type_index, rapidjson::Value& root,
                                 rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                int row) {
+                                size_t row) {
 #ifndef NDEBUG
     // sanitize type and column
     if (column->get_name() != type->create_column()->get_name()) {
@@ -1416,7 +1421,7 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
     }
 }
 
-Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* output) const {
+Status ColumnObject::serialize_one_row_to_string(size_t row, std::string* output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
@@ -1432,7 +1437,7 @@ Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* outpu
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
+Status ColumnObject::serialize_one_row_to_string(size_t row, BufferWritable& output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
@@ -1447,7 +1452,7 @@ Status ColumnObject::serialize_one_row_to_string(int64_t row, BufferWritable& ou
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_json_format(int64_t row, rapidjson::StringBuffer* output,
+Status ColumnObject::serialize_one_row_to_json_format(size_t row, rapidjson::StringBuffer* output,
                                                       bool* is_null) const {
     CHECK(is_finalized());
     if (subcolumns.empty()) {
