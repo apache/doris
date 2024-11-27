@@ -216,6 +216,12 @@ public:
 
     std::weak_ptr<CgroupCpuCtl> get_cgroup_cpu_ctl_wptr();
 
+    ThreadPool* get_memtable_flush_pool_ptr() {
+        // no lock here because this is called by memtable flush,
+        // to avoid lock competition with the workload thread pool's update
+        return _memtable_flush_pool.get();
+    }
+
 private:
     void create_cgroup_cpu_ctl_no_lock();
     void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
