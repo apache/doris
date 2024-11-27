@@ -627,10 +627,10 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
 
 // check if the slot of expr can be pushed down to orc reader and make orc predicate type
 bool OrcReader::_check_slot_can_push_down(const VExprSPtr& expr) {
-    if (!expr->get_child(0)->is_slot_ref()) {
+    if (!expr->children()[0]->is_slot_ref()) {
         return false;
     }
-    const auto* slot_ref = static_cast<const VSlotRef*>(expr->get_child(0).get());
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     // check if the slot exists in orc file and not partition column
     if (!_col_name_to_file_col_name.contains(slot_ref->expr_name()) &&
         _lazy_read_ctx.predicate_partition_columns.contains(slot_ref->expr_name())) {
@@ -645,12 +645,12 @@ bool OrcReader::_check_slot_can_push_down(const VExprSPtr& expr) {
 
 // check if the literal of expr can be pushed down to orc reader and make orc literal
 bool OrcReader::_check_literal_can_push_down(const VExprSPtr& expr, uint16_t child_id) {
-    if (!expr->get_child(child_id)->is_literal()) {
+    if (!expr->children()[child_id]->is_literal()) {
         return false;
     }
     // the slot has been checked in _check_slot_can_push_down before calling this function
-    const auto* slot_ref = static_cast<const VSlotRef*>(expr->get_child(0).get());
-    const auto* literal = static_cast<const VLiteral*>(expr->get_child(child_id).get());
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    const auto* literal = static_cast<const VLiteral*>(expr->children()[child_id].get());
     auto [valid, orc_literal, _] = _make_orc_literal(slot_ref, literal);
     if (valid) {
         _vliteral_to_orc_literal.insert(std::make_pair(literal, orc_literal));
@@ -660,11 +660,11 @@ bool OrcReader::_check_literal_can_push_down(const VExprSPtr& expr, uint16_t chi
 
 // check if there are rest children of expr can be pushed down to orc reader
 bool OrcReader::_check_rest_children_can_push_down(const VExprSPtr& expr) {
-    if (expr->get_num_children() < 2) {
+    if (expr->children().size() < 2) {
         return false;
     }
 
-    for (size_t i = 1; i < expr->get_num_children(); ++i) {
+    for (size_t i = 1; i < expr->children().size(); ++i) {
         if (!_check_literal_can_push_down(expr, i)) {
             return false;
         }
@@ -690,8 +690,8 @@ bool OrcReader::_check_expr_can_push_down(const VExprSPtr& expr) {
             return _check_expr_can_push_down(child);
         });
     case TExprOpcode::COMPOUND_NOT:
-        DCHECK_EQ(expr->get_num_children(), 1);
-        return _check_expr_can_push_down(expr->get_child(0));
+        DCHECK_EQ(expr->children().size(), 1);
+        return _check_expr_can_push_down(expr->children()[0]);
 
     case TExprOpcode::GE:
     case TExprOpcode::GT:
@@ -721,11 +721,11 @@ bool OrcReader::_check_expr_can_push_down(const VExprSPtr& expr) {
 
 void OrcReader::_build_less_than(const VExprSPtr& expr,
                                  std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
-    DCHECK(expr->get_num_children() == 2);
-    DCHECK(expr->get_child(0)->is_slot_ref());
-    DCHECK(expr->get_child(1)->is_literal());
-    const auto* slot_ref = static_cast<const VSlotRef*>(expr->get_child(0).get());
-    const auto* literal = static_cast<const VLiteral*>(expr->get_child(1).get());
+    DCHECK(expr->children().size() == 2);
+    DCHECK(expr->children()[0]->is_slot_ref());
+    DCHECK(expr->children()[1]->is_literal());
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
     DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     DCHECK(_vliteral_to_orc_literal.contains(literal));
@@ -735,11 +735,11 @@ void OrcReader::_build_less_than(const VExprSPtr& expr,
 
 void OrcReader::_build_less_than_equals(const VExprSPtr& expr,
                                         std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
-    DCHECK(expr->get_num_children() == 2);
-    DCHECK(expr->get_child(0)->is_slot_ref());
-    DCHECK(expr->get_child(1)->is_literal());
-    const auto* slot_ref = static_cast<const VSlotRef*>(expr->get_child(0).get());
-    const auto* literal = static_cast<const VLiteral*>(expr->get_child(1).get());
+    DCHECK(expr->children().size() == 2);
+    DCHECK(expr->children()[0]->is_slot_ref());
+    DCHECK(expr->children()[1]->is_literal());
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
     DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     DCHECK(_vliteral_to_orc_literal.contains(literal));
@@ -749,11 +749,11 @@ void OrcReader::_build_less_than_equals(const VExprSPtr& expr,
 
 void OrcReader::_build_equals(const VExprSPtr& expr,
                               std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
-    DCHECK(expr->get_num_children() == 2);
-    DCHECK(expr->get_child(0)->is_slot_ref());
-    DCHECK(expr->get_child(1)->is_literal());
-    const auto* slot_ref = static_cast<const VSlotRef*>(expr->get_child(0).get());
-    const auto* literal = static_cast<const VLiteral*>(expr->get_child(1).get());
+    DCHECK(expr->children().size() == 2);
+    DCHECK(expr->children()[0]->is_slot_ref());
+    DCHECK(expr->children()[1]->is_literal());
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
     DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     DCHECK(_vliteral_to_orc_literal.contains(literal));
@@ -763,13 +763,13 @@ void OrcReader::_build_equals(const VExprSPtr& expr,
 
 void OrcReader::_build_filter_in(const VExprSPtr& expr,
                                  std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
-    DCHECK(expr->get_num_children() >= 2);
-    DCHECK(expr->get_child(0)->is_slot_ref());
-    const auto* slot_ref = static_cast<const VSlotRef*>(expr->get_child(0).get());
+    DCHECK(expr->children().size() >= 2);
+    DCHECK(expr->children()[0]->is_slot_ref());
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     std::vector<orc::Literal> literals;
     DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
     orc::PredicateDataType predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
-    for (size_t i = 1; i < expr->get_num_children(); ++i) {
+    for (size_t i = 1; i < expr->children().size(); ++i) {
         DCHECK(expr->children()[i]->is_literal());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
         DCHECK(_vliteral_to_orc_literal.contains(literal));
@@ -782,9 +782,9 @@ void OrcReader::_build_filter_in(const VExprSPtr& expr,
 
 void OrcReader::_build_is_null(const VExprSPtr& expr,
                                std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
-    DCHECK(expr->get_num_children() == 1);
-    DCHECK(expr->get_child(0)->is_slot_ref());
-    const auto* slot_ref = static_cast<const VSlotRef*>(expr->get_child(0).get());
+    DCHECK(expr->children().size() == 1);
+    DCHECK(expr->children()[0]->is_slot_ref());
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     builder->isNull(slot_ref->expr_name(), predicate_type);
@@ -822,9 +822,9 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         break;
     }
     case TExprOpcode::COMPOUND_NOT: {
-        DCHECK_EQ(expr->get_num_children(), 1);
+        DCHECK_EQ(expr->children().size(), 1);
         builder->startNot();
-        auto res = _build_search_argument(expr->get_child(0), builder);
+        auto res = _build_search_argument(expr->children()[0], builder);
         DCHECK(res);
         builder->end();
         break;
@@ -940,8 +940,8 @@ Status OrcReader::set_fill_columns(
                     visit_slot(child.get());
                 }
             } else if (VInPredicate* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
-                if (in_predicate->get_num_children() > 0) {
-                    visit_slot(in_predicate->get_child(0).get());
+                if (!in_predicate->children().empty()) {
+                    visit_slot(in_predicate->children()[0].get());
                 }
             } else {
                 for (auto& child : filter_impl->children()) {
