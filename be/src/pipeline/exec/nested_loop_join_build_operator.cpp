@@ -84,9 +84,9 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
         }
     }
 
-    profile()->add_info_string("ShareHashTableEnabled",
+    profile()->add_info_string("ShareCollectedEnabled",
                                std::to_string(state->enable_share_hash_table_for_broadcast_join()));
-    profile()->add_info_string("BuildShareHashTable", std::to_string(_should_collected_blocks));
+    profile()->add_info_string("ShouldCollectedBlocks", std::to_string(_should_collected_blocks));
     if (!_should_collected_blocks) {
         _dependency->block();
         p._shared_collected_data_controller->append_dependency(p.node_id(),
@@ -146,15 +146,17 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
     SCOPED_TIMER(local_state.exec_time_counter());
 
     auto rows = block->rows();
-    if (local_state._should_collected_blocks && rows != 0) {
-        COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)rows);
-        auto mem_usage = block->allocated_bytes();
-        local_state._build_rows += rows;
-        local_state._total_mem_usage += mem_usage;
-        local_state._shared_state->build_blocks->emplace_back(std::move(*block));
+    if (rows != 0) {
         if (_match_all_build || _is_right_semi_anti) {
             local_state._shared_state->build_side_visited_flags.emplace_back(
                     vectorized::ColumnUInt8::create(rows, 0));
+        }
+        if (local_state._should_collected_blocks) {
+            COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)rows);
+            auto mem_usage = block->allocated_bytes();
+            local_state._build_rows += rows;
+            local_state._total_mem_usage += mem_usage;
+            local_state._shared_state->build_blocks->emplace_back(std::move(*block));
         }
     }
 
@@ -185,14 +187,17 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
             return _shared_collected_data_context->status;
         }
 
+        local_state._shared_state->build_blocks = _shared_collected_data_context->build_blocks_ptr;
         RETURN_IF_ERROR(local_state.runtime_filter_slots()->copy_from_shared_context(
                 _shared_collected_data_context));
-
+        {
+            SCOPED_TIMER(local_state.publish_runtime_filter_timer());
+            RETURN_IF_ERROR(local_state.runtime_filter_slots()->publish(state));
+        }
         local_state.profile()->add_info_string(
                 "SharedCollectedDataFrom",
                 print_id(_shared_collected_data_controller->get_builder_fragment_instance_id(
                         node_id())));
-        local_state._shared_state->build_blocks = _shared_collected_data_context->build_blocks_ptr;
     }
 
     if (eos) {
