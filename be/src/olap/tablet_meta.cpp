@@ -1219,7 +1219,7 @@ void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::
             _stale_delete_bitmap.erase(version_str);
         }
     }
-    if (tablet_id == -1 || to_delete.empty()) {
+    if (tablet_id == -1 || to_delete.empty() || !config::is_cloud_mode()) {
         return;
     }
     CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
