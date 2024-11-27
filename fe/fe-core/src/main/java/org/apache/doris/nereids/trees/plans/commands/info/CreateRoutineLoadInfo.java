@@ -15,8 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.CreateRoutineLoadStmt;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.ImportColumnsStmt;
+import org.apache.doris.analysis.ImportDeleteOnStmt;
+import org.apache.doris.analysis.ImportSequenceStmt;
+import org.apache.doris.analysis.ImportWhereStmt;
+import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -33,64 +45,51 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnClause;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnDesc;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadDeleteOnClause;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadPartitionNames;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
 
-/*
- Create routine Load statement,  continually load data from a streaming app
-
- syntax:
-      CREATE ROUTINE LOAD [database.]name on table
-      [load properties]
-      [PROPERTIES
-      (
-          desired_concurrent_number = xxx,
-          max_error_number = xxx,
-          k1 = v1,
-          ...
-          kn = vn
-      )]
-      FROM type of routine load
-      [(
-          k1 = v1,
-          ...
-          kn = vn
-      )]
-
-      load properties:
-          load property [[,] load property] ...
-
-      load property:
-          column separator | columns_mapping | partitions | where
-
-      column separator:
-          COLUMNS TERMINATED BY xxx
-      columns_mapping:
-          COLUMNS (c1, c2, c3 = c1 + c2)
-      partitions:
-          PARTITIONS (p1, p2, p3)
-      where:
-          WHERE c1 > 1
-
-      type of routine load:
-          KAFKA
-*/
-public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
-    private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmt.class);
-
+/**
+ * info in creating routine load.
+ */
+public class CreateRoutineLoadInfo {
     // routine load properties
     public static final String DESIRED_CONCURRENT_NUMBER_PROPERTY = "desired_concurrent_number";
     public static final String CURRENT_CONCURRENT_NUMBER_PROPERTY = "current_concurrent_number";
@@ -109,18 +108,22 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
     public static final String JSONROOT = "json_root";
     public static final String NUM_AS_STRING = "num_as_string";
     public static final String FUZZY_PARSE = "fuzzy_parse";
-
     public static final String PARTIAL_COLUMNS = "partial_columns";
-
     public static final String WORKLOAD_GROUP = "workload_group";
-
-    private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
+    public static final java.util.function.Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
+    public static final java.util.function.Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
+    public static final java.util.function.Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
+    public static final java.util.function.Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 1;
+    public static final java.util.function.Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> v >= 200000;
+    public static final java.util.function.Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024
+            && v <= (long) (1024 * 1024 * 1024) * 10;
+    public static final java.util.function.Predicate<Long> EXEC_MEM_LIMIT_PRED = (v) -> v >= 0L;
+    public static final Predicate<Long> SEND_BATCH_PARALLELISM_PRED = (v) -> v > 0L;
 
-    private AbstractDataSourceProperties dataSourceProperties;
-
+    private static final String NAME_TYPE = "ROUTINE LOAD NAME";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
@@ -146,9 +149,9 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
             .add(LoadStmt.KEY_ESCAPE)
             .build();
 
-    private final LabelName labelName;
+    private final LabelNameInfo labelNameInfo;
     private String tableName;
-    private final List<ParseNode> loadPropertyList;
+    private final Map<String, LoadProperty> loadPropertyMap;
     private final Map<String, String> jobProperties;
     private final String typeName;
 
@@ -190,7 +193,6 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
     /**
      * support partial columns load(Only Unique Key Columns)
      */
-    @Getter
     private boolean isPartialUpdate = false;
 
     private String comment = "";
@@ -199,30 +201,26 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
 
     private boolean isMultiTable = false;
 
-    public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
-    public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
-    public static final Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
-    public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 1;
-    public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> v >= 200000;
-    public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024
-                                                            && v <= (long) (1024 * 1024 * 1024) * 10;
-    public static final Predicate<Long> EXEC_MEM_LIMIT_PRED = (v) -> v >= 0L;
-    public static final Predicate<Long> SEND_BATCH_PARALLELISM_PRED = (v) -> v > 0L;
+    private AbstractDataSourceProperties dataSourceProperties;
 
-    public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
+    /**
+     * constructor for create table
+     */
+    public CreateRoutineLoadInfo(LabelNameInfo labelNameInfo, String tableName,
+                                 Map<String, LoadProperty> loadPropertyMap,
                                  Map<String, String> jobProperties, String typeName,
                                  Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
                                  String comment) {
-        this.labelName = labelName;
+        this.labelNameInfo = labelNameInfo;
         if (StringUtils.isBlank(tableName)) {
             this.isMultiTable = true;
         }
         this.tableName = tableName;
-        this.loadPropertyList = loadPropertyList;
+        this.loadPropertyMap = loadPropertyMap;
         this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
         this.typeName = typeName.toUpperCase();
         this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
-                .createDataSource(typeName, dataSourceProperties, this.isMultiTable);
+            .createDataSource(typeName, dataSourceProperties, this.isMultiTable);
         this.mergeType = mergeType;
         this.isPartialUpdate = this.jobProperties.getOrDefault(PARTIAL_COLUMNS, "false").equalsIgnoreCase("true");
         if (comment != null) {
@@ -230,195 +228,45 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         }
     }
 
-    /*
-     * make stmt by nereids
+    /**
+     * analyze create table info
      */
-    public CreateRoutineLoadStmt(LabelName labelName, String dbName, String name, String tableName,
-            List<ParseNode> loadPropertyList, OriginStatement origStmt, UserIdentity userIdentity,
-            Map<String, String> jobProperties, String typeName, RoutineLoadDesc routineLoadDesc,
-            int desireTaskConcurrentNum, long maxErrorNum, double maxFilterRatio, long maxBatchIntervalS,
-            long maxBatchRows, long maxBatchSizeBytes, long execMemLimit, int sendBatchParallelism, String timezone,
-            String format, String jsonPaths, String jsonRoot, byte enclose, byte escape, long workloadGroupId,
-            boolean loadToSingleTablet, boolean strictMode, boolean isPartialUpdate, boolean stripOuterArray,
-            boolean numAsString, boolean fuzzyParse, AbstractDataSourceProperties dataSourceProperties) {
-        this.labelName = labelName;
-        this.dbName = dbName;
-        this.name = name;
-        this.tableName = tableName;
-        this.loadPropertyList = loadPropertyList;
-        this.setOrigStmt(origStmt);
-        this.setUserInfo(userIdentity);
-        this.jobProperties = jobProperties;
-        this.typeName = typeName;
-        this.routineLoadDesc = routineLoadDesc;
-        this.desiredConcurrentNum = desireTaskConcurrentNum;
-        this.maxErrorNum = maxErrorNum;
-        this.maxFilterRatio = maxFilterRatio;
-        this.maxBatchIntervalS = maxBatchIntervalS;
-        this.maxBatchRows = maxBatchRows;
-        this.maxBatchSizeBytes = maxBatchSizeBytes;
-        this.execMemLimit = execMemLimit;
-        this.sendBatchParallelism = sendBatchParallelism;
-        this.timezone = timezone;
-        this.format = format;
-        this.jsonPaths = jsonPaths;
-        this.jsonRoot = jsonRoot;
-        this.enclose = enclose;
-        this.escape = escape;
-        this.workloadGroupId = workloadGroupId;
-        this.loadToSingleTablet = loadToSingleTablet;
-        this.strictMode = strictMode;
-        this.isPartialUpdate = isPartialUpdate;
-        this.stripOuterArray = stripOuterArray;
-        this.numAsString = numAsString;
-        this.fuzzyParse = fuzzyParse;
-        this.dataSourceProperties = dataSourceProperties;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public String getDBName() {
-        return dbName;
-    }
-
-    public String getTableName() {
-        return tableName;
-    }
-
-    public String getTypeName() {
-        return typeName;
-    }
-
-    public RoutineLoadDesc getRoutineLoadDesc() {
-        return routineLoadDesc;
-    }
-
-    public int getDesiredConcurrentNum() {
-        return desiredConcurrentNum;
-    }
-
-    public long getMaxErrorNum() {
-        return maxErrorNum;
-    }
-
-    public double getMaxFilterRatio() {
-        return maxFilterRatio;
-    }
-
-    public long getMaxBatchIntervalS() {
-        return maxBatchIntervalS;
-    }
-
-    public long getMaxBatchRows() {
-        return maxBatchRows;
-    }
-
-    public long getMaxBatchSize() {
-        return maxBatchSizeBytes;
-    }
-
-    public long getExecMemLimit() {
-        return execMemLimit;
-    }
-
-    public int getSendBatchParallelism() {
-        return sendBatchParallelism;
-    }
-
-    public boolean isLoadToSingleTablet() {
-        return loadToSingleTablet;
-    }
-
-    public boolean isStrictMode() {
-        return strictMode;
-    }
-
-    public String getTimezone() {
-        return timezone;
-    }
-
-    public String getFormat() {
-        return format;
-    }
-
-    public boolean isStripOuterArray() {
-        return stripOuterArray;
-    }
-
-    public boolean isNumAsString() {
-        return numAsString;
-    }
-
-    public boolean isFuzzyParse() {
-        return fuzzyParse;
-    }
-
-    public String getJsonPaths() {
-        return jsonPaths;
-    }
-
-    public byte getEnclose() {
-        return enclose;
-    }
-
-    public byte getEscape() {
-        return escape;
-    }
-
-    public String getJsonRoot() {
-        return jsonRoot;
-    }
-
-    public LoadTask.MergeType getMergeType() {
-        return mergeType;
-    }
-
-    public AbstractDataSourceProperties getDataSourceProperties() {
-        return dataSourceProperties;
-    }
-
-    public String getComment() {
-        return comment;
-    }
-
-    public long getWorkloadGroupId() {
-        return workloadGroupId;
-    }
-
-    @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void validate(ConnectContext ctx) throws UserException {
         // check dbName and tableName
-        checkDBTable(analyzer);
+        checkDBTable(ctx);
         // check name
         try {
             FeNameFormat.checkCommonName(NAME_TYPE, name);
-        } catch (AnalysisException e) {
+        } catch (org.apache.doris.common.AnalysisException e) {
             // 64 is the length of regular expression matching
             // (FeNameFormat.COMMON_NAME_REGEX/UNDERSCORE_COMMON_NAME_REGEX)
             throw new AnalysisException(e.getMessage()
-                    + " Maybe routine load job name is longer than 64 or contains illegal characters");
+                + " Maybe routine load job name is longer than 64 or contains illegal characters");
         }
         // check load properties include column separator etc.
-        checkLoadProperties();
+        checkLoadProperties(ctx);
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check data source properties
         checkDataSourceProperties();
         // analyze merge type
         if (routineLoadDesc != null) {
-            routineLoadDesc.analyze(analyzer);
+            if (mergeType != LoadTask.MergeType.MERGE && routineLoadDesc.getDeleteCondition() != null) {
+                throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
+            }
+            if (mergeType == LoadTask.MergeType.MERGE && routineLoadDesc.getDeleteCondition() == null) {
+                throw new AnalysisException("Excepted DELETE ON clause when merge type is MERGE.");
+            }
         } else if (mergeType == LoadTask.MergeType.MERGE) {
             throw new AnalysisException("Excepted DELETE ON clause when merge type is MERGE.");
         }
     }
 
-    public void checkDBTable(Analyzer analyzer) throws AnalysisException {
-        labelName.analyze(analyzer);
-        dbName = labelName.getDbName();
-        name = labelName.getLabelName();
+    private void checkDBTable(ConnectContext ctx) throws AnalysisException {
+        labelNameInfo.validate(ctx);
+        dbName = labelNameInfo.getDb();
+        name = labelNameInfo.getLabel();
+
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         if (isPartialUpdate && isMultiTable) {
             throw new AnalysisException("Partial update is not supported in multi-table load.");
@@ -444,7 +292,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         }
     }
 
-    public void checkLoadProperties() throws UserException {
+    private void checkLoadProperties(ConnectContext ctx) throws UserException {
         Separator columnSeparator = null;
         // TODO(yangzhengguo01): add line delimiter to properties
         Separator lineDelimiter = null;
@@ -454,67 +302,104 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         ImportSequenceStmt importSequenceStmt = null;
         PartitionNames partitionNames = null;
         ImportDeleteOnStmt importDeleteOnStmt = null;
-        if (loadPropertyList != null) {
-            for (ParseNode parseNode : loadPropertyList) {
-                if (parseNode instanceof Separator) {
-                    // check column separator
-                    if (columnSeparator != null) {
-                        throw new AnalysisException("repeat setting of column separator");
-                    }
-                    columnSeparator = (Separator) parseNode;
-                    columnSeparator.analyze(null);
-                } else if (parseNode instanceof ImportColumnsStmt) {
+        CascadesContext cascadesContext = null;
+        ExpressionAnalyzer analyzer = null;
+        PlanTranslatorContext context = null;
+        if (!isMultiTable) {
+            List<String> nameParts = Lists.newArrayList();
+            nameParts.add(dbName);
+            nameParts.add(tableName);
+            Plan unboundRelation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), nameParts);
+            cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), unboundRelation,
+                PhysicalProperties.ANY);
+            Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
+                ImmutableList.of(Rewriter.bottomUp(new BindRelation()))).execute();
+            Plan boundRelation = cascadesContext.getRewritePlan();
+            // table could have delete sign in LogicalFilter above
+            if (cascadesContext.getRewritePlan() instanceof LogicalFilter) {
+                boundRelation = (Plan) ((LogicalFilter) cascadesContext.getRewritePlan()).child();
+            }
+            context = new PlanTranslatorContext(cascadesContext);
+            List<Slot> slots = boundRelation.getOutput();
+            Scope scope = new Scope(slots);
+            analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
+
+            Map<SlotReference, SlotRef> translateMap = Maps.newHashMap();
+
+            TupleDescriptor tupleDescriptor = context.generateTupleDesc();
+            tupleDescriptor.setTable(((OlapScan) boundRelation).getTable());
+            for (int i = 0; i < boundRelation.getOutput().size(); i++) {
+                SlotReference slotReference = (SlotReference) boundRelation.getOutput().get(i);
+                SlotRef slotRef = new SlotRef(null, slotReference.getName());
+                translateMap.put(slotReference, slotRef);
+                context.createSlotDesc(tupleDescriptor, slotReference, ((OlapScan) boundRelation).getTable());
+            }
+        }
+
+        if (loadPropertyMap != null) {
+            for (LoadProperty loadProperty : loadPropertyMap.values()) {
+                loadProperty.validate();
+                if (loadProperty instanceof LoadSeparator) {
+                    String oriSeparator = ((LoadSeparator) loadProperty).getOriSeparator();
+                    String separator = Separator.convertSeparator(oriSeparator);
+                    columnSeparator = new Separator(separator, oriSeparator);
+                } else if (loadProperty instanceof LoadColumnClause) {
                     if (isMultiTable) {
                         throw new AnalysisException("Multi-table load does not support setting columns info");
                     }
-                    // check columns info
-                    if (importColumnsStmt != null) {
-                        throw new AnalysisException("repeat setting of columns info");
+                    List<ImportColumnDesc> importColumnDescList = new ArrayList<>();
+                    for (LoadColumnDesc columnDesc : ((LoadColumnClause) loadProperty).getColumns()) {
+                        if (columnDesc.getExpression() != null) {
+                            Expr expr = translateToLegacyExpr(columnDesc.getExpression(), analyzer,
+                                    context, cascadesContext);
+                            importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), expr));
+                        } else {
+                            importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), null));
+                        }
                     }
-                    importColumnsStmt = (ImportColumnsStmt) parseNode;
-                } else if (parseNode instanceof ImportWhereStmt) {
-                    // check where expr
-                    ImportWhereStmt node = (ImportWhereStmt) parseNode;
-                    if (node.isPreceding()) {
-                        if (isMultiTable) {
-                            throw new AnalysisException("Multi-table load does not support setting columns info");
-                        }
-                        if (precedingImportWhereStmt != null) {
-                            throw new AnalysisException("repeat setting of preceding where predicate");
-                        }
-                        precedingImportWhereStmt = node;
+                    importColumnsStmt = new ImportColumnsStmt(importColumnDescList);
+                } else if (loadProperty instanceof LoadWhereClause) {
+                    if (isMultiTable) {
+                        throw new AnalysisException("Multi-table load does not support setting columns info");
+                    }
+                    Expr expr = translateToLegacyExpr(((LoadWhereClause) loadProperty).getExpression(),
+                            analyzer, context, cascadesContext);
+                    if (((LoadWhereClause) loadProperty).isPreceding()) {
+                        precedingImportWhereStmt = new ImportWhereStmt(expr,
+                                ((LoadWhereClause) loadProperty).isPreceding());
                     } else {
-                        if (importWhereStmt != null) {
-                            throw new AnalysisException("repeat setting of where predicate");
-                        }
-                        importWhereStmt = node;
+                        importWhereStmt = new ImportWhereStmt(expr, ((LoadWhereClause) loadProperty).isPreceding());
                     }
-                } else if (parseNode instanceof PartitionNames) {
-                    // check partition names
-                    if (partitionNames != null) {
-                        throw new AnalysisException("repeat setting of partition names");
-                    }
-                    partitionNames = (PartitionNames) parseNode;
-                    partitionNames.analyze(null);
-                } else if (parseNode instanceof ImportDeleteOnStmt) {
-                    // check delete expr
-                    if (importDeleteOnStmt != null) {
-                        throw new AnalysisException("repeat setting of delete predicate");
-                    }
-                    importDeleteOnStmt = (ImportDeleteOnStmt) parseNode;
-                } else if (parseNode instanceof ImportSequenceStmt) {
-                    // check sequence column
-                    if (importSequenceStmt != null) {
-                        throw new AnalysisException("repeat setting of sequence column");
-                    }
-                    importSequenceStmt = (ImportSequenceStmt) parseNode;
+                } else if (loadProperty instanceof LoadPartitionNames) {
+                    partitionNames = new PartitionNames(((LoadPartitionNames) loadProperty).isTemp(),
+                            ((LoadPartitionNames) loadProperty).getPartitionNames());
+                } else if (loadProperty instanceof LoadDeleteOnClause) {
+                    Expr expr = translateToLegacyExpr(((LoadDeleteOnClause) loadProperty).getExpression(),
+                            analyzer, context, cascadesContext);
+                    importDeleteOnStmt = new ImportDeleteOnStmt(expr);
+                } else if (loadProperty instanceof LoadSequenceClause) {
+                    importSequenceStmt = new ImportSequenceStmt(
+                            ((LoadSequenceClause) loadProperty).getSequenceColName());
                 }
             }
         }
         routineLoadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
-                precedingImportWhereStmt, importWhereStmt,
-                partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
-                importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
+            precedingImportWhereStmt, importWhereStmt,
+            partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
+            importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
+    }
+
+    private Expr translateToLegacyExpr(Expression expr, ExpressionAnalyzer analyzer, PlanTranslatorContext context,
+                                       CascadesContext cascadesContext) {
+        Expression expression;
+        try {
+            expression = analyzer.analyze(expr, new ExpressionRewriteContext(cascadesContext));
+        } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException("In where clause '"
+                + expr.toSql() + "', "
+                + Utils.convertFirstChar(e.getMessage()));
+        }
+        return ExpressionTranslator.translate(expression, context);
     }
 
     private void checkJobProperties() throws UserException {
@@ -525,43 +410,43 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         }
 
         desiredConcurrentNum = ((Long) Util.getLongPropertyOrDefault(
-                jobProperties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY),
-                Config.max_routine_load_task_concurrent_num, DESIRED_CONCURRENT_NUMBER_PRED,
-                DESIRED_CONCURRENT_NUMBER_PROPERTY + " must be greater than 0")).intValue();
+            jobProperties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY),
+            Config.max_routine_load_task_concurrent_num, DESIRED_CONCURRENT_NUMBER_PRED,
+            DESIRED_CONCURRENT_NUMBER_PROPERTY + " must be greater than 0")).intValue();
 
         maxErrorNum = Util.getLongPropertyOrDefault(jobProperties.get(MAX_ERROR_NUMBER_PROPERTY),
-                RoutineLoadJob.DEFAULT_MAX_ERROR_NUM, MAX_ERROR_NUMBER_PRED,
-                MAX_ERROR_NUMBER_PROPERTY + " should >= 0");
+            RoutineLoadJob.DEFAULT_MAX_ERROR_NUM, MAX_ERROR_NUMBER_PRED,
+            MAX_ERROR_NUMBER_PROPERTY + " should >= 0");
 
         maxFilterRatio = Util.getDoublePropertyOrDefault(jobProperties.get(MAX_FILTER_RATIO_PROPERTY),
-                RoutineLoadJob.DEFAULT_MAX_FILTER_RATIO, MAX_FILTER_RATIO_PRED,
-                MAX_FILTER_RATIO_PROPERTY + " should between 0 and 1");
+            RoutineLoadJob.DEFAULT_MAX_FILTER_RATIO, MAX_FILTER_RATIO_PRED,
+            MAX_FILTER_RATIO_PROPERTY + " should between 0 and 1");
 
         maxBatchIntervalS = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_INTERVAL_SEC_PROPERTY),
-                RoutineLoadJob.DEFAULT_MAX_INTERVAL_SECOND, MAX_BATCH_INTERVAL_PRED,
-                MAX_BATCH_INTERVAL_SEC_PROPERTY + " should >= 1");
+            RoutineLoadJob.DEFAULT_MAX_INTERVAL_SECOND, MAX_BATCH_INTERVAL_PRED,
+            MAX_BATCH_INTERVAL_SEC_PROPERTY + " should >= 1");
 
         maxBatchRows = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_ROWS_PROPERTY),
-                RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, MAX_BATCH_ROWS_PRED,
-                MAX_BATCH_ROWS_PROPERTY + " should > 200000");
+            RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, MAX_BATCH_ROWS_PRED,
+            MAX_BATCH_ROWS_PROPERTY + " should > 200000");
 
         maxBatchSizeBytes = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_SIZE_PROPERTY),
-                RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
-                MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 10GB");
+            RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
+            MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 10GB");
 
         strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
-                RoutineLoadJob.DEFAULT_STRICT_MODE,
-                LoadStmt.STRICT_MODE + " should be a boolean");
+            RoutineLoadJob.DEFAULT_STRICT_MODE,
+            LoadStmt.STRICT_MODE + " should be a boolean");
         execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
-                RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED,
-                EXEC_MEM_LIMIT_PROPERTY + " must be greater than 0");
+            RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED,
+            EXEC_MEM_LIMIT_PROPERTY + " must be greater than 0");
 
         sendBatchParallelism = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(SEND_BATCH_PARALLELISM),
-                ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
-                SEND_BATCH_PARALLELISM + " must be greater than 0")).intValue();
+            ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
+            SEND_BATCH_PARALLELISM + " must be greater than 0")).intValue();
         loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
-                RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
-                LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
+            RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
+            LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
 
         String encloseStr = jobProperties.get(LoadStmt.KEY_ENCLOSE);
         if (encloseStr != null) {
@@ -583,7 +468,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
             this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getWorkloadGroup(ConnectContext.get().getCurrentUserIdentity(), inputWorkloadGroupStr);
+                .getWorkloadGroup(ConnectContext.get().getCurrentUserIdentity(), inputWorkloadGroupStr);
         }
 
         if (ConnectContext.get() != null) {
@@ -615,8 +500,18 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         this.dataSourceProperties.analyze();
     }
 
-    @Override
-    public StmtType stmtType() {
-        return StmtType.CREATE;
+    /**
+     * make legacy create routine load statement after validate by nereids
+     * @return legacy create routine load statement
+     */
+    public CreateRoutineLoadStmt translateToLegacyStmt(ConnectContext ctx) {
+        return new CreateRoutineLoadStmt(labelNameInfo.transferToLabelName(), dbName, name, tableName, null,
+            ctx.getStatementContext().getOriginStatement(), ctx.getUserIdentity(),
+            jobProperties, typeName, routineLoadDesc,
+            desiredConcurrentNum, maxErrorNum, maxFilterRatio, maxBatchIntervalS, maxBatchRows, maxBatchSizeBytes,
+            execMemLimit, sendBatchParallelism, timezone, format, jsonPaths, jsonRoot, enclose, escape, workloadGroupId,
+            loadToSingleTablet, strictMode, isPartialUpdate, stripOuterArray, numAsString, fuzzyParse,
+            dataSourceProperties
+        );
     }
 }

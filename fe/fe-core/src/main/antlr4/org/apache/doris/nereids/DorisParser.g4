@@ -58,12 +58,10 @@ statementBase
     | supportedUnsetStatement           #supportedUnsetStatementAlias
     | supportedRefreshStatement         #supportedRefreshStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
+    | supportedLoadStatement            #supportedLoadStatementAlias
     | supportedRecoverStatement         #supportedRecoverStatementAlias
-    | supportedLoadStatement            #supportedLoadfStatementAlias
     | unsupportedStatement              #unsupported
     ;
-
-
 
 unsupportedStatement
     : unsupportedUseStatement
@@ -242,11 +240,12 @@ supportedShowStatement
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW WHITELIST                                                                #showWhitelist
     | SHOW TABLETS BELONG
-        tabletIds+=INTEGER_VALUE (COMMA tabletIds+=INTEGER_VALUE)*                  #showTabletsBelong    
+        tabletIds+=INTEGER_VALUE (COMMA tabletIds+=INTEGER_VALUE)*                  #showTabletsBelong
     ;
 
 supportedLoadStatement
     : SYNC                                                                          #sync
+    | createRoutineLoad                                                             #createRoutineLoadAlias
     ;
 
 unsupportedOtherStatement
@@ -358,6 +357,14 @@ unsupportedShowStatement
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     ;
 
+createRoutineLoad
+    : CREATE ROUTINE LOAD label=multipartIdentifier (ON table=identifier)?
+              (WITH (APPEND | DELETE | MERGE))?
+              (loadProperty (COMMA loadProperty)*)? propertyClause? FROM type=identifier
+              LEFT_PAREN customProperties=propertyItemList RIGHT_PAREN
+              commentSpec?
+    ;
+
 unsupportedLoadStatement
     : LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
@@ -369,11 +376,6 @@ unsupportedLoadStatement
     | STOP SYNC JOB name=multipartIdentifier                                        #stopDataSyncJob
     | RESUME SYNC JOB name=multipartIdentifier                                      #resumeDataSyncJob
     | PAUSE SYNC JOB name=multipartIdentifier                                       #pauseDataSyncJob
-    | CREATE ROUTINE LOAD label=multipartIdentifier (ON table=identifier)?
-        (WITH (APPEND | DELETE | MERGE))?
-        (loadProperty (COMMA loadProperty)*)? propertyClause? FROM type=identifier
-        LEFT_PAREN customProperties=propertyItemList RIGHT_PAREN
-        commentSpec?                                                                #createRoutineLoadJob
     | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
     | PAUSE ALL ROUTINE LOAD                                                        #pauseAllRoutineLoad
     | RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
@@ -383,11 +385,6 @@ unsupportedLoadStatement
     | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
     | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
     | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
-    | importSequenceStatement                                                       #importSequenceStatementAlias
-    | importPrecedingFilterStatement                                                #importPrecedingFilterStatementAlias
-    | importWhereStatement                                                          #importWhereStatementAlias
-    | importDeleteOnStatement                                                       #importDeleteOnStatementAlias
-    | importColumnsStatement                                                        #importColumnsStatementAlias
     ;
 
 loadProperty
