@@ -2490,7 +2490,7 @@ CalcDeleteBitmapExecutor* Tablet::calc_delete_bitmap_executor() {
 
 Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                                  const RowsetIdUnorderedSet& cur_rowset_ids) {
+                                  const RowsetIdUnorderedSet& cur_rowset_ids, int64_t lock_id) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
 

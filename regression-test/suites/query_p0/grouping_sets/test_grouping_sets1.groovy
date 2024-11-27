@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_grouping_sets1", "arrow_flight_sql") {
+suite("test_grouping_sets1") {
     qt_select """
         select 
             col1

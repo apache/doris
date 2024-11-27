@@ -397,8 +397,8 @@ int CloudTablet::delete_expired_stale_rowsets() {
         }
 
         for (int64_t path_id : path_ids) {
-            int start_version = -1;
-            int end_version = -1;
+            int64_t start_version = -1;
+            int64_t end_version = -1;
             // delete stale versions in version graph
             auto version_path = _timestamped_version_tracker.fetch_and_delete_path_by_id(path_id);
             for (auto& v_ts : version_path->timestamped_versions()) {
@@ -690,7 +690,8 @@ CalcDeleteBitmapExecutor* CloudTablet::calc_delete_bitmap_executor() {
 
 Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                        DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                                       const RowsetIdUnorderedSet& cur_rowset_ids) {
+                                       const RowsetIdUnorderedSet& cur_rowset_ids,
+                                       int64_t lock_id) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
     // update delete bitmap info, in order to avoid recalculation when trying again
@@ -714,8 +715,9 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
         }
     }
 
+    auto ms_lock_id = lock_id == -1 ? txn_id : lock_id;
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
-            *this, txn_id, COMPACTION_DELETE_BITMAP_LOCK_ID, new_delete_bitmap.get()));
+            *this, ms_lock_id, COMPACTION_DELETE_BITMAP_LOCK_ID, new_delete_bitmap.get()));
 
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
