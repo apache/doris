@@ -882,7 +882,7 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         tablet_stats_pb.set_num_rowsets(dist(rng) + compaction->num_input_rowsets());
         tablet_stats_pb.set_num_segments(dist(rng) + compaction->num_input_segments());
         tablet_stats_pb.set_index_size(dist(rng) + compaction->index_size_input_rowsets());
-        tablet_stats_pb.set_data_size(dist(rng) + compaction->segment_size_input_rowsets());
+        tablet_stats_pb.set_segment_size(dist(rng) + compaction->segment_size_input_rowsets());
 
         std::string tablet_stats_val = tablet_stats_pb.SerializeAsString();
         ASSERT_FALSE(tablet_stats_val.empty());
