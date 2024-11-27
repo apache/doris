@@ -302,7 +302,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public boolean supportInternalPartitionPruned() {
-        return getDlaType() == DLAType.HIVE || getDlaType() == DLAType.HUDI;
+        return getDlaType() == DLAType.HIVE;
     }
 
     @Override
