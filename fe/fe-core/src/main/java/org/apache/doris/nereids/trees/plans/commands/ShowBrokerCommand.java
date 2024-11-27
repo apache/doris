@@ -17,62 +17,66 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.proc.TrashProcDir;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.system.Backend;
-
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 
 /**
- * show trash command
+ * show broker command
  */
-public class ShowTrashCommand extends ShowCommand {
-    private List<Backend> backends = Lists.newArrayList();
+public class ShowBrokerCommand extends ShowCommand {
 
-    public ShowTrashCommand() {
-        super(PlanType.SHOW_TRASH_COMMAND);
-    }
-
-    public List<Backend> getBackends() {
-        return backends;
+    /**
+     * constructor
+     */
+    public ShowBrokerCommand() {
+        super(PlanType.SHOW_BROKER_COMMAND);
     }
 
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : TrashProcDir.TITLE_NAMES) {
+        for (String title : BrokerMgr.BROKER_PROC_NODE_TITLE_NAMES) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
     }
 
-    private ShowResultSet handleShowTrash() throws Exception {
-        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
-        for (Backend backend : backendsInfo.values()) {
-            this.backends.add(backend);
+    @Override
+    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
+                                                                          PrivPredicate.OPERATOR)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
         }
-        List<List<String>> infos = Lists.newArrayList();
-        TrashProcDir.getTrashInfo(backends, infos);
-        return new ShowResultSet(getMetaData(), infos);
+        List<List<String>> brokersInfo = Env.getCurrentEnv().getBrokerMgr().getBrokersInfo();
+        // Only success
+        return new ShowResultSet(getMetaData(), brokersInfo);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitShowTrashCommand(this, context);
+        return visitor.visitShowBrokerCommand(this, context);
     }
 
     @Override
-    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        return handleShowTrash();
+    public RedirectStatus toRedirectStatus() {
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
     }
 }

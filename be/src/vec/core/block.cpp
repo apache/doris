@@ -812,7 +812,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
             if (column->size() != count) {
                 if (column->is_exclusive()) {
                     const auto result_size = column->assume_mutable()->filter(filter);
-                    if (result_size != count) {
+                    if (result_size != count) [[unlikely]] {
                         throw Exception(ErrorCode::INTERNAL_ERROR,
                                         "result_size not equal with filter_size, result_size={}, "
                                         "filter_size={}",
