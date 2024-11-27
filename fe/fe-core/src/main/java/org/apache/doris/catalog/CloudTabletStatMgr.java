@@ -51,7 +51,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
     // <(dbId, tableId) -> OlapTable.Statistics>
     private volatile Map<Pair<Long, Long>, OlapTable.Statistics> cloudTableStatsMap = new HashMap<>();
 
-    private static final ExecutorService GET_TABLET_STATS_THREAD_POOL = Executors.newFixedThreadPool(16);
+    private static final ExecutorService GET_TABLET_STATS_THREAD_POOL = Executors.newFixedThreadPool(
+            Config.max_get_tablet_stat_task_threads_num);
 
     public CloudTabletStatMgr() {
         super("cloud tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);

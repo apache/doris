@@ -3206,6 +3206,10 @@ public class Config extends ConfigBase {
             + "model is set to 300 times, which is approximately 5 minutes by default."})
     public static int auto_start_wait_to_resume_times = 300;
 
+    @ConfField(description = {"Get tablet stat task的最大并发数。",
+        "Maximal concurrent num of get tablet stat job."})
+    public static int max_get_tablet_stat_task_threads_num = 16;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
