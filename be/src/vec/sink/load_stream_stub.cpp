@@ -221,9 +221,7 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
         add_failed_tablet(tablet_id, _status);
         return _status;
     }
-    DBUG_EXECUTE_IF("LoadStreamStub.skip_send_segment", {
-        return Status::OK();
-    });
+    DBUG_EXECUTE_IF("LoadStreamStub.skip_send_segment", { return Status::OK(); });
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -246,9 +244,7 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
         add_failed_tablet(tablet_id, _status);
         return _status;
     }
-    DBUG_EXECUTE_IF("LoadStreamStub.skip_send_segment", {
-        return Status::OK();
-    });
+    DBUG_EXECUTE_IF("LoadStreamStub.skip_send_segment", { return Status::OK(); });
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
