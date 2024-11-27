@@ -803,7 +803,8 @@ public class OneRangePartitionEvaluator<K>
         int childIndex = func.getMonotonicFunctionChildIndex();
         Expression funcChild = func.child(childIndex);
         boolean isNullable = partitionSlotContainsNull.getOrDefault(funcChild, true);
-        Expression withNullable = func.withConstantArgs(isNullable ? new Nullable(funcChild) : new NonNullable(funcChild) );
+        Expression withNullable = func.withConstantArgs(isNullable ? new Nullable(funcChild)
+                : new NonNullable(funcChild));
         partitionSlotContainsNull.put((Expression) func, withNullable.nullable());
 
         if (!result.childrenResult.get(0).columnRanges.containsKey(funcChild)) {
