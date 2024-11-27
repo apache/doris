@@ -820,6 +820,13 @@ suite("parse_sql_from_sql_cache") {
                     assertTrue(profileString.contains("Is  Cached:  Yes"))
                 }
             }
+        }),
+        extraThread("sql_cache_with_date_format", {
+            sql "set enable_sql_cache=true"
+            for (def i in 0..3) {
+                def result = sql "select FROM_UNIXTIME(UNIX_TIMESTAMP(), 'yyyy-MM-dd HH:mm:ss')"
+                assertNotEquals("yyyy-MM-dd HH:mm:ss", result[0][0])
+            }
         })
     ).get()
 }
