@@ -41,7 +41,6 @@ import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollecto
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Optional;
@@ -97,32 +96,32 @@ public class MTMVPlanUtil {
         // Should not make table without data to empty relation when analyze the related table,
         // so add disable rules
         Plan plan = getAnalyzePlanBySql(mtmv.getQuerySql(), ctx);
-        return generateMTMVRelation(plan);
+        return generateMTMVRelation(plan, ctx);
     }
 
-    public static MTMVRelation generateMTMVRelation(Plan plan) {
-        return new MTMVRelation(getBaseTables(plan, true, true),
-                getBaseTables(plan, false, true),
-                getBaseViews(plan, true, true));
+    public static MTMVRelation generateMTMVRelation(Plan plan, ConnectContext connectContext) {
+        return new MTMVRelation(getBaseTables(plan, true, true, connectContext),
+                getBaseTables(plan, false, true, connectContext),
+                getBaseViews(plan, true, true, connectContext));
     }
 
     private static Set<BaseTableInfo> getBaseTables(Plan plan, boolean expandMaterializedView,
-            boolean expandView) {
+            boolean expandView, ConnectContext connectContext) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
                         com.google.common.collect.Sets
-                                .newHashSet(TableType.values()), expandMaterializedView, expandView);
+                                .newHashSet(TableType.values()), connectContext, expandMaterializedView, expandView);
         plan.accept(TableCollector.INSTANCE, collectorContext);
         Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         return transferTableIfToInfo(collectedTables);
     }
 
     private static Set<BaseTableInfo> getBaseViews(Plan plan, boolean expandMaterializedView,
-            boolean expandView) {
+            boolean expandView, ConnectContext connectContext) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
                         com.google.common.collect.Sets
-                                .newHashSet(TableType.VIEW), expandMaterializedView, expandView);
+                                .newHashSet(TableType.VIEW), connectContext, expandMaterializedView, expandView);
         plan.accept(TableCollector.INSTANCE, collectorContext);
         Set<TableIf> collectedTables = collectorContext.getCollectedTables();
         return transferTableIfToInfo(collectedTables);

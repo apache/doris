@@ -27,20 +27,17 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -55,7 +52,8 @@ public class PlanVisitorTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         createDatabase("visitor_test");
         useDatabase("visitor_test");
-        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        // This test the method which used in create mtmv, so need to use the same disable rules
+        connectContext.getSessionVariable().setDisableNereidsRules(CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
 
         createTable("CREATE TABLE `table1` (\n"
                 + " `c1` varchar(20) NULL,\n"
@@ -148,7 +146,8 @@ public class PlanVisitorTest extends TestWithFeService {
                             Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof Random);
                             // Check get tables
                             TableCollectorContext collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.OLAP), true, true);
+                                    Sets.newHashSet(TableType.OLAP), connectContext,
+                                    true, true);
                             physicalPlan.accept(TableCollector.INSTANCE, collectorContext);
                             Set<String> expectedTables = new HashSet<>();
                             expectedTables.add("table1");
@@ -177,7 +176,8 @@ public class PlanVisitorTest extends TestWithFeService {
                             Assertions.assertTrue(nondeterministicFunctionSet.get(1) instanceof Random);
                             // Check get tables
                             TableCollectorContext collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.OLAP), true, true);
+                                    Sets.newHashSet(TableType.OLAP), connectContext,
+                                    true, true);
                             physicalPlan.accept(TableCollector.INSTANCE, collectorContext);
                             Set<String> expectedTables = new HashSet<>();
                             expectedTables.add("table1");
@@ -192,14 +192,6 @@ public class PlanVisitorTest extends TestWithFeService {
 
     @Test
     public void testCollectTable() throws Exception {
-        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
-        BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
-        new MockUp<SessionVariable>() {
-            @Mock
-            public BitSet getDisableNereidsRules() {
-                return disableNereidsRules;
-            }
-        };
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT view2.* FROM "
                                 + "view2 "
@@ -216,7 +208,8 @@ public class PlanVisitorTest extends TestWithFeService {
                             // view 1 contains table1 and table2, view2 contains view1 and table5
                             // mv1 contains table1 and table3
                             TableCollectorContext collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.OLAP), true, true);
+                                    Sets.newHashSet(TableType.OLAP), connectContext,
+                                    true, true);
                             analyzedPlan.accept(TableCollector.INSTANCE, collectorContext);
                             Set<String> expectedTables = new HashSet<>();
                             expectedTables.add("table1");
@@ -230,7 +223,8 @@ public class PlanVisitorTest extends TestWithFeService {
                                     expectedTables);
 
                             collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.VIEW), true, true);
+                                    Sets.newHashSet(TableType.VIEW), connectContext,
+                                    true, true);
                             analyzedPlan.accept(TableCollector.INSTANCE, collectorContext);
                             expectedTables = new HashSet<>();
                             expectedTables.add("view1");
@@ -243,7 +237,8 @@ public class PlanVisitorTest extends TestWithFeService {
 
                             // Expand view and materialized view, only all type table
                             collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(), true, true);
+                                    Sets.newHashSet(), connectContext,
+                                    true, true);
                             analyzedPlan.accept(TableCollector.INSTANCE, collectorContext);
                             expectedTables = new HashSet<>();
                             expectedTables.add("table1");
@@ -263,7 +258,8 @@ public class PlanVisitorTest extends TestWithFeService {
                             // view 1 contains table1 and table2, view2 contains view1 and table5
                             // mv1 contains table1 and table3
                             collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.OLAP), false, true);
+                                    Sets.newHashSet(TableType.OLAP), connectContext,
+                                    false, true);
                             analyzedPlan.accept(TableCollector.INSTANCE, collectorContext);
                             expectedTables = new HashSet<>();
                             expectedTables.add("table1");
@@ -276,7 +272,8 @@ public class PlanVisitorTest extends TestWithFeService {
                                     expectedTables);
 
                             collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.VIEW), false, true);
+                                    Sets.newHashSet(TableType.VIEW), connectContext,
+                                    false, true);
                             analyzedPlan.accept(TableCollector.INSTANCE, collectorContext);
                             expectedTables = new HashSet<>();
                             expectedTables.add("view1");
@@ -289,7 +286,8 @@ public class PlanVisitorTest extends TestWithFeService {
 
                             // Expand view but not materialized view, collect all type table
                             collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(), false, true);
+                                    Sets.newHashSet(), connectContext,
+                                    false, true);
                             analyzedPlan.accept(TableCollector.INSTANCE, collectorContext);
                             expectedTables = new HashSet<>();
                             expectedTables.add("table1");
@@ -308,7 +306,8 @@ public class PlanVisitorTest extends TestWithFeService {
                             // view 1 contains table1 and table2, view2 contains view1 and table5
                             // mv1 contains table1 and table3
                             collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.OLAP), true, false);
+                                    Sets.newHashSet(TableType.OLAP), connectContext,
+                                    true, false);
                             analyzedPlan.accept(TableCollector.INSTANCE, collectorContext);
                             expectedTables = new HashSet<>();
                             expectedTables.add("table1");
@@ -321,7 +320,8 @@ public class PlanVisitorTest extends TestWithFeService {
                                     expectedTables);
 
                             collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.VIEW), true, false);
+                                    Sets.newHashSet(TableType.VIEW), connectContext,
+                                    true, false);
                             analyzedPlan.accept(TableCollector.INSTANCE, collectorContext);
                             expectedTables = new HashSet<>();
                             expectedTables.add("view2");
@@ -333,7 +333,8 @@ public class PlanVisitorTest extends TestWithFeService {
 
                             // Expand materialized view but not view, collect all type table
                             collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(), true, false);
+                                    Sets.newHashSet(), connectContext,
+                                    true, false);
                             analyzedPlan.accept(TableCollector.INSTANCE, collectorContext);
                             expectedTables = new HashSet<>();
                             expectedTables.add("table1");
@@ -351,7 +352,8 @@ public class PlanVisitorTest extends TestWithFeService {
                             // view 1 contains table1 and table2, view2 contains view1 and table5
                             // mv1 contains table1 and table3
                             collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.OLAP), false, false);
+                                    Sets.newHashSet(TableType.OLAP), connectContext,
+                                    false, false);
                             analyzedPlan.accept(TableCollector.INSTANCE, collectorContext);
                             expectedTables = new HashSet<>();
                             expectedTables.add("table2");
@@ -362,7 +364,8 @@ public class PlanVisitorTest extends TestWithFeService {
                                     expectedTables);
 
                             collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.VIEW), false, false);
+                                    Sets.newHashSet(TableType.VIEW), connectContext,
+                                    false, false);
                             analyzedPlan.accept(TableCollector.INSTANCE, collectorContext);
                             expectedTables = new HashSet<>();
                             expectedTables.add("view2");
@@ -374,7 +377,8 @@ public class PlanVisitorTest extends TestWithFeService {
 
                             // Not expand materialized view and view, collect all type table
                             collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(), false, false);
+                                    Sets.newHashSet(), connectContext,
+                                    false, false);
                             analyzedPlan.accept(TableCollector.INSTANCE, collectorContext);
                             expectedTables = new HashSet<>();
                             expectedTables.add("table2");
@@ -390,14 +394,6 @@ public class PlanVisitorTest extends TestWithFeService {
 
     @Test
     public void test3() throws Exception {
-        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
-        BitSet disableNereidsRules = connectContext.getSessionVariable().getDisableNereidsRules();
-        new MockUp<SessionVariable>() {
-            @Mock
-            public BitSet getDisableNereidsRules() {
-                return disableNereidsRules;
-            }
-        };
         PlanChecker.from(connectContext)
                 .checkPlannerResult("SELECT mv1.*, uuid() FROM mv1 "
                                 + "INNER JOIN view1 on mv1.c1 = view1.c2 "
@@ -412,7 +408,8 @@ public class PlanVisitorTest extends TestWithFeService {
                             Assertions.assertTrue(nondeterministicFunctionSet.get(0) instanceof Uuid);
                             // Check get tables
                             TableCollectorContext collectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.OLAP), true, true);
+                                    Sets.newHashSet(TableType.OLAP), connectContext,
+                                    true, true);
                             physicalPlan.accept(TableCollector.INSTANCE, collectorContext);
                             Set<String> expectedTables = new HashSet<>();
                             expectedTables.add("table1");
@@ -426,7 +423,7 @@ public class PlanVisitorTest extends TestWithFeService {
 
                             TableCollectorContext collectorContextWithNoExpand =
                                     new TableCollector.TableCollectorContext(Sets.newHashSet(TableType.OLAP),
-                                            false, true);
+                                            connectContext, false, true);
                             physicalPlan.accept(TableCollector.INSTANCE, collectorContextWithNoExpand);
                             Set<String> expectedTablesWithNoExpand = new HashSet<>();
                             expectedTablesWithNoExpand.add("table1");
@@ -438,7 +435,8 @@ public class PlanVisitorTest extends TestWithFeService {
                                     expectedTablesWithNoExpand);
 
                             TableCollectorContext mvCollectorContext = new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.MATERIALIZED_VIEW), true, true);
+                                    Sets.newHashSet(TableType.MATERIALIZED_VIEW), connectContext,
+                                    true, true);
                             physicalPlan.accept(TableCollector.INSTANCE, mvCollectorContext);
                             Set<String> expectedMvs = new HashSet<>();
                             expectedMvs.add("mv1");
@@ -450,8 +448,8 @@ public class PlanVisitorTest extends TestWithFeService {
 
                             TableCollectorContext mvCollectorContextWithNoExpand =
                                     new TableCollector.TableCollectorContext(
-                                    Sets.newHashSet(TableType.MATERIALIZED_VIEW), false,
-                                            true);
+                                    Sets.newHashSet(TableType.MATERIALIZED_VIEW), connectContext,
+                                            false, true);
                             physicalPlan.accept(TableCollector.INSTANCE, mvCollectorContextWithNoExpand);
                             Set<String> expectedMvsWithNoExpand = new HashSet<>();
                             expectedMvsWithNoExpand.add("mv1");
@@ -463,8 +461,8 @@ public class PlanVisitorTest extends TestWithFeService {
 
                             TableCollectorContext allTableTypeWithExpand =
                                     new TableCollector.TableCollectorContext(
-                                            Sets.newHashSet(TableType.values()), true,
-                                            true);
+                                            Sets.newHashSet(TableType.values()), connectContext,
+                                            true, true);
                             physicalPlan.accept(TableCollector.INSTANCE, allTableTypeWithExpand);
                             // when collect in plan with expand, should collect table which is expended
                             Set<String> expectedTablesWithExpand = new HashSet<>();

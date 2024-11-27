@@ -195,5 +195,5 @@ suite("rewrite_with_cte") {
     // Test mv rewrite when cte
     async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
-//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 }

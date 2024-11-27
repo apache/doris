@@ -252,8 +252,6 @@ public class CreateMTMVInfo {
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         // this is for expression column name infer when not use alias
         LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
-        // must disable constant folding by be, because be constant folding may return wrong type
-        ctx.getSessionVariable().disableConstantFoldingByBEOnce();
         // Should not make table without data to empty relation when analyze the related table,
         // so add disable rules
         Set<String> tempDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
@@ -326,7 +324,7 @@ public class CreateMTMVInfo {
 
     // Should use analyzed plan for collect views and tables
     private void getRelation(NereidsPlanner planner) {
-        this.relation = MTMVPlanUtil.generateMTMVRelation(planner.getAnalyzedPlan());
+        this.relation = MTMVPlanUtil.generateMTMVRelation(planner.getAnalyzedPlan(), planner.getConnectContext());
     }
 
     private PartitionDesc generatePartitionDesc(ConnectContext ctx) {
