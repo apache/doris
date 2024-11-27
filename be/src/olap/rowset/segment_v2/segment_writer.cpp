@@ -281,6 +281,11 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
                 (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     }
 
+    opts.rowset_ctx = _opts.rowset_ctx;
+    opts.file_writer = _file_writer;
+    opts.compression_type = _opts.compression_type;
+    opts.footer = &_footer;
+
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
@@ -712,7 +717,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             << ") not equal to segment writer's num rows written(" << _num_rows_written << ")";
     _olap_data_convertor->clear_source_content();
 
-    RETURN_IF_ERROR(append_block_with_variant_subcolumns(full_block));
+    // RETURN_IF_ERROR(append_block_with_variant_subcolumns(full_block));
     return Status::OK();
 }
 
@@ -824,11 +829,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         }
     }
 
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
-        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        RETURN_IF_ERROR(
-                append_block_with_variant_subcolumns(*const_cast<vectorized::Block*>(block)));
-    }
+    // if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
+    //     _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
+    //     RETURN_IF_ERROR(
+    //             append_block_with_variant_subcolumns(*const_cast<vectorized::Block*>(block)));
+    // }
 
     _num_rows_written += num_rows;
     _olap_data_convertor->clear_source_content();

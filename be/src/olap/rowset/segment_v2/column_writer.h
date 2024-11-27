@@ -29,7 +29,8 @@
 #include <vector>
 
 #include "common/status.h" // for Status
-#include "olap/field.h"    // for Field
+#include "exec/decompressor.h"
+#include "olap/field.h" // for Field
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "util/bitmap.h" // for BitmapChange
@@ -40,6 +41,7 @@ namespace doris {
 class BlockCompressionCodec;
 class TabletColumn;
 class TabletIndex;
+struct RowsetWriterContext;
 
 namespace io {
 class FileWriter;
@@ -66,6 +68,11 @@ struct ColumnWriterOptions {
     std::vector<const TabletIndex*> indexes; // unused
     const TabletIndex* inverted_index = nullptr;
     InvertedIndexFileWriter* inverted_index_file_writer;
+    // variant column writer used
+    SegmentFooterPB* footer = nullptr;
+    io::FileWriter* file_writer = nullptr;
+    CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
+    RowsetWriterContext* rowset_ctx = nullptr;
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()
@@ -84,6 +91,7 @@ class OrdinalIndexWriter;
 class PageBuilder;
 class BloomFilterIndexWriter;
 class ZoneMapIndexWriter;
+class VariantColumnWriterImpl;
 
 class ColumnWriter {
 public:
@@ -98,6 +106,9 @@ public:
     static Status create_map_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
                                     io::FileWriter* file_writer,
                                     std::unique_ptr<ColumnWriter>* writer);
+    static Status create_variant_writer(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                        io::FileWriter* file_writer,
+                                        std::unique_ptr<ColumnWriter>* writer);
     static Status create_agg_state_writer(const ColumnWriterOptions& opts,
                                           const TabletColumn* column, io::FileWriter* file_writer,
                                           std::unique_ptr<ColumnWriter>* writer);
@@ -460,6 +471,44 @@ private:
     std::unique_ptr<OffsetColumnWriter> _offsets_writer;
     std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
     ColumnWriterOptions _opts;
+};
+
+class VariantColumnWriter : public ColumnWriter {
+public:
+    explicit VariantColumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
+                                 std::unique_ptr<Field> field);
+
+    ~VariantColumnWriter() override = default;
+
+    Status init() override { return Status::OK(); }
+
+    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+
+    uint64_t estimate_buffer_size() override;
+
+    Status finish() override;
+    Status write_data() override;
+    Status write_ordinal_index() override;
+
+    Status write_zone_map() override;
+
+    Status write_bitmap_index() override;
+    Status write_inverted_index() override;
+    Status write_bloom_filter_index() override;
+    ordinal_t get_next_rowid() const override { return _next_rowid; }
+
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("variant writer can not append_nulls");
+    }
+    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
+
+    Status finish_current_page() override {
+        return Status::NotSupported("variant writer has no data, can not finish_current_page");
+    }
+
+private:
+    std::unique_ptr<VariantColumnWriterImpl> _impl;
+    ordinal_t _next_rowid = 0;
 };
 
 } // namespace segment_v2

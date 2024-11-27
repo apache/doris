@@ -1194,8 +1194,9 @@ bool ColumnObject::add_sub_column(const PathInData& key, MutableColumnPtr&& subc
         num_rows = new_size;
         return true;
     }
-    if (key.empty() && ((!subcolumns.get_root()->is_scalar()) ||
-                        is_nothing(subcolumns.get_root()->data.get_least_common_type()))) {
+    if (key.empty() &&
+        (!subcolumns.get_root()->is_scalar() ||
+         (is_null_root() || is_nothing(subcolumns.get_root()->data.get_least_common_type())))) {
         bool root_it_scalar = subcolumns.get_root()->is_scalar();
         // update root to scalar
         subcolumns.get_mutable_root()->modify_to_scalar(

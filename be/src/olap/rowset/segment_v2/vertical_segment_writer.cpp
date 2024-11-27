@@ -276,6 +276,11 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
                 (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     }
 
+    opts.rowset_ctx = _opts.rowset_ctx;
+    opts.file_writer = _file_writer;
+    opts.compression_type = _opts.compression_type;
+    opts.footer = &_footer;
+
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
@@ -1106,10 +1111,10 @@ Status VerticalSegmentWriter::write_batch() {
                 RETURN_IF_ERROR(_append_block_with_partial_content(data, full_block));
             }
         }
-        for (auto& data : _batched_blocks) {
-            RowsInBlock full_rows_block {&full_block, data.row_pos, data.num_rows};
-            RETURN_IF_ERROR(_append_block_with_variant_subcolumns(full_rows_block));
-        }
+        // for (auto& data : _batched_blocks) {
+        //     RowsInBlock full_rows_block {&full_block, data.row_pos, data.num_rows};
+        //     RETURN_IF_ERROR(_append_block_with_variant_subcolumns(full_rows_block));
+        // }
         for (auto& column_writer : _column_writers) {
             RETURN_IF_ERROR(column_writer->finish());
             RETURN_IF_ERROR(column_writer->write_data());
@@ -1174,18 +1179,18 @@ Status VerticalSegmentWriter::write_batch() {
         _num_rows_written += data.num_rows;
     }
 
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
-        _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        size_t original_writers_cnt = _column_writers.size();
-        // handle variant dynamic sub columns
-        for (auto& data : _batched_blocks) {
-            RETURN_IF_ERROR(_append_block_with_variant_subcolumns(data));
-        }
-        for (size_t i = original_writers_cnt; i < _column_writers.size(); ++i) {
-            RETURN_IF_ERROR(_column_writers[i]->finish());
-            RETURN_IF_ERROR(_column_writers[i]->write_data());
-        }
-    }
+    // if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
+    //     _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
+    //     size_t original_writers_cnt = _column_writers.size();
+    //     // handle variant dynamic sub columns
+    //     for (auto& data : _batched_blocks) {
+    //         RETURN_IF_ERROR(_append_block_with_variant_subcolumns(data));
+    //     }
+    //     for (size_t i = original_writers_cnt; i < _column_writers.size(); ++i) {
+    //         RETURN_IF_ERROR(_column_writers[i]->finish());
+    //         RETURN_IF_ERROR(_column_writers[i]->write_data());
+    //     }
+    // }
 
     _batched_blocks.clear();
     return Status::OK();

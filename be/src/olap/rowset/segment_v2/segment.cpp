@@ -627,19 +627,8 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         _column_readers.emplace(column.unique_id(), std::move(reader));
     }
 
-    // init by column path
-    for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
-        const auto& column = _tablet_schema->column(ordinal);
-        if (!column.has_path_info()) {
-            continue;
-        }
-        auto path = column.has_path_info() ? *column.path_info_ptr()
-                                           : vectorized::PathInData(column.name_lower_case());
-        auto iter = column_path_to_footer_ordinal.find(path);
-        if (iter == column_path_to_footer_ordinal.end()) {
-            continue;
-        }
-        const ColumnMetaPB& column_pb = footer.columns(iter->second);
+    for (const auto& [path, ordinal] : column_path_to_footer_ordinal) {
+        const ColumnMetaPB& column_pb = footer.columns(ordinal);
         ColumnReaderOptions opts {
                 .kept_in_memory = _tablet_schema->is_in_memory(),
                 .be_exec_version = _be_exec_version,
@@ -647,40 +636,82 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         std::unique_ptr<ColumnReader> reader;
         RETURN_IF_ERROR(
                 ColumnReader::create(opts, column_pb, footer.num_rows(), _file_reader, &reader));
-        // root column use unique id, leaf column use parent_unique_id
-        int32_t unique_id =
-                column.parent_unique_id() > 0 ? column.parent_unique_id() : column.unique_id();
+        int32_t unique_id = column_pb.unique_id();
         auto relative_path = path.copy_pop_front();
+        if (_sub_column_tree[unique_id].get_root() == nullptr) {
+            _sub_column_tree[unique_id].create_root(SubcolumnReader {nullptr, nullptr});
+        }
         if (relative_path.empty()) {
             // root column
-            _sub_column_tree[unique_id].create_root(SubcolumnReader {
+            _sub_column_tree[unique_id].get_mutable_root()->modify_to_scalar(SubcolumnReader {
                     std::move(reader),
                     vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
         } else {
             // check the root is already a leaf node
-            DCHECK(_sub_column_tree[unique_id].get_leaves()[0]->path.empty());
+            // DCHECK(_sub_column_tree[unique_id].get_leaves()[0]->path.empty());
             _sub_column_tree[unique_id].add(
                     relative_path,
                     SubcolumnReader {
                             std::move(reader),
                             vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
         }
-
-        // init sparse columns paths and type info
-        for (uint32_t ordinal = 0; ordinal < column_pb.sparse_columns().size(); ++ordinal) {
-            const auto& spase_column_pb = column_pb.sparse_columns(ordinal);
-            if (spase_column_pb.has_column_path_info()) {
-                vectorized::PathInData path;
-                path.from_protobuf(spase_column_pb.column_path_info());
-                // Read from root column, so reader is nullptr
-                _sparse_column_tree[unique_id].add(
-                        path.copy_pop_front(),
-                        SubcolumnReader {nullptr,
-                                         vectorized::DataTypeFactory::instance().create_data_type(
-                                                 spase_column_pb)});
-            }
-        }
     }
+
+    // compability reason use tablet schema
+    // init by column path
+    // for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
+    //     const auto& column = _tablet_schema->column(ordinal);
+    //     if (!column.has_path_info()) {
+    //         continue;
+    //     }
+    //     auto path = column.has_path_info() ? *column.path_info_ptr()
+    //                                        : vectorized::PathInData(column.name_lower_case());
+    //     auto iter = column_path_to_footer_ordinal.find(path);
+    //     if (iter == column_path_to_footer_ordinal.end()) {
+    //         continue;
+    //     }
+    //     const ColumnMetaPB& column_pb = footer.columns(iter->second);
+    //     ColumnReaderOptions opts {
+    //             .kept_in_memory = _tablet_schema->is_in_memory(),
+    //             .be_exec_version = _be_exec_version,
+    //     };
+    //     std::unique_ptr<ColumnReader> reader;
+    //     RETURN_IF_ERROR(
+    //             ColumnReader::create(opts, column_pb, footer.num_rows(), _file_reader, &reader));
+    //     // root column use unique id, leaf column use parent_unique_id
+    //     int32_t unique_id =
+    //             column.parent_unique_id() > 0 ? column.parent_unique_id() : column.unique_id();
+    //     auto relative_path = path.copy_pop_front();
+    //     if (relative_path.empty()) {
+    //         // root column
+    //         _sub_column_tree[unique_id].create_root(SubcolumnReader {
+    //                 std::move(reader),
+    //                 vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
+    //     } else {
+    //         // check the root is already a leaf node
+    //         DCHECK(_sub_column_tree[unique_id].get_leaves()[0]->path.empty());
+    //         _sub_column_tree[unique_id].add(
+    //                 relative_path,
+    //                 SubcolumnReader {
+    //                         std::move(reader),
+    //                         vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
+    //     }
+
+    //     // init sparse columns paths and type info
+    //     for (uint32_t ordinal = 0; ordinal < column_pb.sparse_columns().size(); ++ordinal) {
+    //         const auto& spase_column_pb = column_pb.sparse_columns(ordinal);
+    //         if (spase_column_pb.has_column_path_info()) {
+    //             vectorized::PathInData path;
+    //             path.from_protobuf(spase_column_pb.column_path_info());
+    //             // Read from root column, so reader is nullptr
+    //             _sparse_column_tree[unique_id].add(
+    //                     path.copy_pop_front(),
+    //                     SubcolumnReader {nullptr,
+    //                                      vectorized::DataTypeFactory::instance().create_data_type(
+    //                                              spase_column_pb)});
+    //         }
+    //     }
+    // }
 
     return Status::OK();
 }
@@ -741,77 +772,77 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             tablet_column.has_path_info() && _sparse_column_tree.contains(unique_id)
                     ? _sparse_column_tree[unique_id].find_exact(relative_path)
                     : nullptr;
-    // Currently only compaction and checksum need to read flat leaves
-    // They both use tablet_schema_with_merged_max_schema_version as read schema
-    auto type_to_read_flat_leaves = [](ReaderType type) {
-        return type == ReaderType::READER_BASE_COMPACTION ||
-               type == ReaderType::READER_CUMULATIVE_COMPACTION ||
-               type == ReaderType::READER_COLD_DATA_COMPACTION ||
-               type == ReaderType::READER_SEGMENT_COMPACTION ||
-               type == ReaderType::READER_FULL_COMPACTION || type == ReaderType::READER_CHECKSUM;
-    };
+    // // Currently only compaction and checksum need to read flat leaves
+    // // They both use tablet_schema_with_merged_max_schema_version as read schema
+    // auto type_to_read_flat_leaves = [](ReaderType type) {
+    //     return type == ReaderType::READER_BASE_COMPACTION ||
+    //            type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+    //            type == ReaderType::READER_COLD_DATA_COMPACTION ||
+    //            type == ReaderType::READER_SEGMENT_COMPACTION ||
+    //            type == ReaderType::READER_FULL_COMPACTION || type == ReaderType::READER_CHECKSUM;
+    // };
 
-    // find the sibling of the nested column to fill the target nested column
-    auto new_default_iter_with_same_nested = [&](const TabletColumn& tablet_column,
-                                                 std::unique_ptr<ColumnIterator>* iter) {
-        // We find node that represents the same Nested type as path.
-        const auto* parent = _sub_column_tree[unique_id].find_best_match(relative_path);
-        VLOG_DEBUG << "find with path " << tablet_column.path_info_ptr()->get_path() << " parent "
-                   << (parent ? parent->path.get_path() : "nullptr") << ", type "
-                   << ", parent is nested " << (parent ? parent->is_nested() : false) << ", "
-                   << TabletColumn::get_string_by_field_type(tablet_column.type());
-        // find it's common parent with nested part
-        // why not use parent->path->has_nested_part? because parent may not be a leaf node
-        // none leaf node may not contain path info
-        // Example:
-        // {"payload" : {"commits" : [{"issue" : {"id" : 123, "email" : "a@b"}}]}}
-        // nested node path          : payload.commits(NESTED)
-        // tablet_column path_info   : payload.commits.issue.id(SCALAR)
-        // parent path node          : payload.commits.issue(TUPLE)
-        // leaf path_info            : payload.commits.issue.email(SCALAR)
-        if (parent && SubcolumnColumnReaders::find_parent(
-                              parent, [](const auto& node) { return node.is_nested(); })) {
-            /// Find any leaf of Nested subcolumn.
-            const auto* leaf = SubcolumnColumnReaders::find_leaf(
-                    parent, [](const auto& node) { return node.path.has_nested_part(); });
-            assert(leaf);
-            std::unique_ptr<ColumnIterator> sibling_iter;
-            ColumnIterator* sibling_iter_ptr;
-            RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr));
-            sibling_iter.reset(sibling_iter_ptr);
-            *iter = std::make_unique<DefaultNestedColumnIterator>(std::move(sibling_iter),
-                                                                  leaf->data.file_column_type);
-        } else {
-            *iter = std::make_unique<DefaultNestedColumnIterator>(nullptr, nullptr);
-        }
-        return Status::OK();
-    };
+    // // find the sibling of the nested column to fill the target nested column
+    // auto new_default_iter_with_same_nested = [&](const TabletColumn& tablet_column,
+    //                                              std::unique_ptr<ColumnIterator>* iter) {
+    //     // We find node that represents the same Nested type as path.
+    //     const auto* parent = _sub_column_tree[unique_id].find_best_match(relative_path);
+    //     VLOG_DEBUG << "find with path " << tablet_column.path_info_ptr()->get_path() << " parent "
+    //                << (parent ? parent->path.get_path() : "nullptr") << ", type "
+    //                << ", parent is nested " << (parent ? parent->is_nested() : false) << ", "
+    //                << TabletColumn::get_string_by_field_type(tablet_column.type());
+    //     // find it's common parent with nested part
+    //     // why not use parent->path->has_nested_part? because parent may not be a leaf node
+    //     // none leaf node may not contain path info
+    //     // Example:
+    //     // {"payload" : {"commits" : [{"issue" : {"id" : 123, "email" : "a@b"}}]}}
+    //     // nested node path          : payload.commits(NESTED)
+    //     // tablet_column path_info   : payload.commits.issue.id(SCALAR)
+    //     // parent path node          : payload.commits.issue(TUPLE)
+    //     // leaf path_info            : payload.commits.issue.email(SCALAR)
+    //     if (parent && SubcolumnColumnReaders::find_parent(
+    //                           parent, [](const auto& node) { return node.is_nested(); })) {
+    //         /// Find any leaf of Nested subcolumn.
+    //         const auto* leaf = SubcolumnColumnReaders::find_leaf(
+    //                 parent, [](const auto& node) { return node.path.has_nested_part(); });
+    //         assert(leaf);
+    //         std::unique_ptr<ColumnIterator> sibling_iter;
+    //         ColumnIterator* sibling_iter_ptr;
+    //         RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr));
+    //         sibling_iter.reset(sibling_iter_ptr);
+    //         *iter = std::make_unique<DefaultNestedColumnIterator>(std::move(sibling_iter),
+    //                                                               leaf->data.file_column_type);
+    //     } else {
+    //         *iter = std::make_unique<DefaultNestedColumnIterator>(nullptr, nullptr);
+    //     }
+    //     return Status::OK();
+    // };
 
-    if (opt != nullptr && type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
-        // compaction need to read flat leaves nodes data to prevent from amplification
-        const auto* node = tablet_column.has_path_info()
-                                   ? _sub_column_tree[unique_id].find_leaf(relative_path)
-                                   : nullptr;
-        if (!node) {
-            // sparse_columns have this path, read from root
-            if (sparse_node != nullptr && sparse_node->is_leaf_node()) {
-                RETURN_IF_ERROR(_new_iterator_with_variant_root(
-                        tablet_column, iter, root, sparse_node->data.file_column_type));
-            } else {
-                if (tablet_column.is_nested_subcolumn()) {
-                    // using the sibling of the nested column to fill the target nested column
-                    RETURN_IF_ERROR(new_default_iter_with_same_nested(tablet_column, iter));
-                } else {
-                    RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
-                }
-            }
-            return Status::OK();
-        }
-        ColumnIterator* it;
-        RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
-        iter->reset(it);
-        return Status::OK();
-    }
+    // if (opt != nullptr && type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
+    //     // compaction need to read flat leaves nodes data to prevent from amplification
+    //     const auto* node = tablet_column.has_path_info()
+    //                                ? _sub_column_tree[unique_id].find_leaf(relative_path)
+    //                                : nullptr;
+    //     if (!node) {
+    //         // sparse_columns have this path, read from root
+    //         if (sparse_node != nullptr && sparse_node->is_leaf_node()) {
+    //             RETURN_IF_ERROR(_new_iterator_with_variant_root(
+    //                     tablet_column, iter, root, sparse_node->data.file_column_type));
+    //         } else {
+    //             if (tablet_column.is_nested_subcolumn()) {
+    //                 // using the sibling of the nested column to fill the target nested column
+    //                 RETURN_IF_ERROR(new_default_iter_with_same_nested(tablet_column, iter));
+    //             } else {
+    //                 RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
+    //             }
+    //         }
+    //         return Status::OK();
+    //     }
+    //     ColumnIterator* it;
+    //     RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+    //     iter->reset(it);
+    //     return Status::OK();
+    // }
 
     if (node != nullptr) {
         if (node->is_leaf_node() && sparse_node == nullptr) {
