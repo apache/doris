@@ -199,6 +199,10 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
     }
     VLOG_NOTICE << "sequence_col_idx=" << sequence_col_idx
                 << ", delete_sign_idx=" << delete_sign_idx;
+    // for duplicate no keys
+    if (!key_columns.empty()) {
+        column_groups->emplace_back(key_columns);
+    }
 
     std::vector<uint32_t> value_columns;
 
@@ -216,10 +220,6 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
         value_columns.push_back(i);
     }
 
-    // for duplicate no keys
-    if (!key_columns.empty()) {
-        column_groups->emplace_back(std::move(key_columns));
-    }
     if (!value_columns.empty()) {
         column_groups->push_back(value_columns);
     }
