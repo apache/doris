@@ -554,6 +554,10 @@ public class Auth implements Writable {
         }
     }
 
+    public void dropUser(UserIdentity userIdent, boolean ignoreIfNonExists)  throws DdlException {
+        dropUserInternal(userIdent, ignoreIfNonExists, false);
+    }
+
     // drop user
     public void dropUser(DropUserStmt stmt) throws DdlException {
         dropUserInternal(stmt.getUserIdentity(), stmt.isSetIfExists(), false);

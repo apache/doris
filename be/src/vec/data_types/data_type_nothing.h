@@ -66,7 +66,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool get_is_parametric() const override { return false; }
     bool text_can_contain_only_valid_utf8() const override { return true; }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return 0; }

@@ -1635,6 +1635,12 @@ public class Config extends ConfigBase {
     public static boolean ignore_backup_not_support_table_type = false;
 
     /**
+     * A internal config, to control the update interval of backup handler. Only used to speed up tests.
+     */
+    @ConfField(mutable = false)
+    public static long backup_handler_update_interval_millis = 3000;
+
+    /**
      * Control the default max num of the instance for a user.
      */
     @ConfField(mutable = true)
@@ -2180,7 +2186,7 @@ public class Config extends ConfigBase {
      * only for certain test type. E.g. only settting batch_size to small
      * value for p0.
      */
-    @ConfField(mutable = true, masterOnly = false, options = {"p0"})
+    @ConfField(mutable = true, masterOnly = false, options = {"p0", "daily", "rqg"})
     public static String fuzzy_test_type = "";
 
     /**
@@ -2188,6 +2194,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static boolean use_fuzzy_session_variable = false;
+
+    /**
+     * Set config variables randomly to check more issues in github workflow
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean use_fuzzy_conf = false;
 
     /**
      * Max num of same name meta informatntion in catalog recycle bin.
@@ -2759,16 +2771,17 @@ public class Config extends ConfigBase {
     public static String nereids_trace_log_dir = System.getenv("LOG_DIR") + "/nereids_trace";
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "备份过程中，分配给每个be的upload任务最大个数，默认值为3个。",
-            "The max number of upload tasks assigned to each be during the backup process, the default value is 3."
+            "备份过程中，一个 upload 任务上传的快照数量上限，默认值为10个",
+            "The max number of snapshots assigned to a upload task during the backup process, the default value is 10."
     })
-    public static int backup_upload_task_num_per_be = 3;
+    public static int backup_upload_snapshot_batch_size = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "恢复过程中，分配给每个be的download任务最大个数，默认值为3个。",
-            "The max number of download tasks assigned to each be during the restore process, the default value is 3."
+            "恢复过程中，一个 download 任务下载的快照数量上限，默认值为10个",
+            "The max number of snapshots assigned to a download task during the restore process, "
+            + "the default value is 10."
     })
-    public static int restore_download_task_num_per_be = 3;
+    public static int restore_download_snapshot_batch_size = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "备份恢复过程中，单次 RPC 分配给每个be的任务最大个数，默认值为10000个。",
@@ -3181,6 +3194,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"存算分离模式下calculate delete bitmap task 超时时间，默认15s"})
     public static int calculate_delete_bitmap_task_timeout_seconds = 15;
+
+    @ConfField(mutable = true, description = {"存算分离模式下事务导入calculate delete bitmap task 超时时间，默认300s"})
+    public static int calculate_delete_bitmap_task_timeout_seconds_for_transaction_load = 300;
 
     @ConfField(mutable = true, description = {"存算分离模式下commit阶段等锁超时时间，默认5s"})
     public static int try_commit_lock_timeout_seconds = 5;

@@ -57,4 +57,13 @@ void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& sele
     append_data_by_selector_impl<Derived>(res, selector, 0, selector.size());
 }
 
+template <typename Derived>
+void IColumn::insert_from_multi_column_impl(const std::vector<const IColumn*>& srcs,
+                                            const std::vector<size_t>& positions) {
+    reserve(size() + srcs.size());
+    for (size_t i = 0; i < srcs.size(); ++i) {
+        static_cast<Derived&>(*this).insert_from(*srcs[i], positions[i]);
+    }
+}
+
 } // namespace doris::vectorized
