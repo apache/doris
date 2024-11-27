@@ -171,6 +171,8 @@ public class StatementContext implements Closeable {
 
     private String disableJoinReorderReason;
 
+    private boolean privChecked;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -567,5 +569,13 @@ public class StatementContext implements Closeable {
 
     public void setDisableJoinReorderReason(String disableJoinReorderReason) {
         this.disableJoinReorderReason = disableJoinReorderReason;
+    }
+
+    public boolean isPrivChecked() {
+        return privChecked;
+    }
+
+    public void setPrivChecked(boolean privChecked) {
+        this.privChecked = privChecked;
     }
 }
