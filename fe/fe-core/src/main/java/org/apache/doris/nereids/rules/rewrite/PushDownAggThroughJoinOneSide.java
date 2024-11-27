@@ -76,7 +76,7 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                             return !funcs.isEmpty() && funcs.stream()
                                     .allMatch(f -> (f instanceof Min || f instanceof Max || f instanceof Sum
                                             || f instanceof Count && !f.isDistinct()
-                                            && f.child(0) instanceof Slot));
+                                            && (f.children().isEmpty() || f.child(0) instanceof Slot)));
                         })
                         .thenApply(ctx -> {
                             Set<Integer> enableNereidsRules = ctx.cascadesContext.getConnectContext()
