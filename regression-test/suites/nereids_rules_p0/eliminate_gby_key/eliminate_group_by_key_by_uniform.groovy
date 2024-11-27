@@ -199,4 +199,23 @@ suite("eliminate_group_by_key_by_uniform") {
     group by l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey
     order by 1,2,3,4,5
     """
+    sql "drop table if exists test1"
+    sql "drop table if exists test2"
+    sql "create table test1(a int, b int) distributed by hash(a) properties('replication_num'='1');"
+    sql "insert into test1 values(1,1),(2,1),(3,1);"
+    sql "create table test2(a int, b int) distributed by hash(a) properties('replication_num'='1');"
+    sql "insert into test2 values(1,105),(2,105);"
+    qt_full_join_uniform_should_not_eliminate_group_by_key "select t2.b,t1.b from test1 t1 full join (select * from test2 where b=105)  t2 on t1.a=t2.a group by t2.b,t1.b order by 1,2;"
+    qt_full2 "select t2.b,t1.b from (select * from test2 where b=105)  t1  full join test1 t2 on t1.a=t2.a group by t2.b,t1.b order by 1,2;"
+
+    qt_left_join_right_side_should_not_eliminate_group_by_key "select t2.b,t1.b from test1 t1 left join (select * from test2 where b=105)  t2 on t1.a=t2.a group by t2.b,t1.b order by 1,2;"
+    qt_left_join_left_side_should_eliminate_group_by_key "select t2.b,t1.b from test1 t1 left join (select * from test2 where b=105)  t2 on t1.a=t2.a where t1.b=1 group by t2.b,t1.b order by 1,2;"
+
+    qt_right_join_left_side_should_not_eliminate_group_by_key "select t2.b,t1.b from (select * from test2 where b=105)  t1  right join test1 t2 on t1.a=t2.a group by t2.b,t1.b order by 1,2;"
+    qt_right_join_right_side_should_eliminate_group_by_key "select t2.b,t1.b from (select * from test2 where b=105)  t1  right join test1 t2 on t1.a=t2.a where t2.b=1 group by t2.b,t1.b order by 1,2;"
+
+    qt_left_semi_left_side "select t1.b from test1 t1 left semi join (select * from test2 where b=105)  t2 on t1.a=t2.a where t1.b=1 group by t1.b,t1.a order by 1;"
+    qt_left_anti_left_side "select t1.b from test1 t1 left anti join (select * from test2 where b=105)  t2 on t1.a=t2.a where t1.b=1 group by t1.b,t1.a order by 1;"
+    qt_right_semi_right_side "select t2.b from test1 t1 right semi join (select * from test2 where b=105)  t2 on t1.a=t2.a  group by t2.b,t2.a order by 1;"
+    qt_right_anti_right_side "select t2.b from test1 t1 right anti join (select * from test2 where b=105)  t2 on t1.a=t2.a  group by t2.b,t2.a order by 1;"
 }

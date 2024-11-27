@@ -230,3 +230,40 @@ cherry	3
 2023-10-18	2	2023-10-18	2	6
 2023-10-18	2	2023-10-21	2	6
 
+-- !full_join_uniform_should_not_eliminate_group_by_key --
+\N	1
+105	1
+
+-- !full2 --
+1	\N
+1	105
+
+-- !left_join_right_side_should_not_eliminate_group_by_key --
+\N	1
+105	1
+
+-- !left_join_left_side_should_eliminate_group_by_key --
+\N	1
+105	1
+
+-- !right_join_left_side_should_not_eliminate_group_by_key --
+1	\N
+1	105
+
+-- !right_join_right_side_should_eliminate_group_by_key --
+1	\N
+1	105
+
+-- !left_semi_left_side --
+1
+1
+
+-- !left_anti_left_side --
+1
+
+-- !right_semi_right_side --
+105
+105
+
+-- !right_anti_right_side --
+

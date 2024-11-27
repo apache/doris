@@ -20,6 +20,7 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.util.ImmutableEqualSet;
 
 import com.google.common.collect.ImmutableMap;
@@ -188,6 +189,10 @@ public class DataTrait {
 
         public void addUniformSlot(DataTrait dataTrait) {
             uniformSet.add(dataTrait.uniformSet);
+        }
+
+        public void addUniformSlotForOuterJoinNullableSide(DataTrait dataTrait) {
+            uniformSet.addUniformSlotForOuterJoinNullableSide(dataTrait.uniformSet);
         }
 
         public void addUniformSlotAndLiteral(Slot slot, Expression literal) {
@@ -545,6 +550,15 @@ public class DataTrait {
                 slotUniformValue.putIfAbsent(slot, Optional.empty());
             } else {
                 slotUniformValue.put(slot, Optional.of(literal));
+            }
+        }
+
+        public void addUniformSlotForOuterJoinNullableSide(UniformDescription ud) {
+            for (Map.Entry<Slot, Optional<Expression>> entry : ud.slotUniformValue.entrySet()) {
+                if ((!entry.getValue().isPresent() && entry.getKey().nullable())
+                        || (entry.getValue().isPresent() && entry.getValue().get() instanceof NullLiteral)) {
+                    add(entry.getKey(), entry.getValue().orElse(null));
+                }
             }
         }
 
