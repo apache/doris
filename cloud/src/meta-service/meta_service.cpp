@@ -1748,7 +1748,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
     RPC_RATE_LIMIT(update_delete_bitmap)
 
-    uint32_t fdb_txn_size = 0;
+    uint64_t fdb_txn_size = 0;
     auto table_id = request->table_id();
     auto tablet_id = request->tablet_id();
 

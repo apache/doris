@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_show_create_table_nereids", "query,arrow_flight_sql") {
+suite("test_show_create_table_nereids", "query") {
     String tb_name = "tb_show_create_table";
     try {  
         sql """drop table if exists ${tb_name} """

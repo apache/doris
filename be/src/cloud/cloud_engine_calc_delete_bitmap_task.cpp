@@ -273,7 +273,7 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
                              .base_compaction_cnt = _ms_base_compaction_cnt,
                              .cumulative_compaction_cnt = _ms_cumulative_compaction_cnt,
                              .cumulative_point = _ms_cumulative_point};
-    auto update_delete_bitmap_time_us = 0;
+    int64_t update_delete_bitmap_time_us = 0;
     if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
         version == previous_publish_info.publish_version &&
         _ms_base_compaction_cnt == previous_publish_info.base_compaction_cnt &&

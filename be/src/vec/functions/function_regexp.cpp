@@ -383,12 +383,13 @@ struct RegexpExtractAllImpl {
     }
 };
 
+// template FunctionRegexpFunctionality is used for regexp_xxxx series functions, not for regexp match.
 template <typename Impl>
-class FunctionRegexp : public IFunction {
+class FunctionRegexpFunctionality : public IFunction {
 public:
     static constexpr auto name = Impl::name;
 
-    static FunctionPtr create() { return std::make_shared<FunctionRegexp>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionRegexpFunctionality>(); }
 
     String get_name() const override { return name; }
 
@@ -486,11 +487,11 @@ public:
 };
 
 void register_function_regexp_extract(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionRegexp<RegexpReplaceImpl>>();
-    factory.register_function<FunctionRegexp<RegexpExtractImpl<true>>>();
-    factory.register_function<FunctionRegexp<RegexpExtractImpl<false>>>();
-    factory.register_function<FunctionRegexp<RegexpReplaceOneImpl>>();
-    factory.register_function<FunctionRegexp<RegexpExtractAllImpl>>();
+    factory.register_function<FunctionRegexpFunctionality<RegexpReplaceImpl>>();
+    factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<true>>>();
+    factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<false>>>();
+    factory.register_function<FunctionRegexpFunctionality<RegexpReplaceOneImpl>>();
+    factory.register_function<FunctionRegexpFunctionality<RegexpExtractAllImpl>>();
 }
 
 } // namespace doris::vectorized
