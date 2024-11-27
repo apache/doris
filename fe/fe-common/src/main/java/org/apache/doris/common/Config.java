@@ -3208,7 +3208,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"Get tablet stat task的最大并发数。",
         "Maximal concurrent num of get tablet stat job."})
-    public static int max_get_tablet_stat_task_threads_num = 16;
+    public static int max_get_tablet_stat_task_threads_num = 4;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
