@@ -394,6 +394,9 @@ public class DateTimeLiteral extends DateLiteral {
                 ((int) getHour()), ((int) getMinute()), ((int) getSecond()), (int) getMicroSecond() * 1000);
     }
 
+    /**
+     * use LocalDateTime create Expression 
+     */
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
         if (isDateOutOfRange(dateTime)) {
             return new NullLiteral(DateTimeType.INSTANCE);
