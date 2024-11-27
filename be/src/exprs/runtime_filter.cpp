@@ -990,14 +990,14 @@ void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column, size_t sta
     _wrapper->insert_batch(column, start);
 }
 
-Status IRuntimeFilter::publish(bool publish_local) {
+Status IRuntimeFilter::publish(RuntimeState* state, bool publish_local) {
     DCHECK(is_producer());
 
     auto send_to_remote_targets = [&](IRuntimeFilter* filter, uint64_t local_merge_time) {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
         RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
-        return filter->push_to_remote(&addr, local_merge_time);
+        return filter->push_to_remote(state, &addr, local_merge_time);
     };
     auto send_to_local_targets = [&](std::shared_ptr<RuntimePredicateWrapper> wrapper, bool global,
                                      uint64_t local_merge_time = 0) {
@@ -1097,8 +1097,10 @@ public:
     SyncSizeClosure(std::shared_ptr<PSendFilterSizeRequest> req,
                     std::shared_ptr<DummyBrpcCallback<PSendFilterSizeResponse>> callback,
                     std::shared_ptr<pipeline::Dependency> dependency,
-                    RuntimeFilterContextSPtr rf_context)
-            : Base(req, callback), _dependency(std::move(dependency)), _rf_context(rf_context) {}
+                    RuntimeFilterContextSPtr rf_context, std::weak_ptr<QueryContext> context)
+            : Base(req, callback, context),
+              _dependency(std::move(dependency)),
+              _rf_context(rf_context) {}
 };
 
 Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
@@ -1145,8 +1147,10 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
     auto callback = DummyBrpcCallback<PSendFilterSizeResponse>::create_shared();
     // IRuntimeFilter maybe deconstructed before the rpc finished, so that could not use
     // a raw pointer in closure. Has to use the context's shared ptr.
-    auto closure =
-            SyncSizeClosure::create_unique(request, callback, _dependency, _wrapper->_context);
+    auto closure = SyncSizeClosure::create_unique(
+            request, callback, _dependency, _wrapper->_context,
+            state->query_options().ignore_runtime_filter_error ? std::weak_ptr<QueryContext> {}
+                                                               : state->get_query_ctx_weak());
     auto* pquery_id = request->mutable_query_id();
     pquery_id->set_hi(_state->get_query_ctx()->query_id().hi);
     pquery_id->set_lo(_state->get_query_ctx()->query_id().lo);
@@ -1169,7 +1173,8 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
     return Status::OK();
 }
 
-Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, uint64_t local_merge_time) {
+Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress* addr,
+                                      uint64_t local_merge_time) {
     DCHECK(is_producer());
     std::shared_ptr<PBackendService_Stub> stub(
             _state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(*addr));
@@ -1182,7 +1187,10 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr, uint64_t loca
     auto merge_filter_callback = DummyBrpcCallback<PMergeFilterResponse>::create_shared();
     auto merge_filter_closure =
             AutoReleaseClosure<PMergeFilterRequest, DummyBrpcCallback<PMergeFilterResponse>>::
-                    create_unique(merge_filter_request, merge_filter_callback);
+                    create_unique(merge_filter_request, merge_filter_callback,
+                                  state->query_options().ignore_runtime_filter_error
+                                          ? std::weak_ptr<QueryContext> {}
+                                          : state->get_query_ctx_weak());
     void* data = nullptr;
     int len = 0;
 

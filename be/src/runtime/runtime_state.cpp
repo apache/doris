@@ -40,6 +40,7 @@
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
@@ -131,7 +132,6 @@ RuntimeState::RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& 
         : _profile("Fragment " + print_id(instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _runtime_filter_mgr(nullptr),
           _unreported_error_idx(0),
           _query_id(query_id),
           _fragment_id(fragment_id),
@@ -296,6 +296,10 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     _import_label = print_id(fragment_instance_id);
 
     return Status::OK();
+}
+
+std::weak_ptr<QueryContext> RuntimeState::get_query_ctx_weak() {
+    return _exec_env->fragment_mgr()->get_or_erase_query_ctx_with_lock(_query_ctx->query_id());
 }
 
 void RuntimeState::init_mem_trackers(const std::string& name, const TUniqueId& id) {

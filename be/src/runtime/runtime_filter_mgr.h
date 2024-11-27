@@ -170,10 +170,11 @@ public:
                 const TQueryOptions& query_options);
 
     // handle merge rpc
-    Status merge(const PMergeFilterRequest* request,
+    Status merge(std::weak_ptr<QueryContext> query_ctx, const PMergeFilterRequest* request,
                  butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    Status send_filter_size(const PSendFilterSizeRequest* request);
+    Status send_filter_size(std::weak_ptr<QueryContext> query_ctx,
+                            const PSendFilterSizeRequest* request);
 
     UniqueId query_id() const { return _query_id; }
 
