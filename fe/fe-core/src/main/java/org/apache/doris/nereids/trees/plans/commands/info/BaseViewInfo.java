@@ -428,4 +428,8 @@ public class BaseViewInfo {
             return null;
         }
     }
+
+    protected void checkViewSql(String viewSql) {
+        new NereidsParser().parseSingle(viewSql);
+    }
 }
