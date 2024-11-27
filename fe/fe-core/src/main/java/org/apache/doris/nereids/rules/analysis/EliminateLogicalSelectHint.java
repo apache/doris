@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -39,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
-import org.apache.doris.qe.SessionVariable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
