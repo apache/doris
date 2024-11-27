@@ -418,6 +418,51 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
     return Status::OK();
 }
 
+Status VerticalSegmentWriter::_partial_update_preconditions_check(size_t row_pos,
+                                                                  bool is_flexible_update) {
+    if (!_is_mow()) {
+        auto msg = fmt::format(
+                "Can only do partial update on merge-on-write unique table, but found: "
+                "keys_type={}, _opts.enable_unique_key_merge_on_write={}, tablet_id={}",
+                _tablet_schema->keys_type(), _opts.enable_unique_key_merge_on_write,
+                _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    if (_opts.rowset_ctx->partial_update_info == nullptr) {
+        auto msg =
+                fmt::format("partial_update_info should not be nullptr, please check, tablet_id={}",
+                            _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    if (!is_flexible_update) {
+        if (!_opts.rowset_ctx->partial_update_info->is_fixed_partial_update()) {
+            auto msg = fmt::format(
+                    "in fixed partial update code, but update_mode={}, please check, tablet_id={}",
+                    _opts.rowset_ctx->partial_update_info->update_mode(), _tablet->tablet_id());
+            DCHECK(false) << msg;
+            return Status::InternalError<false>(msg);
+        }
+    } else {
+        if (!_opts.rowset_ctx->partial_update_info->is_flexible_partial_update()) {
+            auto msg = fmt::format(
+                    "in flexible partial update code, but update_mode={}, please check, "
+                    "tablet_id={}",
+                    _opts.rowset_ctx->partial_update_info->update_mode(), _tablet->tablet_id());
+            DCHECK(false) << msg;
+            return Status::InternalError<false>(msg);
+        }
+    }
+    if (row_pos != 0) {
+        auto msg = fmt::format("row_pos should be 0, but found {}, tablet_id={}", row_pos,
+                               _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    return Status::OK();
+}
+
 // for partial update, we should do following steps to fill content of block:
 // 1. set block data to data convertor, and get all key_column's converted slice
 // 2. get pk of input block, and read missing columns
@@ -427,11 +472,7 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
 // 3. set columns to data convertor and then write all columns
 Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& data,
                                                                  vectorized::Block& full_block) {
-    DCHECK(_is_mow());
-    DCHECK(_opts.rowset_ctx->partial_update_info != nullptr);
-    DCHECK(_opts.rowset_ctx->partial_update_info->is_fixed_partial_update());
-    DCHECK(data.row_pos == 0);
-
+    RETURN_IF_ERROR(_partial_update_preconditions_check(data.row_pos, false));
     // create full block and fill with input columns
     full_block = _tablet_schema->create_block();
     const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
@@ -580,10 +621,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
 Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
         RowsInBlock& data, vectorized::Block& full_block) {
-    DCHECK(_is_mow());
-    DCHECK(_opts.rowset_ctx->partial_update_info != nullptr);
-    DCHECK(_opts.rowset_ctx->partial_update_info->is_flexible_partial_update());
-    DCHECK(data.row_pos == 0);
+    RETURN_IF_ERROR(_partial_update_preconditions_check(data.row_pos, true));
 
     // data.block has the same schema with full_block
     DCHECK(data.block->columns() == _tablet_schema->num_columns());
