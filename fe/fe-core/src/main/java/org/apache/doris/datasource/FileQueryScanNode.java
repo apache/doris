@@ -374,7 +374,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 scanBackendIds.add(backend.getId());
             }
         }
-        params.setForceJniReader(ConnectContext.get().getSessionVariable().isForceJniScanner());
 
         getSerializedTable().ifPresent(params::setSerializedTable);
 
