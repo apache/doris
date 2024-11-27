@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.CatalogMgr;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -148,5 +149,12 @@ public class MTMVPartitionInfo {
                     + ", partitionCol='" + partitionCol + '\''
                     + '}';
         }
+    }
+
+    public void compatible(CatalogMgr catalogMgr) {
+        if (relatedTable == null) {
+            return;
+        }
+        relatedTable.compatible(catalogMgr);
     }
 }

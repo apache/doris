@@ -34,6 +34,7 @@ import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -87,7 +88,7 @@ import java.util.function.Predicate;
       type of routine load:
           KAFKA
 */
-public class CreateRoutineLoadStmt extends DdlStmt {
+public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmt.class);
 
     // routine load properties
@@ -141,6 +142,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(LOAD_TO_SINGLE_TABLET)
             .add(PARTIAL_COLUMNS)
             .add(WORKLOAD_GROUP)
+            .add(LoadStmt.KEY_ENCLOSE)
+            .add(LoadStmt.KEY_ESCAPE)
             .build();
 
     private final LabelName labelName;
@@ -178,9 +181,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private boolean numAsString = false;
     private boolean fuzzyParse = false;
 
-    private String enclose;
+    private byte enclose;
 
-    private String escape;
+    private byte escape;
 
     private long workloadGroupId = -1;
 
@@ -225,6 +228,51 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         if (comment != null) {
             this.comment = comment;
         }
+    }
+
+    /*
+     * make stmt by nereids
+     */
+    public CreateRoutineLoadStmt(LabelName labelName, String dbName, String name, String tableName,
+            List<ParseNode> loadPropertyList, OriginStatement origStmt, UserIdentity userIdentity,
+            Map<String, String> jobProperties, String typeName, RoutineLoadDesc routineLoadDesc,
+            int desireTaskConcurrentNum, long maxErrorNum, double maxFilterRatio, long maxBatchIntervalS,
+            long maxBatchRows, long maxBatchSizeBytes, long execMemLimit, int sendBatchParallelism, String timezone,
+            String format, String jsonPaths, String jsonRoot, byte enclose, byte escape, long workloadGroupId,
+            boolean loadToSingleTablet, boolean strictMode, boolean isPartialUpdate, boolean stripOuterArray,
+            boolean numAsString, boolean fuzzyParse, AbstractDataSourceProperties dataSourceProperties) {
+        this.labelName = labelName;
+        this.dbName = dbName;
+        this.name = name;
+        this.tableName = tableName;
+        this.loadPropertyList = loadPropertyList;
+        this.setOrigStmt(origStmt);
+        this.setUserInfo(userIdentity);
+        this.jobProperties = jobProperties;
+        this.typeName = typeName;
+        this.routineLoadDesc = routineLoadDesc;
+        this.desiredConcurrentNum = desireTaskConcurrentNum;
+        this.maxErrorNum = maxErrorNum;
+        this.maxFilterRatio = maxFilterRatio;
+        this.maxBatchIntervalS = maxBatchIntervalS;
+        this.maxBatchRows = maxBatchRows;
+        this.maxBatchSizeBytes = maxBatchSizeBytes;
+        this.execMemLimit = execMemLimit;
+        this.sendBatchParallelism = sendBatchParallelism;
+        this.timezone = timezone;
+        this.format = format;
+        this.jsonPaths = jsonPaths;
+        this.jsonRoot = jsonRoot;
+        this.enclose = enclose;
+        this.escape = escape;
+        this.workloadGroupId = workloadGroupId;
+        this.loadToSingleTablet = loadToSingleTablet;
+        this.strictMode = strictMode;
+        this.isPartialUpdate = isPartialUpdate;
+        this.stripOuterArray = stripOuterArray;
+        this.numAsString = numAsString;
+        this.fuzzyParse = fuzzyParse;
+        this.dataSourceProperties = dataSourceProperties;
     }
 
     public String getName() {
@@ -311,11 +359,11 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return jsonPaths;
     }
 
-    public String getEnclose() {
+    public byte getEnclose() {
         return enclose;
     }
 
-    public String getEscape() {
+    public byte getEscape() {
         return escape;
     }
 
@@ -345,7 +393,14 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         // check dbName and tableName
         checkDBTable(analyzer);
         // check name
-        FeNameFormat.checkCommonName(NAME_TYPE, name);
+        try {
+            FeNameFormat.checkCommonName(NAME_TYPE, name);
+        } catch (AnalysisException e) {
+            // 64 is the length of regular expression matching
+            // (FeNameFormat.COMMON_NAME_REGEX/UNDERSCORE_COMMON_NAME_REGEX)
+            throw new AnalysisException(e.getMessage()
+                    + " Maybe routine load job name is longer than 64 or contains illegal characters");
+        }
         // check load properties include column separator etc.
         checkLoadProperties();
         // check routine load job properties include desired concurrent number etc.
@@ -507,14 +562,24 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
                 RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
                 LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
-        enclose = jobProperties.get(LoadStmt.KEY_ENCLOSE);
-        if (enclose != null && enclose.length() != 1) {
-            throw new AnalysisException("enclose must be single-char");
+
+        String encloseStr = jobProperties.get(LoadStmt.KEY_ENCLOSE);
+        if (encloseStr != null) {
+            if (encloseStr.length() != 1) {
+                throw new AnalysisException("enclose must be single-char");
+            } else {
+                enclose = encloseStr.getBytes()[0];
+            }
         }
-        escape = jobProperties.get(LoadStmt.KEY_ESCAPE);
-        if (escape != null && escape.length() != 1) {
-            throw new AnalysisException("escape must be single-char");
+        String escapeStr = jobProperties.get(LoadStmt.KEY_ESCAPE);
+        if (escapeStr != null) {
+            if (escapeStr.length() != 1) {
+                throw new AnalysisException("enclose must be single-char");
+            } else {
+                escape = escapeStr.getBytes()[0];
+            }
         }
+
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
             this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
@@ -548,5 +613,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private void checkDataSourceProperties() throws UserException {
         this.dataSourceProperties.setTimezone(this.timezone);
         this.dataSourceProperties.analyze();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

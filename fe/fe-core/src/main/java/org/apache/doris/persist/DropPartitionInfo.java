@@ -60,11 +60,11 @@ public class DropPartitionInfo implements Writable {
         this.recycleTime = recycleTime;
 
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP PARTITION ");
+        sb.append("DROP ");
         if (isTempPartition) {
             sb.append("TEMPORARY ");
         }
-        sb.append("`").append(partitionName).append("`");
+        sb.append("PARTITION `").append(partitionName).append("`");
         if (forceDrop) {
             sb.append(" FORCE");
         }
@@ -82,7 +82,9 @@ public class DropPartitionInfo implements Writable {
     }
 
     public Long getPartitionId() {
-        return partitionId;
+        // the field partition ID was added in PR: apache/doris#37196, the old version doesn't
+        // contain this field so it will be null.
+        return partitionId == null ? -1 : partitionId;
     }
 
     public String getPartitionName() {

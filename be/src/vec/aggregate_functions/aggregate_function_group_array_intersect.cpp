@@ -70,7 +70,8 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl
 }
 
 AggregateFunctionPtr create_aggregate_function_group_array_intersect(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr) {
     assert_unary(name, argument_types);
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
 

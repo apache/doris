@@ -24,7 +24,6 @@
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/cloud.pb.h>
-#include <stdint.h>
 
 #include <map>
 #include <memory>
@@ -33,8 +32,8 @@
 #include <unordered_map>
 
 #include "common/status.h"
+#include "cpp/s3_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
-#include "util/s3_rate_limiter.h"
 #include "vec/common/string_ref.h"
 
 namespace Aws::S3 {
@@ -51,7 +50,8 @@ namespace doris {
 namespace s3_bvar {
 extern bvar::LatencyRecorder s3_get_latency;
 extern bvar::LatencyRecorder s3_put_latency;
-extern bvar::LatencyRecorder s3_delete_latency;
+extern bvar::LatencyRecorder s3_delete_object_latency;
+extern bvar::LatencyRecorder s3_delete_objects_latency;
 extern bvar::LatencyRecorder s3_head_latency;
 extern bvar::LatencyRecorder s3_multi_part_upload_latency;
 extern bvar::LatencyRecorder s3_list_latency;
@@ -61,25 +61,6 @@ extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
 class S3URI;
-
-inline ::Aws::Client::AWSError<::Aws::S3::S3Errors> s3_error_factory() {
-    return {::Aws::S3::S3Errors::INTERNAL_FAILURE, "exceeds limit", "exceeds limit", false};
-}
-
-#define DO_S3_RATE_LIMIT(op, code)                                                  \
-    [&]() mutable {                                                                 \
-        if (!config::enable_s3_rate_limiter) {                                      \
-            return (code);                                                          \
-        }                                                                           \
-        auto sleep_duration = S3ClientFactory::instance().rate_limiter(op)->add(1); \
-        if (sleep_duration < 0) {                                                   \
-            using T = decltype((code));                                             \
-            return T(s3_error_factory());                                           \
-        }                                                                           \
-        return (code);                                                              \
-    }()
-
-#define DO_S3_GET_RATE_LIMIT(code) DO_S3_RATE_LIMIT(S3RateLimitType::GET, code)
 
 struct S3ClientConf {
     std::string endpoint;

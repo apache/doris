@@ -57,6 +57,7 @@
 #include "olap/types.h" // for TypeInfo
 #include "olap/wrapper_field.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "util/binary_cast.hpp"
 #include "util/bitmap.h"
 #include "util/block_compression.h"
@@ -85,8 +86,6 @@ inline bool read_as_string(PrimitiveType type) {
            type == PrimitiveType::TYPE_OBJECT;
 }
 
-static bvar::Adder<size_t> g_column_reader_memory_bytes("doris_column_reader_memory_bytes");
-static bvar::Adder<size_t> g_column_reader_num("doris_column_reader_num");
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                   const io::FileReaderSPtr& file_reader,
                                   std::unique_ptr<ColumnReader>* reader) {
@@ -120,6 +119,7 @@ Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnM
     if (meta.is_nullable()) {
         array_reader->_sub_readers[2] = std::move(null_reader);
     }
+    array_reader->_meta_type = FieldType::OLAP_FIELD_TYPE_ARRAY;
     *reader = std::move(array_reader);
     return Status::OK();
 }
@@ -160,6 +160,7 @@ Status ColumnReader::create_map(const ColumnReaderOptions& opts, const ColumnMet
     if (meta.is_nullable()) {
         map_reader->_sub_readers[3] = std::move(null_reader);
     }
+    map_reader->_meta_type = FieldType::OLAP_FIELD_TYPE_MAP;
     *reader = std::move(map_reader);
     return Status::OK();
 }
@@ -180,6 +181,7 @@ Status ColumnReader::create_struct(const ColumnReaderOptions& opts, const Column
                                              &sub_reader));
         struct_reader->_sub_readers.push_back(std::move(sub_reader));
     }
+    struct_reader->_meta_type = FieldType::OLAP_FIELD_TYPE_STRUCT;
     *reader = std::move(struct_reader);
     return Status::OK();
 }
@@ -197,6 +199,7 @@ Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const Col
 
     auto data_type = vectorized::DataTypeFactory::instance().create_data_type(meta);
     const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
+    agg_state_type->check_function_compatibility(opts.be_exec_version);
     auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
 
     if (read_as_string(type)) {
@@ -205,9 +208,16 @@ Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const Col
         RETURN_IF_ERROR(reader_local->init(&meta));
         *reader = std::move(reader_local);
         return Status::OK();
+    } else if (type == PrimitiveType::TYPE_MAP) {
+        return create_map(opts, meta, file_reader, reader);
+    } else if (type == PrimitiveType::TYPE_ARRAY) {
+        return create_array(opts, meta, file_reader, reader);
+    } else if (type == PrimitiveType::TYPE_STRUCT) {
+        return create_struct(opts, meta, num_rows, file_reader, reader);
     }
 
-    return Status::InternalError("Not supported");
+    return Status::InternalError("Not supported type: {}, serialized type: {}",
+                                 agg_state_type->get_name(), int(type));
 }
 
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
@@ -250,14 +260,12 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
 }
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
-                           uint64_t num_rows, io::FileReaderSPtr file_reader,
-                           vectorized::DataTypePtr agg_state_ptr)
+                           uint64_t num_rows, io::FileReaderSPtr file_reader)
         : _use_index_page_cache(!config::disable_storage_page_cache),
           _opts(opts),
           _num_rows(num_rows),
           _file_reader(std::move(file_reader)),
-          _dict_encoding_type(UNKNOWN_DICT_ENCODING),
-          _agg_state_ptr(std::move(agg_state_ptr)) {
+          _dict_encoding_type(UNKNOWN_DICT_ENCODING) {
     _meta_length = meta.length();
     _meta_type = (FieldType)meta.type();
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -266,25 +274,28 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
     _meta_is_nullable = meta.is_nullable();
     _meta_dict_page = meta.dict_page();
     _meta_compression = meta.compression();
-
-    g_column_reader_memory_bytes << sizeof(*this);
-    g_column_reader_num << 1;
 }
 
-ColumnReader::~ColumnReader() {
-    g_column_reader_memory_bytes << -sizeof(*this);
-    g_column_reader_num << -1;
+ColumnReader::~ColumnReader() = default;
+
+int64_t ColumnReader::get_metadata_size() const {
+    return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0);
 }
 
 Status ColumnReader::init(const ColumnMetaPB* meta) {
     _type_info = get_type_info(meta);
+
+    if (meta->has_be_exec_version()) {
+        _be_exec_version = meta->be_exec_version();
+    }
+
     if (_type_info == nullptr) {
         return Status::NotSupported("unsupported typeinfo, type={}", meta->type());
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), meta->encoding(), &_encoding_info));
 
     for (int i = 0; i < meta->indexes_size(); i++) {
-        auto& index_meta = meta->indexes(i);
+        const auto& index_meta = meta->indexes(i);
         switch (index_meta.type()) {
         case ORDINAL_INDEX:
             _ordinal_index.reset(
@@ -308,6 +319,7 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
                                       _file_reader->path().native(), index_meta.type());
         }
     }
+    update_metadata_size();
 
     // ArrayColumnWriter writes a single empty array and flushes. In this scenario,
     // the item writer doesn't write any data and the corresponding ordinal index is empty.
@@ -332,7 +344,7 @@ Status ColumnReader::new_inverted_index_iterator(
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
         if (_inverted_index) {
-            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
+            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.io_ctx, read_options.stats,
                                                           read_options.runtime_state, iterator));
         }
     }
@@ -399,7 +411,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     } else {
         if (is_string) {
             auto sv = (StringRef*)min_value->cell_ptr();
-            dst->insert_many_data(sv->data, sv->size, size);
+            dst->insert_data_repeatedly(sv->data, sv->size, size);
         } else {
             // TODO: the work may cause performance problem, opt latter
             for (int i = 0; i < size; ++i) {
@@ -587,6 +599,9 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
 }
 
 Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memory) {
+    if (!_ordinal_index) {
+        return Status::InternalError("ordinal_index not inited");
+    }
     return _ordinal_index->load(use_page_cache, kept_in_memory);
 }
 
@@ -726,21 +741,8 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
 }
 
 Status ColumnReader::new_agg_state_iterator(ColumnIterator** iterator) {
-    if (!_agg_state_ptr) { // meet old version ColumnMetaPB
-        *iterator = new FileColumnIterator(this);
-        return Status::OK();
-    }
-
-    const auto* agg_state_type =
-            assert_cast<const vectorized::DataTypeAggState*>(_agg_state_ptr.get());
-    auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
-
-    if (read_as_string(type)) {
-        *iterator = new FileColumnIterator(this);
-        return Status::OK();
-    }
-
-    return Status::InternalError("Not supported");
+    *iterator = new FileColumnIterator(this);
+    return Status::OK();
 }
 
 Status ColumnReader::new_array_iterator(ColumnIterator** iterator) {
@@ -1506,7 +1508,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         value.cast_to_date();
 
         int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DATETIME: {
@@ -1524,7 +1526,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         value.to_datetime();
 
         int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
@@ -1536,7 +1538,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
                sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
         decimal12_t* d = (decimal12_t*)mem_value;
         int128 = DecimalV2Value(d->integer, d->fraction).value();
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_STRING:
@@ -1546,7 +1548,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
         char* data_ptr = ((Slice*)mem_value)->data;
         size_t data_len = ((Slice*)mem_value)->size;
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_ARRAY: {
@@ -1564,7 +1566,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     default: {
         char* data_ptr = (char*)mem_value;
         size_t data_len = type_size;
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
     }
     }
 }
@@ -1590,25 +1592,15 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
     }
 }
 
-Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                             bool* has_null) {
-    size_t size = dst->size();
+Status VariantRootColumnIterator::_process_root_column(
+        vectorized::MutableColumnPtr& dst, vectorized::MutableColumnPtr& root_column,
+        const vectorized::DataTypePtr& most_common_type) {
     auto& obj =
             dst->is_nullable()
                     ? assert_cast<vectorized::ColumnObject&>(
                               assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
                     : assert_cast<vectorized::ColumnObject&>(*dst);
-    if (obj.is_null_root()) {
-        obj.create_root();
-    }
-    auto root_column = obj.get_root();
-    RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
-    obj.incr_num_rows(*n);
-    for (auto& entry : obj.get_subcolumns()) {
-        if (entry->data.size() != size + *n) {
-            entry->data.insertManyDefaults(*n);
-        }
-    }
+
     // fill nullmap
     if (root_column->is_nullable() && dst->is_nullable()) {
         vectorized::ColumnUInt8& dst_null_map =
@@ -1617,43 +1609,108 @@ Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColum
                 assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
         dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
     }
+
+    // add root column to a tmp object column
+    auto tmp = vectorized::ColumnObject::create(true, false);
+    auto& tmp_obj = assert_cast<vectorized::ColumnObject&>(*tmp);
+    tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
+
+    // merge tmp object column to dst
+    obj.insert_range_from(*tmp, 0, tmp->size());
+
+    // finalize object if needed
+    if (!obj.is_finalized()) {
+        obj.finalize();
+    }
+
 #ifndef NDEBUG
     obj.check_consistency();
 #endif
+
     return Status::OK();
 }
 
-Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                                 vectorized::MutableColumnPtr& dst) {
-    size_t size = dst->size();
+Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                             bool* has_null) {
+    // read root column
     auto& obj =
             dst->is_nullable()
                     ? assert_cast<vectorized::ColumnObject&>(
                               assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
                     : assert_cast<vectorized::ColumnObject&>(*dst);
-    if (obj.is_null_root()) {
-        obj.create_root();
-    }
-    auto root_column = obj.get_root();
+
+    auto most_common_type = obj.get_most_common_type();
+    auto root_column = most_common_type->create_column();
+    RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
+
+    return _process_root_column(dst, root_column, most_common_type);
+}
+
+Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                                 vectorized::MutableColumnPtr& dst) {
+    // read root column
+    auto& obj =
+            dst->is_nullable()
+                    ? assert_cast<vectorized::ColumnObject&>(
+                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
+                    : assert_cast<vectorized::ColumnObject&>(*dst);
+
+    auto most_common_type = obj.get_most_common_type();
+    auto root_column = most_common_type->create_column();
     RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));
-    obj.incr_num_rows(count);
-    for (auto& entry : obj.get_subcolumns()) {
-        if (entry->data.size() != (size + count)) {
-            entry->data.insertManyDefaults(count);
-        }
+
+    return _process_root_column(dst, root_column, most_common_type);
+}
+
+Status DefaultNestedColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+    bool has_null = false;
+    return next_batch(n, dst, &has_null);
+}
+
+static void fill_nested_with_defaults(vectorized::MutableColumnPtr& dst,
+                                      vectorized::MutableColumnPtr& sibling_column, size_t nrows) {
+    const auto* sibling_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
+            remove_nullable(sibling_column->get_ptr()));
+    const auto* dst_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
+            remove_nullable(dst->get_ptr()));
+    if (!dst_array || !sibling_array) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Expected array column, but met %s and %s", dst->get_name(),
+                               sibling_column->get_name());
     }
-    // fill nullmap
-    if (root_column->is_nullable() && dst->is_nullable()) {
-        vectorized::ColumnUInt8& dst_null_map =
-                assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
-        vectorized::ColumnUInt8& src_null_map =
-                assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
-        DCHECK_EQ(src_null_map.size() - size, count);
-        dst_null_map.insert_range_from(src_null_map, size, count);
-    }
+    auto new_nested =
+            dst_array->get_data_ptr()->clone_resized(sibling_array->get_data_ptr()->size());
+    auto new_array = make_nullable(vectorized::ColumnArray::create(
+            new_nested->assume_mutable(), sibling_array->get_offsets_ptr()->assume_mutable()));
+    dst->insert_range_from(*new_array, 0, new_array->size());
 #ifndef NDEBUG
-    obj.check_consistency();
+    if (!dst_array->has_equal_offsets(*sibling_array)) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Expected same array offsets");
+    }
 #endif
+}
+
+Status DefaultNestedColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                               bool* has_null) {
+    if (_sibling_iter) {
+        vectorized::MutableColumnPtr sibling_column = _file_column_type->create_column();
+        RETURN_IF_ERROR(_sibling_iter->next_batch(n, sibling_column, has_null));
+        fill_nested_with_defaults(dst, sibling_column, *n);
+    } else {
+        dst->insert_many_defaults(*n);
+    }
+    return Status::OK();
+}
+
+Status DefaultNestedColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                                   vectorized::MutableColumnPtr& dst) {
+    if (_sibling_iter) {
+        vectorized::MutableColumnPtr sibling_column = _file_column_type->create_column();
+        RETURN_IF_ERROR(_sibling_iter->read_by_rowids(rowids, count, sibling_column));
+        fill_nested_with_defaults(dst, sibling_column, count);
+    } else {
+        dst->insert_many_defaults(count);
+    }
     return Status::OK();
 }
 

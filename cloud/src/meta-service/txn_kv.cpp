@@ -27,6 +27,7 @@
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -35,8 +36,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/stopwatch.h"
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/txn_kv_error.h"
 
 // =============================================================================
@@ -78,10 +79,69 @@ TxnErrorCode FdbTxnKv::create_txn(std::unique_ptr<Transaction>* txn) {
     return ret;
 }
 
+TxnErrorCode FdbTxnKv::create_txn_with_system_access(std::unique_ptr<Transaction>* txn) {
+    auto t = std::make_unique<fdb::Transaction>(database_);
+    TxnErrorCode code = t->init();
+    if (code == TxnErrorCode::TXN_OK) {
+        code = t->enable_access_system_keys();
+    }
+    if (code != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to init txn, ret=" << code;
+        return code;
+    }
+
+    *txn = std::move(t);
+    return TxnErrorCode::TXN_OK;
+}
+
 std::unique_ptr<FullRangeGetIterator> FdbTxnKv::full_range_get(std::string begin, std::string end,
                                                                FullRangeGetIteratorOptions opts) {
     return std::make_unique<fdb::FullRangeGetIterator>(std::move(begin), std::move(end),
                                                        std::move(opts));
+}
+
+TxnErrorCode FdbTxnKv::get_partition_boundaries(std::vector<std::string>* boundaries) {
+    boundaries->clear();
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode code = create_txn_with_system_access(&txn);
+    if (code != TxnErrorCode::TXN_OK) {
+        return code;
+    }
+
+    std::string begin_key(fdb_partition_key_prefix());
+    std::string end_key(fdb_partition_key_end());
+
+    std::unique_ptr<RangeGetIterator> iter;
+    do {
+        code = txn->get(begin_key, end_key, &iter, true);
+        if (code != TxnErrorCode::TXN_OK) {
+            if (code == TxnErrorCode::TXN_TOO_OLD) {
+                code = create_txn_with_system_access(&txn);
+                if (code == TxnErrorCode::TXN_OK) {
+                    continue;
+                }
+            }
+            LOG_WARNING("failed to get fdb boundaries")
+                    .tag("code", code)
+                    .tag("begin_key", hex(begin_key))
+                    .tag("end_key", hex(end_key));
+            return code;
+        }
+
+        while (iter->has_next()) {
+            auto&& [key, value] = iter->next();
+            boundaries->emplace_back(key);
+        }
+
+        begin_key = iter->next_begin_key();
+    } while (iter->more());
+
+    return TxnErrorCode::TXN_OK;
+}
+
+double FdbTxnKv::get_client_thread_busyness() const {
+    return fdb_database_get_main_thread_busyness(database_->db());
 }
 
 } // namespace doris::cloud
@@ -258,6 +318,19 @@ TxnErrorCode Transaction::init() {
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode Transaction::enable_access_system_keys() {
+    fdb_error_t err = fdb_transaction_set_option(
+            txn_, FDBTransactionOption::FDB_TR_OPTION_ACCESS_SYSTEM_KEYS, nullptr, 0);
+    if (err) {
+        LOG_WARNING("fdb_transaction_set_option error: ")
+                .tag("option", "FDB_TR_OPTION_ACCESS_SYSTEM_KEYS")
+                .tag("code", err)
+                .tag("msg", fdb_get_error(err));
+        return cast_as_txn_code(err);
+    }
+    return TxnErrorCode::TXN_OK;
+}
+
 void Transaction::put(std::string_view key, std::string_view val) {
     StopWatch sw;
     fdb_transaction_set(txn_, (uint8_t*)key.data(), key.size(), (uint8_t*)val.data(), val.size());
@@ -292,7 +365,6 @@ static TxnErrorCode await_future(FDBFuture* fut) {
         return bthread_fdb_future_block_until_ready(fut);
     }
     auto err = fdb_future_block_until_ready(fut);
-    TEST_SYNC_POINT_CALLBACK("fdb_future_block_until_ready_err", &err);
     if (err) [[unlikely]] {
         LOG(WARNING) << "fdb_future_block_until_ready failed: " << fdb_get_error(err);
         return cast_as_txn_code(err);
@@ -305,6 +377,7 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     approximate_bytes_ += key.size() * 2; // See fdbclient/ReadYourWrites.actor.cpp for details
     auto* fut = fdb_transaction_get(txn_, (uint8_t*)key.data(), key.size(), snapshot);
 
+    g_bvar_txn_kv_get_count_normalized << 1;
     auto release_fut = [fut, &sw](int*) {
         fdb_future_destroy(fut);
         g_bvar_txn_kv_get << sw.elapsed_us();
@@ -362,6 +435,7 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
 
     std::unique_ptr<RangeGetIterator> ret(new RangeGetIterator(fut));
     RETURN_IF_ERROR(ret->init());
+    g_bvar_txn_kv_get_count_normalized << ret->size();
 
     *(iter) = std::move(ret);
 
@@ -547,6 +621,7 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
 
     size_t num_keys = keys.size();
     res->reserve(keys.size());
+    g_bvar_txn_kv_get_count_normalized << keys.size();
     std::vector<std::unique_ptr<FDBFuture, FDBFutureDelete>> futures;
     futures.reserve(opts.concurrency);
     for (size_t i = 0; i < num_keys; i += opts.concurrency) {

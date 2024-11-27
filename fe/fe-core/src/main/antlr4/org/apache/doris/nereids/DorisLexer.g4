@@ -48,22 +48,6 @@ lexer grammar DorisLexer;
   }
 
   /**
-   * This method will be called when we see '/*' and try to match it as a bracketed comment.
-   * If the next character is '+', it should be parsed as hint later, and we cannot match
-   * it as a bracketed comment.
-   *
-   * Returns true if the next character is '+'.
-   */
-  public boolean isHint() {
-    int nextChar = _input.LA(1);
-    if (nextChar == '+') {
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  /**
    * This method will be called when the character stream ends and try to find out the
    * unclosed bracketed comment.
    * If the method be called, it means the end of the entire character stream match,
@@ -80,6 +64,7 @@ LEFT_PAREN: '(';
 RIGHT_PAREN: ')';
 COMMA: ',';
 DOT: '.';
+DOTDOTDOT: '...';
 LEFT_BRACKET: '[';
 RIGHT_BRACKET: ']';
 LEFT_BRACE: '{';
@@ -93,6 +78,7 @@ RIGHT_BRACE: '}';
 //--DORIS-KEYWORD-LIST-START
 ACCOUNT_LOCK: 'ACCOUNT_LOCK';
 ACCOUNT_UNLOCK: 'ACCOUNT_UNLOCK';
+ACTIONS: 'ACTIONS';
 ADD: 'ADD';
 ADDDATE:'ADDDATE';
 ADMIN: 'ADMIN';
@@ -128,6 +114,7 @@ BINARY: 'BINARY';
 BINLOG: 'BINLOG';
 BITAND: 'BITAND';
 BITMAP: 'BITMAP';
+BITMAP_EMPTY: 'BITMAP_EMPTY';
 BITMAP_UNION: 'BITMAP_UNION';
 BITOR: 'BITOR';
 BITXOR: 'BITXOR';
@@ -167,6 +154,8 @@ COMMITTED: 'COMMITTED';
 COMPACT: 'COMPACT';
 COMPLETE: 'COMPLETE';
 COMPRESS_TYPE: 'COMPRESS_TYPE';
+COMPUTE: 'COMPUTE';
+CONDITIONS: 'CONDITIONS';
 CONFIG: 'CONFIG';
 CONNECTION: 'CONNECTION';
 CONNECTION_ID: 'CONNECTION_ID';
@@ -174,7 +163,7 @@ CONSISTENT: 'CONSISTENT';
 CONSTRAINT: 'CONSTRAINT';
 CONSTRAINTS: 'CONSTRAINTS';
 CONVERT: 'CONVERT';
-CONVERT_LSC: 'CONVERT_LSC';
+CONVERT_LSC: 'CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS';
 COPY: 'COPY';
 COUNT: 'COUNT';
 CREATE: 'CREATE';
@@ -218,6 +207,7 @@ DEMAND: 'DEMAND';
 DESC: 'DESC';
 DESCRIBE: 'DESCRIBE';
 DIAGNOSE: 'DIAGNOSE';
+DIAGNOSIS: 'DIAGNOSIS';
 DISK: 'DISK';
 DISTINCT: 'DISTINCT';
 DISTINCTPC: 'DISTINCTPC';
@@ -231,8 +221,10 @@ DOUBLE: 'DOUBLE';
 DROP: 'DROP';
 DROPP: 'DROPP';
 DUAL: 'DUAL';
+DUMP: 'DUMP';
 DUPLICATE: 'DUPLICATE';
 DYNAMIC: 'DYNAMIC';
+E:'E';
 ELSE: 'ELSE';
 ENABLE: 'ENABLE';
 ENCRYPTKEY: 'ENCRYPTKEY';
@@ -418,6 +410,7 @@ PHYSICAL: 'PHYSICAL';
 PI: 'PI';
 PLACEHOLDER: '?';
 PLAN: 'PLAN';
+PLAY: 'PLAY';
 PRIVILEGES: 'PRIVILEGES';
 PROCESS: 'PROCESS';
 PLUGIN: 'PLUGIN';
@@ -436,6 +429,7 @@ QUANTILE_STATE: 'QUANTILE_STATE';
 QUANTILE_UNION: 'QUANTILE_UNION';
 QUERY: 'QUERY';
 QUOTA: 'QUOTA';
+QUALIFY: 'QUALIFY';
 RANDOM: 'RANDOM';
 RANGE: 'RANGE';
 READ: 'READ';
@@ -453,6 +447,7 @@ REPAIR: 'REPAIR';
 REPEATABLE: 'REPEATABLE';
 REPLACE: 'REPLACE';
 REPLACE_IF_NOT_NULL: 'REPLACE_IF_NOT_NULL';
+REPLAYER: 'REPLAYER';
 REPLICA: 'REPLICA';
 REPOSITORIES: 'REPOSITORIES';
 REPOSITORY: 'REPOSITORY';
@@ -485,8 +480,10 @@ SEMI: 'SEMI';
 SEQUENCE: 'SEQUENCE';
 SERIALIZABLE: 'SERIALIZABLE';
 SESSION: 'SESSION';
+SESSION_USER: 'SESSION_USER';
 SET: 'SET';
 SETS: 'SETS';
+SET_SESSION_VARIABLE: 'SET_SESSION_VARIABLE';
 SHAPE: 'SHAPE';
 SHOW: 'SHOW';
 SIGNED: 'SIGNED';
@@ -497,6 +494,7 @@ SONAME: 'SONAME';
 SPLIT: 'SPLIT';
 SQL: 'SQL';
 SQL_BLOCK_RULE: 'SQL_BLOCK_RULE';
+STAGE: 'STAGE';
 STAGES: 'STAGES';
 START: 'START';
 STARTS: 'STARTS';
@@ -548,6 +546,7 @@ UNINSTALL: 'UNINSTALL';
 UNION: 'UNION';
 UNIQUE: 'UNIQUE';
 UNLOCK: 'UNLOCK';
+UNSET: 'UNSET';
 UNSIGNED: 'UNSIGNED';
 UP: 'UP';
 UPDATE: 'UPDATE';
@@ -557,12 +556,15 @@ USING: 'USING';
 VALUE: 'VALUE';
 VALUES: 'VALUES';
 VARCHAR: 'VARCHAR';
+VARIABLE: 'VARIABLE';
 VARIABLES: 'VARIABLES';
 VARIANT: 'VARIANT';
 VAULT: 'VAULT';
+VAULTS: 'VAULTS';
 VERBOSE: 'VERBOSE';
 VERSION: 'VERSION';
 VIEW: 'VIEW';
+VIEWS: 'VIEWS';
 WARM: 'WARM';
 WARNINGS: 'WARNINGS';
 WEEK: 'WEEK';
@@ -604,6 +606,7 @@ COLON: ':';
 ARROW: '->';
 HINT_START: '/*+';
 HINT_END: '*/';
+COMMENT_START: '/*';
 ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
@@ -683,8 +686,9 @@ SIMPLE_COMMENT
     ;
 
 BRACKETED_COMMENT
-    : '/*' {!isHint()}? ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(HIDDEN)
+    : COMMENT_START ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(2)
     ;
+
 
 FROM_DUAL
     : 'FROM' WS+ 'DUAL' -> channel(HIDDEN);

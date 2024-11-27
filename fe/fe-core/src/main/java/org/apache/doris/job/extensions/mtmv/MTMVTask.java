@@ -25,30 +25,34 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
@@ -170,14 +174,12 @@ public class MTMVTask extends AbstractTask {
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
             this.relation = MTMVPlanUtil.generateMTMVRelation(mtmv, ctx);
-            // Now, the MTMV first ensures consistency with the data in the cache.
-            // To be completely consistent with hive, you need to manually refresh the cache
-            // refreshHmsTable();
+            beforeMTMVRefresh();
             if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
                 MTMVPartitionUtil.alignMvPartition(mtmv);
             }
-            Map<String, Set<String>> partitionMappings = mtmv.calculatePartitionMappings();
-            this.needRefreshPartitions = calculateNeedRefreshPartitions(partitionMappings);
+            MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv);
+            this.needRefreshPartitions = calculateNeedRefreshPartitions(context);
             this.refreshMode = generateRefreshMode(needRefreshPartitions);
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
@@ -195,23 +197,15 @@ public class MTMVTask extends AbstractTask {
                         .subList(start, end > needRefreshPartitions.size() ? needRefreshPartitions.size() : end));
                 // need get names before exec
                 Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = MTMVPartitionUtil
-                        .generatePartitionSnapshots(mtmv, relation.getBaseTables(), execPartitionNames,
-                                partitionMappings);
-                exec(ctx, execPartitionNames, tableWithPartKey);
+                        .generatePartitionSnapshots(context, relation.getBaseTablesOneLevel(), execPartitionNames);
+                exec(execPartitionNames, tableWithPartKey);
                 completedPartitions.addAll(execPartitionNames);
                 partitionSnapshots.putAll(execPartitionSnapshots);
             }
         } catch (Throwable e) {
             if (getStatus() == TaskStatus.RUNNING) {
-                StringBuilder errMsg = new StringBuilder();
-                // when env ctl/db not exist, need give client tips
-                Pair<Boolean, String> pair = MTMVPlanUtil.checkEnvInfo(mtmv.getEnvInfo(), ctx);
-                if (!pair.first) {
-                    errMsg.append(pair.second);
-                }
-                errMsg.append(e.getMessage());
-                LOG.warn("run task failed: ", errMsg.toString());
-                throw new JobException(errMsg.toString(), e);
+                LOG.warn("run task failed: ", e.getMessage());
+                throw new JobException(e.getMessage(), e);
             } else {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
@@ -219,23 +213,44 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    private void exec(ConnectContext ctx, Set<String> refreshPartitionNames,
+    private void exec(Set<String> refreshPartitionNames,
             Map<TableIf, String> tableWithPartKey)
             throws Exception {
+        ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
+        StatementContext statementContext = new StatementContext();
+        ctx.setStatementContext(statementContext);
         TUniqueId queryId = generateQueryId();
         lastQueryId = DebugUtil.printId(queryId);
         // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey);
-        executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
-        ctx.setExecutor(executor);
-        ctx.setQueryId(queryId);
-        ctx.getState().setNereids(true);
-        command.run(ctx, executor);
-        if (ctx.getState().getStateType() != MysqlStateType.OK) {
-            throw new JobException(ctx.getState().getErrorMessage());
+        try {
+            executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
+            ctx.setExecutor(executor);
+            ctx.setQueryId(queryId);
+            ctx.getState().setNereids(true);
+            command.run(ctx, executor);
+            if (getStatus() == TaskStatus.CANCELED) {
+                // Throwing an exception to interrupt subsequent partition update tasks
+                throw new JobException("task is CANCELED");
+            }
+            if (ctx.getState().getStateType() != MysqlStateType.OK) {
+                throw new JobException(ctx.getState().getErrorMessage());
+            }
+        } finally {
+            if (executor != null) {
+                AuditLogHelper.logAuditLog(ctx, getDummyStmt(refreshPartitionNames),
+                        executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+            }
         }
+    }
+
+    private String getDummyStmt(Set<String> refreshPartitionNames) {
+        return String.format(
+                "Asynchronous materialized view refresh task, mvName: %s,"
+                        + "taskId: %s, partitions refreshed by this insert overwrite: %s",
+                mtmv.getName(), super.getTaskId(), refreshPartitionNames);
     }
 
     @Override
@@ -258,7 +273,7 @@ public class MTMVTask extends AbstractTask {
     protected synchronized void executeCancelLogic() {
         LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
         if (executor != null) {
-            executor.cancel();
+            executor.cancel(new Status(TStatusCode.CANCELLED, "mtmv task cancelled"));
         }
         after();
     }
@@ -278,20 +293,18 @@ public class MTMVTask extends AbstractTask {
     }
 
     /**
-     * // Before obtaining information from hmsTable, refresh to ensure that the data is up-to-date
+     * Do something before refreshing, such as clearing the cache of the external table
      *
      * @throws AnalysisException
      * @throws DdlException
      */
-    private void refreshHmsTable() throws AnalysisException, DdlException {
-        for (BaseTableInfo tableInfo : relation.getBaseTables()) {
+    private void beforeMTMVRefresh() throws AnalysisException, DdlException {
+        for (BaseTableInfo tableInfo : relation.getBaseTablesOneLevel()) {
             TableIf tableIf = MTMVUtil.getTable(tableInfo);
-            if (tableIf instanceof HMSExternalTable) {
-                HMSExternalTable hmsTable = (HMSExternalTable) tableIf;
-                Env.getCurrentEnv().getRefreshManager()
-                        .refreshTable(hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), true);
+            if (tableIf instanceof MTMVBaseTableIf) {
+                MTMVBaseTableIf baseTableIf = (MTMVBaseTableIf) tableIf;
+                baseTableIf.beforeMTMVRefresh(mtmv);
             }
-
         }
     }
 
@@ -428,7 +441,7 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    public List<String> calculateNeedRefreshPartitions(Map<String, Set<String>> partitionMappings)
+    public List<String> calculateNeedRefreshPartitions(MTMVRefreshContext context)
             throws AnalysisException {
         // check whether the user manually triggers it
         if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL) {
@@ -446,8 +459,8 @@ public class MTMVTask extends AbstractTask {
         // check if data is fresh
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
-        boolean fresh = MTMVPartitionUtil.isMTMVSync(mtmv, relation.getBaseTables(), mtmv.getExcludedTriggerTables(),
-                partitionMappings);
+        boolean fresh = MTMVPartitionUtil.isMTMVSync(context, relation.getBaseTablesOneLevel(),
+                mtmv.getExcludedTriggerTables());
         if (fresh) {
             return Lists.newArrayList();
         }
@@ -457,7 +470,7 @@ public class MTMVTask extends AbstractTask {
         }
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
-        return MTMVPartitionUtil.getMTMVNeedRefreshPartitions(mtmv, relation.getBaseTables(), partitionMappings);
+        return MTMVPartitionUtil.getMTMVNeedRefreshPartitions(context, relation.getBaseTablesOneLevel());
     }
 
     public MTMVTaskContext getTaskContext() {

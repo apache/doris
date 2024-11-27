@@ -127,6 +127,10 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
         String nestedName = getNestedName(name);
         if (combinatorSuffix.equalsIgnoreCase(STATE)) {
             AggregateFunction nestedFunction = buildState(nestedName, arguments);
+            // distinct will be passed as 1st boolean true arg. remove it
+            if (!arguments.isEmpty() && arguments.get(0) instanceof Boolean && (Boolean) arguments.get(0)) {
+                arguments = arguments.subList(1, arguments.size());
+            }
             return Pair.of(new StateCombinator((List<Expression>) arguments, nestedFunction), nestedFunction);
         } else if (combinatorSuffix.equalsIgnoreCase(MERGE)) {
             AggregateFunction nestedFunction = buildMergeOrUnion(nestedName, arguments);

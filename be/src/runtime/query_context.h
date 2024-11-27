@@ -20,6 +20,7 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 
 #include <atomic>
 #include <memory>
@@ -39,7 +40,6 @@
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
-#include "vec/runtime/shared_scanner_controller.h"
 #include "workload_group/workload_group.h"
 
 namespace doris {
@@ -51,8 +51,6 @@ class PipelineFragmentContext;
 struct ReportStatusRequest {
     const Status status;
     std::vector<RuntimeState*> runtime_states;
-    RuntimeProfile* profile = nullptr;
-    RuntimeProfile* load_channel_profile = nullptr;
     bool done;
     TNetworkAddress coord_addr;
     TUniqueId query_id;
@@ -63,6 +61,16 @@ struct ReportStatusRequest {
     std::function<void(const Status&)> cancel_fn;
 };
 
+enum class QuerySource {
+    INTERNAL_FRONTEND,
+    STREAM_LOAD,
+    GROUP_COMMIT_LOAD,
+    ROUTINE_LOAD,
+    EXTERNAL_CONNECTOR
+};
+
+const std::string toString(QuerySource query_source);
+
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -72,8 +80,8 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
-                 TNetworkAddress coord_addr, bool is_pipeline, bool is_nereids,
-                 TNetworkAddress current_connect_fe);
+                 TNetworkAddress coord_addr, bool is_nereids, TNetworkAddress current_connect_fe,
+                 QuerySource query_type);
 
     ~QueryContext();
 
@@ -101,12 +109,9 @@ public:
 
     void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
     std::string print_all_pipeline_context();
-    Status cancel_pipeline_context(const int fragment_id, const Status& reason);
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
     void cancel(Status new_status, int fragment_id = -1);
-
-    void set_exec_status(Status new_status) { _exec_status.update(new_status); }
 
     [[nodiscard]] Status exec_status() { return _exec_status.status(); }
 
@@ -114,26 +119,8 @@ public:
 
     void set_ready_to_execute_only();
 
-    bool is_ready_to_execute() {
-        std::lock_guard<std::mutex> l(_start_lock);
-        return _ready_to_execute;
-    }
-
-    bool wait_for_start() {
-        int wait_time = config::max_fragment_start_wait_time_seconds;
-        std::unique_lock<std::mutex> l(_start_lock);
-        while (!_ready_to_execute.load() && _exec_status.ok() && --wait_time > 0) {
-            _start_cond.wait_for(l, std::chrono::seconds(1));
-        }
-        return _ready_to_execute.load() && _exec_status.ok();
-    }
-
     std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
         return _shared_hash_table_controller;
-    }
-
-    std::shared_ptr<vectorized::SharedScannerController> get_shared_scanner_controller() {
-        return _shared_scanner_controller;
     }
 
     bool has_runtime_predicate(int source_node_id) {
@@ -178,6 +165,12 @@ public:
         return _query_options.__isset.fe_process_uuid ? _query_options.fe_process_uuid : 0;
     }
 
+    bool ignore_runtime_filter_error() const {
+        return _query_options.__isset.ignore_runtime_filter_error
+                       ? _query_options.ignore_runtime_filter_error
+                       : false;
+    }
+
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
     // the runtime filter should do the local merge work
@@ -207,8 +200,6 @@ public:
 
     ThreadPool* get_memtable_flush_pool();
 
-    std::vector<TUniqueId> get_fragment_instance_ids() const { return fragment_instance_ids; }
-
     int64_t mem_limit() const { return _bytes_limit; }
 
     void set_merge_controller_handler(
@@ -230,17 +221,8 @@ public:
         return _running_big_mem_op_num.load(std::memory_order_relaxed);
     }
 
-    void set_weighted_mem(int64_t weighted_limit, int64_t weighted_consumption) {
-        std::lock_guard<std::mutex> l(_weighted_mem_lock);
-        _weighted_consumption = weighted_consumption;
-        _weighted_limit = weighted_limit;
-    }
-    void get_weighted_mem_info(int64_t& weighted_limit, int64_t& weighted_consumption) {
-        std::lock_guard<std::mutex> l(_weighted_mem_lock);
-        weighted_limit = _weighted_limit;
-        weighted_consumption = _weighted_consumption;
-    }
-
+    void set_spill_threshold(int64_t spill_threshold) { _spill_threshold = spill_threshold; }
+    int64_t spill_threshold() { return _spill_threshold; }
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
@@ -259,13 +241,37 @@ public:
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
+    void update_wg_cpu_adder(int64_t delta_cpu_time) {
+        if (_workload_group != nullptr) {
+            _workload_group->update_cpu_adder(delta_cpu_time);
+        }
+    }
+
+    void add_using_brpc_stub(const TNetworkAddress& network_address,
+                             std::shared_ptr<PBackendService_Stub> brpc_stub) {
+        if (network_address.port == 0) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
+        if (!_using_brpc_stubs.contains(network_address)) {
+            _using_brpc_stubs.emplace(network_address, brpc_stub);
+        }
+
+        DCHECK_EQ(_using_brpc_stubs[network_address].get(), brpc_stub.get());
+    }
+
+    std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
+    get_using_brpc_stubs() {
+        std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
+        return _using_brpc_stubs;
+    }
+
 private:
     int _timeout_second;
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
     MonotonicStopWatch _query_watcher;
     int64_t _bytes_limit = 0;
-    bool _is_pipeline = false;
     bool _is_nereids = false;
     std::atomic<int> _running_big_mem_op_num = 0;
 
@@ -274,18 +280,11 @@ private:
     // And will be shared by all instances of this query.
     // So that we can control the max thread that a query can be used to execute.
     // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
-    std::unique_ptr<ThreadPoolToken> _thread_token;
-
-    std::mutex _start_lock;
-    std::condition_variable _start_cond;
-    // Only valid when _need_wait_execution_trigger is set to true in PlanFragmentExecutor.
-    // And all fragments of this query will start execution when this is set to true.
-    std::atomic<bool> _ready_to_execute {false};
+    std::unique_ptr<ThreadPoolToken> _thread_token {nullptr};
 
     void _init_query_mem_tracker();
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
-    std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
     WorkloadGroupPtr _workload_group = nullptr;
@@ -310,11 +309,16 @@ private:
     std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;
 
-    std::mutex _weighted_mem_lock;
-    int64_t _weighted_consumption = 0;
-    int64_t _weighted_limit = 0;
+    std::atomic<int64_t> _spill_threshold {0};
 
     std::mutex _profile_mutex;
+    timespec _query_arrival_timestamp;
+    // Distinguish the query source, for query that comes from fe, we will have some memory structure on FE to
+    // help us manage the query.
+    QuerySource _query_source;
+
+    std::mutex _brpc_stubs_mutex;
+    std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>> _using_brpc_stubs;
 
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     // flatten profile of one fragment:
@@ -353,6 +357,9 @@ public:
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
+
+    timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
+    QuerySource get_query_source() const { return this->_query_source; }
 };
 
 } // namespace doris

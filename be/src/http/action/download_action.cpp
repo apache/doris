@@ -42,7 +42,7 @@ const std::string ACQUIRE_MD5_PARAMETER = "acquire_md5";
 DownloadAction::DownloadAction(ExecEnv* exec_env,
                                std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group,
                                const std::vector<std::string>& allow_dirs, int32_t num_workers)
-        : _exec_env(exec_env),
+        : HttpHandlerWithAuth(exec_env),
           _download_type(NORMAL),
           _num_workers(num_workers),
           _rate_limit_group(std::move(rate_limit_group)) {
@@ -64,7 +64,7 @@ DownloadAction::DownloadAction(ExecEnv* exec_env,
 }
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir)
-        : _exec_env(exec_env), _download_type(ERROR_LOG), _num_workers(0) {
+        : HttpHandlerWithAuth(exec_env), _download_type(ERROR_LOG), _num_workers(0) {
 #ifndef BE_TEST
     static_cast<void>(
             io::global_local_filesystem()->canonicalize(error_log_root_dir, &_error_log_root_dir));
@@ -199,8 +199,10 @@ Status DownloadAction::check_token(HttpRequest* req) {
         return Status::NotAuthorized("token is not specified.");
     }
 
-    if (token_str != _exec_env->token()) {
-        return Status::NotAuthorized("invalid token.");
+    const std::string& local_token = _exec_env->token();
+    if (token_str != local_token) {
+        LOG(WARNING) << "invalid download token: " << token_str << ", local token: " << local_token;
+        return Status::NotAuthorized("invalid token {}", token_str);
     }
 
     return Status::OK();

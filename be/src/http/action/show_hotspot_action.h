@@ -19,13 +19,16 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 class CloudStorageEngine;
+class ExecEnv;
 
-class ShowHotspotAction final : public HttpHandler {
+class ShowHotspotAction final : public HttpHandlerWithAuth {
 public:
-    ShowHotspotAction(CloudStorageEngine& eng) : _storage_engine(eng) {}
+    ShowHotspotAction(CloudStorageEngine& eng, ExecEnv* exec_env)
+            : HttpHandlerWithAuth(exec_env), _storage_engine(eng) {}
 
     ~ShowHotspotAction() override = default;
 

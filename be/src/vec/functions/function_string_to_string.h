@@ -44,8 +44,9 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (!is_string_or_fixed_string(arguments[0])) {
-            LOG(FATAL) << fmt::format("Illegal type {} of argument of function {}",
-                                      arguments[0]->get_name(), get_name());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type {} of argument of function {}",
+                                   arguments[0]->get_name(), get_name());
         }
 
         return arguments[0];
@@ -59,7 +60,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
         if (const auto* col = check_and_get_column<ColumnString>(column.get())) {
             auto col_res = ColumnString::create();

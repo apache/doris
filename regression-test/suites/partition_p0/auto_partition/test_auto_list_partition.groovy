@@ -310,4 +310,20 @@ suite("test_auto_list_partition") {
     result12 = sql "show partitions from stream_load_list_test_table_string_key"
     logger.info("${result12}")
     assertEquals(result12.size(), 4)
+
+    sql "drop table if exists awh_test_list_auto"
+    test {
+        sql """
+            CREATE TABLE awh_test_list_auto (
+                DATE_ID BIGINT NOT NULL COMMENT 'DATE_ID',
+                LAST_UPLOAD_TIME DATETIME COMMENT 'LAST_UPLOAD_TIME'
+            )
+            AUTO PARTITION BY LIST (sum(DATE_ID))()
+            DISTRIBUTED BY HASH(DATE_ID) BUCKETS AUTO
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "auto create partition only support slotRef in list partitions."
+    }
 }

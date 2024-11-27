@@ -76,7 +76,6 @@ public class MysqlLoadManager {
     private static final Logger LOG = LogManager.getLogger(MysqlLoadManager.class);
 
     private  ThreadPoolExecutor mysqlLoadPool;
-    private final TokenManager tokenManager;
 
     private static class MySqlLoadContext {
         private boolean finished;
@@ -143,8 +142,7 @@ public class MysqlLoadManager {
     private  EvictingQueue<MySqlLoadFailRecord> failedRecords;
     private ScheduledExecutorService periodScheduler;
 
-    public MysqlLoadManager(TokenManager tokenManager) {
-        this.tokenManager = tokenManager;
+    public MysqlLoadManager() {
     }
 
     public void start() {
@@ -178,7 +176,7 @@ public class MysqlLoadManager {
             VariableMgr.setVar(sessionVariable,
                     new SetVar(SessionVariable.QUERY_TIMEOUT, new StringLiteral(String.valueOf(newTimeOut))));
         }
-        String token = tokenManager.acquireToken();
+        String token = Env.getCurrentEnv().getTokenManager().acquireToken();
         boolean clientLocal = dataDesc.isClientLocal();
         MySqlLoadContext loadContext = new MySqlLoadContext();
         loadContextMap.put(loadId, loadContext);
@@ -433,9 +431,15 @@ public class MysqlLoadManager {
 
         // cloud cluster
         if (Config.isCloudMode()) {
-            String clusterName = ConnectContext.get().getCloudCluster();
+            String clusterName = "";
+            try {
+                clusterName = ConnectContext.get().getCloudCluster();
+            } catch (Exception e) {
+                LOG.warn("failed to get compute group: " + e.getMessage());
+                throw new LoadException("failed to get compute group: " + e.getMessage());
+            }
             if (Strings.isNullOrEmpty(clusterName)) {
-                throw new LoadException("cloud cluster is empty");
+                throw new LoadException("cloud compute group is empty");
             }
             httpPut.addHeader(LoadStmt.KEY_CLOUD_CLUSTER, clusterName);
         }
@@ -447,7 +451,14 @@ public class MysqlLoadManager {
     private String selectBackendForMySqlLoad(String database, String table) throws LoadException {
         Backend backend = null;
         if (Config.isCloudMode()) {
-            backend = StreamLoadHandler.selectBackend(ConnectContext.get().getCloudCluster(), false);
+            String clusterName = "";
+            try {
+                clusterName = ConnectContext.get().getCloudCluster();
+            } catch (Exception e) {
+                LOG.warn("failed to get cloud cluster: " + e.getMessage());
+                throw new LoadException("failed to get cloud cluster: " + e);
+            }
+            backend = StreamLoadHandler.selectBackend(clusterName);
         } else {
             BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
             List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);

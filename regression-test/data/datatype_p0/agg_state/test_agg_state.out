@@ -15,8 +15,8 @@
 \N
 
 -- !desc --
-k1	INT	Yes	true	\N	
-k2	AGG_STATE<arguments=max_by(INT, INT NULL), function_name=max_by, result_is_nullable=true>	No	false	\N	GENERIC
+k1	int	Yes	true	\N	
+k2	agg_state<max_by(int, int null)>	No	false	\N	GENERIC
 
 -- !length1 --
 1	11

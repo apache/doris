@@ -59,11 +59,14 @@ public abstract class StorageVault {
         }
     }
 
+    protected static final String VAULT_NAME = "VAULT_NAME";
     protected String name;
     protected StorageVaultType type;
     protected String id;
     private boolean ifNotExists;
     private boolean setAsDefault;
+    private int pathVersion = 0;
+    private int numShard = 0;
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
@@ -105,6 +108,13 @@ public abstract class StorageVault {
         return this.setAsDefault;
     }
 
+    public int getPathVersion() {
+        return pathVersion;
+    }
+
+    public int getNumShard() {
+        return numShard;
+    }
 
     public String getId() {
         return this.id;
@@ -142,6 +152,8 @@ public abstract class StorageVault {
             default:
                 throw new DdlException("Unknown StorageVault type: " + type);
         }
+        vault.pathVersion = stmt.getPathVersion();
+        vault.numShard = stmt.getNumShard();
         return vault;
     }
 
@@ -177,8 +189,8 @@ public abstract class StorageVault {
 
     public static final ShowResultSetMetaData STORAGE_VAULT_META_DATA =
             ShowResultSetMetaData.builder()
-                .addColumn(new Column("StorageVaultName", ScalarType.createVarchar(100)))
-                .addColumn(new Column("StorageVaultId", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Name", ScalarType.createVarchar(100)))
+                .addColumn(new Column("Id", ScalarType.createVarchar(20)))
                 .addColumn(new Column("Propeties", ScalarType.createVarchar(65535)))
                 .addColumn(new Column("IsDefault", ScalarType.createVarchar(5)))
                 .build();
@@ -217,7 +229,7 @@ public abstract class StorageVault {
         }
 
         int vaultIdIndex = IntStream.range(0, columns.size())
-                .filter(i -> columns.get(i).getName().equals("StorageVaultId"))
+                .filter(i -> columns.get(i).getName().equals("Id"))
                 .findFirst()
                 .orElse(-1);
 

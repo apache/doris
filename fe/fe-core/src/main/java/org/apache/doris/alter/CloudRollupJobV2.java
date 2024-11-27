@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -90,7 +91,12 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                 baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            String clusterName = context.getCloudCluster();
+            String clusterName = "";
+            try {
+                clusterName = context.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get compute group name", e);
+            }
             LOG.debug("rollup job add cloud cluster, context not null, cluster: {}", clusterName);
             if (!Strings.isNullOrEmpty(clusterName)) {
                 setCloudClusterName(clusterName);
@@ -124,6 +130,20 @@ public class CloudRollupJobV2 extends RollupJobV2 {
             try {
                 ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                     .dropMaterializedIndex(tableId, rollupIndexList, false);
+                for (Map.Entry<Long, Map<Long, Long>> partitionEntry : partitionIdToBaseRollupTabletIdMap.entrySet()) {
+                    Long partitionId = partitionEntry.getKey();
+                    Map<Long, Long> rollupTabletIdToBaseTabletId = partitionEntry.getValue();
+                    for (Map.Entry<Long, Long> tabletEntry : rollupTabletIdToBaseTabletId.entrySet()) {
+                        Long rollupTabletId = tabletEntry.getKey();
+                        Long baseTabletId = tabletEntry.getValue();
+                        ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
+                                .removeSchemaChangeJob(dbId, tableId, baseIndexId, rollupIndexId,
+                                    partitionId, baseTabletId, rollupTabletId);
+                    }
+                    LOG.info("Cancel RollupJob. Remove SchemaChangeJob in ms."
+                            + "dbId:{}, tableId:{}, rollupIndexId: {} partitionId:{}. tabletSize:{}",
+                            dbId, tableId, rollupIndexId, partitionId, rollupTabletIdToBaseTabletId.size());
+                }
                 break;
             } catch (Exception e) {
                 LOG.warn("tryTimes:{}, onCancel exception:", tryTimes, e);
@@ -196,22 +216,27 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                         ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                             .createTabletMetaBuilder(tableId, rollupIndexId,
                             partitionId, rollupTablet, tabletType, rollupSchemaHash,
-                            rollupKeysType, rollupShortKeyColumnCount, tbl.getCopiedBfColumns(),
-                            tbl.getBfFpp(), null, rollupSchema,
-                            tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStoragePolicy(),
-                            tbl.isInMemory(), true,
-                            tbl.getName(), tbl.getTTLSeconds(),
-                            tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
-                            tbl.getBaseSchemaVersion(), tbl.getCompactionPolicy(),
-                            tbl.getTimeSeriesCompactionGoalSizeMbytes(),
-                            tbl.getTimeSeriesCompactionFileCountThreshold(),
-                            tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
-                            tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                            tbl.getTimeSeriesCompactionLevelThreshold(),
-                            tbl.disableAutoCompaction(),
-                            tbl.getRowStoreColumnsUniqueIds(rowStoreColumns));
+                                    rollupKeysType, rollupShortKeyColumnCount, tbl.getCopiedBfColumns(),
+                                    tbl.getBfFpp(), null, rollupSchema,
+                                    tbl.getDataSortInfo(), tbl.getCompressionType(), tbl.getStoragePolicy(),
+                                    tbl.isInMemory(), true,
+                                    tbl.getName(), tbl.getTTLSeconds(),
+                                    tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
+                                    tbl.getBaseSchemaVersion(), tbl.getCompactionPolicy(),
+                                    tbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                                    tbl.getTimeSeriesCompactionFileCountThreshold(),
+                                    tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                    tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                                    tbl.getTimeSeriesCompactionLevelThreshold(),
+                                    tbl.disableAutoCompaction(),
+                                    tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
+                                    tbl.getEnableMowLightDelete(), null,
+                                    tbl.rowStorePageSize(),
+                                    tbl.variantEnableFlattenNested(), null,
+                                    tbl.storagePageSize());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
+            requestBuilder.setDbId(dbId);
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                     .sendCreateTabletsRpc(requestBuilder);
         }

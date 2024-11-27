@@ -111,11 +111,18 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                 throw new JobException("job id exist, jobId:" + job.getJobId());
             }
             jobMap.put(job.getJobId(), job);
-            //check its need to scheduler
-            jobScheduler.scheduleOneJob(job);
             job.logCreateOperation();
         } finally {
             writeUnlock();
+        }
+        try {
+            //check its need to scheduler
+            jobScheduler.scheduleOneJob(job);
+        } catch (Exception e) {
+            // if scheduler job error, we need to unregister job
+            log.warn(("first schedule job error,unregister job, jobName:" + job.getJobName()), e);
+            unregisterJob(job.getJobId());
+            throw new JobException("register job error, jobName:" + job.getJobName());
         }
     }
 
@@ -182,6 +189,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     public void alterJobStatus(Long jobId, JobStatus status) throws JobException {
         checkJobExist(jobId);
         jobMap.get(jobId).updateJobStatus(status);
+        if (status.equals(JobStatus.RUNNING)) {
+            jobScheduler.scheduleOneJob(jobMap.get(jobId));
+        }
         jobMap.get(jobId).logUpdateOperation();
     }
 

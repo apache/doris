@@ -320,9 +320,11 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL64)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL128I)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL256)
+        M(FieldType::OLAP_FIELD_TYPE_IPV4)
+        M(FieldType::OLAP_FIELD_TYPE_IPV6)
 #undef M
     default:
-        return Status::NotSupported("unsupported type for bitmap index: {}",
+        return Status::NotSupported("unsupported type for bloom filter index: {}",
                                     std::to_string(int(type)));
     }
     return Status::OK();
@@ -341,6 +343,23 @@ Status NGramBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_opti
         break;
     default:
         return Status::NotSupported("unsupported type for ngram bloom filter index:{}",
+                                    std::to_string(int(type)));
+    }
+    return Status::OK();
+}
+
+Status PrimaryKeyBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_options,
+                                                    const TypeInfo* typeinfo,
+                                                    std::unique_ptr<BloomFilterIndexWriter>* res) {
+    FieldType type = typeinfo->type();
+    switch (type) {
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
+        *res = std::make_unique<PrimaryKeyBloomFilterIndexWriterImpl>(bf_options, typeinfo);
+        break;
+    default:
+        return Status::NotSupported("unsupported type for primary key bloom filter index:{}",
                                     std::to_string(int(type)));
     }
     return Status::OK();

@@ -26,6 +26,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FormatOptions;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
@@ -57,7 +59,6 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -144,30 +145,13 @@ public class GroupCommitPlanner {
         return future.get();
     }
 
-    // cloud override
     protected void selectBackends(ConnectContext ctx) throws DdlException {
-        backend = ctx.getInsertGroupCommit(this.table.getId());
-        if (backend != null && backend.isAlive() && !backend.isDecommissioned()) {
-            return;
+        try {
+            backend = Env.getCurrentEnv().getGroupCommitManager()
+                    .selectBackendForGroupCommit(this.table.getId(), ctx);
+        } catch (LoadException e) {
+            throw new DdlException("No suitable backend");
         }
-
-        List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-        if (allBackendIds.isEmpty()) {
-            throw new DdlException("No alive backend");
-        }
-        Collections.shuffle(allBackendIds);
-        for (Long beId : allBackendIds) {
-            backend = Env.getCurrentSystemInfo().getBackend(beId);
-            if (!backend.isDecommissioned()) {
-                ctx.setInsertGroupCommit(this.table.getId(), backend);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("choose new be {}", backend.getId());
-                }
-                return;
-            }
-        }
-
-        throw new DdlException("No suitable backend");
     }
 
     public Backend getBackend() {
@@ -183,7 +167,7 @@ public class GroupCommitPlanner {
         SelectStmt selectStmt = (SelectStmt) (stmt.getQueryStmt());
         if (selectStmt.getValueList() != null) {
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
-                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
+                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row, FormatOptions.getDefault());
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
                             .collect(Collectors.joining(",")));
@@ -199,7 +183,7 @@ public class GroupCommitPlanner {
                     exprList.add(resultExpr);
                 }
             }
-            InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList);
+            InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList, FormatOptions.getDefault());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
                         .collect(Collectors.joining(",")));

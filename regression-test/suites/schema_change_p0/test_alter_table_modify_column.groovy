@@ -34,24 +34,6 @@ suite("test_alter_table_modify_column") {
         assertTrue(false)
     }
 
-    def waitSchemaChangeJob = { String tableName /* param */ ->
-        int tryTimes = 30
-        while (tryTimes-- > 0) {
-            def jobResult = sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-            def jobState = jobResult[0][9].toString()
-            if ('cancelled'.equalsIgnoreCase(jobState)) {
-                logger.info("jobResult:{}", jobResult)
-                throw new IllegalStateException("${tableName}'s job has been cancelled")
-            }
-            if ('finished'.equalsIgnoreCase(jobState)) {
-                logger.info("jobResult:{}", jobResult)
-                return
-            }
-            sleep(10000)
-        }
-        assertTrue(false)
-    }
-
     // unique model table
     def uniqueTableName = "test_alter_table_modify_column_unique"
 
@@ -202,7 +184,10 @@ suite("test_alter_table_modify_column") {
     }
 
     sql """alter table ${dupTableName} modify COLUMN username VARCHAR(32) key DEFAULT 'test' first;"""
-    waitSchemaChangeJob(dupTableName)
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${dupTableName}' ORDER BY createtime DESC LIMIT 1 """
+        time 600
+    }
 
     sql """ INSERT INTO ${dupTableName} VALUES
             ("yyy", 4, 4, 4)
@@ -210,7 +195,10 @@ suite("test_alter_table_modify_column") {
     qt_order """select * from ${dupTableName} order by siteid"""
 
     sql """alter table ${dupTableName} order by(citycode, siteid, username, pv);"""
-    waitSchemaChangeJob(dupTableName)
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${dupTableName}' ORDER BY createtime DESC LIMIT 1 """
+        time 600
+    }
     sql """ INSERT INTO ${dupTableName} VALUES
             (5, 5, "zzz", 5)
         """

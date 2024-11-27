@@ -458,7 +458,6 @@ Status SnapshotLoader::remote_http_download(
     }
 
     // Step 3: Validate remote tablet snapshot paths && remote files map
-    // TODO(Drogon): Add md5sum check
     // key is remote snapshot paths, value is filelist
     // get all these use http download action
     // http://172.16.0.14:6781/api/_tablet/_download?token=e804dd27-86da-4072-af58-70724075d2a4&file=/home/ubuntu/doris_master/output/be/storage/snapshot/20230410102306.9.180//2774718/217609978/2774718.hdr
@@ -483,6 +482,8 @@ Status SnapshotLoader::remote_http_download(
                                            remote_be_addr.hostname, remote_be_addr.port, token);
         std::string remote_url_prefix = fmt::format("{}&file={}", base_url, remote_path);
 
+        LOG(INFO) << "list remote files: " << remote_url_prefix << ", job: " << _job_id
+                  << ", task id: " << _task_id << ", remote be: " << remote_be_addr;
         string file_list_str;
         auto list_files_cb = [&remote_url_prefix, &file_list_str](HttpClient* client) {
             RETURN_IF_ERROR(client->init(remote_url_prefix));
@@ -753,8 +754,9 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     }
 
     // rename the rowset ids and tabletid info in rowset meta
-    auto res = _engine.snapshot_mgr()->convert_rowset_ids(
-            snapshot_path, tablet_id, tablet->replica_id(), tablet->partition_id(), schema_hash);
+    auto res = _engine.snapshot_mgr()->convert_rowset_ids(snapshot_path, tablet_id,
+                                                          tablet->replica_id(), tablet->table_id(),
+                                                          tablet->partition_id(), schema_hash);
     if (!res.has_value()) [[unlikely]] {
         auto err_msg =
                 fmt::format("failed to convert rowsetids in snapshot: {}, tablet path: {}, err: {}",
@@ -940,7 +942,7 @@ Status SnapshotLoader::_report_every(int report_threshold, int* counter, int32_t
     LOG(INFO) << "report to frontend. job id: " << _job_id << ", task id: " << _task_id
               << ", finished num: " << finished_num << ", total num:" << total_num;
 
-    TNetworkAddress master_addr = _env->master_info()->network_address;
+    TNetworkAddress master_addr = _env->cluster_info()->master_fe_addr;
 
     TSnapshotLoaderReportRequest request;
     request.job_id = _job_id;

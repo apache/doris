@@ -46,6 +46,9 @@ enum class EncryptionMode {
     AES_128_OFB,
     AES_192_OFB,
     AES_256_OFB,
+    AES_128_GCM,
+    AES_192_GCM,
+    AES_256_GCM,
     SM4_128_ECB,
     SM4_128_CBC,
     SM4_128_CFB128,
@@ -57,13 +60,23 @@ enum EncryptionState { AES_SUCCESS = 0, AES_BAD_DATA = -1 };
 
 class EncryptionUtil {
 public:
+    static bool is_gcm_mode(EncryptionMode mode) {
+        return mode == EncryptionMode::AES_128_GCM || mode == EncryptionMode::AES_192_GCM ||
+               mode == EncryptionMode::AES_256_GCM;
+    }
+
+    // https://tools.ietf.org/html/rfc5116#section-5.1
+    static const int GCM_TAG_SIZE = 16;
+
     static int encrypt(EncryptionMode mode, const unsigned char* source, uint32_t source_length,
                        const unsigned char* key, uint32_t key_length, const char* iv_str,
-                       int iv_input_length, bool padding, unsigned char* encrypt);
+                       int iv_input_length, bool padding, unsigned char* encrypt,
+                       const unsigned char* aad = nullptr, uint32_t aad_length = 0);
 
     static int decrypt(EncryptionMode mode, const unsigned char* encrypt, uint32_t encrypt_length,
                        const unsigned char* key, uint32_t key_length, const char* iv_str,
-                       int iv_input_length, bool padding, unsigned char* decrypt_content);
+                       int iv_input_length, bool padding, unsigned char* decrypt_content,
+                       const unsigned char* aad = nullptr, uint32_t aad_length = 0);
 };
 
 } // namespace doris

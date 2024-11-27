@@ -79,8 +79,8 @@ struct RowsetWriterContext {
 
     int64_t newest_write_timestamp = -1;
     bool enable_unique_key_merge_on_write = false;
-    // store column_unique_id to skip write inverted index
-    std::set<int32_t> skip_inverted_index;
+    // store column_unique_id to do index compaction
+    std::set<int32_t> columns_to_do_index_compaction;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     BaseTabletSPtr tablet = nullptr;
 
@@ -139,6 +139,16 @@ struct RowsetWriterContext {
         } else {
             return *storage_resource->fs;
         }
+    }
+
+    io::FileWriterOptions get_file_writer_options() const {
+        io::FileWriterOptions opts {
+                .write_file_cache = write_file_cache,
+                .is_cold_data = is_hot_data,
+                .file_cache_expiration = file_cache_ttl_sec > 0 && newest_write_timestamp > 0
+                                                 ? newest_write_timestamp + file_cache_ttl_sec
+                                                 : 0};
+        return opts;
     }
 };
 

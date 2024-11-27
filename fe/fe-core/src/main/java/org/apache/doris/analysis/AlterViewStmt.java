@@ -111,4 +111,9 @@ public class AlterViewStmt extends BaseViewStmt implements NotFallbackInParser {
     public String toString() {
         return toSql();
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

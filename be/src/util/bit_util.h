@@ -20,6 +20,9 @@
 
 #pragma once
 
+#include <type_traits>
+
+#include "vec/core/wide_integer.h"
 #ifndef __APPLE__
 #include <endian.h>
 #endif
@@ -104,7 +107,7 @@ public:
         T value = input;
         for (int i = 0; i < sizeof(value); ++i) {
             // Applies a mask for a byte range on the input.
-            char value_to_save = value & 0XFF;
+            signed char value_to_save = value & 0XFF;
             buffer.push_back(value_to_save);
             // Remove the just processed part from the input so that we can exit early if there
             // is nothing left to process.
@@ -209,7 +212,11 @@ public:
 
     template <typename T>
     static T big_endian_to_host(T value) {
-        if constexpr (std::is_same_v<T, __int128>) {
+        if constexpr (std::is_same_v<T, wide::Int256>) {
+            return BigEndian::ToHost256(value);
+        } else if constexpr (std::is_same_v<T, wide::UInt256>) {
+            return BigEndian::ToHost256(value);
+        } else if constexpr (std::is_same_v<T, __int128>) {
             return BigEndian::ToHost128(value);
         } else if constexpr (std::is_same_v<T, unsigned __int128>) {
             return BigEndian::ToHost128(value);

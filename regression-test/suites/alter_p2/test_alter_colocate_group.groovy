@@ -158,11 +158,11 @@ suite ("test_alter_colocate_group") {
 
     for (int i = 1; i <= 3; i++) {
         def groupName = "regression_test_alter_p2.group_${i}"
-        checkGroupsReplicaAlloc(groupName, 1)
+        checkGroupsReplicaAlloc(groupName, replication_num)
 
         def tableName = "tbl${i}"
         def hasDynamicPart = i == 3
-        checkTableReplicaAlloc(tableName, hasDynamicPart, 1)
+        checkTableReplicaAlloc(tableName, hasDynamicPart, replication_num)
 
         test {
             sql """

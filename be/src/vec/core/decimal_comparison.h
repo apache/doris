@@ -79,7 +79,7 @@ public:
     using ArrayA = typename ColVecA::Container;
     using ArrayB = typename ColVecB::Container;
 
-    DecimalComparison(Block& block, size_t result, const ColumnWithTypeAndName& col_left,
+    DecimalComparison(Block& block, uint32_t result, const ColumnWithTypeAndName& col_left,
                       const ColumnWithTypeAndName& col_right) {
         if (!apply(block, result, col_left, col_right)) {
             LOG(FATAL) << fmt::format("Wrong decimal comparison with {} and {}",
@@ -87,7 +87,7 @@ public:
         }
     }
 
-    static bool apply(Block& block, size_t result [[maybe_unused]],
+    static bool apply(Block& block, uint32_t result [[maybe_unused]],
                       const ColumnWithTypeAndName& col_left,
                       const ColumnWithTypeAndName& col_right) {
         if constexpr (_actual) {

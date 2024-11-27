@@ -1,0 +1,173 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+version: "3"
+
+services:
+  spark:
+    image: tabulario/spark-iceberg
+    container_name: doris-iceberg-paimon-spark
+    hostname: demo-spark-iceberg
+    build: spark/
+    volumes:
+      - ./packages/jars/paimon-spark-3.5-0.8.0.jar:/opt/spark/jars/paimon-spark-3.5-0.8.0.jar
+      - ./packages/jars/paimon-s3-0.8.0.jar:/opt/spark/jars/paimon-s3-0.8.0.jar
+      - ./data/table:/opt/data
+      - ./data/spark-conf:/opt/spark/conf
+      - ./sql/prepare_data.sql:/opt/sql/prepare_data.sql
+    depends_on:
+      - rest
+      - minio
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+    networks:
+      - demo-iceberg
+
+  rest:
+    image: tabulario/iceberg-rest
+    container_name: doris-iceberg-paimon-iceberg-rest
+    ports:
+      - ${REST_CATALOG_PORT}:8181
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+      - CATALOG_WAREHOUSE=s3://warehouse/wh/
+      - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
+      - CATALOG_S3_ENDPOINT=http://minio:9000
+    networks:
+      - demo-iceberg
+    volumes:
+      - './packages/jdk1.8.0_202:/opt/jdk1.8.0_202'
+      - './packages/doris-bin:/opt/doris-bin'
+      - './scripts:/opt/scripts'
+
+  minio:
+    image: minio/minio
+    container_name: doris-iceberg-paimon-minio
+    ports:
+      - ${MINIO_API_PORT}:9000
+      - ${MINIO_UI_PORT}:9001
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+      - MINIO_DOMAIN=minio
+    networks:
+      demo-iceberg:
+        aliases:
+          - warehouse.minio
+    command: ["server", "/data", "--console-address", ":9001"]
+
+  mc:
+    depends_on:
+      - minio
+    image: minio/mc
+    container_name: doris-iceberg-paimon-mc
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+    networks:
+      - demo-iceberg
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
+      /usr/bin/mc rm -r --force minio/warehouse;
+      /usr/bin/mc mb minio/warehouse;
+      /usr/bin/mc policy set public minio/warehouse;
+      tail -f /dev/null
+      "
+
+  jobmanager:
+    image: flink:1.18.0
+    container_name: doris-iceberg-paimon-jobmanager
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+    ports:
+      - "8082:8081"
+    command: jobmanager
+    depends_on:
+      - rest
+      - minio
+    volumes:
+      - ./packages/jars/flink-connector-jdbc-3.1.2-1.18.jar:/opt/flink/lib/flink-connector-jdbc-3.1.2-1.18.jar
+      - ./packages/jars/flink-shaded-hadoop-2-uber-2.8.3-10.0.jar:/opt/flink/lib/flink-shaded-hadoop-2-uber-2.8.3-10.0.jar
+      - ./packages/jars/flink-s3-fs-hadoop-1.18.0.jar:/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.18.0.jar
+      - ./packages/jars/iceberg-flink-runtime-1.18-1.5.2.jar:/opt/flink/lib/iceberg-flink-runtime-1.18-1.5.2.jar
+      - ./packages/jars/iceberg-aws-bundle-1.5.2.jar:/opt/flink/lib/iceberg-aws-bundle-1.5.2.jar
+      - ./packages/jars/paimon-flink-1.18-0.8.0.jar:/opt/flink/lib/paimon-flink-1.18-0.8.0.jar
+      - ./packages/jars/paimon-s3-0.8.0.jar:/opt/flink/lib/paimon-s3-0.8.0.jar
+      - ./sql/init_tables.sql:/opt/flink/sql/init_tables.sql
+      - ./data/flink-conf:/opt/flink/conf
+    networks:
+      - demo-iceberg
+    deploy:
+      replicas: 1
+
+  taskmanager:
+    image: flink:1.18.0
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    volumes:
+      - ./packages/jars/flink-connector-jdbc-3.1.2-1.18.jar:/opt/flink/lib/flink-connector-jdbc-3.1.2-1.18.jar
+      - ./packages/jars/flink-shaded-hadoop-2-uber-2.8.3-10.0.jar:/opt/flink/lib/flink-shaded-hadoop-2-uber-2.8.3-10.0.jar
+      - ./packages/jars/flink-s3-fs-hadoop-1.18.0.jar:/opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.18.0.jar
+      - ./packages/jars/iceberg-flink-runtime-1.18-1.5.2.jar:/opt/flink/lib/iceberg-flink-runtime-1.18-1.5.2.jar
+      - ./packages/jars/iceberg-aws-bundle-1.5.2.jar:/opt/flink/lib/iceberg-aws-bundle-1.5.2.jar
+      - ./packages/jars/paimon-flink-1.18-0.8.0.jar:/opt/flink/lib/paimon-flink-1.18-0.8.0.jar
+      - ./packages/jars/paimon-s3-0.8.0.jar:/opt/flink/lib/paimon-s3-0.8.0.jar
+    networks:
+      - demo-iceberg
+    deploy:
+      replicas: 2
+  
+  doris:
+    image: mysql:8.0.18
+    container_name: doris-iceberg-paimon-doris
+    networks:
+      - demo-iceberg
+    hostname: doris
+    ports:
+      - ${DORIS_QUERY_PORT}:9030
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+      - LD_LIBRARY_PATH=/opt/doris/be/lib
+      - JAVA_HOME=/opt/jdk8
+    volumes:
+      - ./packages/jdk1.8.0_202:/opt/jdk8
+      - ./packages/doris-bin:/opt/doris-bin
+      - ./sql/init_doris.sql:/opt/doris-bin/init_doris.sql
+      - ./scripts:/opt/scripts
+    command: bin/bash /opt/scripts/start_doris.sh
+
+networks:
+  demo-iceberg:
+    ipam:
+      driver: default

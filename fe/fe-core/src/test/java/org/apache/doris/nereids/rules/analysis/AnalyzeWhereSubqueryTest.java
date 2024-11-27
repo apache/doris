@@ -137,7 +137,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
             try {
                 StatementScopeIdGenerator.clear();
                 StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
-                PhysicalPlan plan = new NereidsPlanner(statementContext).plan(
+                PhysicalPlan plan = new NereidsPlanner(statementContext).planWithLock(
                         parser.parseSingle(sql),
                         PhysicalProperties.ANY
                 );

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 
 import com.google.common.collect.ImmutableList;
 
@@ -27,14 +28,14 @@ import java.util.List;
 /**
  * MaterializedViewOnlyScanRule
  */
-public class MaterializedViewOnlyScanRule extends MaterializedViewScanRule {
+public class MaterializedViewOnlyScanRule extends AbstractMaterializedViewScanRule {
 
     public static final MaterializedViewOnlyScanRule INSTANCE = new MaterializedViewOnlyScanRule();
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalOlapScan().thenApplyMultiNoThrow(ctx -> {
+                any().when(LogicalCatalogRelation.class::isInstance).thenApplyMultiNoThrow(ctx -> {
                     return rewrite(ctx.root, ctx.cascadesContext);
                 }).toRule(RuleType.MATERIALIZED_VIEW_ONLY_SCAN));
     }

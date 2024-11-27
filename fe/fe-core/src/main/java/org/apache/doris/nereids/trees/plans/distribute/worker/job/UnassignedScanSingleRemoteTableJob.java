@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
@@ -27,6 +29,7 @@ import org.apache.doris.planner.ScanNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -39,15 +42,28 @@ public class UnassignedScanSingleRemoteTableJob extends AbstractUnassignedScanJo
     private final ScanWorkerSelector scanWorkerSelector;
 
     public UnassignedScanSingleRemoteTableJob(
-            PlanFragment fragment, ScanNode scanNode, ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob,
-            ScanWorkerSelector scanWorkerSelector) {
-        super(fragment, ImmutableList.of(scanNode), exchangeToChildJob);
+            StatementContext statementContext, PlanFragment fragment, ScanNode scanNode,
+            ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob, ScanWorkerSelector scanWorkerSelector) {
+        super(statementContext, fragment, ImmutableList.of(scanNode), exchangeToChildJob);
         this.scanWorkerSelector = Objects.requireNonNull(scanWorkerSelector, "scanWorkerSelector is not null");
     }
 
     @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
+            DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+        return scanWorkerSelector.selectReplicaAndWorkerWithoutBucket(
+                scanNodes.get(0), statementContext.getConnectContext()
+        );
+    }
+
+    @Override
+    protected List<AssignedJob> fillUpAssignedJobs(List<AssignedJob> assignedJobs,
             DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        return scanWorkerSelector.selectReplicaAndWorkerWithoutBucket(scanNodes.get(0));
+        if (assignedJobs.isEmpty()) {
+            // the file scan have pruned, so no assignedJobs,
+            // we should allocate an instance of it,
+            assignedJobs = fillUpSingleEmptyInstance(workerManager);
+        }
+        return assignedJobs;
     }
 }

@@ -26,7 +26,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 
-public class ShowDynamicPartitionStmt extends ShowStmt {
+public class ShowDynamicPartitionStmt extends ShowStmt implements NotFallbackInParser {
     private String db;
     private static final ShowResultSetMetaData SHOW_DYNAMIC_PARTITION_META_DATA =
             ShowResultSetMetaData.builder()

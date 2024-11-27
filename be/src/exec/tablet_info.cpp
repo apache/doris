@@ -17,11 +17,13 @@
 
 #include "exec/tablet_info.h"
 
+#include <butil/logging.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Partitions_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/descriptors.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -29,6 +31,7 @@
 #include <cstdint>
 #include <memory>
 #include <ostream>
+#include <string>
 #include <tuple>
 
 #include "common/exception.h"
@@ -117,9 +120,21 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _db_id = pschema.db_id();
     _table_id = pschema.table_id();
     _version = pschema.version();
-    _is_partial_update = pschema.partial_update();
+    if (pschema.has_unique_key_update_mode()) {
+        _unique_key_update_mode = pschema.unique_key_update_mode();
+        if (pschema.has_sequence_map_col_unique_id()) {
+            _sequence_map_col_uid = pschema.sequence_map_col_unique_id();
+        }
+    } else {
+        // for backward compatibility
+        if (pschema.has_partial_update() && pschema.partial_update()) {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
+        } else {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPSERT;
+        }
+    }
     _is_strict_mode = pschema.is_strict_mode();
-    if (_is_partial_update) {
+    if (_unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         _auto_increment_column = pschema.auto_increment_column();
         if (!_auto_increment_column.empty() && pschema.auto_increment_column_unique_id() == -1) {
             return Status::InternalError(
@@ -129,12 +144,16 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _auto_increment_column_unique_id = pschema.auto_increment_column_unique_id();
     }
     _timestamp_ms = pschema.timestamp_ms();
+    if (pschema.has_nano_seconds()) {
+        _nano_seconds = pschema.nano_seconds();
+    }
     _timezone = pschema.timezone();
 
     for (const auto& col : pschema.partial_update_input_columns()) {
         _partial_update_input_columns.insert(col);
     }
-    std::unordered_map<std::pair<std::string, FieldType>, SlotDescriptor*> slots_map;
+    std::unordered_map<std::string, SlotDescriptor*> slots_map;
+
     _tuple_desc = _obj_pool.add(new TupleDescriptor(pschema.tuple_desc()));
 
     for (const auto& p_slot_desc : pschema.slot_descs()) {
@@ -142,8 +161,10 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _tuple_desc->add_slot(slot_desc);
         string data_type;
         EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
-        slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()),
-                                         TabletColumn::get_field_type_by_string(data_type)),
+        std::string is_null_str = slot_desc->is_nullable() ? "true" : "false";
+        std::string data_type_str =
+                std::to_string(int64_t(TabletColumn::get_field_type_by_string(data_type)));
+        slots_map.emplace(to_lower(slot_desc->col_name()) + "+" + data_type_str + is_null_str,
                           slot_desc);
     }
 
@@ -152,12 +173,25 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
-            if (!_is_partial_update ||
+            if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(pcolumn_desc.name())) {
-                auto it = slots_map.find(std::make_pair(
-                        to_lower(pcolumn_desc.name()),
-                        TabletColumn::get_field_type_by_string(pcolumn_desc.type())));
+                std::string is_null_str = pcolumn_desc.is_nullable() ? "true" : "false";
+                std::string data_type_str = std::to_string(
+                        int64_t(TabletColumn::get_field_type_by_string(pcolumn_desc.type())));
+                auto it = slots_map.find(to_lower(pcolumn_desc.name()) + "+" + data_type_str +
+                                         is_null_str);
                 if (it == std::end(slots_map)) {
+                    std::string keys {};
+                    for (const auto& [key, _] : slots_map) {
+                        keys += fmt::format("{},", key);
+                    }
+                    LOG_EVERY_SECOND(WARNING) << fmt::format(
+                            "[OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema)]: "
+                            "unknown index column, column={}, type={}, data_type_str={}, "
+                            "is_null_str={}, slots_map.keys()=[{}], {}\npschema={}",
+                            pcolumn_desc.name(), pcolumn_desc.type(), data_type_str, is_null_str,
+                            keys, debug_string(), pschema.ShortDebugString());
+
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  pcolumn_desc.name(), pcolumn_desc.type());
                 }
@@ -182,15 +216,51 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     return Status::OK();
 }
 
+Status OlapTableSchemaParam::init_unique_key_update_mode(const TOlapTableSchemaParam& tschema) {
+    if (tschema.__isset.unique_key_update_mode) {
+        switch (tschema.unique_key_update_mode) {
+        case doris::TUniqueKeyUpdateMode::UPSERT: {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPSERT;
+            break;
+        }
+        case doris::TUniqueKeyUpdateMode::UPDATE_FIXED_COLUMNS: {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
+            break;
+        }
+        case doris::TUniqueKeyUpdateMode::UPDATE_FLEXIBLE_COLUMNS: {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS;
+            break;
+        }
+        default: {
+            return Status::InternalError(
+                    "Unknown unique_key_update_mode: {}, should be one of "
+                    "UPSERT/UPDATE_FIXED_COLUMNS/UPDATE_FLEXIBLE_COLUMNS",
+                    tschema.unique_key_update_mode);
+        }
+        }
+        if (tschema.__isset.sequence_map_col_unique_id) {
+            _sequence_map_col_uid = tschema.sequence_map_col_unique_id;
+        }
+    } else {
+        // for backward compatibility
+        if (tschema.__isset.is_partial_update && tschema.is_partial_update) {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
+        } else {
+            _unique_key_update_mode = UniqueKeyUpdateModePB::UPSERT;
+        }
+    }
+    return Status::OK();
+}
+
 Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     _db_id = tschema.db_id;
     _table_id = tschema.table_id;
     _version = tschema.version;
-    _is_partial_update = tschema.is_partial_update;
+    RETURN_IF_ERROR(init_unique_key_update_mode(tschema));
     if (tschema.__isset.is_strict_mode) {
         _is_strict_mode = tschema.is_strict_mode;
     }
-    if (_is_partial_update) {
+    if (_unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         _auto_increment_column = tschema.auto_increment_column;
         if (!_auto_increment_column.empty() && tschema.auto_increment_column_unique_id == -1) {
             return Status::InternalError(
@@ -203,12 +273,14 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     for (const auto& tcolumn : tschema.partial_update_input_columns) {
         _partial_update_input_columns.insert(tcolumn);
     }
-    std::unordered_map<std::pair<std::string, PrimitiveType>, SlotDescriptor*> slots_map;
+    std::unordered_map<std::string, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(tschema.tuple_desc));
     for (const auto& t_slot_desc : tschema.slot_descs) {
         auto* slot_desc = _obj_pool.add(new SlotDescriptor(t_slot_desc));
         _tuple_desc->add_slot(slot_desc);
-        slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()), slot_desc->col_type()),
+        std::string is_null_str = slot_desc->is_nullable() ? "true" : "false";
+        std::string data_type_str = std::to_string(int64_t(slot_desc->col_type()));
+        slots_map.emplace(to_lower(slot_desc->col_name()) + "+" + data_type_str + is_null_str,
                           slot_desc);
     }
 
@@ -218,12 +290,26 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
         for (const auto& tcolumn_desc : t_index.columns_desc) {
-            if (!_is_partial_update ||
+            if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
                 _partial_update_input_columns.contains(tcolumn_desc.column_name)) {
-                auto it = slots_map.find(
-                        std::make_pair(to_lower(tcolumn_desc.column_name),
-                                       thrift_to_type(tcolumn_desc.column_type.type)));
+                std::string is_null_str = tcolumn_desc.is_allow_null ? "true" : "false";
+                std::string data_type_str =
+                        std::to_string(int64_t(thrift_to_type(tcolumn_desc.column_type.type)));
+                auto it = slots_map.find(to_lower(tcolumn_desc.column_name) + "+" + data_type_str +
+                                         is_null_str);
                 if (it == slots_map.end()) {
+                    std::stringstream ss;
+                    ss << tschema;
+                    std::string keys {};
+                    for (const auto& [key, _] : slots_map) {
+                        keys += fmt::format("{},", key);
+                    }
+                    LOG_EVERY_SECOND(WARNING) << fmt::format(
+                            "[OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema)]: "
+                            "unknown index column, column={}, type={}, data_type_str={}, "
+                            "is_null_str={}, slots_map.keys()=[{}], {}\ntschema={}",
+                            tcolumn_desc.column_name, tcolumn_desc.column_type.type, data_type_str,
+                            is_null_str, keys, debug_string(), ss.str());
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  tcolumn_desc.column_name,
                                                  tcolumn_desc.column_type.type);
@@ -267,12 +353,18 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_db_id(_db_id);
     pschema->set_table_id(_table_id);
     pschema->set_version(_version);
-    pschema->set_partial_update(_is_partial_update);
+    pschema->set_unique_key_update_mode(_unique_key_update_mode);
+    if (_unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
+        // for backward compatibility
+        pschema->set_partial_update(true);
+    }
     pschema->set_is_strict_mode(_is_strict_mode);
     pschema->set_auto_increment_column(_auto_increment_column);
     pschema->set_auto_increment_column_unique_id(_auto_increment_column_unique_id);
     pschema->set_timestamp_ms(_timestamp_ms);
     pschema->set_timezone(_timezone);
+    pschema->set_nano_seconds(_nano_seconds);
+    pschema->set_sequence_map_col_unique_id(_sequence_map_col_uid);
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }
@@ -515,6 +607,11 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
     }
     case TExprNodeType::NULL_LITERAL: {
         // insert a null literal
+        if (!column->is_nullable()) {
+            // https://github.com/apache/doris/pull/39449 have forbid this cause. always add this check as protective measures
+            return Status::InternalError("The column {} is not null, can't insert into NULL value.",
+                                         part_key->first->get_by_position(pos).name);
+        }
         column->insert_data(nullptr, 0);
         break;
     }
@@ -715,6 +812,7 @@ Status VOlapTablePartitionParam::replace_partitions(
 
         // add new partitions with new id.
         _partitions.emplace_back(part);
+        VLOG_NOTICE << "params add new partition " << part->id;
 
         // replace items in _partition_maps
         if (_is_in_partition) {

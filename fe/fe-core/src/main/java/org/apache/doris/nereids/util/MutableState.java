@@ -27,6 +27,9 @@ public interface MutableState {
     String KEY_FRAGMENT = "fragment";
     String KEY_PARENT = "parent";
     String KEY_RF_JUMP = "rf-jump";
+    String KEY_PUSH_TOPN_TO_AGG = "pushTopnToAgg";
+
+    String KEY_OR_TO_IN = "or_to_in";
 
     <T> Optional<T> get(String key);
 

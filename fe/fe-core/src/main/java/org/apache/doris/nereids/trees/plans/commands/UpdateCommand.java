@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
@@ -160,7 +161,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
                 && selectItems.size() < targetTable.getColumns().size()
                 && targetTable.getSequenceCol() == null
-                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10;
+                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10
+                && !targetTable.isUniqKeyMergeOnWriteWithClusterKeys();
 
         List<String> partialUpdateColNames = new ArrayList<>();
         List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();
@@ -213,7 +215,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
         if (!ExpressionAnalyzer.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
-                || (dbName != null && ExpressionAnalyzer.compareDbName(tableQualifier.get(1), dbName))) {
+                || (dbName != null
+                && !ExpressionAnalyzer.compareDbNameIgnoreClusterName(tableQualifier.get(1), dbName))) {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
     }
@@ -238,14 +241,6 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
         return completeQueryPlan(ctx, logicalQuery);
     }
 
@@ -256,5 +251,10 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitUpdateCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.UPDATE;
     }
 }

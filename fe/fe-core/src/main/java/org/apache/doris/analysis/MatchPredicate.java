@@ -152,6 +152,8 @@ public class MatchPredicate extends Predicate {
     private String invertedIndexParser;
     private String invertedIndexParserMode;
     private Map<String, String> invertedIndexCharFilter;
+    private boolean invertedIndexParserLowercase = true;
+    private String invertedIndexParserStopwords = "";
 
     private MatchPredicate() {
         // use for serde only
@@ -178,23 +180,22 @@ public class MatchPredicate extends Predicate {
         invertedIndexParser = other.invertedIndexParser;
         invertedIndexParserMode = other.invertedIndexParserMode;
         invertedIndexCharFilter = other.invertedIndexCharFilter;
+        invertedIndexParserLowercase = other.invertedIndexParserLowercase;
+        invertedIndexParserStopwords = other.invertedIndexParserStopwords;
     }
 
     /**
      * use for Nereids ONLY
      */
     public MatchPredicate(Operator op, Expr e1, Expr e2, Type retType,
-            NullableMode nullableMode, String invertedIndexParser, String invertedIndexParserMode,
-            Map<String, String> invertedIndexCharFilter) {
+            NullableMode nullableMode, Index invertedIndex) {
         this(op, e1, e2);
-        if (invertedIndexParser != null) {
-            this.invertedIndexParser = invertedIndexParser;
-        }
-        if (invertedIndexParserMode != null) {
-            this.invertedIndexParserMode = invertedIndexParserMode;
-        }
-        if (invertedIndexParserMode != null) {
-            this.invertedIndexCharFilter = invertedIndexCharFilter;
+        if (invertedIndex != null) {
+            this.invertedIndexParser = invertedIndex.getInvertedIndexParser();
+            this.invertedIndexParserMode = invertedIndex.getInvertedIndexParserMode();
+            this.invertedIndexCharFilter = invertedIndex.getInvertedIndexCharFilter();
+            this.invertedIndexParserLowercase = invertedIndex.getInvertedIndexParserLowercase();
+            this.invertedIndexParserStopwords = invertedIndex.getInvertedIndexParserStopwords();
         }
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true, nullableMode);
@@ -228,6 +229,8 @@ public class MatchPredicate extends Predicate {
         msg.setOpcode(op.getOpcode());
         msg.match_predicate = new TMatchPredicate(invertedIndexParser, invertedIndexParserMode);
         msg.match_predicate.setCharFilterMap(invertedIndexCharFilter);
+        msg.match_predicate.setParserLowercase(invertedIndexParserLowercase);
+        msg.match_predicate.setParserStopwords(invertedIndexParserStopwords);
     }
 
     @Override
@@ -272,6 +275,8 @@ public class MatchPredicate extends Predicate {
                             invertedIndexParser = index.getInvertedIndexParser();
                             invertedIndexParserMode = index.getInvertedIndexParserMode();
                             invertedIndexCharFilter = index.getInvertedIndexCharFilter();
+                            invertedIndexParserLowercase = index.getInvertedIndexParserLowercase();
+                            invertedIndexParserStopwords = index.getInvertedIndexParserStopwords();
                             break;
                         }
                     }

@@ -44,9 +44,18 @@ public class TimerJobSchedulerTask<T extends AbstractJob> implements TimerTask {
                 log.info("job status is not running, job id is {}, skip dispatch", this.job.getJobId());
                 return;
             }
-            dispatchDisruptor.publishEvent(this.job);
+            if (!dispatchDisruptor.publishEvent(this.job)) {
+                log.warn("dispatch timer job failed, queue maybe full. job id is {}, job name is {}",
+                        this.job.getJobId(), this.job.getJobName() + getMsgWhenExecuteQueueFull());
+            }
         } catch (Exception e) {
             log.warn("dispatch timer job error, task id is {}", this.job.getJobId(), e);
         }
+    }
+
+    private String getMsgWhenExecuteQueueFull() {
+        return "you can increase the queue size by setting the property "
+                + "job_dispatch_timer_job_queue_size in the fe.conf file or increase the value of "
+                + "the property job_dispatch_timer_job_thread_num in the fe.conf file";
     }
 }

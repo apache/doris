@@ -33,11 +33,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
+import org.apache.doris.thrift.TQueryCacheParam;
 import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.Lists;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -158,6 +160,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
     public Optional<NereidsSpecifyInstances<ScanSource>> specifyInstances = Optional.empty();
+
+    public TQueryCacheParam queryCacheParam;
+    private int numBackends = 0;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -350,6 +355,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");
         str.append("  HAS_COLO_PLAN_NODE: " + hasColocatePlanNode + "\n");
+        if (queryCacheParam != null) {
+            str.append("\n");
+            str.append("  QUERY_CACHE:\n");
+            str.append("    CACHE_NODE_ID: " + queryCacheParam.getNodeId() + "\n");
+            str.append("    DIGEST: " + Hex.encodeHexString(queryCacheParam.getDigest()) + "\n");
+        }
+
         str.append("\n");
         if (sink != null) {
             str.append(sink.getExplainString("  ", explainLevel) + "\n");
@@ -383,6 +395,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public PlanFragmentId getId() {
         return fragmentId;
+    }
+
+    public ExchangeNode getDestNode() {
+        return destNode;
     }
 
     public PlanFragment getDestFragment() {
@@ -473,11 +489,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     }
 
     public int getFragmentSequenceNum() {
-        if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
-            return fragmentSequenceNum;
-        } else {
-            return fragmentId.asInt();
-        }
+        return fragmentSequenceNum;
     }
 
     public void setFragmentSequenceNum(int seq) {
@@ -494,5 +506,24 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public boolean hasNullAwareLeftAntiJoin() {
         return planRoot.isNullAwareLeftAntiJoin();
+    }
+
+    public boolean useSerialSource(ConnectContext context) {
+        return context != null
+                && context.getSessionVariable().isIgnoreStorageDataDistribution()
+                && queryCacheParam == null
+                && !hasNullAwareLeftAntiJoin()
+                // If planRoot is not a serial operator and has serial children, we can use serial source and improve
+                // parallelism of non-serial operators.
+                && sink instanceof DataStreamSink && !planRoot.isSerialOperator()
+                && planRoot.hasSerialChildren();
+    }
+
+    public int getNumBackends() {
+        return numBackends;
+    }
+
+    public void setNumBackends(int numBackends) {
+        this.numBackends = numBackends;
     }
 }

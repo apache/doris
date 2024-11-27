@@ -33,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -45,6 +46,7 @@ public class MetaServiceClient {
     private final ManagedChannel channel;
     private final long expiredAt;
     private final boolean isMetaServiceEndpointList;
+    private Random random = new Random();
 
     static {
         NameResolverRegistry.getDefaultRegistry().register(new MetaServiceListResolverProvider());
@@ -76,7 +78,9 @@ public class MetaServiceClient {
         // Disable connection age if the endpoint is a list.
         if (!isMetaServiceEndpointList && connectionAgeBase > 1) {
             long base = TimeUnit.MINUTES.toMillis(connectionAgeBase);
-            return base + System.currentTimeMillis() % base;
+            long now = System.currentTimeMillis();
+            long rand = random.nextLong() % base;
+            return now + base + rand;
         }
         return Long.MAX_VALUE;
     }
@@ -255,6 +259,10 @@ public class MetaServiceClient {
         return blockingStub.commitPartition(request);
     }
 
+    public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) {
+        return blockingStub.checkKv(request);
+    }
+
     public Cloud.PartitionResponse dropPartition(Cloud.PartitionRequest request) {
         return blockingStub.dropPartition(request);
     }
@@ -317,6 +325,15 @@ public class MetaServiceClient {
         return blockingStub.alterObjStoreInfo(request);
     }
 
+    public Cloud.AlterObjStoreInfoResponse alterStorageVault(Cloud.AlterObjStoreInfoRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.alterStorageVault(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.alterStorageVault(request);
+    }
+
     public Cloud.GetDeleteBitmapUpdateLockResponse getDeleteBitmapUpdateLock(
             Cloud.GetDeleteBitmapUpdateLockRequest request) {
         if (!request.hasCloudUniqueId()) {
@@ -326,6 +343,17 @@ public class MetaServiceClient {
             return blockingStub.getDeleteBitmapUpdateLock(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
         return blockingStub.getDeleteBitmapUpdateLock(request);
+    }
+
+    public Cloud.RemoveDeleteBitmapUpdateLockResponse removeDeleteBitmapUpdateLock(
+            Cloud.RemoveDeleteBitmapUpdateLockRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.RemoveDeleteBitmapUpdateLockRequest.Builder builder = Cloud.RemoveDeleteBitmapUpdateLockRequest
+                    .newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.removeDeleteBitmapUpdateLock(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.removeDeleteBitmapUpdateLock(request);
     }
 
     public Cloud.GetInstanceResponse getInstance(Cloud.GetInstanceRequest request) {
@@ -348,6 +376,16 @@ public class MetaServiceClient {
         return blockingStub.getRlTaskCommitAttach(request);
     }
 
+    public Cloud. ResetRLProgressResponse resetRLProgress(Cloud. ResetRLProgressRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud. ResetRLProgressRequest.Builder builder =
+                    Cloud. ResetRLProgressRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.resetRlProgress(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.resetRlProgress(request);
+    }
+
     public Cloud.GetObjStoreInfoResponse
             getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) {
         if (!request.hasCloudUniqueId()) {
@@ -357,5 +395,32 @@ public class MetaServiceClient {
             return blockingStub.getObjStoreInfo(builder.setCloudUniqueId(Config.cloud_unique_id).build());
         }
         return blockingStub.getObjStoreInfo(request);
+    }
+
+    public Cloud.AbortTxnWithCoordinatorResponse
+            abortTxnWithCoordinator(Cloud.AbortTxnWithCoordinatorRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.AbortTxnWithCoordinatorRequest.Builder builder =
+                    Cloud.AbortTxnWithCoordinatorRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.abortTxnWithCoordinator(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.abortTxnWithCoordinator(request);
+    }
+
+    public Cloud.FinishTabletJobResponse
+            finishTabletJob(Cloud.FinishTabletJobRequest request) {
+        if (!request.hasCloudUniqueId()) {
+            Cloud.FinishTabletJobRequest.Builder builder =
+                    Cloud.FinishTabletJobRequest.newBuilder();
+            builder.mergeFrom(request);
+            return blockingStub.finishTabletJob(builder.setCloudUniqueId(Config.cloud_unique_id).build());
+        }
+        return blockingStub.finishTabletJob(request);
+    }
+
+    public Cloud.CreateInstanceResponse
+            createInstance(Cloud.CreateInstanceRequest request) {
+        return blockingStub.createInstance(request);
     }
 }

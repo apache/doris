@@ -17,7 +17,6 @@
 
 suite("test_array_functions_by_literal") {
     // array_nested function
-    sql """ set enable_nereids_planner = false; """
     qt_sql "select a from (select array(1, 1, 2, 2, 2, 2) as a) t"
 
     // array with decimal and other types
@@ -31,9 +30,9 @@ suite("test_array_functions_by_literal") {
     qt_sql_6 """select array_sum(array(1.0,2.0,null, null,2.0));"""
     qt_sql_7 """select array_product(array(1.0,2.0,null, null,2.0));"""
     qt_sql_8 """select array_distinct(array(1.0,2.0,null, null,2.0));"""
-    qt_sql_9 """select array_intersect(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0));"""
-    qt_sql_10 """select array_except(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0));"""
-    qt_sql_11 """select array_union(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0));"""
+    qt_sql_9 """select array_sort(array_intersect(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0)));"""
+    qt_sql_10 """select array_sort(array_except(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0)));"""
+    qt_sql_11 """select array_sort(array_union(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0)));"""
     qt_sql_14 """select array_popfront(array(1.0,2.0,null, null,2.0));"""
     qt_sql_15 """select array_popback(array(1.0,2.0,null, null,2.0));"""
     qt_sql_16 """select array_concat(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0));"""
@@ -405,9 +404,36 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_cum_sum(array(cast (11.9999 as decimalv3(6,4)),cast (22.0001 as decimalv3(6,4))))"
 
     // abnormal test
-    try {
+    test {
         sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
-    } catch (Exception ex) {
-        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: array_intersect"))
+        exception "Can not find the compatibility function signature: array_intersect"
+    }
+
+    // array_min/max with nested array for args
+    test {
+        sql "select array_min(array(1,2,3),array(4,5,6));"
+        exception ""
+    }
+    test {
+        sql "select array_max(array(1,2,3),array(4,5,6));"
+        exception ""
+    }
+
+    test {
+        sql "select array_min(array(split_by_string('a,b,c',',')));"
+        exception ""
+    }
+    test {
+        sql "select array_max(array(split_by_string('a,b,c',',')));"
+        exception ""
+    }
+
+    // array_map with string is can be succeed
+    qt_sql_array_map """ select array_map(x->x!='', split_by_string('amory,is,better,committing', ',')) """
+
+    // array_apply with string should be failed
+    test {
+       sql """select array_apply(split_by_string("amory,is,better,committing", ","), '!=', '');"""
+       exception("array_apply does not support type")
     }
 }

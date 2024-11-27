@@ -46,30 +46,33 @@ Status RepeatLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status RepeatLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _evaluate_input_timer = ADD_TIMER(profile(), "EvaluateInputDataTime");
+    _get_repeat_data_timer = ADD_TIMER(profile(), "GetRepeatDataTime");
+    _filter_timer = ADD_TIMER(profile(), "FilterTime");
+    return Status::OK();
+}
+
 Status RepeatOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorXBase::init(tnode, state));
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.repeat_node.exprs, _expr_ctxs));
     return Status::OK();
 }
 
-Status RepeatOperatorX::prepare(RuntimeState* state) {
-    VLOG_CRITICAL << "VRepeatNode::prepare";
-    RETURN_IF_ERROR(OperatorXBase::prepare(state));
+Status RepeatOperatorX::open(RuntimeState* state) {
+    VLOG_CRITICAL << "VRepeatNode::open";
+    RETURN_IF_ERROR(OperatorXBase::open(state));
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     if (_output_tuple_desc == nullptr) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_expr_ctxs, state, _child->row_desc()));
     for (const auto& slot_desc : _output_tuple_desc->slots()) {
         _output_slots.push_back(slot_desc);
     }
-
-    return Status::OK();
-}
-
-Status RepeatOperatorX::open(RuntimeState* state) {
-    VLOG_CRITICAL << "VRepeatNode::open";
-    RETURN_IF_ERROR(OperatorXBase::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_expr_ctxs, state));
     return Status::OK();
 }
@@ -173,23 +176,24 @@ Status RepeatLocalState::add_grouping_id_column(std::size_t rows, std::size_t& c
 
 Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block, bool eos) const {
     auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state._evaluate_input_timer);
     local_state._child_eos = eos;
-    auto& _intermediate_block = local_state._intermediate_block;
-    auto& _expr_ctxs = local_state._expr_ctxs;
-    DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
+    auto& intermediate_block = local_state._intermediate_block;
+    auto& expr_ctxs = local_state._expr_ctxs;
+    DCHECK(!intermediate_block || intermediate_block->rows() == 0);
     if (input_block->rows() > 0) {
-        _intermediate_block = vectorized::Block::create_unique();
+        intermediate_block = vectorized::Block::create_unique();
 
-        for (auto& expr : _expr_ctxs) {
+        for (auto& expr : expr_ctxs) {
             int result_column_id = -1;
             RETURN_IF_ERROR(expr->execute(input_block, &result_column_id));
             DCHECK(result_column_id != -1);
             input_block->get_by_position(result_column_id).column =
                     input_block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
-            _intermediate_block->insert(input_block->get_by_position(result_column_id));
+            intermediate_block->insert(input_block->get_by_position(result_column_id));
         }
-        DCHECK_EQ(_expr_ctxs.size(), _intermediate_block->columns());
+        DCHECK_EQ(expr_ctxs.size(), intermediate_block->columns());
     }
 
     return Status::OK();
@@ -209,36 +213,41 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
     }
     DCHECK(output_block->rows() == 0);
 
-    if (_intermediate_block && _intermediate_block->rows() > 0) {
-        RETURN_IF_ERROR(local_state.get_repeated_block(_intermediate_block.get(), _repeat_id_idx,
-                                                       output_block));
+    {
+        SCOPED_TIMER(local_state._get_repeat_data_timer);
+        if (_intermediate_block && _intermediate_block->rows() > 0) {
+            RETURN_IF_ERROR(local_state.get_repeated_block(_intermediate_block.get(),
+                                                           _repeat_id_idx, output_block));
 
-        _repeat_id_idx++;
+            _repeat_id_idx++;
 
-        int size = _repeat_id_list.size();
-        if (_repeat_id_idx >= size) {
-            _intermediate_block->clear();
-            _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
-            _repeat_id_idx = 0;
+            int size = _repeat_id_list.size();
+            if (_repeat_id_idx >= size) {
+                _intermediate_block->clear();
+                _child_block.clear_column_data(_child->row_desc().num_materialized_slots());
+                _repeat_id_idx = 0;
+            }
+        } else if (local_state._expr_ctxs.empty()) {
+            auto m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
+                    output_block, _output_slots);
+            auto rows = _child_block.rows();
+            auto& columns = m_block.mutable_columns();
+
+            for (int repeat_id_idx = 0; repeat_id_idx < _repeat_id_list.size(); repeat_id_idx++) {
+                std::size_t cur_col = 0;
+                RETURN_IF_ERROR(
+                        local_state.add_grouping_id_column(rows, cur_col, columns, repeat_id_idx));
+            }
+            _child_block.clear_column_data(_child->row_desc().num_materialized_slots());
         }
-    } else if (local_state._expr_ctxs.empty()) {
-        auto m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                                  _output_slots);
-        auto rows = _child_block.rows();
-        auto& columns = m_block.mutable_columns();
-
-        for (int repeat_id_idx = 0; repeat_id_idx < _repeat_id_list.size(); repeat_id_idx++) {
-            std::size_t cur_col = 0;
-            RETURN_IF_ERROR(
-                    local_state.add_grouping_id_column(rows, cur_col, columns, repeat_id_idx));
-        }
-        _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
     }
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
-                                                           output_block->columns()));
+    {
+        SCOPED_TIMER(local_state._filter_timer);
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
+                                                               output_block->columns()));
+    }
     *eos = _child_eos && _child_block.rows() == 0;
     local_state.reached_limit(output_block, eos);
-    COUNTER_SET(local_state._rows_returned_counter, local_state._num_rows_returned);
     return Status::OK();
 }
 

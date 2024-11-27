@@ -24,7 +24,7 @@ import org.apache.doris.common.UserException;
 //
 // syntax:
 //      STOP SYNC JOB [db.]jobName
-public class StopSyncJobStmt extends DdlStmt {
+public class StopSyncJobStmt extends DdlStmt implements NotFallbackInParser {
 
     private JobName jobName;
 
@@ -52,5 +52,10 @@ public class StopSyncJobStmt extends DdlStmt {
         stringBuilder.append("STOP SYNC JOB ");
         stringBuilder.append(jobName.toSql());
         return stringBuilder.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.STOP;
     }
 }

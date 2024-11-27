@@ -120,6 +120,8 @@ public:
     // Get current repeated value, make sure that count equals repeated_count()
     T get_repeated_value(size_t count);
 
+    const BitReader& bit_reader() const { return bit_reader_; }
+
 private:
     bool ReadHeader();
 

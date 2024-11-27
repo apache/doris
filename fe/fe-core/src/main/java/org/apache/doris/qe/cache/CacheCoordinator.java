@@ -18,6 +18,8 @@
 package org.apache.doris.qe.cache;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
@@ -33,8 +35,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.TreeMap;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Use consistent hashing to find the BE corresponding to the key to
@@ -47,7 +47,7 @@ public class CacheCoordinator {
     public boolean debugModel = false;
     private Hashtable<Long, Backend> realNodes = new Hashtable<>();
     private SortedMap<Long, Backend> virtualNodes = new TreeMap<>();
-    private static Lock belock = new ReentrantLock();
+    private static MonitoredReentrantLock belock = new MonitoredReentrantLock();
 
     private long lastRefreshTime;
     private static CacheCoordinator cachePartition;
@@ -110,7 +110,7 @@ public class CacheCoordinator {
         }
         try {
             belock.lock();
-            ImmutableMap<Long, Backend> idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
+            ImmutableMap<Long, Backend> idToBackend = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
             if (idToBackend != null) {
                 if (!debugModel) {
                     clearBackend(idToBackend);
@@ -120,6 +120,9 @@ public class CacheCoordinator {
                 }
             }
             this.lastRefreshTime = System.currentTimeMillis();
+        } catch (UserException e) {
+            LOG.warn("cant get backend", e);
+            throw new RuntimeException(e);
         } finally {
             belock.unlock();
         }

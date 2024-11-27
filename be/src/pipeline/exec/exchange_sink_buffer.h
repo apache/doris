@@ -22,9 +22,9 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <parallel_hashmap/phmap.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -51,20 +51,7 @@ class ExchangeSinkLocalState;
 } // namespace pipeline
 
 namespace vectorized {
-class PipChannel;
-
-template <typename T>
-struct AtomicWrapper {
-    std::atomic<T> _value;
-
-    AtomicWrapper() : _value() {}
-
-    AtomicWrapper(const std::atomic<T>& a) : _value(a.load()) {}
-
-    AtomicWrapper(const AtomicWrapper& other) : _value(other._value.load()) {}
-
-    AtomicWrapper& operator=(const AtomicWrapper& other) { _value.store(other._a.load()); }
-};
+class Channel;
 
 // We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
 // will be shared between different channel, so we have to use a ref count to mark if this
@@ -115,14 +102,14 @@ private:
 
 namespace pipeline {
 struct TransmitInfo {
-    vectorized::PipChannel* channel = nullptr;
+    vectorized::Channel* channel = nullptr;
     std::unique_ptr<PBlock> block;
     bool eos;
     Status exec_status;
 };
 
 struct BroadcastTransmitInfo {
-    vectorized::PipChannel* channel = nullptr;
+    vectorized::Channel* channel = nullptr;
     std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
     bool eos;
 };
@@ -182,11 +169,6 @@ private:
     bool _eos;
 };
 
-struct ExchangeRpcContext {
-    std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> _send_callback;
-    bool is_cancelled = false;
-};
-
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
 class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
@@ -198,7 +180,7 @@ public:
     Status add_block(TransmitInfo&& request);
     Status add_block(BroadcastTransmitInfo&& request);
     void close();
-    void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
+    void update_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
     void set_dependency(std::shared_ptr<Dependency> queue_dependency,
@@ -211,14 +193,8 @@ public:
         _broadcast_dependency = broadcast_dependency;
     }
 
-    void set_should_stop() {
-        _should_stop = true;
-        _set_ready_to_finish(_busy_channels == 0);
-    }
-
 private:
     friend class ExchangeSinkLocalState;
-    void _set_ready_to_finish(bool all_done);
 
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
@@ -237,11 +213,18 @@ private:
     phmap::flat_hash_map<InstanceLoId, std::shared_ptr<PTransmitDataParams>> _instance_to_request;
     // One channel is corresponding to a downstream instance.
     phmap::flat_hash_map<InstanceLoId, bool> _rpc_channel_is_idle;
-    // Number of busy channels;
-    std::atomic<int> _busy_channels = 0;
+
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
-    phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
-    phmap::flat_hash_map<InstanceLoId, ExchangeRpcContext> _instance_to_rpc_ctx;
+    struct RpcInstanceStatistics {
+        RpcInstanceStatistics(InstanceLoId id) : inst_lo_id(id) {}
+        InstanceLoId inst_lo_id;
+        int64_t rpc_count = 0;
+        int64_t max_time = 0;
+        int64_t min_time = INT64_MAX;
+        int64_t sum_time = 0;
+    };
+    std::vector<std::shared_ptr<RpcInstanceStatistics>> _instance_to_rpc_stats_vec;
+    phmap::flat_hash_map<InstanceLoId, RpcInstanceStatistics*> _instance_to_rpc_stats;
 
     std::atomic<bool> _is_finishing;
     PUniqueId _query_id;
@@ -260,7 +243,7 @@ private:
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
     inline bool _is_receiver_eof(InstanceLoId id);
-    inline void _turn_off_channel(InstanceLoId id, bool cleanup = false);
+    inline void _turn_off_channel(InstanceLoId id, std::unique_lock<std::mutex>& with_lock);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 
@@ -268,7 +251,6 @@ private:
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
     std::shared_ptr<Dependency> _finish_dependency = nullptr;
     std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
-    std::atomic<bool> _should_stop = false;
     ExchangeSinkLocalState* _parent = nullptr;
 };
 

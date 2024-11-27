@@ -44,6 +44,9 @@ Status Decompressor::create_decompressor(CompressType type,
     case CompressType::BZIP2:
         decompressor->reset(new Bzip2Decompressor());
         break;
+    case CompressType::ZSTD:
+        decompressor->reset(new ZstdDecompressor());
+        break;
     case CompressType::LZ4FRAME:
         decompressor->reset(new Lz4FrameDecompressor());
         break;
@@ -85,6 +88,9 @@ Status Decompressor::create_decompressor(TFileCompressType::type type,
         break;
     case TFileCompressType::BZ2:
         compress_type = CompressType::BZIP2;
+        break;
+    case TFileCompressType::ZSTD:
+        compress_type = CompressType::ZSTD;
         break;
     case TFileCompressType::LZ4FRAME:
         compress_type = CompressType::LZ4FRAME;
@@ -300,6 +306,50 @@ std::string Bzip2Decompressor::debug_info() {
     return ss.str();
 }
 
+ZstdDecompressor::~ZstdDecompressor() {
+    ZSTD_freeDStream(_zstd_strm);
+}
+
+Status ZstdDecompressor::init() {
+    _zstd_strm = ZSTD_createDStream();
+    if (!_zstd_strm) {
+        std::stringstream ss;
+        return Status::InternalError("ZSTD_dctx creation error");
+    }
+    auto ret = ZSTD_initDStream(_zstd_strm);
+    if (ZSTD_isError(ret)) {
+        return Status::InternalError("ZSTD_initDStream error: {}", ZSTD_getErrorName(ret));
+    }
+    return Status::OK();
+}
+
+Status ZstdDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                                    uint8_t* output, size_t output_max_len,
+                                    size_t* decompressed_len, bool* stream_end,
+                                    size_t* more_input_bytes, size_t* more_output_bytes) {
+    // 1. set input and output
+    ZSTD_inBuffer inputBuffer = {input, input_len, 0};
+    ZSTD_outBuffer outputBuffer = {output, output_max_len, 0};
+
+    // decompress
+    int ret = ZSTD_decompressStream(_zstd_strm, &outputBuffer, &inputBuffer);
+    *input_bytes_read = inputBuffer.pos;
+    *decompressed_len = outputBuffer.pos;
+
+    if (ZSTD_isError(ret)) {
+        return Status::InternalError("Failed to zstd decompress: {}", ZSTD_getErrorName(ret));
+    }
+
+    *stream_end = ret == 0;
+    return Status::OK();
+}
+
+std::string ZstdDecompressor::debug_info() {
+    std::stringstream ss;
+    ss << "ZstdDecompressor.";
+    return ss.str();
+}
+
 // Lz4Frame
 // Lz4 version: 1.7.5
 // define LZ4F_VERSION = 100
@@ -468,7 +518,7 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
         }
 
         std::size_t decompressed_large_block_len = 0;
-        do {
+        while (remaining_decompressed_large_block_len > 0) {
             // Check that input length should not be negative.
             if (input_len < sizeof(uint32_t)) {
                 *more_input_bytes = sizeof(uint32_t) - input_len;
@@ -505,8 +555,7 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
             output_ptr += decompressed_small_block_len;
             remaining_decompressed_large_block_len -= decompressed_small_block_len;
             decompressed_large_block_len += decompressed_small_block_len;
-
-        } while (remaining_decompressed_large_block_len > 0);
+        };
 
         if (*more_input_bytes != 0) {
             // Need more input buffer
@@ -535,90 +584,113 @@ Status SnappyBlockDecompressor::init() {
     return Status::OK();
 }
 
+// Hadoop snappycodec source :
+// https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/SnappyCodec.cc
+// Example:
+// OriginData(The original data will be divided into several large data block.) :
+//      large data block1 | large data block2 | large data block3 | ....
+// The large data block will be divided into several small data block.
+// Suppose a large data block is divided into three small blocks:
+// large data block1:            | small block1 | small block2 | small block3 |
+// CompressData:   <A [B1 compress(small block1) ] [B2 compress(small block1) ] [B3 compress(small block1)]>
+//
+// A : original length of the current block of large data block.
+// sizeof(A) = 4 bytes.
+// A = length(small block1) + length(small block2) + length(small block3)
+// Bx : length of  small data block bx.
+// sizeof(Bx) = 4 bytes.
+// Bx = length(compress(small blockx))
 Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
                                            size_t* input_bytes_read, uint8_t* output,
                                            size_t output_max_len, size_t* decompressed_len,
                                            bool* stream_end, size_t* more_input_bytes,
                                            size_t* more_output_bytes) {
-    uint8_t* src = input;
-    size_t remaining_input_size = input_len;
-    int64_t uncompressed_total_len = 0;
-    *input_bytes_read = 0;
+    auto* input_ptr = input;
+    auto* output_ptr = output;
 
-    // The hadoop snappy codec is as:
-    // <4 byte big endian uncompressed size>
-    // <4 byte big endian compressed size>
-    // <snappy compressed block>
-    // ....
-    // <4 byte big endian uncompressed size>
-    // <4 byte big endian compressed size>
-    // <snappy compressed block>
-    //
-    // See:
-    // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/SnappyCodec.cc
-    while (remaining_input_size > 0) {
-        if (remaining_input_size < 4) {
-            *more_input_bytes = 4 - remaining_input_size;
-            break;
+    while (input_len > 0) {
+        //if faild ,  fall back to large block begin
+        auto* large_block_input_ptr = input_ptr;
+        auto* large_block_output_ptr = output_ptr;
+
+        if (input_len < sizeof(uint32_t)) {
+            return Status::InvalidArgument(strings::Substitute(
+                    "fail to do hadoop-snappy decompress, input_len=$0", input_len));
         }
-        // Read uncompressed size
-        uint32_t uncompressed_block_len = Decompressor::_read_int32(src);
-        int64_t remaining_output_len = output_max_len - uncompressed_total_len;
-        if (remaining_output_len < uncompressed_block_len) {
+
+        uint32_t remaining_decompressed_large_block_len = BigEndian::Load32(input_ptr);
+
+        input_ptr += sizeof(uint32_t);
+        input_len -= sizeof(uint32_t);
+
+        std::size_t remaining_output_len = output_max_len - *decompressed_len;
+
+        if (remaining_output_len < remaining_decompressed_large_block_len) {
             // Need more output buffer
-            *more_output_bytes = uncompressed_block_len - remaining_output_len;
+            *more_output_bytes = remaining_decompressed_large_block_len - remaining_output_len;
+            input_ptr = large_block_input_ptr;
+            output_ptr = large_block_output_ptr;
+
             break;
         }
 
-        if (uncompressed_block_len == 0) {
-            remaining_input_size -= sizeof(uint32_t);
+        std::size_t decompressed_large_block_len = 0;
+        while (remaining_decompressed_large_block_len > 0) {
+            // Check that input length should not be negative.
+            if (input_len < sizeof(uint32_t)) {
+                *more_input_bytes = sizeof(uint32_t) - input_len;
+                break;
+            }
+
+            // Read the length of the next snappy compressed block.
+            size_t compressed_small_block_len = BigEndian::Load32(input_ptr);
+
+            input_ptr += sizeof(uint32_t);
+            input_len -= sizeof(uint32_t);
+
+            if (compressed_small_block_len == 0) {
+                continue;
+            }
+
+            if (compressed_small_block_len > input_len) {
+                // Need more input buffer
+                *more_input_bytes = compressed_small_block_len - input_len;
+                break;
+            }
+
+            // Decompress this block.
+            size_t decompressed_small_block_len;
+            if (!snappy::GetUncompressedLength(reinterpret_cast<const char*>(input_ptr),
+                                               compressed_small_block_len,
+                                               &decompressed_small_block_len)) {
+                return Status::InternalError(
+                        "snappy block decompress failed to get uncompressed len");
+            }
+            if (!snappy::RawUncompress(reinterpret_cast<const char*>(input_ptr),
+                                       compressed_small_block_len,
+                                       reinterpret_cast<char*>(output_ptr))) {
+                return Status::InternalError(
+                        "snappy block decompress failed. uncompressed_len: {}, compressed_len: {}",
+                        decompressed_small_block_len, compressed_small_block_len);
+            }
+            input_ptr += compressed_small_block_len;
+            input_len -= compressed_small_block_len;
+
+            output_ptr += decompressed_small_block_len;
+            remaining_decompressed_large_block_len -= decompressed_small_block_len;
+            decompressed_large_block_len += decompressed_small_block_len;
+        };
+
+        if (*more_input_bytes != 0) {
+            // Need more input buffer
+            input_ptr = large_block_input_ptr;
+            output_ptr = large_block_output_ptr;
             break;
         }
 
-        if (remaining_input_size <= 2 * sizeof(uint32_t)) {
-            // The remaining input size should be larger then <uncompressed size><compressed size><compressed data>
-            // +1 means we need at least 1 bytes of compressed data.
-            *more_input_bytes = 2 * sizeof(uint32_t) + 1 - remaining_input_size;
-            break;
-        }
-
-        // Read compressed size
-        size_t tmp_remaining_size = remaining_input_size - 2 * sizeof(uint32_t);
-        size_t compressed_len = _read_int32(src + sizeof(uint32_t));
-        if (compressed_len > tmp_remaining_size) {
-            // Need more input data
-            *more_input_bytes = compressed_len - tmp_remaining_size;
-            break;
-        }
-
-        src += 2 * sizeof(uint32_t);
-        remaining_input_size -= 2 * sizeof(uint32_t);
-
-        // ATTN: the uncompressed len from GetUncompressedLength() is same as
-        // uncompressed_block_len, so I think it is unnecessary to get it again.
-        // Get uncompressed len from snappy
-        // size_t uncompressed_len;
-        // if (!snappy::GetUncompressedLength(reinterpret_cast<const char*>(src),
-        //             compressed_len, &uncompressed_len)) {
-        //     return Status::InternalError("snappy block decompress failed to get uncompressed len");
-        // }
-
-        // Decompress
-        if (!snappy::RawUncompress(reinterpret_cast<const char*>(src), compressed_len,
-                                   reinterpret_cast<char*>(output))) {
-            return Status::InternalError(
-                    "snappy block decompress failed. uncompressed_len: {}, compressed_len: {}",
-                    uncompressed_block_len, compressed_len);
-        }
-
-        output += uncompressed_block_len;
-        src += compressed_len;
-        remaining_input_size -= compressed_len;
-        uncompressed_total_len += uncompressed_block_len;
+        *decompressed_len += decompressed_large_block_len;
     }
-
-    *input_bytes_read += (input_len - remaining_input_size);
-    *decompressed_len = uncompressed_total_len;
+    *input_bytes_read += (input_ptr - input);
     // If no more input and output need, means this is the end of a compressed block
     *stream_end = (*more_input_bytes == 0 && *more_output_bytes == 0);
 

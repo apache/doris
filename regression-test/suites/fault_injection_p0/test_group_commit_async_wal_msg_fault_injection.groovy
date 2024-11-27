@@ -15,10 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
+
 suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
     def dbName = "regression_test_fault_injection_p0"
     def tableName = "wal_test"
- 
+
+    def getRowCount = { expectedRowCount ->
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until(
+            {
+                def result = sql "select count(*) from ${tableName}"
+                logger.info("table: ${tableName}, rowCount: ${result}")
+                return result[0][0] == expectedRowCount
+            }
+        )
+    }
+
     // test successful group commit async load
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -29,7 +42,7 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
         ) engine=olap
         DISTRIBUTED BY HASH(`k`) 
         BUCKETS 5 
-        properties("replication_num" = "1")
+        properties("replication_num" = "1", "group_commit_interval_ms" = "10")
         """
 
     GetDebugPoint().clearDebugPointsForAllBEs()
@@ -66,7 +79,7 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
         ) engine=olap
         DISTRIBUTED BY HASH(`k`) 
         BUCKETS 5 
-        properties("replication_num" = "1")
+        properties("replication_num" = "1", "group_commit_interval_ms" = "10")
         """
 
     GetDebugPoint().clearDebugPointsForAllBEs()
@@ -105,7 +118,7 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
         ) engine=olap
         DISTRIBUTED BY HASH(`k`) 
         BUCKETS 5 
-        properties("replication_num" = "1")
+        properties("replication_num" = "1", "group_commit_interval_ms" = "10")
         """
 
     GetDebugPoint().clearDebugPointsForAllBEs()
@@ -134,4 +147,30 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
             assertTrue(exception)
         }
 
+    // test replay wal should success
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            `k` int ,
+            `v` int ,
+        ) engine=olap
+        DISTRIBUTED BY HASH(`k`) 
+        BUCKETS 5 
+        properties("replication_num" = "1", "group_commit_interval_ms" = "4000")
+    """
+    GetDebugPoint().clearDebugPointsForAllBEs()
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.commit_error")
+        streamLoad {
+            table "${tableName}"
+            set 'column_separator', ','
+            set 'group_commit', 'async_mode'
+            unset 'label'
+            file 'group_commit_wal_msg.csv'
+            time 10000
+        }
+        getRowCount(5)
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("LoadBlockQueue._finish_group_commit_load.commit_error")
+    }
 }

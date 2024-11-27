@@ -43,9 +43,9 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-    Status close(RuntimeState* state, Status exec_status) override;
     std::string debug_string(int indentation_level) const override;
     std::vector<Dependency*> dependencies() const override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
 private:
     friend class LocalExchangeSinkOperatorX;
@@ -56,6 +56,8 @@ private:
     friend class PassToOneExchanger;
     friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
+    template <typename BlockType>
+    friend class Exchanger;
 
     ExchangerBase* _exchanger = nullptr;
 
@@ -67,7 +69,6 @@ private:
 
     // Used by random passthrough exchanger
     int _channel_id = 0;
-    bool _release_count = false;
 };
 
 // A single 32-bit division on a recent x64 processor has a throughput of one instruction every six cycles with a latency of 26 cycles.
@@ -90,6 +91,7 @@ public:
             : Base(sink_id, dest_id, dest_id),
               _num_partitions(num_partitions),
               _texprs(texprs),
+              _partitioned_exprs_num(texprs.size()),
               _bucket_seq_to_instance_idx(bucket_seq_to_instance_idx) {}
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override {
@@ -100,10 +102,8 @@ public:
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
     }
 
-    Status init(ExchangeType type, const int num_buckets, const bool is_shuffled_hash_join,
+    Status init(ExchangeType type, const int num_buckets, const bool use_global_hash_shuffle,
                 const std::map<int, int>& shuffle_idx_to_instance_idx) override;
-
-    Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
 
@@ -115,9 +115,11 @@ private:
     ExchangeType _type;
     const int _num_partitions;
     const std::vector<TExpr>& _texprs;
+    const size_t _partitioned_exprs_num;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     const std::map<int, int> _bucket_seq_to_instance_idx;
     std::vector<std::pair<int, int>> _shuffle_idx_to_instance_idx;
+    bool _use_global_shuffle = false;
 };
 
 } // namespace doris::pipeline

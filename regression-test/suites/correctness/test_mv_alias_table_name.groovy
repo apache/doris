@@ -38,20 +38,18 @@ suite("test_mv_alias_table_name") {
         PROPERTIES ("replication_num" = "1" );
     """
 
-    sql """
+    createMV( """
         create materialized view mv_table as
         select day,aid,lid,
             bitmap_union(to_bitmap(mh)) as wu,     
             bitmap_union(to_bitmap(my)) as mu 
         from original_table 
         group by day, aid, lid;
-    """
+    """)
 
     sql """
         insert into original_table values('2022-10-16', 1665710553, 1665710553, 1665710553, 1665700553, 1665700553);
     """
-
-    sleep(2000)
 
     sql """
         select t0.aid, t0.lid, count(distinct mh), count(distinct my) 

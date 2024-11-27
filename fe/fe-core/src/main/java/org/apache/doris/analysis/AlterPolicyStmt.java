@@ -39,7 +39,7 @@ import java.util.Optional;
  * Alter policy
  **/
 @Data
-public class AlterPolicyStmt extends DdlStmt {
+public class AlterPolicyStmt extends DdlStmt implements NotFallbackInParser {
     private final String policyName;
     private final Map<String, String> properties;
 
@@ -94,6 +94,11 @@ public class AlterPolicyStmt extends DdlStmt {
         sb.append("ALTER POLICY '").append(policyName).append("' ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 
 }

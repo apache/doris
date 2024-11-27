@@ -80,6 +80,7 @@ CLEAN=0
 RUN=0
 BUILD_BENCHMARK_TOOL='OFF'
 DENABLE_CLANG_COVERAGE='OFF'
+BUILD_AZURE='ON'
 FILTER=""
 if [[ "$#" != 1 ]]; then
     while true; do
@@ -161,6 +162,10 @@ update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thi
 
 if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     echo "export DORIS_TOOLCHAIN=clang" >>custom_env.sh
+fi
+
+if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+    BUILD_AZURE='OFF'
 fi
 
 if [[ -z ${CMAKE_BUILD_DIR} ]]; then
@@ -245,6 +250,7 @@ cd "${CMAKE_BUILD_DIR}"
     ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
     -DENABLE_PCH="${ENABLE_PCH}" \
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \
+    -DBUILD_AZURE="${BUILD_AZURE}" \
     "${DORIS_HOME}/be"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 

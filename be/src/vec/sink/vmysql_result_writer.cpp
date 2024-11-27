@@ -29,7 +29,9 @@
 #include <string>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "gutil/integral_types.h"
 #include "olap/hll.h"
 #include "runtime/buffer_control_block.h"
@@ -69,6 +71,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 
 template <bool is_binary_format>
@@ -140,23 +143,11 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
 }
 
 template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& input_block) {
-    SCOPED_TIMER(_append_row_batch_timer);
+Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* state, Block& block) {
     Status status = Status::OK();
-    if (UNLIKELY(input_block.rows() == 0)) {
-        return status;
-    }
-
-    DCHECK(_output_vexpr_ctxs.empty() != true);
-
-    // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
-    // failed, just return the error status
-    Block block;
-    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
-                                                                       input_block, &block));
+    int num_rows = cast_set<int>(block.rows());
     // convert one batch
     auto result = std::make_unique<TFetchDataResult>();
-    auto num_rows = block.rows();
     result->result_batch.rows.resize(num_rows);
     uint64_t bytes_sent = 0;
     {
@@ -211,7 +202,7 @@ Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& i
             }
         }
 
-        for (size_t row_idx = 0; row_idx < num_rows; ++row_idx) {
+        for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
             for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
                 RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
                         *(arguments[col_idx].column), row_buffer, row_idx,
@@ -247,6 +238,47 @@ Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& i
         }
     }
     return status;
+}
+
+template <bool is_binary_format>
+Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& input_block) {
+    SCOPED_TIMER(_append_row_batch_timer);
+    Status status = Status::OK();
+    if (UNLIKELY(input_block.rows() == 0)) {
+        return status;
+    }
+
+    DCHECK(_output_vexpr_ctxs.empty() != true);
+
+    // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
+    // failed, just return the error status
+    Block block;
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
+                                                                       input_block, &block));
+    const auto total_bytes = block.bytes();
+
+    if (total_bytes > config::thrift_max_message_size) [[unlikely]] {
+        const auto total_rows = block.rows();
+        const auto sub_block_count = (total_bytes + config::thrift_max_message_size - 1) /
+                                     config::thrift_max_message_size;
+        const auto sub_block_rows = (total_rows + sub_block_count - 1) / sub_block_count;
+
+        size_t offset = 0;
+        while (offset < total_rows) {
+            size_t rows = std::min(static_cast<size_t>(sub_block_rows), total_rows - offset);
+            auto sub_block = block.clone_empty();
+            for (size_t i = 0; i != block.columns(); ++i) {
+                sub_block.get_by_position(i).column =
+                        block.get_by_position(i).column->cut(offset, rows);
+            }
+            offset += rows;
+
+            RETURN_IF_ERROR(_write_one_block(state, sub_block));
+        }
+        return Status::OK();
+    }
+
+    return _write_one_block(state, block);
 }
 
 template <bool is_binary_format>

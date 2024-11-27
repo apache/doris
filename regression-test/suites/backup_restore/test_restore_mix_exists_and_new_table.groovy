@@ -18,7 +18,7 @@
 suite("test_restore_mix_exists_and_new_table", "backup_restore") {
     String dbName = "restore_mix_exists_and_new_table"
     String suiteName = "test_restore_mix_exists_and_new_table"
-    String repoName = "${suiteName}_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String tableNamePrefix = "${suiteName}_tables"
 

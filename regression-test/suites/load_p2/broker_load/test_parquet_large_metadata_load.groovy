@@ -16,10 +16,11 @@
 // under the License.
 
 suite("test_parquet_large_metadata_load_p2", "p2") {
-
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
     def tables = ["parquet_large_metadata_100mb" // metadata size more than 100MB
     ]
-    def paths = ["s3://doris-build-1308700295/regression/load/metadata/parquet_large_metadata_100mb.parquet"
+    def paths = ["s3://${getS3BucketName()}/regression/load/metadata/parquet_large_metadata_100mb.parquet"
     ]
     String ak = getS3AK()
     String sk = getS3SK()
@@ -27,10 +28,10 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
 
     def expect_tvf_result = """[[2, 8], [2, 8], [2, 8], [2, 8], [2, 8]]"""
     String[][] tvf_result = sql """select `1`,`2` from s3(
-                                     "uri" = "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/load/metadata/parquet_large_metadata_100mb.parquet",
+                                     "uri" = "https://${getS3BucketName()}.${getS3Endpoint()}/regression/load/metadata/parquet_large_metadata_100mb.parquet",
                                      "s3.access_key" = "$ak",
                                      "s3.secret_key" = "$sk",
-                                     "s3.region" = "ap-beijing",
+                                     "s3.region" = "${s3Region}",
                                      "provider" = "${getS3Provider()}",
                                      "format" = "parquet"
                                    ) order by `1`,`2` limit 5;
@@ -48,8 +49,8 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
-                "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_REGION" = "ap-beijing",
+                "AWS_ENDPOINT" = "${s3Endpoint}",
+                "AWS_REGION" = "${s3Region}",
                 "provider" = "${getS3Provider()}"
             )
             PROPERTIES
@@ -61,7 +62,7 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
     }
     
     def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=45000"]
-    def task_info = ["cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0"]
+    def task_info = ["cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"]
     def error_msg = [""]
     // test unified load
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -87,7 +88,10 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
                         assertTrue(result[0][6].contains(task_info[i]))
-                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5] + ", label: $label")
+                        load_counters = etl_info[i].split('; ');
+                        for (String counter : load_counters) {
+                            assertTrue(result[0][5].contains(counter), "expected: " + counter + ", actual: " + result[0][5] + ", label: $label")
+                        }
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {

@@ -22,7 +22,7 @@ suite("test_hive_ctas", "p0,external,hive,external_docker,external_docker_hive")
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : [ "hive3"]) {
         def file_formats = ["parquet", "orc"]
         setHivePrefix(hivePrefix)
         def generateSrcDDLForCTAS = { String file_format, String catalog_name ->

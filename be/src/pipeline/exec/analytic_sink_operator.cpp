@@ -24,14 +24,16 @@
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _blocks_memory_usage =
-            _profile->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
-    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
+    _evaluation_timer = ADD_TIMER(profile(), "GetPartitionBoundTime");
+    _compute_agg_data_timer = ADD_TIMER(profile(), "ComputeAggDataTime");
+    _compute_partition_by_timer = ADD_TIMER(profile(), "ComputePartitionByTime");
+    _compute_order_by_timer = ADD_TIMER(profile(), "ComputeOrderByTime");
     return Status::OK();
 }
 
@@ -58,15 +60,14 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
                     _agg_expr_ctxs[i][j]->root()->data_type()->create_column();
         }
     }
-    _shared_state->partition_by_eq_expr_ctxs.resize(p._partition_by_eq_expr_ctxs.size());
-    for (size_t i = 0; i < _shared_state->partition_by_eq_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._partition_by_eq_expr_ctxs[i]->clone(
-                state, _shared_state->partition_by_eq_expr_ctxs[i]));
-    }
-    _shared_state->order_by_eq_expr_ctxs.resize(p._order_by_eq_expr_ctxs.size());
-    for (size_t i = 0; i < _shared_state->order_by_eq_expr_ctxs.size(); i++) {
+    _partition_by_eq_expr_ctxs.resize(p._partition_by_eq_expr_ctxs.size());
+    for (size_t i = 0; i < _partition_by_eq_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(
-                p._order_by_eq_expr_ctxs[i]->clone(state, _shared_state->order_by_eq_expr_ctxs[i]));
+                p._partition_by_eq_expr_ctxs[i]->clone(state, _partition_by_eq_expr_ctxs[i]));
+    }
+    _order_by_eq_expr_ctxs.resize(p._order_by_eq_expr_ctxs.size());
+    for (size_t i = 0; i < _order_by_eq_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._order_by_eq_expr_ctxs[i]->clone(state, _order_by_eq_expr_ctxs[i]));
     }
     return Status::OK();
 }
@@ -78,11 +79,11 @@ bool AnalyticSinkLocalState::_whether_need_next_partition(BlockRowPos& found_par
          shared_state.partition_by_end.pos)) { //now still have partition data
         return false;
     }
-    if ((shared_state.partition_by_eq_expr_ctxs.empty() && !shared_state.input_eos) ||
+    if ((_partition_by_eq_expr_ctxs.empty() && !shared_state.input_eos) ||
         (found_partition_end.pos == 0)) { //no partition, get until fetch to EOS
         return true;
     }
-    if (!shared_state.partition_by_eq_expr_ctxs.empty() &&
+    if (!_partition_by_eq_expr_ctxs.empty() &&
         found_partition_end.pos == shared_state.all_block_end.pos &&
         !shared_state.input_eos) { //current partition data calculate done
         return true;
@@ -91,7 +92,7 @@ bool AnalyticSinkLocalState::_whether_need_next_partition(BlockRowPos& found_par
 }
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
+BlockRowPos AnalyticSinkLocalState::_compare_row_to_find_end(int64_t idx, BlockRowPos start,
                                                              BlockRowPos end,
                                                              bool need_check_first) {
     auto& shared_state = *_shared_state;
@@ -175,13 +176,13 @@ BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
         return shared_state.partition_by_end;
     }
 
-    if (shared_state.partition_by_eq_expr_ctxs.empty() ||
+    if (_partition_by_eq_expr_ctxs.empty() ||
         (shared_state.input_total_rows == 0)) { //no partition_by, the all block is end
         return shared_state.all_block_end;
     }
 
     BlockRowPos cal_end = shared_state.all_block_end;
-    for (size_t i = 0; i < shared_state.partition_by_eq_expr_ctxs.size();
+    for (size_t i = 0; i < _partition_by_eq_expr_ctxs.size();
          ++i) { //have partition_by, binary search the partiton end
         cal_end = _compare_row_to_find_end(shared_state.partition_by_column_idxs[i],
                                            shared_state.partition_by_end, cal_end);
@@ -201,7 +202,9 @@ AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id,
           _require_bucket_distribution(require_bucket_distribution),
           _partition_exprs(tnode.__isset.distribute_expr_lists && require_bucket_distribution
                                    ? tnode.distribute_expr_lists[0]
-                                   : tnode.analytic_node.partition_exprs) {}
+                                   : tnode.analytic_node.partition_exprs) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+}
 
 Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
@@ -231,13 +234,14 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
     return Status::OK();
 }
 
-Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
+Status AnalyticSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<AnalyticSinkLocalState>::open(state));
     for (const auto& ctx : _agg_expr_ctxs) {
-        RETURN_IF_ERROR(vectorized::VExpr::prepare(ctx, state, _child_x->row_desc()));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(ctx, state, _child->row_desc()));
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         vector<TTupleId> tuple_ids;
-        tuple_ids.push_back(_child_x->row_desc().tuple_descriptors()[0]->id());
+        tuple_ids.push_back(_child->row_desc().tuple_descriptors()[0]->id());
         tuple_ids.push_back(_buffered_tuple_id);
         RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids, vector<bool>(2, false));
         if (!_partition_by_eq_expr_ctxs.empty()) {
@@ -249,10 +253,6 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
                     vectorized::VExpr::prepare(_order_by_eq_expr_ctxs, state, cmp_row_desc));
         }
     }
-    return Status::OK();
-}
-
-Status AnalyticSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::open(_partition_by_eq_expr_ctxs, state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_order_by_eq_expr_ctxs, state));
     for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -289,33 +289,41 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
         }
     }
 
-    for (size_t i = 0; i < _agg_functions_size;
-         ++i) { //insert _agg_input_columns, execute calculate for its
-        for (size_t j = 0; j < local_state._agg_expr_ctxs[i].size(); ++j) {
-            RETURN_IF_ERROR(_insert_range_column(
-                    input_block, local_state._agg_expr_ctxs[i][j],
-                    local_state._shared_state->agg_input_columns[i][j].get(), block_rows));
+    {
+        SCOPED_TIMER(local_state._compute_agg_data_timer);
+        for (size_t i = 0; i < _agg_functions_size;
+             ++i) { //insert _agg_input_columns, execute calculate for its
+            for (size_t j = 0; j < local_state._agg_expr_ctxs[i].size(); ++j) {
+                RETURN_IF_ERROR(_insert_range_column(
+                        input_block, local_state._agg_expr_ctxs[i][j],
+                        local_state._shared_state->agg_input_columns[i][j].get(), block_rows));
+            }
         }
     }
-    //record column idx in block
-    for (size_t i = 0; i < local_state._shared_state->partition_by_eq_expr_ctxs.size(); ++i) {
-        int result_col_id = -1;
-        RETURN_IF_ERROR(local_state._shared_state->partition_by_eq_expr_ctxs[i]->execute(
-                input_block, &result_col_id));
-        DCHECK_GE(result_col_id, 0);
-        local_state._shared_state->partition_by_column_idxs[i] = result_col_id;
+    {
+        SCOPED_TIMER(local_state._compute_partition_by_timer);
+        for (size_t i = 0; i < local_state._partition_by_eq_expr_ctxs.size(); ++i) {
+            int result_col_id = -1;
+            RETURN_IF_ERROR(local_state._partition_by_eq_expr_ctxs[i]->execute(input_block,
+                                                                               &result_col_id));
+            DCHECK_GE(result_col_id, 0);
+            local_state._shared_state->partition_by_column_idxs[i] = result_col_id;
+        }
     }
 
-    for (size_t i = 0; i < local_state._shared_state->order_by_eq_expr_ctxs.size(); ++i) {
-        int result_col_id = -1;
-        RETURN_IF_ERROR(local_state._shared_state->order_by_eq_expr_ctxs[i]->execute(
-                input_block, &result_col_id));
-        DCHECK_GE(result_col_id, 0);
-        local_state._shared_state->ordey_by_column_idxs[i] = result_col_id;
+    {
+        SCOPED_TIMER(local_state._compute_order_by_timer);
+        for (size_t i = 0; i < local_state._order_by_eq_expr_ctxs.size(); ++i) {
+            int result_col_id = -1;
+            RETURN_IF_ERROR(
+                    local_state._order_by_eq_expr_ctxs[i]->execute(input_block, &result_col_id));
+            DCHECK_GE(result_col_id, 0);
+            local_state._shared_state->ordey_by_column_idxs[i] = result_col_id;
+        }
     }
 
-    local_state.mem_tracker()->consume(input_block->allocated_bytes());
-    local_state._blocks_memory_usage->add(input_block->allocated_bytes());
+    COUNTER_UPDATE(local_state._memory_used_counter, input_block->allocated_bytes());
+    COUNTER_SET(local_state._peak_memory_usage_counter, local_state._memory_used_counter->value());
 
     //TODO: if need improvement, the is a tips to maintain a free queue,
     //so the memory could reuse, no need to new/delete again;

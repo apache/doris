@@ -26,6 +26,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -57,7 +58,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -169,21 +169,28 @@ public class ColocateTableIndex implements Writable {
     }
 
     // group_name -> group_id
+    @SerializedName(value = "groupName2Id")
     private Map<String, GroupId> groupName2Id = Maps.newHashMap();
     // group_id -> table_ids
+    @SerializedName(value = "group2Tables")
     private Multimap<GroupId, Long> group2Tables = ArrayListMultimap.create();
     // table_id -> group_id
+    @SerializedName(value = "table2Group")
     private Map<Long, GroupId> table2Group = Maps.newHashMap();
     // group id -> group schema
+    @SerializedName(value = "group2Schema")
     private Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
     // group_id -> bucketSeq -> backend ids
+    @SerializedName(value = "group2BackendsPerBucketSeq")
     private Table<GroupId, Tag, List<List<Long>>> group2BackendsPerBucketSeq = HashBasedTable.create();
     // the colocate group is unstable
+    @SerializedName(value = "unstableGroups")
     private Set<GroupId> unstableGroups = Sets.newHashSet();
     // save some error msg of the group for show. no need to persist
+    @SerializedName(value = "group2ErrMsgs")
     private Map<GroupId, String> group2ErrMsgs = Maps.newHashMap();
 
-    private transient ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private transient MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock();
 
     public ColocateTableIndex() {
 

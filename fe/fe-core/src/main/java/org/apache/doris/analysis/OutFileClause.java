@@ -55,6 +55,8 @@ import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -535,6 +537,12 @@ public class OutFileClause {
                 filePath = filePath.replace(HDFS_FILE_PREFIX, HDFS_FILE_PREFIX + dfsNameServices);
             }
         }
+        // delete repeated '/'
+        try {
+            filePath = new URI(filePath).normalize().toString();
+        } catch (URISyntaxException e) {
+            throw new AnalysisException("Can not normalize the URI, error: " + e.getMessage());
+        }
         if (Strings.isNullOrEmpty(filePath)) {
             throw new AnalysisException("Must specify file in OUTFILE clause");
         }
@@ -565,7 +573,7 @@ public class OutFileClause {
         }
 
         if (properties.containsKey(PROP_MAX_FILE_SIZE)) {
-            maxFileSizeBytes = ParseUtil.analyzeDataVolumn(properties.get(PROP_MAX_FILE_SIZE));
+            maxFileSizeBytes = ParseUtil.analyzeDataVolume(properties.get(PROP_MAX_FILE_SIZE));
             if (maxFileSizeBytes > MAX_FILE_SIZE_BYTES || maxFileSizeBytes < MIN_FILE_SIZE_BYTES) {
                 throw new AnalysisException("max file size should between 5MB and 2GB. Given: " + maxFileSizeBytes);
             }
@@ -876,6 +884,7 @@ public class OutFileClause {
         if (isOrcFormat()) {
             sinkOptions.setOrcSchema(serializeOrcSchema());
             sinkOptions.setOrcCompressionType(orcCompressionType);
+            sinkOptions.setOrcWriterVersion(1);
         }
         return sinkOptions;
     }

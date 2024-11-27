@@ -108,7 +108,7 @@
 1
 
 -- !gencol_array_function_select --
-1	[1, 2]	[3, 2]	[3, 2, 1]
+1	[1, 2]	[2, 3]	[1, 2, 3]
 
 -- !gencol_array_function_element_at_create --
 0
@@ -117,7 +117,7 @@
 1
 
 -- !gencol_array_function_element_at_select --
-1	[1, 2]	[3, 2]	1
+1	[1, 2]	[2, 3]	1
 
 -- !create_table_like --
 0
@@ -165,10 +165,10 @@
 1	2	CBDF2AA1377910BA93D9A86F33F6B924
 
 -- !describe --
-a	INT	Yes	true	\N	
-c	DOUBLE	No	false	\N	NONE,STORED GENERATED
-b	INT	Yes	false	\N	NONE
-d	INT	Yes	false	\N	NONE,STORED GENERATED
+a	int	Yes	true	\N	
+c	double	No	false	\N	NONE,STORED GENERATED
+b	int	Yes	false	\N	NONE
+d	int	Yes	false	\N	NONE,STORED GENERATED
 
 -- !test_update --
 1

@@ -25,6 +25,7 @@
 #include <exception>
 #include <string>
 
+#include "cloud/cloud_storage_engine.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "http/http_channel.h"
@@ -38,14 +39,14 @@
 namespace doris {
 using namespace ErrorCode;
 
-CalcFileCrcAction::CalcFileCrcAction(ExecEnv* exec_env, StorageEngine& engine,
+CalcFileCrcAction::CalcFileCrcAction(ExecEnv* exec_env, BaseStorageEngine& engine,
                                      TPrivilegeHier::type hier, TPrivilegeType::type ptype)
         : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine) {}
 
 // calculate the crc value of the files in the tablet
 Status CalcFileCrcAction::_handle_calc_crc(HttpRequest* req, uint32_t* crc_value,
                                            int64_t* start_version, int64_t* end_version,
-                                           int32_t* rowset_count, int64_t* file_count) {
+                                           uint32_t* rowset_count, int64_t* file_count) {
     uint64_t tablet_id = 0;
     const auto& req_tablet_id = req->param(TABLET_ID_KEY);
     if (req_tablet_id.empty()) {
@@ -58,16 +59,28 @@ Status CalcFileCrcAction::_handle_calc_crc(HttpRequest* req, uint32_t* crc_value
         return Status::InternalError("convert tablet id or failed, {}", e.what());
     }
 
-    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+    BaseTabletSPtr tablet = nullptr;
+
+    if (auto cloudEngine = dynamic_cast<CloudStorageEngine*>(&_engine)) {
+        tablet = DORIS_TRY(cloudEngine->get_tablet(tablet_id));
+        // sync all rowsets
+        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(tablet)->sync_rowsets(-1));
+    } else if (auto storageEngine = dynamic_cast<StorageEngine*>(&_engine)) {
+        auto tabletPtr = storageEngine->tablet_manager()->get_tablet(tablet_id);
+        tablet = std::dynamic_pointer_cast<Tablet>(tabletPtr);
+    } else {
+        return Status::InternalError("convert _engine failed");
+    }
+
     if (tablet == nullptr) {
-        return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
+        return Status::NotFound("failed to get tablet {}", tablet_id);
     }
 
     const auto& req_start_version = req->param(PARAM_START_VERSION);
     const auto& req_end_version = req->param(PARAM_END_VERSION);
 
     *start_version = 0;
-    *end_version = tablet->max_version().second;
+    *end_version = tablet->max_version_unlocked();
 
     if (!req_start_version.empty()) {
         try {
@@ -85,8 +98,8 @@ Status CalcFileCrcAction::_handle_calc_crc(HttpRequest* req, uint32_t* crc_value
         }
     }
 
-    auto st = tablet->calc_local_file_crc(crc_value, *start_version, *end_version, rowset_count,
-                                          file_count);
+    auto st = tablet->calc_file_crc(crc_value, *start_version, *end_version, rowset_count,
+                                    file_count);
     if (!st.ok()) {
         return st;
     }
@@ -97,7 +110,7 @@ void CalcFileCrcAction::handle(HttpRequest* req) {
     uint32_t crc_value = 0;
     int64_t start_version = 0;
     int64_t end_version = 0;
-    int32_t rowset_count = 0;
+    uint32_t rowset_count = 0;
     int64_t file_count = 0;
 
     MonotonicStopWatch timer;

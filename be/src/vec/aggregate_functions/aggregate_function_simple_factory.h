@@ -38,8 +38,8 @@
 namespace doris::vectorized {
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
-using AggregateFunctionCreator =
-        std::function<AggregateFunctionPtr(const std::string&, const DataTypes&, const bool)>;
+using AggregateFunctionCreator = std::function<AggregateFunctionPtr(
+        const std::string&, const DataTypes&, const bool, const AggregateFunctionAttr&)>;
 
 inline std::string types_name(const DataTypes& types) {
     std::string name;
@@ -59,11 +59,6 @@ private:
     AggregateFunctions aggregate_functions;
     AggregateFunctions nullable_aggregate_functions;
     std::unordered_map<std::string, std::string> function_alias;
-    /// @TEMPORARY: for be_exec_version=4
-    /// in order to solve agg of sum/count is not compatibility during the upgrade process
-    constexpr static int AGG_FUNCTION_NEW = 5;
-    /// @TEMPORARY: for be_exec_version < AGG_FUNCTION_NEW. replace function to old version.
-    std::unordered_map<std::string, std::string> function_to_replace;
 
 public:
     void register_nullable_function_combinator(const Creator& creator) {
@@ -123,9 +118,8 @@ public:
     }
 
     AggregateFunctionPtr get(const std::string& name, const DataTypes& argument_types,
-                             const bool result_is_nullable = false,
-                             int be_version = BeExecVersionManager::get_newest_version(),
-                             bool enable_decima256 = false) {
+                             const bool result_is_nullable, int be_version,
+                             AggregateFunctionAttr attr = {}) {
         bool nullable = false;
         for (const auto& type : argument_types) {
             if (type->is_nullable()) {
@@ -134,27 +128,21 @@ public:
         }
 
         std::string name_str = name;
-        if (enable_decima256) {
-            if (name_str == "sum" || name_str == "avg") {
-                name_str += "_decimal256";
-            }
-        }
         temporary_function_update(be_version, name_str);
 
         if (function_alias.contains(name)) {
             name_str = function_alias[name];
         }
-
         if (nullable) {
             return nullable_aggregate_functions.find(name_str) == nullable_aggregate_functions.end()
                            ? nullptr
                            : nullable_aggregate_functions[name_str](name_str, argument_types,
-                                                                    result_is_nullable);
+                                                                    result_is_nullable, attr);
         } else {
             return aggregate_functions.find(name_str) == aggregate_functions.end()
                            ? nullptr
                            : aggregate_functions[name_str](name_str, argument_types,
-                                                           result_is_nullable);
+                                                           result_is_nullable, attr);
         }
     }
 
@@ -178,21 +166,19 @@ public:
         }
     }
 
-    /// @TEMPORARY: for be_exec_version < AGG_FUNCTION_NEW
     void register_alternative_function(const std::string& name, const Creator& creator,
-                                       bool nullable = false) {
-        static std::string suffix {"_old_for_version_before_2_0"};
-        register_function(name + suffix, creator, nullable);
-        function_to_replace[name] = name + suffix;
+                                       bool nullable, int old_be_exec_version) {
+        auto new_name = name + BeExecVersionManager::get_function_suffix(old_be_exec_version);
+        register_function(new_name, creator, nullable);
+        BeExecVersionManager::registe_old_function_compatibility(old_be_exec_version, name);
     }
 
-    /// @TEMPORARY: for be_exec_version < AGG_FUNCTION_NEW
     void temporary_function_update(int fe_version_now, std::string& name) {
-        // replace if fe is old version.
-        if (fe_version_now < AGG_FUNCTION_NEW &&
-            function_to_replace.find(name) != function_to_replace.end()) {
-            name = function_to_replace[name];
+        int old_version = BeExecVersionManager::get_function_compatibility(fe_version_now, name);
+        if (!old_version) {
+            return;
         }
+        name = name + BeExecVersionManager::get_function_suffix(old_version);
     }
 
     static AggregateFunctionSimpleFactory& instance();

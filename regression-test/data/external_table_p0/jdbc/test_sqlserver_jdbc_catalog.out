@@ -88,44 +88,44 @@ sys
 2
 
 -- !desc_query_ctas --
-id	INT	No	true	\N	
-name	TEXT	Yes	false	\N	NONE
-age	INT	Yes	false	\N	NONE
-tinyint_value	SMALLINT	Yes	false	\N	NONE
-smallint_value	SMALLINT	Yes	false	\N	NONE
-bigint_value	BIGINT	Yes	false	\N	NONE
-real_value	FLOAT	Yes	false	\N	NONE
-float_value	DOUBLE	Yes	false	\N	NONE
-floatn_value	FLOAT	Yes	false	\N	NONE
-decimal_value	DECIMAL(38, 0)	Yes	false	\N	NONE
-numeric_value	DECIMAL(38, 0)	Yes	false	\N	NONE
-decimal_value2	DECIMAL(38, 10)	Yes	false	\N	NONE
-numeric_value2	DECIMAL(38, 10)	Yes	false	\N	NONE
-char_value	TEXT	Yes	false	\N	NONE
-varchar_value	TEXT	Yes	false	\N	NONE
-varcharmax_value	TEXT	Yes	false	\N	NONE
-nchar_value	TEXT	Yes	false	\N	NONE
-nvarchar_value	TEXT	Yes	false	\N	NONE
-nvarcharmax_value	TEXT	Yes	false	\N	NONE
-date_value	DATE	Yes	false	\N	NONE
-time_value	TEXT	Yes	false	\N	NONE
-datetime_value	DATETIME(3)	Yes	false	\N	NONE
-datetime2_value	DATETIME(6)	Yes	false	\N	NONE
-smalldatetime_value	DATETIME	Yes	false	\N	NONE
-datetimeoffset_value	TEXT	Yes	false	\N	NONE
-text_value	TEXT	Yes	false	\N	NONE
-ntext_value	TEXT	Yes	false	\N	NONE
-money_value	DECIMAL(19, 4)	Yes	false	\N	NONE
-smallmoney_value	DECIMAL(10, 4)	Yes	false	\N	NONE
-bit_value	BOOLEAN	Yes	false	\N	NONE
+id	int	No	true	\N	
+name	text	Yes	false	\N	NONE
+age	int	Yes	false	\N	NONE
+tinyint_value	smallint	Yes	false	\N	NONE
+smallint_value	smallint	Yes	false	\N	NONE
+bigint_value	bigint	Yes	false	\N	NONE
+real_value	float	Yes	false	\N	NONE
+float_value	double	Yes	false	\N	NONE
+floatn_value	float	Yes	false	\N	NONE
+decimal_value	decimal(38,0)	Yes	false	\N	NONE
+numeric_value	decimal(38,0)	Yes	false	\N	NONE
+decimal_value2	decimal(38,10)	Yes	false	\N	NONE
+numeric_value2	decimal(38,10)	Yes	false	\N	NONE
+char_value	text	Yes	false	\N	NONE
+varchar_value	text	Yes	false	\N	NONE
+varcharmax_value	text	Yes	false	\N	NONE
+nchar_value	text	Yes	false	\N	NONE
+nvarchar_value	text	Yes	false	\N	NONE
+nvarcharmax_value	text	Yes	false	\N	NONE
+date_value	date	Yes	false	\N	NONE
+time_value	text	Yes	false	\N	NONE
+datetime_value	datetime(3)	Yes	false	\N	NONE
+datetime2_value	datetime(6)	Yes	false	\N	NONE
+smalldatetime_value	datetime	Yes	false	\N	NONE
+datetimeoffset_value	text	Yes	false	\N	NONE
+text_value	text	Yes	false	\N	NONE
+ntext_value	text	Yes	false	\N	NONE
+money_value	decimal(19,4)	Yes	false	\N	NONE
+smallmoney_value	decimal(10,4)	Yes	false	\N	NONE
+bit_value	boolean	Yes	false	\N	NONE
 
 -- !query_ctas --
 1	doris	18	0	1	1	123.123	123.123	123.123	12345678901234567890123456789012345678	12345678901234567890123456789012345678	1234567890123456789012345678.0123456789	1234567890123456789012345678.0123456789	Make Doris Great!   	Make Doris Great!	Make Doris Great!	Make Doris Great!   	Make Doris Great!	Make Doris Great!	2023-01-17	16:49:05.123	2023-01-17T16:49:05	2023-01-17T16:49:05.123456	2023-01-17T16:49	2023-01-17 16:49:05 +08:00	Make Doris Great!	Make Doris Great!	922337203685477.5807	214748.3647	false
 2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 
 -- !desc_timestamp --
-id_col	INT	No	true	\N	
-timestamp_col	TEXT	Yes	true	\N	
+id_col	int	No	true	\N	
+timestamp_col	text	Yes	true	\N	
 
 -- !query_timestamp --
 1

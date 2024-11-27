@@ -42,7 +42,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -70,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -80,6 +80,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
@@ -90,11 +91,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -108,17 +106,22 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -182,6 +185,15 @@ public class BindExpression implements AnalysisRuleFactory {
             RuleType.BINDING_HAVING_SLOT.build(
                 logicalHaving(any().whenNot(Aggregate.class::isInstance)).thenApply(this::bindHaving)
             ),
+            RuleType.BINDING_QUALIFY_PROJECT_SLOT.build(
+                logicalQualify(logicalProject()).thenApply(this::bindQualifyProject)
+            ),
+            RuleType.BINDING_QUALIFY_AGGREGATE_SLOT.build(
+                logicalQualify(aggregate()).thenApply(this::bindQualifyAggregate)
+            ),
+            RuleType.BINDING_QUALIFY_HAVING_SLOT.build(
+                logicalQualify(logicalHaving()).thenApply(this::bindQualifyHaving)
+            ),
             RuleType.BINDING_INLINE_TABLE_SLOT.build(
                 logicalInlineTable().thenApply(this::bindInlineTable)
             ),
@@ -212,38 +224,22 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private LogicalResultSink<Plan> bindResultSink(MatchingContext<UnboundResultSink<Plan>> ctx) {
         LogicalSink<Plan> sink = ctx.root;
-        Plan child = sink.child();
-        List<Slot> output = child.getOutput();
-        List<NamedExpression> castNullToTinyInt = Lists.newArrayListWithCapacity(output.size());
-        boolean needProject = false;
-        for (Slot slot : output) {
-            DataType newType = TypeCoercionUtils.replaceSpecifiedType(
-                    slot.getDataType(), NullType.class, TinyIntType.INSTANCE);
-            if (!newType.equals(slot.getDataType())) {
-                needProject = true;
-                castNullToTinyInt.add(new Alias(new Cast(slot, newType)));
-            } else {
-                castNullToTinyInt.add(slot);
-            }
-        }
-        if (needProject) {
-            child = new LogicalProject<>(castNullToTinyInt, child);
-        }
         if (ctx.connectContext.getState().isQuery()) {
-            List<NamedExpression> outputExprs = child.getOutput().stream()
+            List<NamedExpression> outputExprs = sink.child().getOutput().stream()
                     .map(NamedExpression.class::cast)
                     .collect(ImmutableList.toImmutableList());
-            return new LogicalResultSink<>(outputExprs, child);
+            return new LogicalResultSink<>(outputExprs, sink.child());
         }
         // Should infer column name for expression when query command
-        final ImmutableListMultimap.Builder<ExprId, Integer> exprIdToIndexMapBuilder = ImmutableListMultimap.builder();
-        List<Slot> childOutput = child.getOutput();
+        final ImmutableListMultimap.Builder<ExprId, Integer> exprIdToIndexMapBuilder =
+                ImmutableListMultimap.builder();
+        List<Slot> childOutput = sink.child().getOutput();
         for (int index = 0; index < childOutput.size(); index++) {
             exprIdToIndexMapBuilder.put(childOutput.get(index).getExprId(), index);
         }
         InferPlanOutputAlias aliasInfer = new InferPlanOutputAlias(childOutput);
-        List<NamedExpression> sinkExpr = aliasInfer.infer(child, exprIdToIndexMapBuilder.build());
-        return new LogicalResultSink<>(sinkExpr, child);
+        List<NamedExpression> output = aliasInfer.infer(sink.child(), exprIdToIndexMapBuilder.build());
+        return new LogicalResultSink<>(output, sink.child());
     }
 
     private LogicalSubQueryAlias<Plan> bindSubqueryAlias(MatchingContext<LogicalSubQueryAlias<Plan>> ctx) {
@@ -288,7 +284,8 @@ public class BindExpression implements AnalysisRuleFactory {
                 for (int idx = 0; idx < fields.size(); ++idx) {
                     expandAlias.add(new Alias(new StructElement(
                             boundSlot, new StringLiteral(fields.get(idx).getName())),
-                            generate.getExpandColumnAlias().get(i).get(idx)));
+                            generate.getExpandColumnAlias().get(i).get(idx),
+                            slot.getQualifier()));
                 }
             }
         }
@@ -527,6 +524,8 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalJoin<Plan, Plan> join = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
+        checkConflictAlias(join);
+
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 join, cascadesContext, join.children(), true, true);
 
@@ -551,16 +550,53 @@ public class BindExpression implements AnalysisRuleFactory {
                 join.children(), null);
     }
 
+    private void checkConflictAlias(Plan plan) {
+        Set<String> existsTableNames = Sets.newLinkedHashSet();
+        Consumer<String> checkAlias = tableAliasName -> {
+            if (!existsTableNames.add(tableAliasName)) {
+                String tableName = tableAliasName.substring(tableAliasName.lastIndexOf('.') + 1);
+                throw new AnalysisException("Not unique table/alias: '" + tableName + "'");
+            }
+        };
+
+        boolean stopCheckChildren = true;
+        plan.foreach(p -> {
+            if (p instanceof LogicalSubQueryAlias) {
+                String alias = ((LogicalSubQueryAlias<?>) p).getAlias();
+                String dbName = getDbName(p.children().get(0));
+                String result = dbName + "." + alias;
+                checkAlias.accept(result);
+                return stopCheckChildren;
+
+            } else if (p instanceof LogicalCatalogRelation) {
+                String table = ((LogicalCatalogRelation) p).qualifiedName();
+                checkAlias.accept(table);
+                return stopCheckChildren;
+            } else {
+                return !stopCheckChildren;
+            }
+        });
+    }
+
+    private String getDbName(Plan plan) {
+        if (plan instanceof LogicalCatalogRelation) {
+            return ((LogicalCatalogRelation) plan).qualifiedName().split("\\.")[0]
+                    + ((LogicalCatalogRelation) plan).qualifiedName().split("\\.")[1];
+        } else if (plan instanceof LogicalSubQueryAlias) {
+            return ((LogicalSubQueryAlias<?>) plan).getQualifier().get(0)
+                    + ((LogicalSubQueryAlias<?>) plan).getQualifier().get(1);
+
+        } else {
+            return "default-catalog" + "default-db";
+        }
+    }
+
     private LogicalJoin<Plan, Plan> bindUsingJoin(MatchingContext<UsingJoin<Plan, Plan>> ctx) {
         UsingJoin<Plan, Plan> using = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
         List<Expression> unboundHashJoinConjunct = using.getHashJoinConjuncts();
 
-        // Suppose A JOIN B USING(name) JOIN C USING(name), [A JOIN B] is the left node, in this case,
-        // C should combine with table B on C.name=B.name. so we reverse the output to make sure that
-        // the most right slot is matched with priority.
-        List<Slot> leftOutput = Utils.reverseImmutableList(using.left().getOutput());
-        Scope leftScope = toScope(cascadesContext, ExpressionUtils.distinctSlotByName(leftOutput));
+        Scope leftScope = toScope(cascadesContext, ExpressionUtils.distinctSlotByName(using.left().getOutput()));
         Scope rightScope = toScope(cascadesContext, ExpressionUtils.distinctSlotByName(using.right().getOutput()));
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
 
@@ -590,30 +626,62 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 project, cascadesContext, project.children(), true, true);
 
-        List<NamedExpression> excepts = project.getExcepts();
-        Supplier<Set<NamedExpression>> boundExcepts = Suppliers.memoize(
-                () -> analyzer.analyzeToSet(project.getExcepts()));
-
-        Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.arity());
+        Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.getProjects().size());
         StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
             Expression expr = analyzer.analyze(expression);
             if (!(expr instanceof BoundStar)) {
                 boundProjections.add((NamedExpression) expr);
             } else {
+                UnboundStar unboundStar = (UnboundStar) expression;
+                List<NamedExpression> excepts = unboundStar.getExceptedSlots();
+                Set<NamedExpression> boundExcepts = Suppliers.memoize(() -> analyzer.analyzeToSet(excepts)).get();
                 BoundStar boundStar = (BoundStar) expr;
-                List<Slot> slots = boundStar.getSlots();
-                if (!excepts.isEmpty()) {
-                    slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.get().contains(slot));
+
+                List<Slot> slots = exceptStarSlots(boundExcepts, boundStar);
+
+                List<NamedExpression> replaces = unboundStar.getReplacedAlias();
+                if (!replaces.isEmpty()) {
+                    final Map<Expression, Expression> replaceMap = new HashMap<>();
+                    final Set<Expression> replaced = new HashSet<>();
+                    Supplier<List<NamedExpression>> boundReplaces = Suppliers.memoize(
+                            () -> analyzer.analyzeToList(replaces));
+                    for (NamedExpression replace : boundReplaces.get()) {
+                        Preconditions.checkArgument(replace instanceof Alias);
+                        Alias alias = (Alias) replace;
+                        UnboundSlot unboundSlot = new UnboundSlot(alias.getName());
+                        Expression slot = analyzer.analyze(unboundSlot);
+                        if (replaceMap.containsKey(slot)) {
+                            throw new AnalysisException("Duplicate replace column name: " + alias.getName());
+                        }
+                        replaceMap.put(slot, alias);
+                    }
+
+                    Collection c = CollectionUtils.intersection(boundExcepts, replaceMap.keySet());
+                    if (!c.isEmpty()) {
+                        throw new AnalysisException("Replace column name: " + c + " is in excepts");
+                    }
+                    for (Slot s : slots) {
+                        Expression e = ExpressionUtils.replace(s, replaceMap);
+                        if (s != e) {
+                            replaced.add(s);
+                        }
+                        boundProjections.add((NamedExpression) e);
+                    }
+
+                    if (replaced.size() != replaceMap.size()) {
+                        replaceMap.keySet().removeAll(replaced);
+                        throw new AnalysisException("Invalid replace column name: " + replaceMap.keySet());
+                    }
+                } else {
+                    boundProjections.addAll(slots);
                 }
-                boundProjections.addAll(slots);
 
                 // for create view stmt expand star
                 List<Slot> slotsForLambda = slots;
-                UnboundStar unboundStar = (UnboundStar) expression;
-                unboundStar.getIndexInSqlString().ifPresent(pair ->
-                        statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda))
-                );
+                unboundStar.getIndexInSqlString().ifPresent(pair -> {
+                    statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda));
+                });
             }
         }
         return project.withProjects(boundProjections.build());
@@ -635,6 +703,202 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalFilter<>(boundConjuncts.build(), filter.child());
     }
 
+    /**
+     * there a dup table sales
+     * CREATE TABLE sales (
+     *    year INT,
+     *    country STRING,
+     *    product STRING,
+     *    profit INT
+     * )
+     * DISTRIBUTED BY HASH(`year`)
+     * PROPERTIES (
+     * "replication_num" = "1"
+     * );
+     * 1.qualify -> project
+     * for example :
+     * select year + 1 as year from sales qualify row_number() over (order by year, country) = 1;
+     * We are binding the year field of table sales. Instead of renaming year
+     * -----------------------------------------------------------------------------------------------------------------
+     * 2.qualify -> project(distinct)
+     * for example:
+     * select distinct year + 1, country from sales qualify row_number() over (order by year + 1) > 1;
+     * We are binding the year field of table sales.
+     * -----------------------------------------------------------------------------------------------------------------
+     * 3.qualify -> project(distinct) -> agg
+     * for example:
+     * select distinct year + 1 as year from sales group by year qualify row_number() over (order by year) = 1;
+     * We are binding the year field of group by output. Instead of renaming year
+     * -----------------------------------------------------------------------------------------------------------------
+     * 4.qualify -> project(distinct) -> having -> agg
+     * for example:
+     * select distinct year,country from sales group by year,country having year > 2000
+     * qualify row_number() over (order by year + 1) > 1;
+     * We are binding the year field of group output.
+     *-----------------------------------------------------------------------------------------------------------------
+     * Note: For the query without agg, we first bind slot from the child of the project.
+     * If it cannot be bound in the child, then bind slot from the project.
+     * If query with agg, we bind slot from the group by first. if not then bind slot from the group output
+     * or not bind slot from the agg child output finally.
+     */
+    private Plan bindQualifyProject(MatchingContext<LogicalQualify<LogicalProject<Plan>>> ctx) {
+        LogicalQualify<LogicalProject<Plan>> qualify = ctx.root;
+        CascadesContext cascadesContext = ctx.cascadesContext;
+        LogicalProject<Plan> project = qualify.child();
+        ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
+                qualify.getConjuncts().size());
+        if (project.child() instanceof Aggregate) {
+            Aggregate<Plan> aggregate = (Aggregate<Plan>) project.child();
+            bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
+        } else if (project.child() instanceof LogicalHaving) {
+            LogicalHaving<Plan> having = (LogicalHaving<Plan>) project.child();
+            if (having.child() instanceof Aggregate) {
+                Aggregate<Plan> aggregate = (Aggregate<Plan>) having.child();
+                bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
+            } else {
+                throw new AnalysisException("unknown query structure");
+            }
+        } else {
+            bindQualifyByProject(project, cascadesContext, qualify, boundConjuncts);
+        }
+        return new LogicalQualify<>(boundConjuncts.build(), qualify.child());
+    }
+
+    /**
+     * 1.qualify -> having -> agg
+     * for example:
+     * select country, sum(profit) as total, row_number() over (order by country) as rk from sales where year >= 2000
+     * group by country having sum(profit) > 100 qualify rk = 1
+     * We are binding the country field from group by.
+     * -----------------------------------------------------------------------------------------------------------------
+     * 2.qualify -> having -> project
+     * for example:
+     * select year, country, profit, row_number() over (partition by year, country order by profit desc) as rk from
+     * (select * from sales) a where year >= 2000 having profit > 200 qualify rk = 1 order by profit,country limit 3
+     * We are binding year/country/profit from sales
+     * -----------------------------------------------------------------------------------------------------------------
+     * 3.qualify -> having -> project(distinct)
+     * for example:
+     * select distinct year + 1 as year from sales qualify row_number() over (order by year) = 1;
+     * we are binding year from sales. Instead of renaming year
+     */
+    private Plan bindQualifyHaving(MatchingContext<LogicalQualify<LogicalHaving<Plan>>> ctx) {
+        LogicalQualify<LogicalHaving<Plan>> qualify = ctx.root;
+        CascadesContext cascadesContext = ctx.cascadesContext;
+        LogicalHaving<Plan> having = qualify.child();
+        ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
+                qualify.getConjuncts().size());
+        if (having.child() instanceof Aggregate) {
+            bindQualifyByAggregate((Aggregate<? extends Plan>) having.child(), cascadesContext, qualify,
+                    boundConjuncts);
+        } else {
+            bindQualifyByProject((LogicalProject<? extends Plan>) having.child(), cascadesContext, qualify,
+                    boundConjuncts);
+        }
+        return new LogicalQualify<>(boundConjuncts.build(), qualify.child());
+    }
+
+    /**
+     * qualify -> agg
+     * for example:
+     * select country, sum(profit) as total, row_number() over (order by country) as rk from sales qualify rk > 1
+     * we are binding the country field from group by.
+     */
+    private Plan bindQualifyAggregate(MatchingContext<LogicalQualify<Aggregate<Plan>>> ctx) {
+        LogicalQualify<Aggregate<Plan>> qualify = ctx.root;
+        CascadesContext cascadesContext = ctx.cascadesContext;
+        Aggregate<Plan> aggregate = qualify.child();
+        ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
+                qualify.getConjuncts().size());
+        bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
+        return new LogicalQualify<>(boundConjuncts.build(), qualify.child());
+    }
+
+    private void bindQualifyByProject(LogicalProject<? extends Plan> project, CascadesContext cascadesContext,
+                                    LogicalQualify<? extends Plan> qualify,
+                                    ImmutableSet.Builder<Expression> boundConjuncts) {
+        Supplier<Scope> defaultScope = Suppliers.memoize(() ->
+                toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(project.children()))
+        );
+        Scope backupScope = toScope(cascadesContext, project.getOutput());
+
+        SimpleExprAnalyzer analyzer = buildCustomSlotBinderAnalyzer(
+                qualify, cascadesContext, defaultScope.get(), true, true,
+                (self, unboundSlot) -> {
+                List<Slot> slots = self.bindSlotByScope(unboundSlot, defaultScope.get());
+                if (!slots.isEmpty()) {
+                    return slots;
+                }
+                return self.bindSlotByScope(unboundSlot, backupScope);
+                });
+
+        for (Expression conjunct : qualify.getConjuncts()) {
+            conjunct = analyzer.analyze(conjunct);
+            conjunct = TypeCoercionUtils.castIfNotSameType(conjunct, BooleanType.INSTANCE);
+            boundConjuncts.add(conjunct);
+        }
+    }
+
+    private void bindQualifyByAggregate(Aggregate<? extends Plan> aggregate, CascadesContext cascadesContext,
+                                      LogicalQualify<? extends Plan> qualify,
+                                      ImmutableSet.Builder<Expression> boundConjuncts) {
+        Supplier<CustomSlotBinderAnalyzer> bindByAggChild = Suppliers.memoize(() -> {
+            Scope aggChildOutputScope
+                    = toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(aggregate.children()));
+            return (analyzer, unboundSlot) -> analyzer.bindSlotByScope(unboundSlot, aggChildOutputScope);
+        });
+        Scope aggOutputScope = toScope(cascadesContext, aggregate.getOutput());
+        Supplier<CustomSlotBinderAnalyzer> bindByGroupByThenAggOutputThenAggChildOutput = Suppliers.memoize(() -> {
+            List<Expression> groupByExprs = aggregate.getGroupByExpressions();
+            ImmutableList.Builder<Slot> groupBySlots = ImmutableList.builderWithExpectedSize(groupByExprs.size());
+            for (Expression groupBy : groupByExprs) {
+                if (groupBy instanceof Slot) {
+                    groupBySlots.add((Slot) groupBy);
+                }
+            }
+            Scope groupBySlotsScope = toScope(cascadesContext, groupBySlots.build());
+
+            return (analyzer, unboundSlot) -> {
+                List<Slot> boundInGroupBy = analyzer.bindSlotByScope(unboundSlot, groupBySlotsScope);
+                if (!boundInGroupBy.isEmpty()) {
+                    return ImmutableList.of(boundInGroupBy.get(0));
+                }
+                List<Slot> boundInAggOutput = analyzer.bindSlotByScope(unboundSlot, aggOutputScope);
+                if (!boundInAggOutput.isEmpty()) {
+                    return ImmutableList.of(boundInAggOutput.get(0));
+                }
+                List<? extends Expression> expressions = bindByAggChild.get().bindSlot(analyzer, unboundSlot);
+                return expressions.isEmpty() ? expressions : ImmutableList.of(expressions.get(0));
+            };
+        });
+
+        ExpressionAnalyzer qualifyAnalyzer = new ExpressionAnalyzer(qualify, aggOutputScope, cascadesContext,
+                true, true) {
+            @Override
+            protected List<? extends Expression> bindSlotByThisScope(UnboundSlot unboundSlot) {
+                return bindByGroupByThenAggOutputThenAggChildOutput.get().bindSlot(this, unboundSlot);
+            }
+        };
+
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        for (Expression expression : qualify.getConjuncts()) {
+            Expression boundConjunct = qualifyAnalyzer.analyze(expression, rewriteContext);
+            boundConjunct = TypeCoercionUtils.castIfNotSameType(boundConjunct, BooleanType.INSTANCE);
+            boundConjuncts.add(boundConjunct);
+        }
+    }
+
+    private List<Slot> exceptStarSlots(Set<NamedExpression> boundExcepts, BoundStar boundStar) {
+        List<Slot> slots = boundStar.getSlots();
+        if (!boundExcepts.isEmpty()) {
+            slots = Utils.filterImmutableList(slots, slot -> !boundExcepts.contains(slot));
+            if (slots.isEmpty()) {
+                throw new AnalysisException("All slots in * EXCEPT clause are excepted");
+            }
+        }
+        return slots;
+    }
+
     private Plan bindAggregate(MatchingContext<LogicalAggregate<Plan>> ctx) {
         LogicalAggregate<Plan> agg = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
@@ -642,10 +906,35 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer aggOutputAnalyzer = buildSimpleExprAnalyzer(
                 agg, cascadesContext, agg.children(), true, true);
         List<NamedExpression> boundAggOutput = aggOutputAnalyzer.analyzeToList(agg.getOutputExpressions());
-        Supplier<Scope> aggOutputScopeWithoutAggFun = buildAggOutputScopeWithoutAggFun(boundAggOutput, cascadesContext);
+        List<NamedExpression> boundProjections = new ArrayList<>(boundAggOutput.size());
+        for (int i = 0; i < boundAggOutput.size(); i++) {
+            NamedExpression output = boundAggOutput.get(i);
+            if (output instanceof BoundStar) {
+                UnboundStar unboundStar = (UnboundStar) agg.getOutputExpression(i);
+                if (!unboundStar.getReplacedAlias().isEmpty()) {
+                    // If user use * replace in agg, witch slot the group by clause should reference is ambiguous.
+                    // For example, select * replace (col % 2 as col) from t group by col
+                    // The sql should be rewritten like follows:
+                    // select * except (col), col % 2 as col1 from t group by ..., col1
+                    // or
+                    // select * except (col), col % 2 as col1 from t group by ..., col -- group by origin col in t
+                    throw new AnalysisException("* REPLACE in agg clause is not supported, use * EXCEPT instead");
+                }
+                List<NamedExpression> excepts = unboundStar.getExceptedSlots();
+                Set<NamedExpression> boundExcepts = Suppliers.memoize(
+                        () -> aggOutputAnalyzer.analyzeToSet(excepts)).get();
+                List<Slot> slots = exceptStarSlots(boundExcepts, (BoundStar) output);
+                boundProjections.addAll(slots);
+            } else {
+                boundProjections.add(output);
+            }
+        }
+
+        Supplier<Scope> aggOutputScopeWithoutAggFun =
+                buildAggOutputScopeWithoutAggFun(boundProjections, cascadesContext);
         List<Expression> boundGroupBy = bindGroupBy(
-                 agg, agg.getGroupByExpressions(), boundAggOutput, aggOutputScopeWithoutAggFun, cascadesContext);
-        return agg.withGroupByAndOutput(boundGroupBy, boundAggOutput);
+                agg, agg.getGroupByExpressions(), boundProjections, aggOutputScopeWithoutAggFun, cascadesContext);
+        return agg.withGroupByAndOutput(boundGroupBy, boundProjections);
     }
 
     private Plan bindRepeat(MatchingContext<LogicalRepeat<Plan>> ctx) {
@@ -853,7 +1142,11 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) bindResult.first);
     }
 
-    private void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
+    /**
+     * Check the slot in childOutputs is duplicated or not
+     * If childOutputs has duplicated column name, would throw analysis exception
+     */
+    public static void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
         Set<String> nameSlots = new HashSet<>(childOutputs.size() * 2);
         for (Slot s : childOutputs) {
             if (!nameSlots.add(s.getInternalName())) {

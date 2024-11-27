@@ -42,6 +42,7 @@ suite("test_stopwords", "p0"){
 
     try {
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true """
 
         qt_sql """ select * from ${indexTbName} where b match 'a'; """
         qt_sql """ select * from ${indexTbName} where b match 'are'; """

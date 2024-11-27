@@ -38,6 +38,12 @@
 -- !sql --
 \N
 
+-- !lower_bound --
+\N
+
+-- !lower_bound --
+0000-01-01T00:00
+
 -- !sql_convert_tz_null --
 \N
 \N

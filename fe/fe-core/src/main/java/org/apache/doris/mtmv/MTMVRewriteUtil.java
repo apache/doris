@@ -31,8 +31,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 public class MTMVRewriteUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVRewriteUtil.class);
@@ -45,18 +43,9 @@ public class MTMVRewriteUtil {
      * @return
      */
     public static Collection<Partition> getMTMVCanRewritePartitions(MTMV mtmv, ConnectContext ctx,
-            long currentTimeMills) {
+            long currentTimeMills, boolean forceConsistent) {
         List<Partition> res = Lists.newArrayList();
         Collection<Partition> allPartitions = mtmv.getPartitions();
-        // check session variable if enable rewrite
-        if (!ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
-            return res;
-        }
-        if (MTMVUtil.mtmvContainsExternalTable(mtmv) && !ctx.getSessionVariable()
-                .isMaterializedViewRewriteEnableContainExternalTable()) {
-            return res;
-        }
-
         MTMVRelation mtmvRelation = mtmv.getRelation();
         if (mtmvRelation == null) {
             return res;
@@ -66,21 +55,27 @@ public class MTMVRewriteUtil {
                 || mtmv.getStatus().getRefreshState() == MTMVRefreshState.INIT) {
             return res;
         }
-        Map<String, Set<String>> partitionMappings = null;
+        MTMVRefreshContext refreshContext = null;
         // check gracePeriod
         long gracePeriodMills = mtmv.getGracePeriod();
         for (Partition partition : allPartitions) {
             if (gracePeriodMills > 0 && currentTimeMills <= (partition.getVisibleVersionTime()
-                    + gracePeriodMills)) {
+                    + gracePeriodMills) && !forceConsistent) {
                 res.add(partition);
                 continue;
             }
-            try {
-                if (partitionMappings == null) {
-                    partitionMappings = mtmv.calculatePartitionMappings();
+            if (refreshContext == null) {
+                try {
+                    refreshContext = MTMVRefreshContext.buildContext(mtmv);
+                } catch (AnalysisException e) {
+                    LOG.warn("buildContext failed", e);
+                    // After failure, one should quickly return to avoid repeated failures
+                    return res;
                 }
-                if (MTMVPartitionUtil.isMTMVPartitionSync(mtmv, partition.getName(),
-                        partitionMappings.get(partition.getName()), mtmvRelation.getBaseTables(),
+            }
+            try {
+                if (MTMVPartitionUtil.isMTMVPartitionSync(refreshContext, partition.getName(),
+                        mtmvRelation.getBaseTablesOneLevel(),
                         Sets.newHashSet())) {
                     res.add(partition);
                 }

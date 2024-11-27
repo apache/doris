@@ -54,6 +54,8 @@ suite("test_date_function") {
     qt_sql """ SELECT convert_tz('2022-2-29 13:21:03', '+08:00', 'America/London') result; """
     qt_sql """ SELECT convert_tz('2022-02-29 13:21:03', '+08:00', 'America/London') result; """
     qt_sql """ SELECT convert_tz('1900-00-00 13:21:03', '+08:00', 'America/London') result; """
+    qt_lower_bound """ select convert_tz('0000-01-01 00:00:00', '+08:00', '-02:00'); """
+    qt_lower_bound """ select convert_tz('0000-01-01 00:00:00', '+08:00', '+08:00'); """
 
     // bug fix
     sql """ insert into ${tableName} values 

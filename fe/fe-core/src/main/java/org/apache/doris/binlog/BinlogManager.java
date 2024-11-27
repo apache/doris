@@ -18,6 +18,7 @@
 package org.apache.doris.binlog;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.IndexChangeJob;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -25,14 +26,19 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
+import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
+import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
+import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableInfo;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
@@ -42,6 +48,7 @@ import org.apache.doris.thrift.TStatusCode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -226,7 +233,7 @@ public class BinlogManager {
         AlterJobRecord alterJobRecord = new AlterJobRecord(alterJob);
         String data = alterJobRecord.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, alterJob);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, alterJobRecord);
     }
 
     public void addModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info, long commitSeq) {
@@ -317,7 +324,7 @@ public class BinlogManager {
         TruncateTableRecord record = new TruncateTableRecord(info);
         String data = record.toJson();
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, record);
     }
 
     public void addTableRename(TableInfo info, long commitSeq) {
@@ -328,6 +335,98 @@ public class BinlogManager {
         TBinlogType type = TBinlogType.RENAME_TABLE;
         String data = info.toJson();
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addRollupRename(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RENAME_ROLLUP;
+        String data = info.toJson();
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addPartitionRename(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RENAME_PARTITION;
+        String data = info.toJson();
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addModifyComment(ModifyCommentOperationLog info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTblId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_COMMENT;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addColumnRename(TableRenameColumnInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RENAME_COLUMN;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    // add Modify view
+    public void addModifyViewDef(AlterViewInfo alterViewInfo, long commitSeq) {
+        long dbId = alterViewInfo.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(alterViewInfo.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_VIEW_DEF;
+        String data = alterViewInfo.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, alterViewInfo);
+    }
+
+    public void addReplaceTable(ReplaceTableOperationLog info, long commitSeq) {
+        if (StringUtils.isEmpty(info.getOrigTblName()) || StringUtils.isEmpty(info.getNewTblName())) {
+            LOG.warn("skip replace table binlog, because origTblName or newTblName is empty. info: {}", info);
+            return;
+        }
+
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getOrigTblId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.REPLACE_TABLE;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addIndexChangeJob(IndexChangeJob indexChangeJob, long commitSeq) {
+        long dbId = indexChangeJob.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(indexChangeJob.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.INDEX_CHANGE_JOB;
+        String data = indexChangeJob.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, indexChangeJob);
     }
 
     // get binlog by dbId, return first binlog.version > version
@@ -375,6 +474,34 @@ public class BinlogManager {
                 return Lists.newArrayList();
             }
             return dbBinlog.getDroppedPartitions();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    // get the dropped tables of the db.
+    public List<Long> getDroppedTables(long dbId) {
+        lock.readLock().lock();
+        try {
+            DBBinlog dbBinlog = dbBinlogMap.get(dbId);
+            if (dbBinlog == null) {
+                return Lists.newArrayList();
+            }
+            return dbBinlog.getDroppedTables();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    // get the dropped indexes of the db.
+    public List<Long> getDroppedIndexes(long dbId) {
+        lock.readLock().lock();
+        try {
+            DBBinlog dbBinlog = dbBinlogMap.get(dbId);
+            if (dbBinlog == null) {
+                return Lists.newArrayList();
+            }
+            return dbBinlog.getDroppedIndexes();
         } finally {
             lock.readLock().unlock();
         }
@@ -541,8 +668,13 @@ public class BinlogManager {
                     continue;
                 }
 
-                // Step 2.2: check if there is in next db Binlogs region
                 long dbId = binlog.getDbId();
+                if (binlog.getType().getValue() >= TBinlogType.MIN_UNKNOWN.getValue()) {
+                    LOG.warn("skip unknown binlog, type: {}, db: {}", binlog.getType().getValue(), dbId);
+                    continue;
+                }
+
+                // Step 2.2: check if there is in next db Binlogs region
                 if (dbId != currentDbId) {
                     // if there is in next db Binlogs region, check and update metadata
                     Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);

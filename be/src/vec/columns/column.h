@@ -88,10 +88,7 @@ public:
     using Offsets = PaddedPODArray<Offset>;
 
     /// Name of a Column. It is used in info messages.
-    virtual std::string get_name() const { return get_family_name(); }
-
-    /// Name of a Column kind, without parameters (example: FixedString, Array).
-    virtual const char* get_family_name() const = 0;
+    virtual std::string get_name() const = 0;
 
     /** If column isn't constant, returns nullptr (or itself).
       * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
@@ -124,19 +121,14 @@ public:
     /// If size is less current size, then data is cut.
     /// If size is greater, than default values are appended.
     virtual MutablePtr clone_resized(size_t s) const {
-        LOG(FATAL) << "Cannot clone_resized() column " << get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method clone_resized is not supported for " + get_name());
         return nullptr;
     }
 
-    // shrink the end zeros for CHAR type or ARRAY<CHAR> type
-    virtual MutablePtr get_shrinked_column() {
-        LOG(FATAL) << "Cannot get_shrinked_column() column " << get_name();
-        return nullptr;
-    }
-
-    // check the column whether could shrinked
-    // now support only in char type, or the nested type in complex type: array{char}, struct{char}, map{char}
-    virtual bool could_shrinked_column() { return false; }
+    // shrink the end zeros for ColumnStr(also for who has it nested). so nest column will call it for all nested.
+    // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
+    virtual void shrink_padding_chars() {}
 
     /// Some columns may require finalization before using of other operations.
     virtual void finalize() {}
@@ -164,7 +156,8 @@ public:
     virtual StringRef get_data_at(size_t n) const = 0;
 
     virtual Int64 get_int(size_t /*n*/) const {
-        LOG(FATAL) << "Method get_int is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method get_int is not supported for " + get_name());
         return 0;
     }
 
@@ -175,16 +168,26 @@ public:
       * Otherwise throw an exception.
       */
     virtual bool get_bool(size_t /*n*/) const {
-        LOG(FATAL) << "Method get_bool is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method get_bool is not supported for " + get_name());
         return false;
     }
 
     /// Removes all elements outside of specified range.
     /// Is used in LIMIT operation, for example.
-    virtual Ptr cut(size_t start, size_t length) const {
+    virtual Ptr cut(size_t start, size_t length) const final {
         MutablePtr res = clone_empty();
         res->insert_range_from(*this, start, length);
         return res;
+    }
+
+    /// cut or expand inplace. `this` would be moved, only the return value is avaliable.
+    virtual Ptr shrink(size_t length) const final {
+        // NOLINTBEGIN(performance-move-const-arg)
+        MutablePtr res = std::move(*this).mutate();
+        res->resize(length);
+        // NOLINTEND(performance-move-const-arg)
+        return res->get_ptr();
     }
 
     /// Appends new value at the end of column (column's size is increased by 1).
@@ -215,8 +218,11 @@ public:
         }
     }
 
+    // insert the data of target columns into self column according to positions
+    // positions[i] means index of srcs whitch need to insert_from
+    // the virtual function overhead of multiple calls to insert_from can be reduced to once
     virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
-                                          std::vector<size_t> positions);
+                                          const std::vector<size_t>& positions) = 0;
 
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
@@ -230,45 +236,48 @@ public:
     virtual void insert_data(const char* pos, size_t length) = 0;
 
     virtual void insert_many_fix_len_data(const char* pos, size_t num) {
-        LOG(FATAL) << "Method insert_many_fix_len_data is not supported for " << get_name();
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method insert_many_fix_len_data is not supported for " + get_name());
     }
 
     // todo(zeno) Use dict_args temp object to cover all arguments
     virtual void insert_many_dict_data(const int32_t* data_array, size_t start_index,
                                        const StringRef* dict, size_t data_num,
                                        uint32_t dict_num = 0) {
-        LOG(FATAL) << "Method insert_many_dict_data is not supported for " << get_name();
-    }
-
-    virtual void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                         uint32_t* start_offset_array, size_t num) {
-        LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method insert_many_dict_data is not supported for " + get_name());
     }
 
     /// Insert binary data into column from a continuous buffer, the implementation maybe copy all binary data
     /// in one single time.
     virtual void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
                                                     const size_t num) {
-        LOG(FATAL) << "Method insert_many_continuous_binary_data is not supported for "
-                   << get_name();
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method insert_many_continuous_binary_data is not supported for " + get_name());
     }
 
     virtual void insert_many_strings(const StringRef* strings, size_t num) {
-        LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method insert_many_strings is not supported for " + get_name());
     }
 
     virtual void insert_many_strings_overflow(const StringRef* strings, size_t num,
                                               size_t max_length) {
-        LOG(FATAL) << "Method insert_many_strings_overflow is not supported for " << get_name();
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method insert_many_strings_overflow is not supported for " + get_name());
     }
 
     // Here `pos` points to the memory data type is the same as the data type of the column.
     // This function is used by `insert_keys_into_columns` in AggregationNode.
     virtual void insert_many_raw_data(const char* pos, size_t num) {
-        LOG(FATAL) << "Method insert_many_raw_data is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method insert_many_raw_data is not supported for " + get_name());
     }
 
-    void insert_many_data(const char* pos, size_t length, size_t data_num) {
+    void insert_data_repeatedly(const char* pos, size_t length, size_t data_num) {
         for (size_t i = 0; i < data_num; ++i) {
             insert_data(pos, length);
         }
@@ -309,32 +318,39 @@ public:
     /// Return the size of largest row.
     /// This is for calculating the memory size for vectorized serialization of aggregation keys.
     virtual size_t get_max_row_byte_size() const {
-        LOG(FATAL) << "get_max_row_byte_size not supported";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method get_max_row_byte_size is not supported for " + get_name());
         return 0;
     }
 
     virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                size_t max_row_byte_size) const {
-        LOG(FATAL) << "serialize_vec not supported";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method serialize_vec is not supported for " + get_name());
         __builtin_unreachable();
     }
 
     virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                              const uint8_t* null_map) const {
-        LOG(FATAL) << "serialize_vec_with_null_map not supported";
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method serialize_vec_with_null_map is not supported for " + get_name());
         __builtin_unreachable();
     }
 
     // This function deserializes group-by keys into column in the vectorized way.
     virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
-        LOG(FATAL) << "deserialize_vec not supported";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method deserialize_vec is not supported for " + get_name());
         __builtin_unreachable();
     }
 
     // Used in ColumnNullable::deserialize_vec
     virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
                                                const uint8_t* null_map) {
-        LOG(FATAL) << "deserialize_vec_with_null_map not supported";
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method deserialize_vec_with_null_map is not supported for " + get_name());
         __builtin_unreachable();
     }
 
@@ -343,7 +359,8 @@ public:
     /// On subsequent calls of this method for sequence of column values of arbitrary types,
     ///  passed bytes to hash must identify sequence of values unambiguously.
     virtual void update_hash_with_value(size_t n, SipHash& hash) const {
-        LOG(FATAL) << get_name() << " update_hash_with_value siphash not supported";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method update_hash_with_value is not supported for " + get_name());
     }
 
     /// Update state of hash function with value of n elements to avoid the virtual function call
@@ -352,13 +369,17 @@ public:
     /// do xxHash here, faster than other sip hash
     virtual void update_hashes_with_value(uint64_t* __restrict hashes,
                                           const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << get_name() << " update_hashes_with_value xxhash not supported";
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method update_hashes_with_value is not supported for " + get_name());
     }
 
     // use range for one hash value to avoid virtual function call in loop
     virtual void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                           const uint8_t* __restrict null_data) const {
-        LOG(FATAL) << get_name() << " update_hash_with_value xxhash not supported";
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method update_xxHash_with_value is not supported for " + get_name());
     }
 
     /// Update state of crc32 hash function with value of n elements to avoid the virtual function call
@@ -367,13 +388,15 @@ public:
     virtual void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
                                         uint32_t rows, uint32_t offset = 0,
                                         const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << get_name() << "update_crcs_with_value not supported";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method update_crcs_with_value is not supported for " + get_name());
     }
 
     // use range for one hash value to avoid virtual function call in loop
     virtual void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                        const uint8_t* __restrict null_data) const {
-        LOG(FATAL) << get_name() << " update_crc_with_value not supported";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method update_crc_with_value is not supported for " + get_name());
     }
 
     /** Removes elements that don't match the filter.
@@ -397,12 +420,14 @@ public:
      *  happends in filter_by_selector because of mem-reuse logic or ColumnNullable, I think this is meaningless;
      *  So using raw ptr directly here.
      *  NOTICE: only column_nullable and predict_column, column_dictionary now support filter_by_selector
+     *  // nullable -> predict_column
+     *  // string (dictionary) -> column_dictionary
      */
     virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-        LOG(FATAL) << get_name()
-                   << " do not support filter_by_selector, only column_nullable, column_dictionary "
-                      "and predict_column "
-                      "support";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method filter_by_selector is not supported for {}, only "
+                               "column_nullable, column_dictionary and predict_column support",
+                               get_name());
         __builtin_unreachable();
     }
 
@@ -424,8 +449,7 @@ public:
       * For array/map/struct types, we compare with nested column element and offsets size
       */
     virtual int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "compare_at for " + std::string(get_family_name()));
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "compare_at for " + get_name());
     }
 
     /**
@@ -447,7 +471,7 @@ public:
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                  Permutation& res) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "get_permutation for " + std::string(get_family_name()));
+                               "get_permutation for " + get_name());
     }
 
     /** Copies each element according offsets parameter.
@@ -463,23 +487,19 @@ public:
         }
     }
 
-    /// Returns column with @total_size elements.
-    /// In result column values from current column are at positions from @offsets.
-    /// Other values are filled by @default_value.
-    /// @shift means how much rows to skip from the beginning of current column.
-    /// Used to create full column from sparse.
-    virtual Ptr create_with_offsets(const Offsets64& offsets, const Field& default_field,
-                                    size_t total_rows, size_t shift) const;
-
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
-      * For default implementation, see scatter_impl.
+      * For default implementation, see column_impl.h
       */
     using ColumnIndex = UInt64;
     using Selector = PaddedPODArray<ColumnIndex>;
 
+    // The append_data_by_selector function requires the column to implement the insert_from function.
+    // In fact, this function is just calling insert_from but without the overhead of a virtual function.
+
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector) const = 0;
 
+    // Here, begin and end represent the range of the Selector.
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector, size_t begin,
                                          size_t end) const = 0;
 
@@ -514,7 +534,8 @@ public:
     /// Columns have equal structure.
     /// If true - you can use "compare_at", "insert_from", etc. methods.
     virtual bool structure_equals(const IColumn&) const {
-        LOG(FATAL) << "Method structure_equals is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method structure_equals is not supported for " + get_name());
         return false;
     }
 
@@ -543,16 +564,14 @@ public:
 
     /// Various properties on behaviour of column type.
 
-    /// True if column contains something nullable inside. It's true for ColumnNullable, can be true or false for ColumnConst, etc.
+    /// It's true for ColumnNullable only.
     virtual bool is_nullable() const { return false; }
+    /// It's true for ColumnNullable, can be true or false for ColumnConst, etc.
+    virtual bool is_concrete_nullable() const { return false; }
 
     virtual bool is_bitmap() const { return false; }
 
     virtual bool is_hll() const { return false; }
-
-    virtual bool is_variant() const { return false; }
-
-    virtual bool is_quantile_state() const { return false; }
 
     // true if column has null element
     virtual bool has_null() const { return false; }
@@ -582,19 +601,10 @@ public:
       * To avoid confusion between these cases, we don't have isContiguous method.
       */
 
-    /// Values in column are represented as continuous memory segment of fixed size. Implies values_have_fixed_size.
-    virtual bool is_fixed_and_contiguous() const { return false; }
-
-    /// If is_fixed_and_contiguous, returns the underlying data array, otherwise throws an exception.
     virtual StringRef get_raw_data() const {
-        LOG(FATAL) << fmt::format("Column {} is not a contiguous block of memory", get_name());
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Column {} is not a contiguous block of memory", get_name());
         return StringRef {};
-    }
-
-    /// If values_have_fixed_size, returns size of value, otherwise throw an exception.
-    virtual size_t size_of_value_if_fixed() const {
-        LOG(FATAL) << fmt::format("Values of column {} are not fixed size.", get_name());
-        return 0;
     }
 
     /// Returns ratio of values in column, that are equal to default value of column.
@@ -625,6 +635,20 @@ public:
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
 
+    /**
+     * ColumnSorter is used to sort each columns in a Block. In this sorting pattern, sorting a
+     * column will produce a list of EqualRange which has the same elements respectively. And for
+     * next column in this block, we only need to sort rows in those `range`.
+     *
+     * Besides, we do not materialize sorted data eagerly. Instead, the intermediate sorting results
+     * are represendted by permutation and data will be materialized after all of columns are sorted.
+     *
+     * @sorter: ColumnSorter is used to do sorting.
+     * @flags : indicates if current item equals to the previous one.
+     * @perms : permutation after sorting
+     * @range : EqualRange which has the same elements respectively.
+     * @last_column : indicates if this column is the last in this block.
+     */
     virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                              IColumn::Permutation& perms, EqualRange& range,
                              bool last_column) const;
@@ -639,8 +663,11 @@ public:
 
     // only used in agg value replace
     // ColumnString should replace according to 0,1,2... ,size,0,1,2...
+    // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
-
+    // replace data to default value if null, used to avoid null data output decimal check failure
+    // usage: nested_column.replace_column_null_data(nested_null_map.data())
+    // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
     virtual bool is_date_type() const { return is_date; }
@@ -668,6 +695,9 @@ protected:
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector, size_t begin,
                                       size_t end) const;
+    template <typename Derived>
+    void insert_from_multi_column_impl(const std::vector<const IColumn*>& srcs,
+                                       const std::vector<size_t>& positions);
 };
 
 using ColumnPtr = IColumn::Ptr;

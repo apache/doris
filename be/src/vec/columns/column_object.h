@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+#include <butil/compiler_specific.h>
 #include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
@@ -94,6 +95,12 @@ public:
     // Using jsonb type as most common type, since it's adopted all types of json
     using MostCommonType = DataTypeJsonb;
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
+    // Nullable(Array(Nullable(Object)))
+    const static DataTypePtr NESTED_TYPE;
+    // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
+    // merge and encode them into a shared column in root column. Only affects in flush block to segments.
+    // Otherwise read mode should be as default mode.
+    enum class FinalizeMode { WRITE_MODE, READ_MODE };
     class Subcolumn {
     public:
         Subcolumn() = default;
@@ -123,8 +130,7 @@ public:
 
         size_t get_dimensions() const { return least_common_type.get_dimensions(); }
 
-        /// Checks the consistency of column's parts stored in @data.
-        void checkTypes() const;
+        void get(size_t n, Field& res) const;
 
         /// Inserts a field, which scalars can be arbitrary, but number of
         /// dimensions should be consistent with current common type.
@@ -133,22 +139,29 @@ public:
 
         void insert(Field field, FieldInfo info);
 
-        void insertDefault();
+        void insert_default();
 
-        void insertManyDefaults(size_t length);
+        void insert_many_defaults(size_t length);
 
-        void insertRangeFrom(const Subcolumn& src, size_t start, size_t length);
+        void insert_range_from(const Subcolumn& src, size_t start, size_t length);
+
+        /// Recreates subcolumn with default scalar values and keeps sizes of arrays.
+        /// Used to create columns of type Nested with consistent array sizes.
+        Subcolumn clone_with_default_values(const FieldInfo& field_info) const;
 
         void pop_back(size_t n);
 
+        // Cut a new subcolumns from current one, element from start to start + length
+        Subcolumn cut(size_t start, size_t length) const;
+
         /// Converts all column's parts to the common type and
         /// creates a single column that stores all values.
-        void finalize();
-
-        bool check_if_sparse_column(size_t num_rows);
+        void finalize(FinalizeMode mode = FinalizeMode::READ_MODE);
 
         /// Returns last inserted field.
         Field get_last_field() const;
+
+        bool check_if_sparse_column(size_t num_rows);
 
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.
@@ -177,8 +190,12 @@ public:
 
             const DataTypePtr& get_base() const { return base_type; }
 
+            // The least command type id
             const TypeIndex& get_type_id() const { return type_id; }
 
+            // The inner least common type if of array,
+            // example: Array(Nullable(Object))
+            // then the base type id is Object
             const TypeIndex& get_base_type_id() const { return base_type_id; }
 
             size_t get_dimensions() const { return num_dimensions; }
@@ -255,12 +272,12 @@ public:
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
     }
 
-    Status serialize_one_row_to_string(int row, std::string* output) const;
+    Status serialize_one_row_to_string(int64_t row, std::string* output) const;
 
-    Status serialize_one_row_to_string(int row, BufferWritable& output) const;
+    Status serialize_one_row_to_string(int64_t row, BufferWritable& output) const;
 
     // serialize one row to json format
-    Status serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
+    Status serialize_one_row_to_json_format(int64_t row, rapidjson::StringBuffer* output,
                                             bool* is_null) const;
 
     // merge multiple sub sparse columns into root
@@ -270,10 +287,14 @@ public:
     void ensure_root_node_type(const DataTypePtr& type);
 
     // create jsonb root if missing
+    // notice: should only using in VariantRootColumnIterator
+    // since some datastructures(sparse columns are schema on read
     void create_root();
 
     // create root with type and column if missing
     void create_root(const DataTypePtr& type, MutableColumnPtr&& column);
+
+    DataTypePtr get_most_common_type() const;
 
     // root is null or type nothing
     bool is_null_root() const;
@@ -281,13 +302,13 @@ public:
     // Only single scalar root column
     bool is_scalar_variant() const;
 
+    bool is_exclusive() const override;
+
     ColumnPtr get_root() const { return subcolumns.get_root()->data.get_finalized_column_ptr(); }
 
     bool has_subcolumn(const PathInData& key) const;
 
     DataTypePtr get_root_type() const;
-
-    bool is_variant() const override { return true; }
 
     // return null if not found
     const Subcolumn* get_subcolumn(const PathInData& key) const;
@@ -295,24 +316,11 @@ public:
     // return null if not found
     const Subcolumn* get_subcolumn(const PathInData& key, size_t index_hint) const;
 
-    /** More efficient methods of manipulation */
-    [[noreturn]] IColumn& get_data() {
-        LOG(FATAL) << "Not implemented method get_data()";
-        __builtin_unreachable();
-    }
-    [[noreturn]] const IColumn& get_data() const {
-        LOG(FATAL) << "Not implemented method get_data()";
-        __builtin_unreachable();
-    }
-
     // return null if not found
     Subcolumn* get_subcolumn(const PathInData& key);
 
     // return null if not found
     Subcolumn* get_subcolumn(const PathInData& key, size_t index_hint);
-
-    // return null if not found
-    const Subcolumn* get_subcolumn_with_cache(const PathInData& key, size_t index_hint) const;
 
     void incr_num_rows() { ++num_rows; }
 
@@ -327,6 +335,13 @@ public:
 
     /// Adds a subcolumn of specific size with default values.
     bool add_sub_column(const PathInData& key, size_t new_size);
+    /// Adds a subcolumn of type Nested of specific size with default values.
+    /// It cares about consistency of sizes of Nested arrays.
+    void add_nested_subcolumn(const PathInData& key, const FieldInfo& field_info, size_t new_size);
+    /// Finds a subcolumn from the same Nested type as @entry and inserts
+    /// an array with default values with consistent sizes as in Nested type.
+    bool try_insert_default_from_nested(const Subcolumns::NodePtr& entry) const;
+    bool try_insert_many_defaults_from_nested(const Subcolumns::NodePtr& entry) const;
 
     const Subcolumns& get_subcolumns() const { return subcolumns; }
 
@@ -336,25 +351,8 @@ public:
 
     PathsInData getKeys() const;
 
-    std::string get_keys_str() const {
-        std::stringstream ss;
-        bool first = true;
-        for (auto& k : getKeys()) {
-            if (first) {
-                first = false;
-            } else {
-                ss << ", ";
-            }
-            ss << k.get_path();
-        }
-
-        return ss.str();
-    }
-
-    void remove_subcolumns(const std::unordered_set<std::string>& keys);
-
     // use sparse_subcolumns_schema to record sparse column's path info and type
-    void finalize(bool ignore_sparser);
+    void finalize(FinalizeMode mode);
 
     /// Finalizes all subcolumns.
     void finalize() override;
@@ -363,25 +361,22 @@ public:
 
     MutableColumnPtr clone_finalized() const {
         auto finalized = IColumn::mutate(get_ptr());
-        static_cast<ColumnObject*>(finalized.get())->finalize();
+        static_cast<ColumnObject*>(finalized.get())->finalize(FinalizeMode::READ_MODE);
         return finalized;
     }
 
-    void finalize_if_not();
-
     void clear() override;
+
+    void resize(size_t n) override;
 
     void clear_subcolumns_data();
 
     std::string get_name() const override {
         if (is_scalar_variant()) {
-            return "var_scalar(" + get_root()->get_name() + ")";
+            return "variant_scalar(" + get_root()->get_name() + ")";
         }
         return "variant";
     }
-
-    /// Part of interface
-    const char* get_family_name() const override { return "Variant"; }
 
     size_t size() const override;
 
@@ -396,30 +391,14 @@ public:
     // Do nothing, call try_insert instead
     void insert(const Field& field) override { try_insert(field); }
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        append_data_by_selector_impl<ColumnObject>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        append_data_by_selector_impl<ColumnObject>(res, selector, begin, end);
-    }
-
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
-
-    // May throw execption
-    void try_insert(const Field& field);
 
     void insert_from(const IColumn& src, size_t n) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
     void insert_default() override;
-
-    // Revise this column to specified num_rows
-    void revise_to(int num_rows);
 
     ColumnPtr replicate(const Offsets& offsets) const override;
 
@@ -429,34 +408,7 @@ public:
 
     void get(size_t n, Field& res) const override;
 
-    /// All other methods throw exception.
-    StringRef get_data_at(size_t) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        return StringRef();
-    }
-
-    Status try_insert_indices_from(const IColumn& src, const int* indices_begin,
-                                   const int* indices_end);
-
-    StringRef serialize_value_into_arena(size_t n, Arena& arena,
-                                         char const*& begin) const override {
-        LOG(FATAL) << "should not call the method in column object";
-        return StringRef();
-    }
-
-    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
-
-    const char* deserialize_and_insert_from_arena(const char* pos) override {
-        LOG(FATAL) << "should not call the method in column object";
-        return nullptr;
-    }
-
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-
-    void insert_data(const char* pos, size_t length) override {
-        LOG(FATAL) << "should not call the method in column object";
-        __builtin_unreachable();
-    }
 
     ColumnPtr filter(const Filter&, ssize_t) const override;
 
@@ -468,19 +420,11 @@ public:
 
     bool is_variable_length() const override { return true; }
 
-    void replace_column_data(const IColumn&, size_t row, size_t self_row) override;
-
     template <typename Func>
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;
 
-    // Extract path from root column and replace root with new extracted column,
-    // root must be jsonb type
-    Status extract_root(const PathInData& path);
-
     // Extract path from root column and output to dst
     Status extract_root(const PathInData& path, MutableColumnPtr& dst) const;
-
-    void strip_outer_array();
 
     bool empty() const;
 
@@ -488,6 +432,137 @@ public:
     Status sanitize() const;
 
     std::string debug_string() const;
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override;
+
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+
+    void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                uint32_t offset = 0,
+                                const uint8_t* __restrict null_data = nullptr) const override;
+
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+
+    Int64 get_int(size_t /*n*/) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_int" + get_name());
+    }
+
+    bool get_bool(size_t /*n*/) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_bool" + get_name());
+    }
+
+    void insert_many_fix_len_data(const char* pos, size_t num) override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_many_fix_len_data" + get_name());
+    }
+
+    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
+                               size_t data_num, uint32_t dict_num = 0) override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_many_dict_data" + get_name());
+    }
+
+    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+                                            const size_t num) override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_many_continuous_binary_data" + get_name());
+    }
+
+    void insert_many_strings(const StringRef* strings, size_t num) override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_many_strings" + get_name());
+    }
+
+    void insert_many_strings_overflow(const StringRef* strings, size_t num,
+                                      size_t max_length) override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_many_strings_overflow" + get_name());
+    }
+
+    void insert_many_raw_data(const char* pos, size_t num) override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "insert_many_raw_data" + get_name());
+    }
+
+    size_t get_max_row_byte_size() const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "get_max_row_byte_size" + get_name());
+    }
+
+    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+                       size_t max_row_byte_size) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "serialize_vec" + get_name());
+    }
+
+    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+                                     const uint8_t* null_map) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "serialize_vec_with_null_map" + get_name());
+    }
+
+    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "deserialize_vec" + get_name());
+    }
+
+    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+                                       const uint8_t* null_map) override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_vec_with_null_map" + get_name());
+    }
+
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "filter_by_selector" + get_name());
+    }
+
+    bool structure_equals(const IColumn&) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "structure_equals" + get_name());
+    }
+
+    StringRef get_raw_data() const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_raw_data" + get_name());
+    }
+
+    StringRef get_data_at(size_t) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_data_at" + get_name());
+    }
+
+    StringRef serialize_value_into_arena(size_t n, Arena& arena,
+                                         char const*& begin) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "serialize_value_into_arena" + get_name());
+    }
+
+    const char* deserialize_and_insert_from_arena(const char* pos) override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_and_insert_from_arena" + get_name());
+    }
+
+    void insert_data(const char* pos, size_t length) override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "insert_data" + get_name());
+    }
+
+    void replace_column_data(const IColumn&, size_t row, size_t self_row) override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "replace_column_data" + get_name());
+    }
+
+private:
+    // May throw execption
+    void try_insert(const Field& field);
+
+    /// It's used to get shared sized of Nested to insert correct default values.
+    const Subcolumns::Node* get_leaf_of_the_same_nested(const Subcolumns::NodePtr& entry) const;
+
+    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
+
+    // return null if not found
+    const Subcolumn* get_subcolumn_with_cache(const PathInData& key, size_t index_hint) const;
+
+    // unnest nested type columns, and flat them into finlized array subcolumns
+    void unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const;
 };
 
 } // namespace doris::vectorized

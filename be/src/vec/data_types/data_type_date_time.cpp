@@ -47,7 +47,7 @@ size_t DataTypeDateTime::number_length() const {
     return 20;
 }
 
-void DataTypeDateTime::push_bumber(ColumnString::Chars& chars, const Int64& num) const {
+void DataTypeDateTime::push_number(ColumnString::Chars& chars, const Int64& num) const {
     doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(num);
 
     char buf[64];

@@ -56,7 +56,7 @@ import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
-public class ShowDataStmt extends ShowStmt {
+public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData SHOW_DATABASE_DATA_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("DbId", ScalarType.createVarchar(20)))
@@ -127,7 +127,7 @@ public class ShowDataStmt extends ShowStmt {
             return;
         }
         dbName = analyzer.getDefaultDb();
-        if (Strings.isNullOrEmpty(dbName)) {
+        if (Strings.isNullOrEmpty(dbName) && tableName == null) {
             getAllDbStats();
             return;
         }
@@ -292,7 +292,7 @@ public class ShowDataStmt extends ShowStmt {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
                         indexSize += mIndex.getDataSize(false);
                         indexReplicaCount += mIndex.getReplicaCount();
-                        indexRowCount += mIndex.getRowCount();
+                        indexRowCount += mIndex.getRowCount() == -1 ? 0 : mIndex.getRowCount();
                         indexRemoteSize += mIndex.getRemoteDataSize();
                     }
 

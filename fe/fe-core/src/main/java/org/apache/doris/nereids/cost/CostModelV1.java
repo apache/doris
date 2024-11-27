@@ -21,10 +21,12 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -55,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -71,11 +74,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     public CostModelV1(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        if (sessionVariable.isPlayNereidsDump()) {
-            // TODO: @bingfeng refine minidump setting, and pass testMinidumpUt
-            beNumber = 1;
-            parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
-        } else if (sessionVariable.getBeNumberForTest() != -1) {
+        if (sessionVariable.getBeNumberForTest() != -1) {
             // shape test, fix the BE number and instance number
             beNumber = sessionVariable.getBeNumberForTest();
             parallelInstance = 8;
@@ -194,6 +193,15 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalProject(PhysicalProject<? extends Plan> physicalProject, PlanContext context) {
+        boolean trival = true;
+        for (Expression expr : physicalProject.getProjects()) {
+            if (!(expr instanceof Alias && expr.child(0) instanceof SlotReference)) {
+                trival = false;
+            }
+        }
+        if (trival) {
+            return CostV1.zero();
+        }
         double exprCost = expressionTreeCost(physicalProject.getProjects());
         return CostV1.ofCpu(context.getSessionVariable(), exprCost + 1);
     }
@@ -269,14 +277,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Statistics childStatistics = context.getChildStatistics(0);
         double intputRowCount = childStatistics.getRowCount();
         DistributionSpec spec = distribute.getDistributionSpec();
-
+        // cost model is trained by clusters with more than 3 BE.
+        int beNumForDist = Math.max(3, beNumber);
+        double dataSizeFactor = childStatistics.dataSizeFactor(distribute.child().getOutput());
         // shuffle
         if (spec instanceof DistributionSpecHash) {
             return CostV1.of(context.getSessionVariable(),
+                    intputRowCount / beNumForDist,
                     0,
-                    0,
-                    intputRowCount * childStatistics.dataSizeFactor(
-                            distribute.child().getOutput()) / beNumber);
+                    intputRowCount * dataSizeFactor / beNumForDist
+                    );
         }
 
         // replicate
@@ -287,8 +297,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(context.getSessionVariable(),
                     0,
                     0,
-                    intputRowCount * childStatistics.dataSizeFactor(
-                            distribute.child().getOutput()));
+                    intputRowCount * dataSizeFactor);
 
         }
 
@@ -297,8 +306,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(context.getSessionVariable(),
                     0,
                     0,
-                    intputRowCount * childStatistics.dataSizeFactor(
-                            distribute.child().getOutput()) / beNumber);
+                    intputRowCount * dataSizeFactor / beNumForDist);
         }
 
         // any
@@ -306,8 +314,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         return CostV1.of(context.getSessionVariable(),
                 0,
                 0,
-                intputRowCount * childStatistics.dataSizeFactor(distribute.child().getOutput())
-                        * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumber);
+                intputRowCount * dataSizeFactor
+                        * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumForDist);
     }
 
     private double expressionTreeCost(List<? extends Expression> expressions) {
@@ -332,7 +340,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
             // global
-            return CostV1.of(context.getSessionVariable(), exprCost / 100 + inputStatistics.getRowCount(),
+            return CostV1.of(context.getSessionVariable(), exprCost / 100
+                            + inputStatistics.getRowCount(),
                     inputStatistics.getRowCount(), 0);
         }
     }
@@ -371,6 +380,20 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 leftRowCount += 1e-3;
             }
         }
+        if (!physicalHashJoin.getGroupExpression().get().getOwnerGroup().isStatsReliable()
+                && !(RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(physicalHashJoin.getJoinType()))
+                && !physicalHashJoin.isMarkJoin()
+                && buildStats.getWidthInJoinCluster() == 1) {
+            // we prefer join order: A-B-filter(C) to A-filter(C)-B,
+            // since filter(C) may generate effective RF to B, and RF(C->B) makes RF(B->A) more effective.
+            double filterFactor = computeFilterFactor(buildStats);
+            if (filterFactor > 1.0) {
+                double bonus = filterFactor * probeStats.getWidthInJoinCluster();
+                if (leftRowCount > bonus) {
+                    leftRowCount -= bonus;
+                }
+            }
+        }
 
         /*
         pattern1: L join1 (Agg1() join2 Agg2())
@@ -387,7 +410,9 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             );
         }
         double probeShortcutFactor = 1.0;
-        if (physicalHashJoin.getJoinType().isLeftSemiOrAntiJoin()
+        if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null
+                && !ConnectContext.get().getStatementContext().isHasUnknownColStats()
+                && physicalHashJoin.getJoinType().isLeftSemiOrAntiJoin()
                 && physicalHashJoin.getOtherJoinConjuncts().isEmpty()
                 && physicalHashJoin.getMarkJoinConjuncts().isEmpty()) {
             // left semi/anti has short-cut opt, add probe side factor for distinguishing from the right ones
@@ -403,7 +428,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             //                    on the output rows, taken on outputRowCount()
             double probeSideFactor = 1.0;
             double buildSideFactor = context.getSessionVariable().getBroadcastRightTableScaleFactor();
-            int totalInstanceNumber = parallelInstance * beNumber;
+            int totalInstanceNumber = parallelInstance * Math.max(3, beNumber);
             if (buildSideFactor <= 1.0) {
                 if (buildStats.computeSize(physicalHashJoin.right().getOutput()) < 1024 * 1024) {
                     // no penalty to broadcast if build side is small
@@ -414,17 +439,33 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 }
             }
             return CostV1.of(context.getSessionVariable(),
-                    leftRowCount * probeShortcutFactor
-                            + rightRowCount * buildSideFactor
+                    leftRowCount * probeShortcutFactor + rightRowCount * probeShortcutFactor * buildSideFactor
                             + outputRowCount * probeSideFactor,
                     rightRowCount,
                     0
             );
         }
         return CostV1.of(context.getSessionVariable(),
-                leftRowCount * probeShortcutFactor + rightRowCount + outputRowCount,
+                leftRowCount * probeShortcutFactor + rightRowCount * probeShortcutFactor + outputRowCount,
                         rightRowCount, 0
         );
+    }
+
+    private double computeFilterFactor(Statistics stats) {
+        double factor = 1.0;
+        double maxBaseTableRowCount = 0.0;
+        for (Expression expr : stats.columnStatistics().keySet()) {
+            ColumnStatistic colStats = stats.findColumnStatistics(expr);
+            if (colStats.isUnKnown) {
+                maxBaseTableRowCount = Math.max(maxBaseTableRowCount, colStats.count);
+            } else {
+                break;
+            }
+        }
+        if (maxBaseTableRowCount != 0) {
+            factor = Math.max(1, Math.min(2, maxBaseTableRowCount / stats.getRowCount()));
+        }
+        return factor;
     }
 
     /*

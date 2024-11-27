@@ -229,14 +229,15 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
             left = cast.child();
             DecimalV3Literal literal = (DecimalV3Literal) right;
             if (left.getDataType().isDecimalV3Type()) {
-                if (((DecimalV3Type) left.getDataType())
-                        .getScale() < ((DecimalV3Type) literal.getDataType()).getScale()) {
+                DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
+                DecimalV3Type literalType = (DecimalV3Type) literal.getDataType();
+                if (leftType.getScale() < literalType.getScale()) {
                     int toScale = ((DecimalV3Type) left.getDataType()).getScale();
                     if (comparisonPredicate instanceof EqualTo) {
                         try {
-                            return comparisonPredicate.withChildren(left,
-                                    new DecimalV3Literal((DecimalV3Type) left.getDataType(),
-                                            literal.getValue().setScale(toScale)));
+                            return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                    comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                            literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             if (left.nullable()) {
                                 // TODO: the ideal way is to return an If expr like:
@@ -253,24 +254,24 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                         }
                     } else if (comparisonPredicate instanceof NullSafeEqual) {
                         try {
-                            return comparisonPredicate.withChildren(left,
-                                    new DecimalV3Literal((DecimalV3Type) left.getDataType(),
-                                            literal.getValue().setScale(toScale)));
+                            return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                    comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                            literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             return BooleanLiteral.of(false);
                         }
                     } else if (comparisonPredicate instanceof GreaterThan
                             || comparisonPredicate instanceof LessThanEqual) {
-                        return comparisonPredicate.withChildren(left, literal.roundFloor(toScale));
+                        return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                comparisonPredicate.withChildren(left, literal.roundFloor(toScale)));
                     } else if (comparisonPredicate instanceof LessThan
                             || comparisonPredicate instanceof GreaterThanEqual) {
-                        return comparisonPredicate.withChildren(left,
-                                literal.roundCeiling(toScale));
+                        return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                comparisonPredicate.withChildren(left, literal.roundCeiling(toScale)));
                     }
                 }
             } else if (left.getDataType().isIntegerLikeType()) {
-                return processIntegerDecimalLiteralComparison(comparisonPredicate, left,
-                        literal.getValue());
+                return processIntegerDecimalLiteralComparison(comparisonPredicate, left, literal.getValue());
             }
         }
 
@@ -346,9 +347,10 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
     private static Expression migrateToDateV2(DateTimeLiteral l, AdjustType type) {
         DateV2Literal d = new DateV2Literal(l.getYear(), l.getMonth(), l.getDay());
         if (type == AdjustType.UPPER && (l.getHour() != 0 || l.getMinute() != 0 || l.getSecond() != 0)) {
-            d = ((DateV2Literal) d.plusDays(1));
+            return d.plusDays(1);
+        } else {
+            return d;
         }
-        return d;
     }
 
     private static Expression migrateToDate(DateV2Literal l) {

@@ -19,24 +19,27 @@
 
 #include <event2/bufferevent.h>
 #include <event2/http.h>
+#include <gen_cpp/FrontendService_types.h>
 
 #include <string>
 #include <vector>
 
 #include "cloud/cloud_compaction_action.h"
+#include "cloud/cloud_delete_bitmap_action.h"
 #include "cloud/config.h"
 #include "cloud/injection_point_action.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "http/action/adjust_log_level.h"
 #include "http/action/adjust_tracing_dump.h"
+#include "http/action/be_proc_thread_action.h"
 #include "http/action/calc_file_crc_action.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
 #include "http/action/clear_cache_action.h"
-#include "http/action/clear_file_cache_action.h"
 #include "http/action/compaction_action.h"
+#include "http/action/compaction_score_action.h"
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"
 #include "http/action/download_action.h"
@@ -45,6 +48,7 @@
 #include "http/action/health_action.h"
 #include "http/action/http_stream.h"
 #include "http/action/jeprofile_actions.h"
+#include "http/action/load_channel_action.h"
 #include "http/action/load_stream_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
@@ -56,6 +60,7 @@
 #include "http/action/reset_rpc_channel_action.h"
 #include "http/action/restore_tablet_action.h"
 #include "http/action/show_hotspot_action.h"
+#include "http/action/show_nested_index_file_action.h"
 #include "http/action/shrink_mem_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
@@ -102,7 +107,7 @@ std::shared_ptr<bufferevent_rate_limit_group> get_rate_limit_group(event_base* e
 HttpService::HttpService(ExecEnv* env, int port, int num_threads)
         : _env(env),
           _ev_http_server(new EvHttpServer(port, num_threads)),
-          _web_page_handler(new WebPageHandler(_ev_http_server.get())) {}
+          _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
 
 HttpService::~HttpService() {
     stop();
@@ -138,11 +143,11 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_load_error_log",
                                       error_log_download_action);
 
-    AdjustLogLevelAction* adjust_log_level_action = _pool.add(new AdjustLogLevelAction());
+    AdjustLogLevelAction* adjust_log_level_action = _pool.add(new AdjustLogLevelAction(_env));
     _ev_http_server->register_handler(HttpMethod::POST, "api/glog/adjust", adjust_log_level_action);
 
     //TODO: add query GET interface
-    auto* adjust_tracing_dump = _pool.add(new AdjustTracingDump());
+    auto* adjust_tracing_dump = _pool.add(new AdjustTracingDump(_env));
     _ev_http_server->register_handler(HttpMethod::POST, "api/pipeline/tracing",
                                       adjust_tracing_dump);
 
@@ -152,32 +157,42 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/be_version_info", version_action);
 
     // Register BE health action
-    HealthAction* health_action = _pool.add(new HealthAction());
+    HealthAction* health_action = _pool.add(new HealthAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
-    // Dump all running pipeline tasks
-    ClearDataCacheAction* clear_data_cache_action = _pool.add(new ClearDataCacheAction());
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/clear_data_cache",
-                                      clear_data_cache_action);
+    // Clear cache action
+    ClearCacheAction* clear_cache_action = _pool.add(new ClearCacheAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/clear_cache/{type}",
+                                      clear_cache_action);
 
     // Dump all running pipeline tasks
-    PipelineTaskAction* pipeline_task_action = _pool.add(new PipelineTaskAction());
+    PipelineTaskAction* pipeline_task_action = _pool.add(new PipelineTaskAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks",
                                       pipeline_task_action);
 
     // Dump all running pipeline tasks which has been running for more than {duration} seconds
-    LongPipelineTaskAction* long_pipeline_task_action = _pool.add(new LongPipelineTaskAction());
+    LongPipelineTaskAction* long_pipeline_task_action = _pool.add(new LongPipelineTaskAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks/{duration}",
                                       long_pipeline_task_action);
 
     // Dump all running pipeline tasks which has been running for more than {duration} seconds
-    QueryPipelineTaskAction* query_pipeline_task_action = _pool.add(new QueryPipelineTaskAction());
+    QueryPipelineTaskAction* query_pipeline_task_action =
+            _pool.add(new QueryPipelineTaskAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/query_pipeline_tasks/{query_id}",
                                       query_pipeline_task_action);
 
+    // Dump all be process thread num
+    BeProcThreadAction* be_proc_thread_action = _pool.add(new BeProcThreadAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/be_process_thread_num",
+                                      be_proc_thread_action);
+
     // Register BE LoadStream action
-    LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction());
+    LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/load_streams", load_stream_action);
+
+    // Register BE LoadChannel action
+    LoadChannelAction* load_channel_action = _pool.add(new LoadChannelAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/load_channels", load_channel_action);
 
     // Register Tablets Info action
     TabletsInfoAction* tablets_info_action =
@@ -188,7 +203,20 @@ Status HttpService::start() {
     static_cast<void>(PprofActions::setup(_env, _ev_http_server.get(), _pool));
 
     // register jeprof actions
-    static_cast<void>(JeprofileActions::setup(_env, _ev_http_server.get(), _pool));
+    SetJeHeapProfileActiveActions* set_jeheap_profile_active_action =
+            _pool.add(new SetJeHeapProfileActiveActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/active/{prof_value}",
+                                      set_jeheap_profile_active_action);
+
+    DumpJeHeapProfileToDotActions* dump_jeheap_profile_to_dot_action =
+            _pool.add(new DumpJeHeapProfileToDotActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/dump",
+                                      dump_jeheap_profile_to_dot_action);
+
+    DumpJeHeapProfileActions* dump_jeheap_profile_action =
+            _pool.add(new DumpJeHeapProfileActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/dump_only",
+                                      dump_jeheap_profile_action);
 
     // register metrics
     {
@@ -202,14 +230,12 @@ Status HttpService::start() {
             _pool.add(new MetaAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/{op}/{tablet_id}", meta_action);
 
-    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction());
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/file_cache", file_cache_action);
-
     ConfigAction* update_config_action =
-            _pool.add(new ConfigAction(ConfigActionType::UPDATE_CONFIG));
+            _pool.add(new ConfigAction(ConfigActionType::UPDATE_CONFIG, _env));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/update_config", update_config_action);
 
-    ConfigAction* show_config_action = _pool.add(new ConfigAction(ConfigActionType::SHOW_CONFIG));
+    ConfigAction* show_config_action =
+            _pool.add(new ConfigAction(ConfigActionType::SHOW_CONFIG, _env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/show_config", show_config_action);
 
     // 3 check action
@@ -231,16 +257,17 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/task", report_task_action);
 
     // shrink memory for starting co-exist process during upgrade
-    ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction());
+    ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/shrink_mem", shrink_mem_action);
 
+#ifndef BE_TEST
     auto& engine = _env->storage_engine();
     if (config::is_cloud_mode()) {
         register_cloud_handler(engine.to_cloud());
     } else {
         register_local_handler(engine.to_local());
     }
-
+#endif
     _ev_http_server->start();
     return Status::OK();
 }
@@ -297,9 +324,8 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_binlog/_download",
                                       download_binlog_action);
 
-    ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
-    _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
-                                      clear_file_cache_action);
+    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction(_env));
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/file_cache", file_cache_action);
 
     TabletsDistributionAction* tablets_distribution_action =
             _pool.add(new TabletsDistributionAction(_env, engine, TPrivilegeHier::GLOBAL,
@@ -361,7 +387,7 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::POST, "/api/pad_rowset", pad_rowset_action);
 
     ReportAction* report_tablet_action = _pool.add(new ReportAction(
-            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_OLAP_TABLE"));
+            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_OLAP_TABLET"));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/tablet", report_tablet_action);
 
     ReportAction* report_disk_action = _pool.add(new ReportAction(
@@ -371,6 +397,16 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     CalcFileCrcAction* calc_crc_action = _pool.add(
             new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
+
+    ShowNestedIndexFileAction* show_nested_index_file_action = _pool.add(
+            new ShowNestedIndexFileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/show_nested_index_file",
+                                      show_nested_index_file_action);
+
+    CompactionScoreAction* compaction_score_action = _pool.add(new CompactionScoreAction(
+            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, engine.tablet_manager()));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
+                                      compaction_score_action);
 }
 
 void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
@@ -389,16 +425,38 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
+    CloudDeleteBitmapAction* count_local_delete_bitmap_action =
+            _pool.add(new CloudDeleteBitmapAction(DeleteBitmapActionType::COUNT_LOCAL, _env, engine,
+                                                  TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_local",
+                                      count_local_delete_bitmap_action);
+    CloudDeleteBitmapAction* count_ms_delete_bitmap_action =
+            _pool.add(new CloudDeleteBitmapAction(DeleteBitmapActionType::COUNT_MS, _env, engine,
+                                                  TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_ms",
+                                      count_ms_delete_bitmap_action);
 #ifdef ENABLE_INJECTION_POINT
     InjectionPointAction* injection_point_action = _pool.add(new InjectionPointAction);
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}/{name}",
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}",
                                       injection_point_action);
 #endif
-    ClearFileCacheAction* clear_file_cache_action = _pool.add(new ClearFileCacheAction());
-    _ev_http_server->register_handler(HttpMethod::POST, "/api/clear_file_cache",
-                                      clear_file_cache_action);
-    auto* show_hotspot_action = _pool.add(new ShowHotspotAction(engine));
+    FileCacheAction* file_cache_action = _pool.add(new FileCacheAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/file_cache", file_cache_action);
+    auto* show_hotspot_action = _pool.add(new ShowHotspotAction(engine, _env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/hotspot/tablet", show_hotspot_action);
+
+    CalcFileCrcAction* calc_crc_action = _pool.add(
+            new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
+
+    ShowNestedIndexFileAction* show_nested_index_file_action = _pool.add(
+            new ShowNestedIndexFileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/show_nested_index_file",
+                                      show_nested_index_file_action);
+    CompactionScoreAction* compaction_score_action = _pool.add(new CompactionScoreAction(
+            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, engine.tablet_mgr()));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
+                                      compaction_score_action);
 }
 // NOLINTEND(readability-function-size)
 

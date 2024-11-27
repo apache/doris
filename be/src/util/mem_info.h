@@ -75,6 +75,8 @@ public:
 
     static void refresh_proc_meminfo();
 
+    static void refresh_memory_bvar();
+
     static inline int64_t sys_mem_available_low_water_mark() {
         return _s_sys_mem_available_low_water_mark;
     }
@@ -108,9 +110,29 @@ public:
         return 0;
     }
 
+    static inline unsigned get_je_unsigned_metrics(const std::string& name) {
+#ifdef USE_JEMALLOC
+        unsigned value = 0;
+        size_t sz = sizeof(value);
+        if (jemallctl(name.c_str(), &value, &sz, nullptr, 0) == 0) {
+            return value;
+        }
+#endif
+        return 0;
+    }
+
     static inline int64_t get_je_all_arena_metrics(const std::string& name) {
 #ifdef USE_JEMALLOC
         return get_je_metrics(fmt::format("stats.arenas.{}.{}", MALLCTL_ARENAS_ALL, name));
+#endif
+        return 0;
+    }
+
+    static inline int64_t get_je_all_arena_extents_metrics(int64_t page_size_index,
+                                                           const std::string& extent_type) {
+#ifdef USE_JEMALLOC
+        return get_je_metrics(fmt::format("stats.arenas.{}.extents.{}.{}", MALLCTL_ARENAS_ALL,
+                                          page_size_index, extent_type));
 #endif
         return 0;
     }
@@ -124,10 +146,29 @@ public:
         if (config::enable_je_purge_dirty_pages) {
             try {
                 // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
-                jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr,
-                          nullptr, nullptr, 0);
+                int err = jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(),
+                                    nullptr, nullptr, nullptr, 0);
+                if (err) {
+                    LOG(WARNING) << "Jemalloc purge all unused dirty pages failed";
+                }
             } catch (...) {
                 LOG(WARNING) << "Purge all unused dirty pages for all arenas failed";
+            }
+        }
+#endif
+    }
+
+    // the limit of `tcache` is the number of pages, not the total number of page bytes.
+    // `tcache` has two cleaning opportunities: 1. the number of memory alloc and releases reaches a certain number,
+    // recycle pages that has not been used for a long time; 2. recycle all `tcache` when the thread exits.
+    // here add a total size limit.
+    static inline void je_thread_tcache_flush() {
+#ifdef USE_JEMALLOC
+        constexpr size_t TCACHE_LIMIT = (1ULL << 30); // 1G
+        if (allocator_cache_mem() - je_dirty_pages_mem() > TCACHE_LIMIT) {
+            int err = jemallctl("thread.tcache.flush", nullptr, nullptr, nullptr, 0);
+            if (err) {
+                LOG(WARNING) << "Jemalloc thread.tcache.flush failed";
             }
         }
 #endif
@@ -146,6 +187,15 @@ public:
     }
     static inline size_t allocator_cache_mem() {
         return _s_allocator_cache_mem.load(std::memory_order_relaxed);
+    }
+    static inline size_t allocator_metadata_mem() {
+        return _s_allocator_metadata_mem.load(std::memory_order_relaxed);
+    }
+    static inline int64_t je_dirty_pages_mem() {
+        return _s_je_dirty_pages_mem.load(std::memory_order_relaxed);
+    }
+    static inline int64_t je_dirty_pages_mem_limit() {
+        return _s_je_dirty_pages_mem_limit.load(std::memory_order_relaxed);
     }
 
     // Tcmalloc property `generic.total_physical_bytes` records the total length of the virtual memory
@@ -169,6 +219,18 @@ public:
         return PrettyPrinter::print(_s_soft_mem_limit.load(std::memory_order_relaxed),
                                     TUnit::BYTES);
     }
+    static inline int64_t cgroup_mem_limit() {
+        DCHECK(_s_initialized);
+        return _s_cgroup_mem_limit.load(std::memory_order_relaxed);
+    }
+    static inline int64_t cgroup_mem_usage() {
+        DCHECK(_s_initialized);
+        return _s_cgroup_mem_usage.load(std::memory_order_relaxed);
+    }
+    static inline int64_t cgroup_mem_refresh_state() {
+        DCHECK(_s_initialized);
+        return _s_cgroup_mem_refresh_state.load(std::memory_order_relaxed);
+    }
 
     static std::string debug_string();
 
@@ -181,11 +243,14 @@ private:
     static std::atomic<int64_t> _s_soft_mem_limit;
 
     static std::atomic<int64_t> _s_allocator_cache_mem;
+    static std::atomic<int64_t> _s_allocator_metadata_mem;
+    static std::atomic<int64_t> _s_je_dirty_pages_mem;
+    static std::atomic<int64_t> _s_je_dirty_pages_mem_limit;
     static std::atomic<int64_t> _s_virtual_memory_used;
 
-    static int64_t _s_cgroup_mem_limit;
-    static int64_t _s_cgroup_mem_usage;
-    static bool _s_cgroup_mem_refresh_state;
+    static std::atomic<int64_t> _s_cgroup_mem_limit;
+    static std::atomic<int64_t> _s_cgroup_mem_usage;
+    static std::atomic<bool> _s_cgroup_mem_refresh_state;
     static int64_t _s_cgroup_mem_refresh_wait_times;
 
     static std::atomic<int64_t> _s_sys_mem_available;

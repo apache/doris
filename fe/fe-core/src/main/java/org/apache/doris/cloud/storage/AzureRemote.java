@@ -212,10 +212,10 @@ public class AzureRemote extends RemoteBase {
                 objectFiles.add(new ObjectFile(blobItem.getName(), getRelativePath(blobItem.getName()),
                         blobItem.getProperties().getETag(), blobItem.getProperties().getContentLength()));
             }
-            return new ListObjectsResult(objectFiles, pagedResponse.getContinuationToken() == null,
+            return new ListObjectsResult(objectFiles, pagedResponse.getContinuationToken() != null,
                     pagedResponse.getContinuationToken());
         } catch (BlobStorageException e) {
-            LOG.warn("Failed to list objects for Azure", e);
+            LOG.warn("Failed to list objects for Azure prefix {}", prefix, e);
             throw new DdlException("Failed to list objects for Azure, Error message=" + e.getMessage());
         }
     }

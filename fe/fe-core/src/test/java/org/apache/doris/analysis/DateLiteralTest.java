@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
@@ -34,9 +35,9 @@ public class DateLiteralTest {
     @Test
     public void testGetStringInFe() throws AnalysisException {
         DateLiteral literal = new DateLiteral("1997-10-07", Type.DATE);
-        String s = literal.getStringValueInFe();
+        String s = literal.getStringValueInFe(FormatOptions.getDefault());
         Assert.assertEquals(s, "1997-10-07");
-
+        Assert.assertEquals(literal.getStringValueInFe(FormatOptions.getForPresto()), "1997-10-07");
     }
 
     @Test

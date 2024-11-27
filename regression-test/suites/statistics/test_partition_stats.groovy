@@ -14,6 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_partition_stats") {
 
@@ -36,33 +38,29 @@ suite("test_partition_stats") {
             sql """use ${db}"""
             result = sql """show frontends;"""
             logger.info("show frontends result master: " + result)
-            for (int i = 0; i < 120; i++) {
-                Thread.sleep(5000)
+            // in 300 sec its not matching, then timeout raised by awaited.
+            Awaitility.await().atMost(300, SECONDS).pollInterval(5, SECONDS).until{
                 result = sql """SHOW DATA FROM ${table};"""
                 logger.info("result " + result)
                 if (result[row][column] == expected) {
-                    return;
+                    return true;
                 }
+                return false;
             }
-            throw new Exception("Row count report timeout.")
         }
 
     }
 
     def wait_mv_finish = { db, table ->
-        for (int loop = 0; loop < 300; loop++) {
-            Thread.sleep(1000)
-            boolean finished = true;
+        // in 300 sec its not matching, then timeout raised by awaited.
+        Awaitility.await().atMost(300, SECONDS).pollInterval(1, SECONDS).until{
             def result = sql """SHOW ALTER TABLE MATERIALIZED VIEW FROM ${db} WHERE tableName="${table}";"""
             for (int i = 0; i < result.size(); i++) {
                 if (result[i][8] != 'FINISHED') {
-                    finished = false;
-                    break;
+                    return false;
                 }
             }
-            if (finished) {
-                return;
-            }
+            return true;
         }
         throw new Exception("Wait mv finish timeout.")
     }
@@ -116,15 +114,17 @@ suite("test_partition_stats") {
 
     // Test show cached partition stats.
     sql """analyze table part with sync;"""
-    for (int i = 0; i < 20; i++) {
+    // in 20 sec its not matching, then timeout raised by awaited.
+    Awaitility.await().atMost(20, SECONDS).pollInterval(1, SECONDS).until{
         result = sql """show column cached stats part partition(*)"""
         if (result.size() == 27) {
             logger.info("cache is ready.")
-            break;
+            return true;
         }
         logger.info("cache is not ready yet.")
-        Thread.sleep(1000)
+        return false;
     }
+
     result = sql """show column cached stats part(id) partition(p1)"""
     assertEquals("id", result[0][0])
     assertEquals("p1", result[0][1])
@@ -479,13 +479,12 @@ suite("test_partition_stats") {
         result = sql """show auto analyze part4"""
         assertTrue(result.size() > 0)
         def index = result.size() - 1;
-        def finished = false;
-        for (int i = 0; i < 20; i++) {
+        // in 30 sec its not matching, then timeout raised by awaited.
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until{
             if (result[index][9].equals("FINISHED")) {
-                finished = true;
-                break;
+                return true;
             }
-            Thread.sleep(1000)
+            return false;
         }
         if (finished) {
             result = sql """show column stats part4"""
@@ -667,13 +666,12 @@ suite("test_partition_stats") {
     sql """analyze table part7 properties("use.auto.analyzer"="true")"""
     result = sql """show auto analyze part7"""
     assertEquals(1, result.size())
-    def finished = false;
-    for (int i = 0; i < 20; i++) {
+    // in 20 sec its not matching, then timeout raised by awaited.
+    Awaitility.await().atMost(20, SECONDS).pollInterval(1, SECONDS).until{
         if (result[0][9].equals("FINISHED")) {
-            finished = true;
-            break;
+            return true;
         }
-        Thread.sleep(1000)
+        return false;
     }
     if (finished) {
         result = sql """show column stats part7"""
@@ -904,10 +902,8 @@ suite("test_partition_stats") {
     PROPERTIES (
         "replication_allocation" = "tag.location.default: 1"
     )"""
-    sql """create materialized view mv1 as select id, colint from part8;"""
-    wait_mv_finish("test_partition_stats", "part8")
-    sql """create materialized view mv2 as select colsmallint, sum(colbigint) from part8 group by colsmallint;"""
-    wait_mv_finish("test_partition_stats", "part8")
+    createMV("create materialized view mv1 as select id, colint from part8;")
+    createMV("create materialized view mv2 as select colsmallint, sum(colbigint) from part8 group by colsmallint;")
     sql """alter table part8 ADD ROLLUP rollup1(coltinyint, collargeint)"""
     wait_mv_finish("test_partition_stats", "part8")
 
@@ -1001,6 +997,115 @@ suite("test_partition_stats") {
     assertEquals(9, result.size())
     result = sql """show column stats part9 partition(*)"""
     assertEquals(9, result.size())
+
+    // Test insert overwrite.
+    sql """
+        create table part10(
+            k int null,
+            v int null
+        )
+        duplicate key (k)
+        PARTITION BY RANGE(`k`)
+        (
+            PARTITION p1 VALUES [("0"), ("2")),
+            PARTITION p2 VALUES [("2"), ("4"))
+        )
+        distributed BY hash(k) buckets 3
+        properties("replication_num" = "1");
+    """
+    sql """analyze table part10 with sync"""
+    result = sql """show column stats part10 (k)"""
+    assertEquals(1, result.size())
+    assertEquals("k", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+    assertEquals("FULL", result[0][9])
+
+    result = sql """show column stats part10 (v)"""
+    assertEquals(1, result.size())
+    assertEquals("v", result[0][0])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("0.0", result[0][6])
+    assertEquals("N/A", result[0][7])
+    assertEquals("N/A", result[0][8])
+    assertEquals("FULL", result[0][9])
+
+    result = sql """show column stats part10 (k) partition(*)"""
+    assertEquals(2, result.size())
+    result = sql """show column stats part10 (v) partition(*)"""
+    assertEquals(2, result.size())
+
+    sql """insert into part10 values (1, 2), (3, 6)"""
+    sql """analyze table part10 with sync"""
+    result = sql """show column stats part10 (k)"""
+    assertEquals(1, result.size())
+    assertEquals("k", result[0][0])
+    assertEquals("2.0", result[0][2])
+    assertEquals("2.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("8.0", result[0][5])
+    assertEquals("4.0", result[0][6])
+    assertEquals("1", result[0][7])
+    assertEquals("3", result[0][8])
+    assertEquals("FULL", result[0][9])
+
+    result = sql """show column stats part10 (v)"""
+    assertEquals(1, result.size())
+    assertEquals("v", result[0][0])
+    assertEquals("2.0", result[0][2])
+    assertEquals("2.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("8.0", result[0][5])
+    assertEquals("4.0", result[0][6])
+    assertEquals("2", result[0][7])
+    assertEquals("6", result[0][8])
+    assertEquals("FULL", result[0][9])
+
+    result = sql """show column stats part10 (k) partition(*)"""
+    assertEquals(2, result.size())
+    result = sql """show column stats part10 (v) partition(*)"""
+    assertEquals(2, result.size())
+
+    sql """INSERT OVERWRITE table part10 VALUES (0, 100), (2, 200);"""
+    sql """analyze table part10 with sync"""
+    result = sql """show column stats part10 (k)"""
+    assertEquals(1, result.size())
+    assertEquals("k", result[0][0])
+    assertEquals("2.0", result[0][2])
+    assertEquals("2.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("8.0", result[0][5])
+    assertEquals("4.0", result[0][6])
+    assertEquals("0", result[0][7])
+    assertEquals("2", result[0][8])
+    assertEquals("FULL", result[0][9])
+
+    result = sql """show column stats part10 (v)"""
+    assertEquals(1, result.size())
+    assertEquals("v", result[0][0])
+    assertEquals("2.0", result[0][2])
+    assertEquals("2.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("8.0", result[0][5])
+    assertEquals("4.0", result[0][6])
+    assertEquals("100", result[0][7])
+    assertEquals("200", result[0][8])
+    assertEquals("FULL", result[0][9])
+
+    result = sql """show column stats part10 (k) partition(*)"""
+    assertEquals(2, result.size())
+    result = sql """show column stats part10 (v) partition(*)"""
+    assertEquals(2, result.size())
+    result = sql """show column stats part10 partition(*)"""
+    assertEquals(4, result.size())
 
     sql """drop database test_partition_stats"""
 }

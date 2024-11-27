@@ -89,7 +89,7 @@ public:
                             io::IOContext* io_ctx);
     ~TransactionalHiveReader() override = default;
 
-    Status init_row_filters(const TFileRangeDesc& range) override;
+    Status init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) override;
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 

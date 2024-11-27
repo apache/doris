@@ -75,6 +75,8 @@ public enum ErrorCode {
             + "(current value: %d)"),
     ERR_SPECIFIC_ACCESS_DENIED_ERROR(1227, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
             + "one of) the (%s) privilege(s) for this operation"),
+    ERR_CATALOG_ACCESS_DENIED_ERROR(1221, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
+            + "one of) the (%s) privilege(s) on catalog %s for this operation"),
     ERR_DB_ACCESS_DENIED_ERROR(1225, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least "
             + "one of) the (%s) privilege(s) on database %s for this operation"),
 
@@ -1115,7 +1117,7 @@ public enum ErrorCode {
     ERR_CLUSTER_ALTER_BE_IN_DECOMMISSION(5059, new byte[]{'4', '2', '0', '0', '0'},
             "Cluster '%s' has backends in decommission"),
     ERR_WRONG_NAME_FORMAT(5063, new byte[]{'4', '2', '0', '0', '0'},
-            "Incorrect %s name '%s'"),
+            "Incorrect %s name '%s', required format is '%s'"),
     ERR_COMMON_ERROR(5064, new byte[]{'4', '2', '0', '0', '0'},
             "%s"),
     ERR_COLOCATE_FEATURE_DISABLED(5063, new byte[]{'4', '2', '0', '0', '0'},
@@ -1197,7 +1199,7 @@ public enum ErrorCode {
     ERR_CATALOG_ACCESS_DENIED(5087, new byte[]{'4', '2', '0', '0', '0'},
             "Access denied for user '%s' to catalog '%s'"),
     ERR_NONSUPPORT_HMS_TABLE(5088, new byte[]{'4', '2', '0', '0', '0'},
-            "Nonsupport hive metastore table named '%s' in database '%s' with catalog '%s'."),
+            "Nonsupport hive metastore table named '%s' in database '%s' with catalog '%s'. %s"),
     ERR_TABLE_NAME_LENGTH_LIMIT(5089, new byte[]{'4', '2', '0', '0', '0'}, "Table name length exceeds limit, "
      + "the length of table name '%s' is %d which is greater than the configuration 'table_name_length_limit' (%d)."),
 
@@ -1226,9 +1228,9 @@ public enum ErrorCode {
             "There can only be one stmt that returns the result and it is at the end."),
 
     ERR_CLOUD_CLUSTER_ERROR(5098, new byte[]{'4', '2', '0', '0', '0'},
-            "Cluster %s not exist, use SQL 'SHOW CLUSTERS' to get a valid cluster"),
+            "Compute group (aka. Cloud cluster) %s not exist, use SQL 'SHOW COMPUTE GROUPS' to get a valid compute group"),
 
-    ERR_NO_CLUSTER_ERROR(5099, new byte[]{'4', '2', '0', '0', '0'}, "No cluster selected"),
+    ERR_NO_CLUSTER_ERROR(5099, new byte[]{'4', '2', '0', '0', '0'}, "No compute group (cloud cluster) selected"),
 
     ERR_NOT_CLOUD_MODE(6000, new byte[]{'4', '2', '0', '0', '0'},
             "Command only support in cloud mode.");

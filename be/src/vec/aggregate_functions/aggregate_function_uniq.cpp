@@ -25,6 +25,7 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/common/hash_table/hash.h" // IWYU pragma: keep
+#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 
@@ -33,7 +34,8 @@ namespace doris::vectorized {
 template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                                                     const DataTypes& argument_types,
-                                                    const bool result_is_nullable) {
+                                                    const bool result_is_nullable,
+                                                    const AggregateFunctionAttr& attr) {
     if (argument_types.size() == 1) {
         const IDataType& argument_type = *remove_nullable(argument_types[0]);
         WhichDataType which(argument_type);
@@ -51,6 +53,10 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
         } else if (which.is_decimal128v3()) {
             return creator_without_type::create<AggregateFunctionUniq<Decimal128V3, Data<Int128>>>(
                     argument_types, result_is_nullable);
+        } else if (which.is_decimal256()) {
+            return creator_without_type::create<
+                    AggregateFunctionUniq<Decimal256, Data<wide::Int256>>>(argument_types,
+                                                                           result_is_nullable);
         } else if (which.is_decimal128v2() || which.is_decimal128v3()) {
             return creator_without_type::create<AggregateFunctionUniq<Decimal128V2, Data<Int128>>>(
                     argument_types, result_is_nullable);

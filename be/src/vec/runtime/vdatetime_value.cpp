@@ -22,6 +22,7 @@
 #include <glog/logging.h>
 
 #include <cctype>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -55,6 +56,15 @@ uint8_t mysql_week_mode(uint32_t mode) {
     return mode;
 }
 
+static bool check_space(char ch) {
+    // \t, \n, \v, \f, \r are 9~13, respectively.
+    return UNLIKELY(ch == ' ' || (ch >= 9 && ch <= 13));
+}
+
+static bool check_date_punct(char ch) {
+    return UNLIKELY(!(isdigit(ch) || isalpha(ch)));
+}
+
 static bool time_zone_begins(const char* ptr, const char* end) {
     return *ptr == '+' || (*ptr == '-' && ptr + 3 < end && *(ptr + 3) == ':') ||
            (isalpha(*ptr) && *ptr != 'T');
@@ -83,11 +93,11 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 // The interval format is that with no delimiters
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
-bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
+bool VecDateTimeValue::from_date_str(const char* date_str, size_t len) {
     return from_date_str_base(date_str, len, nullptr);
 }
 //parse timezone to get offset
-bool VecDateTimeValue::from_date_str(const char* date_str, int len,
+bool VecDateTimeValue::from_date_str(const char* date_str, size_t len,
                                      const cctz::time_zone& local_time_zone) {
     return from_date_str_base(date_str, len, &local_time_zone);
 }
@@ -104,7 +114,7 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
 
     _neg = false;
     // Skip space character
-    while (ptr < end && isspace(*ptr)) {
+    while (ptr < end && check_space(*ptr)) {
         ptr++;
     }
     if (ptr == end || !isdigit(*ptr)) {
@@ -202,8 +212,8 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
             continue;
         }
         // escape separator
-        while (ptr < end && (ispunct(*ptr) || isspace(*ptr))) {
-            if (isspace(*ptr)) {
+        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
+            if (check_space(*ptr)) {
                 if (((1 << field_idx) & allow_space_mask) == 0) {
                     return false;
                 }
@@ -1195,7 +1205,7 @@ static int check_word(const char* lib[], const char* str, const char* end, const
 // this method is exactly same as fromDateFormatStr() in DateLiteral.java in FE
 // change this method should also change that.
 bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, const char* value,
-                                            int value_len, const char** sub_val_end) {
+                                            int64_t value_len, const char** sub_val_end) {
     if (value_len <= 0) [[unlikely]] {
         return false;
     }
@@ -1235,7 +1245,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
     while (ptr < end && val < val_end) {
         // Skip space character
-        while (val < val_end && isspace(*val)) {
+        while (val < val_end && check_space(*val)) {
             val++;
         }
         if (val >= val_end) {
@@ -1500,7 +1510,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
             default:
                 return false;
             }
-        } else if (!isspace(*ptr)) {
+        } else if (!check_space(*ptr)) {
             if (*ptr != *val) {
                 return false;
             }
@@ -1987,13 +1997,13 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* =
                                    bool convert_zero) {
     return from_date_str_base(date_str, len, scale, nullptr, convert_zero);
 }
-// when we parse
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
                                    const cctz::time_zone& local_time_zone, int scale /* = -1*/,
                                    bool convert_zero) {
     return from_date_str_base(date_str, len, scale, &local_time_zone, convert_zero);
 }
+// if local_time_zone is null, only be able to parse time without timezone
 template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
                                         const cctz::time_zone* local_time_zone, bool convert_zero) {
@@ -2005,7 +2015,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
     int32_t date_len[MAX_DATE_PARTS] = {0};
 
     // Skip space character
-    while (ptr < end && isspace(*ptr)) {
+    while (ptr < end && check_space(*ptr)) {
         ptr++;
     }
     if (ptr == end || !isdigit(*ptr)) {
@@ -2153,8 +2163,8 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             continue;
         }
         // escape separator
-        while (ptr < end && (ispunct(*ptr) || isspace(*ptr))) {
-            if (isspace(*ptr)) {
+        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
+            if (check_space(*ptr)) {
                 if (((1 << field_idx) & allow_space_mask) == 0) {
                     return false;
                 }
@@ -2245,7 +2255,7 @@ void DateV2Value<T>::set_zero() {
 // change this method should also change that.
 template <typename T>
 bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, const char* value,
-                                          int value_len, const char** sub_val_end) {
+                                          int64_t value_len, const char** sub_val_end) {
     if (value_len <= 0) [[unlikely]] {
         return false;
     }
@@ -2286,7 +2296,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
     auto [year, month, day, hour, minute, second, microsecond] = std::tuple {0, 0, 0, 0, 0, 0, 0};
     while (ptr < end && val < val_end) {
         // Skip space character
-        while (val < val_end && isspace(*val)) {
+        while (val < val_end && check_space(*val)) {
             val++;
         }
         if (val >= val_end) {
@@ -3403,7 +3413,7 @@ const char* DateV2Value<T>::day_name() const {
 
 template <typename T>
 void DateV2Value<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
-                                        uint8_t minute, uint8_t second, uint32_t microsecond) {
+                                        uint8_t minute, uint16_t second, uint32_t microsecond) {
     date_v2_value_.year_ = year;
     date_v2_value_.month_ = month;
     date_v2_value_.day_ = day;
@@ -3416,7 +3426,7 @@ void DateV2Value<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t da
 }
 
 template <typename T>
-void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint8_t second,
+void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t second,
                                         uint32_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.hour_ = hour;
@@ -3430,7 +3440,7 @@ void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint8_t se
 }
 
 template <typename T>
-void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
+void DateV2Value<T>::set_microsecond(uint64_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.microsecond_ = microsecond;
     } else {

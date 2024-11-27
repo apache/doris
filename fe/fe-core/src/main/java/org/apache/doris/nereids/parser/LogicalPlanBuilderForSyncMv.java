@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
+import org.antlr.v4.runtime.ParserRuleContext;
 
 import java.util.List;
 import java.util.Map;
@@ -49,8 +50,8 @@ import java.util.TreeMap;
 public class LogicalPlanBuilderForSyncMv extends LogicalPlanBuilder {
     private Optional<String> querySql;
 
-    public LogicalPlanBuilderForSyncMv() {
-        super(false);
+    public LogicalPlanBuilderForSyncMv(Map<Integer, ParserRuleContext> selectHintMap) {
+        super(selectHintMap);
     }
 
     @Override

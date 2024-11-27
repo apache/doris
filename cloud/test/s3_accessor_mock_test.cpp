@@ -19,7 +19,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 
 using namespace doris;
 

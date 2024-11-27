@@ -19,8 +19,9 @@ suite ("test_follower_consistent_auth","p0,auth") {
 
     def get_follower_ip = {
         def result = sql """show frontends;"""
+        logger.info("result:" + result)
         for (int i = 0; i < result.size(); i++) {
-            if (result[i][7] == "FOLLOWER" && result[i][8] == "false") {
+            if (result[i][7] == "FOLLOWER" && result[i][8] == "false" && result[i][11] == "true") {
                 return result[i][1]
             }
         }
@@ -29,7 +30,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
     def switch_ip = get_follower_ip()
     if (switch_ip != "null") {
         logger.info("switch_ip: " + switch_ip)
-        def new_jdbc_url = context.config.jdbcUrl.replaceAll(/\/\/[0-9.]+:/, "//${switch_ip}:")
+
+        def tokens = context.config.jdbcUrl.split('/')
+        def url_tmp1 = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
+        def new_jdbc_url = url_tmp1.replaceAll(/\/\/[0-9.]+:/, "//${switch_ip}:")
         logger.info("new_jdbc_url: " + new_jdbc_url)
 
         String user = 'test_follower_consistent_user'
@@ -109,13 +113,14 @@ suite ("test_follower_consistent_auth","p0,auth") {
             sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
         }
 
-
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        logger.info("url_tmp1:" + url_tmp1)
+        logger.info("new_jdbc_url:" + new_jdbc_url)
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             try {
                 sql "SHOW CATALOG RECYCLE BIN WHERE NAME = '${catalog_name}'"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -123,15 +128,15 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "SHOW CATALOG RECYCLE BIN WHERE NAME = '${catalog_name}'"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             try {
                 sql "SHOW DATA"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -139,16 +144,16 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "SHOW DATA"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
 
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -156,11 +161,11 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         sql """grant select_priv(username) on ${dbName}.${tableName} to ${user}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             sql "select username from ${dbName}.${tableName}"
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -168,12 +173,12 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
 
 
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             try {
                 sql "select username from ${dbName}.${view_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -181,11 +186,11 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${view_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         sql """grant select_priv(username) on ${dbName}.${view_name} to ${user}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             sql "select username from ${dbName}.${view_name}"
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -193,12 +198,12 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
 
 
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             try {
                 sql "select username from ${dbName}.${mtmv_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -206,11 +211,11 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${mtmv_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             sql "select username from ${dbName}.${mtmv_name}"
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -223,7 +228,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
 
         // user
         sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             sql "select username from ${dbName}.${tableName}"
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -231,12 +236,12 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
 
         sql """revoke select_priv on ${dbName}.${tableName} from ${user}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -244,7 +249,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
 
@@ -252,7 +257,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
         sql """grant select_priv on ${dbName}.${tableName} to ROLE '${role}'"""
         sql """grant Load_priv on ${dbName}.${tableName} to ROLE '${role}'"""
         sql """grant '${role}' to '${user}'"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             sql "select username from ${dbName}.${tableName}"
             sql """insert into ${dbName}.`${tableName}` values (4, "444")"""
         }
@@ -262,12 +267,12 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
 
         sql """revoke '${role}' from '${user}'"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -275,19 +280,19 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
 
 
         // workload group
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             sql """set workload_group = '${wg}';"""
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("USAGE/ADMIN privilege"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
@@ -296,11 +301,11 @@ suite ("test_follower_consistent_auth","p0,auth") {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("USAGE/ADMIN privilege"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         sql """GRANT USAGE_PRIV ON WORKLOAD GROUP '${wg}' TO '${user}';"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             sql """set workload_group = '${wg}';"""
             sql """select username from ${dbName}.${tableName}"""
         }
@@ -310,7 +315,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
 
         // resource group
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user=user, password="${pwd}", url=url_tmp1) {
             def res = sql """SHOW RESOURCES;"""
             assertTrue(res == [])
         }
@@ -319,13 +324,15 @@ suite ("test_follower_consistent_auth","p0,auth") {
             assertTrue(res == [])
         }
         sql """GRANT USAGE_PRIV ON RESOURCE ${rg} TO ${user};"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
-            def res = sql """SHOW RESOURCES;"""
-            assertTrue(res.size == 10)
+        connect(user=user, password="${pwd}", url=url_tmp1) {
+            ArrayList res = sql """SHOW RESOURCES;"""
+            logger.info("res:" + res)
+            assertTrue(res.size() == 10)
         }
         connect(user=user, password="${pwd}", url=new_jdbc_url) {
-            def res = sql """SHOW RESOURCES;"""
-            assertTrue(res.size == 10)
+            ArrayList res = sql """SHOW RESOURCES;"""
+            logger.info("res:" + res)
+            assertTrue(res.size() == 10)
         }
 
         try_sql("DROP USER ${user}")

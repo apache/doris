@@ -16,11 +16,7 @@
 // under the License.
 
 suite("test_iot_auto_detect_concurrent") {
-    // only nereids now
-    sql """set enable_nereids_planner = true"""
-    sql """set enable_fallback_to_original_planner = false"""
-    sql """set enable_nereids_dml = true"""
-
+    // only nereids now. default for 2.1 and later
     def db_name = "test_iot_auto_detect_concurrent"
     def table_name = "test_concurrent_write"
 
@@ -30,12 +26,10 @@ suite("test_iot_auto_detect_concurrent") {
     sql new File("""${context.file.parent}/ddl/test_iot_auto_detect_concurrent.sql""").text
 
     def success_status = true
+    def err_msg = ""
     def load_data = { range, offset, expect_success ->
         try {
             sql " use test_iot_auto_detect_concurrent; "
-            sql """set enable_nereids_planner = true"""
-            sql """set enable_fallback_to_original_planner = false"""
-            sql """set enable_nereids_dml = true"""
             sql """ insert overwrite table test_concurrent_write partition(*)
                         select number*10+${offset} from numbers("number" = "${range}");
             """
@@ -44,6 +38,7 @@ suite("test_iot_auto_detect_concurrent") {
                 success_status = false
                 log.info("fails one")
             }
+            err_msg = e.getMessage()
             log.info("successfully catch the failed insert")
             return
         }
@@ -83,11 +78,13 @@ suite("test_iot_auto_detect_concurrent") {
     thread5.join()
     // suppose result: success zero or one
     if (success_status) { // success zero
+        log.info("test 1: success zero")
         result = sql " select count(k0) from test_concurrent_write; "
         assertEquals(result[0][0], 1000)
         result = sql " select count(distinct k0) from test_concurrent_write; "
         assertEquals(result[0][0], 1000)
     } else { // success one
+        log.info("test 1: success one")
         result = sql " select count(k0) from test_concurrent_write; "
         assertEquals(result[0][0], 100)
         result = sql " select count(distinct k0) from test_concurrent_write; "
@@ -103,10 +100,14 @@ suite("test_iot_auto_detect_concurrent") {
     thread6.join()
     thread7.join()
     // suppose result: Success to overwrite with a multiple of ten values
-    assertTrue(success_status)
-    qt_sql3 " select count(k0) from test_concurrent_write; "
-    qt_sql4 " select count(distinct k0) from test_concurrent_write; "
-
+    if (!success_status) {
+        // Not allowed running Insert Overwrite on same table
+        assertTrue(err_msg.contains('same table'))
+    } else {
+        // The execution was fast, resulting in no concurrent execution
+        qt_sql3 " select count(k0) from test_concurrent_write; "
+        qt_sql4 " select count(distinct k0) from test_concurrent_write; "
+    }
 
     /// with drop partition concurrently
     success_status = true

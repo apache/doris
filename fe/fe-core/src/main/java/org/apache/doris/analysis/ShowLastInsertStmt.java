@@ -22,7 +22,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW LAST INSERT
-public class ShowLastInsertStmt extends ShowStmt {
+public class ShowLastInsertStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("TransactionId", ScalarType.createVarchar(128)))

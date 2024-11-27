@@ -103,7 +103,7 @@ public class BackendsProcDir implements ProcDirInterface {
             }
 
             watch.start();
-            Integer tabletNum = Env.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
+            Integer tabletNum = systemInfoService.getTabletNumByBackendId(backendId);
             watch.stop();
             List<Comparable> backendInfo = Lists.newArrayList();
             backendInfo.add(String.valueOf(backendId));

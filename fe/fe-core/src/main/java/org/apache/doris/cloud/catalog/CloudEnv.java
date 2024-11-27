@@ -38,12 +38,9 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
-import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
-import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
@@ -54,9 +51,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
-import java.io.File;
 import java.io.IOException;
-import java.net.HttpURLConnection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -77,6 +72,8 @@ public class CloudEnv extends Env {
 
     private CleanCopyJobScheduler cleanCopyJobScheduler;
 
+    private String cloudInstanceId;
+
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
         this.cleanCopyJobScheduler = new CleanCopyJobScheduler();
@@ -95,6 +92,36 @@ public class CloudEnv extends Env {
 
     public CloudUpgradeMgr getCloudUpgradeMgr() {
         return this.upgradeMgr;
+    }
+
+    public String getCloudInstanceId() {
+        return cloudInstanceId;
+    }
+
+    private void setCloudInstanceId(String cloudInstanceId) {
+        this.cloudInstanceId = cloudInstanceId;
+    }
+
+    @Override
+    public void initialize(String[] args) throws Exception {
+        if (Strings.isNullOrEmpty(Config.cloud_unique_id) && Config.cluster_id == -1) {
+            throw new UserException("cluster_id must be specified in fe.conf if deployed "
+                                    + "in cloud mode, because FE should known to which it belongs");
+        }
+
+        if (Config.cluster_id != -1) {
+            setCloudInstanceId(String.valueOf(Config.cluster_id));
+        }
+
+        if (Strings.isNullOrEmpty(Config.cloud_unique_id) && !Strings.isNullOrEmpty(cloudInstanceId)) {
+            Config.cloud_unique_id = "1:" + cloudInstanceId + ":fe";
+            LOG.info("cloud_unique_id is empty, setting it to: {}", Config.cloud_unique_id);
+        }
+
+        LOG.info("Initializing CloudEnv with cloud_unique_id: {}, cluster_id: {}, cloudInstanceId: {}",
+                Config.cloud_unique_id, Config.cluster_id, cloudInstanceId);
+
+        super.initialize(args);
     }
 
     @Override
@@ -125,9 +152,13 @@ public class CloudEnv extends Env {
         return cacheHotspotMgr;
     }
 
+    private CloudSystemInfoService getCloudSystemInfoService() {
+        return (CloudSystemInfoService) systemInfo;
+    }
+
     private Cloud.NodeInfoPB getLocalTypeFromMetaService() {
         // get helperNodes from ms
-        Cloud.GetClusterResponse response = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+        Cloud.GetClusterResponse response = getCloudSystemInfoService()
                 .getCloudCluster(Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
         if (!response.hasStatus() || !response.getStatus().hasCode()
                 || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
@@ -149,12 +180,13 @@ public class CloudEnv extends Env {
                 .stream().filter(NodeInfoPB::hasNodeType).collect(Collectors.toList());
 
         helperNodes.clear();
-        helperNodes.addAll(allNodes.stream()
-                .filter(nodeInfoPB -> nodeInfoPB.getNodeType() == NodeInfoPB.NodeType.FE_MASTER)
-                .map(nodeInfoPB -> new HostInfo(
-                Config.enable_fqdn_mode ? nodeInfoPB.getHost() : nodeInfoPB.getIp(), nodeInfoPB.getEditLogPort()))
-                .collect(Collectors.toList()));
-        // check only have one master node.
+        Optional<Cloud.NodeInfoPB> firstNonObserverNode = allNodes.stream().findFirst();
+        if (firstNonObserverNode.isPresent()) {
+            helperNodes.add(new HostInfo(
+                    Config.enable_fqdn_mode ? firstNonObserverNode.get().getHost()
+                            : firstNonObserverNode.get().getIp(),
+                    firstNonObserverNode.get().getEditLogPort()));
+        }
         Preconditions.checkState(helperNodes.size() == 1);
 
         Optional<NodeInfoPB> local = allNodes.stream().filter(n -> ((Config.enable_fqdn_mode ? n.getHost() : n.getIp())
@@ -162,248 +194,67 @@ public class CloudEnv extends Env {
         return local.orElse(null);
     }
 
+    private void tryAddMyselfToMS() {
+        try {
+            try {
+                getCloudSystemInfoService().tryCreateInstance(getCloudInstanceId(),
+                        getCloudInstanceId(), false);
+            } catch (Exception e) {
+                return;
+            }
+            addFrontend(FrontendNodeType.MASTER, selfNode.getHost(), selfNode.getPort());
+        } catch (DdlException e) {
+            LOG.warn("get ddl exception ", e);
+        }
+    }
 
     protected void getClusterIdAndRole() throws IOException {
         NodeInfoPB.NodeType type = NodeInfoPB.NodeType.UNKNOWN;
-        String feNodeNameFromMeta = "";
         // cloud mode
         while (true) {
             Cloud.NodeInfoPB nodeInfoPB = null;
             try {
                 nodeInfoPB = getLocalTypeFromMetaService();
             } catch (Exception e) {
-                LOG.warn("failed to get local fe's type, sleep 5 s, try again. exception: {}", e.getMessage());
+                LOG.warn("failed to get local fe's type, sleep {} s, try again. exception: {}",
+                        Config.resource_not_ready_sleep_seconds, e.getMessage());
             }
             if (nodeInfoPB == null) {
-                LOG.warn("failed to get local fe's type, sleep 5 s, try again.");
+                LOG.warn("failed to get local fe's type, sleep {} s, try again.",
+                        Config.resource_not_ready_sleep_seconds);
+                if (isStartFromEmpty()) {
+                    tryAddMyselfToMS();
+                }
                 try {
-                    Thread.sleep(5000);
+                    Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
                 } catch (InterruptedException e) {
-                    LOG.warn("thread sleep Exception", e);
+                    LOG.info("interrupted by {}", e);
                 }
                 continue;
             }
+
             type = nodeInfoPB.getNodeType();
-            feNodeNameFromMeta = genFeNodeNameFromMeta(
-                Config.enable_fqdn_mode ? nodeInfoPB.getHost() : nodeInfoPB.getIp(),
-                nodeInfoPB.getEditLogPort(), nodeInfoPB.getCtime() * 1000);
             break;
         }
 
+        try {
+            String instanceId;
+            instanceId = getCloudSystemInfoService().getInstanceId(Config.cloud_unique_id);
+            setCloudInstanceId(instanceId);
+        } catch (IOException e) {
+            LOG.error("Failed to get instance ID from cloud_unique_id: {}", Config.cloud_unique_id, e);
+            throw e;
+        }
+
         LOG.info("current fe's role is {}", type == NodeInfoPB.NodeType.FE_MASTER ? "MASTER" :
+                type == NodeInfoPB.NodeType.FE_FOLLOWER ? "FOLLOWER" :
                 type == NodeInfoPB.NodeType.FE_OBSERVER ? "OBSERVER" : "UNKNOWN");
         if (type == NodeInfoPB.NodeType.UNKNOWN) {
             LOG.warn("type current not support, please check it");
             System.exit(-1);
         }
-        File roleFile = new File(super.imageDir, Storage.ROLE_FILE);
-        File versionFile = new File(super.imageDir, Storage.VERSION_FILE);
 
-        // if helper node is point to self, or there is ROLE and VERSION file in local.
-        // get the node type from local
-        if ((type == NodeInfoPB.NodeType.FE_MASTER) || type != NodeInfoPB.NodeType.FE_OBSERVER
-                && (isMyself() || (roleFile.exists() && versionFile.exists()))) {
-            if (!isMyself()) {
-                LOG.info("find ROLE and VERSION file in local, ignore helper nodes: {}", helperNodes);
-            }
-
-            // check file integrity, if has.
-            if ((roleFile.exists() && !versionFile.exists()) || (!roleFile.exists() && versionFile.exists())) {
-                throw new IOException("role file and version file must both exist or both not exist. "
-                    + "please specific one helper node to recover. will exit.");
-            }
-
-            // ATTN:
-            // If the version file and role file does not exist and the helper node is itself,
-            // this should be the very beginning startup of the cluster, so we create ROLE and VERSION file,
-            // set isFirstTimeStartUp to true, and add itself to frontends list.
-            // If ROLE and VERSION file is deleted for some reason, we may arbitrarily start this node as
-            // FOLLOWER, which may cause UNDEFINED behavior.
-            // Everything may be OK if the origin role is exactly FOLLOWER,
-            // but if not, FE process will exit somehow.
-            Storage storage = new Storage(this.imageDir);
-            if (!roleFile.exists()) {
-                // The very first time to start the first node of the cluster.
-                // It should became a Master node (Master node's role is also FOLLOWER, which means electable)
-
-                // For compatibility. Because this is the very first time to start, so we arbitrarily choose
-                // a new name for this node
-                role = FrontendNodeType.FOLLOWER;
-                if (type == NodeInfoPB.NodeType.FE_MASTER) {
-                    nodeName = feNodeNameFromMeta;
-                } else {
-                    nodeName = genFeNodeName(selfNode.getHost(), selfNode.getPort(), false /* new style */);
-                }
-
-                storage.writeFrontendRoleAndNodeName(role, nodeName);
-                LOG.info("very first time to start this node. role: {}, node name: {}", role.name(), nodeName);
-            } else {
-                role = storage.getRole();
-                if (role == FrontendNodeType.REPLICA) {
-                    // for compatibility
-                    role = FrontendNodeType.FOLLOWER;
-                }
-
-                nodeName = storage.getNodeName();
-                if (Strings.isNullOrEmpty(nodeName)) {
-                    // In normal case, if ROLE file exist, role and nodeName should both exist.
-                    // But we will get a empty nodeName after upgrading.
-                    // So for forward compatibility, we use the "old-style" way of naming: "ip_port",
-                    // and update the ROLE file.
-                    if (type == NodeInfoPB.NodeType.FE_MASTER) {
-                        nodeName = feNodeNameFromMeta;
-                    } else {
-                        nodeName = genFeNodeName(selfNode.getHost(), selfNode.getPort(), true /* old style */);
-                    }
-                    storage.writeFrontendRoleAndNodeName(role, nodeName);
-                    LOG.info("forward compatibility. role: {}, node name: {}", role.name(), nodeName);
-                }
-                // Notice:
-                // With the introduction of FQDN, the nodeName is no longer bound to an IP address,
-                // so consistency is no longer checked here. Otherwise, the startup will fail.
-            }
-
-            Preconditions.checkNotNull(role);
-            Preconditions.checkNotNull(nodeName);
-
-            if (!versionFile.exists()) {
-                clusterId = Config.cluster_id == -1 ? Storage.newClusterID() : Config.cluster_id;
-                token = Strings.isNullOrEmpty(Config.auth_token) ? Storage.newToken() : Config.auth_token;
-                storage = new Storage(clusterId, token, this.imageDir);
-                storage.writeClusterIdAndToken();
-
-                isFirstTimeStartUp = true;
-                Frontend self = new Frontend(role, nodeName, selfNode.getHost(), selfNode.getPort());
-                // Set self alive to true, the BDBEnvironment.getReplicationGroupAdmin() will rely on this to get
-                // helper node, before the heartbeat thread is started.
-                self.setIsAlive(true);
-                // We don't need to check if frontends already contains self.
-                // frontends must be empty cause no image is loaded and no journal is replayed yet.
-                // And this frontend will be persisted later after opening bdbje environment.
-                frontends.put(nodeName, self);
-                LOG.info("add self frontend: {}", self);
-            } else {
-                clusterId = storage.getClusterID();
-                if (storage.getToken() == null) {
-                    token = Strings.isNullOrEmpty(Config.auth_token) ? Storage.newToken() : Config.auth_token;
-                    LOG.info("new token={}", token);
-                    storage.setToken(token);
-                    storage.writeClusterIdAndToken();
-                } else {
-                    token = storage.getToken();
-                }
-                isFirstTimeStartUp = false;
-            }
-        } else {
-            // cloud mode, type == NodeInfoPB.NodeType.FE_OBSERVER
-            // try to get role and node name from helper node,
-            // this loop will not end until we get certain role type and name
-            while (true) {
-                if (!getFeNodeTypeAndNameFromHelpers()) {
-                    LOG.warn("current node is not added to the group. please add it first. "
-                            + "sleep 5 seconds and retry, current helper nodes: {}", helperNodes);
-                    try {
-                        Thread.sleep(5000);
-                        continue;
-                    } catch (InterruptedException e) {
-                        LOG.warn("", e);
-                        System.exit(-1);
-                    }
-                }
-
-                if (role == FrontendNodeType.REPLICA) {
-                    // for compatibility
-                    role = FrontendNodeType.FOLLOWER;
-                }
-                break;
-            }
-
-            Preconditions.checkState(helperNodes.size() == 1);
-            Preconditions.checkNotNull(role);
-            Preconditions.checkNotNull(nodeName);
-
-            HostInfo rightHelperNode = helperNodes.get(0);
-
-            Storage storage = new Storage(this.imageDir);
-            if (roleFile.exists() && (role != storage.getRole() || !nodeName.equals(storage.getNodeName()))
-                    || !roleFile.exists()) {
-                storage.writeFrontendRoleAndNodeName(role, nodeName);
-            }
-            if (!versionFile.exists()) {
-                // If the version file doesn't exist, download it from helper node
-                if (!getVersionFileFromHelper(rightHelperNode)) {
-                    throw new IOException("fail to download version file from "
-                        + rightHelperNode.getHost() + " will exit.");
-                }
-
-                // NOTE: cluster_id will be init when Storage object is constructed,
-                //       so we new one.
-                storage = new Storage(this.imageDir);
-                clusterId = storage.getClusterID();
-                token = storage.getToken();
-                if (Strings.isNullOrEmpty(token)) {
-                    token = Config.auth_token;
-                }
-                LOG.info("get version file from helper, cluster id {}, token {}", clusterId, token);
-            } else {
-                // If the version file exist, read the cluster id and check the
-                // id with helper node to make sure they are identical
-                clusterId = storage.getClusterID();
-                token = storage.getToken();
-                LOG.info("check local cluster id {} and token via helper node", clusterId, token);
-                try {
-                    String url = "http://" + NetUtils
-                            .getHostPortInAccessibleFormat(rightHelperNode.getHost(), Config.http_port) + "/check";
-                    HttpURLConnection conn = HttpURLUtil.getConnectionWithNodeIdent(url);
-                    conn.setConnectTimeout(2 * 1000);
-                    conn.setReadTimeout(2 * 1000);
-                    String clusterIdString = conn.getHeaderField(MetaBaseAction.CLUSTER_ID);
-                    int remoteClusterId = Integer.parseInt(clusterIdString);
-                    if (remoteClusterId != clusterId) {
-                        LOG.error("cluster id is not equal with helper node {}. will exit. remote:{}, local:{}",
-                                rightHelperNode.getHost(), clusterIdString, clusterId);
-                        throw new IOException(
-                            "cluster id is not equal with helper node "
-                                + rightHelperNode.getHost() + ". will exit.");
-                    }
-                    String remoteToken = conn.getHeaderField(MetaBaseAction.TOKEN);
-                    if (token == null && remoteToken != null) {
-                        LOG.info("get token from helper node. token={}.", remoteToken);
-                        token = remoteToken;
-                        storage.writeClusterIdAndToken();
-                        storage.reload();
-                    }
-                    if (Config.enable_token_check) {
-                        Preconditions.checkNotNull(token);
-                        Preconditions.checkNotNull(remoteToken);
-                        if (!token.equals(remoteToken)) {
-                            throw new IOException(
-                                "token is not equal with helper node " + rightHelperNode.getHost()
-                                    + ", local token " + token + ", remote token " + remoteToken + ". will exit.");
-                        }
-                    }
-                } catch (Exception e) {
-                    throw new IOException("fail to check cluster_id and token with helper node.", e);
-                }
-            }
-
-            getNewImage(rightHelperNode);
-        }
-
-        if (Config.cluster_id != -1 && clusterId != Config.cluster_id) {
-            throw new IOException("cluster id is not equal with config item cluster_id. will exit. "
-                + "If you are in recovery mode, please also modify the cluster_id in 'doris-meta/image/VERSION'");
-        }
-
-        if (role.equals(FrontendNodeType.FOLLOWER)) {
-            isElectable = true;
-        } else {
-            isElectable = false;
-        }
-
-        Preconditions.checkState(helperNodes.size() == 1);
-        LOG.info("finished to get cluster id: {}, isElectable: {}, role: {}, node name: {}, token: {}",
-                clusterId, isElectable, role.name(), nodeName, token);
+        super.getClusterIdAndRole();
     }
 
     @Override
@@ -426,20 +277,20 @@ public class CloudEnv extends Env {
                 + "' for cloud cluster '" + clusterName + "'", ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
         }
 
-        if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames().contains(clusterName)) {
+        if (!getCloudSystemInfoService().getCloudClusterNames().contains(clusterName)) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("current instance does not have a cluster name :{}", clusterName);
             }
-            throw new DdlException(String.format("Cluster %s not exist", clusterName),
+            throw new DdlException(String.format("Compute Group %s not exist", clusterName),
                 ErrorCode.ERR_CLOUD_CLUSTER_ERROR);
         }
     }
 
     public void changeCloudCluster(String clusterName, ConnectContext ctx) throws DdlException {
         checkCloudClusterPriv(clusterName);
-        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStart(clusterName);
+        getCloudSystemInfoService().waitForAutoStart(clusterName);
         try {
-            ((CloudSystemInfoService) Env.getCurrentSystemInfo()).addCloudCluster(clusterName, "");
+            getCloudSystemInfoService().addCloudCluster(clusterName, "");
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e.getMysqlErrorCode());
         }
@@ -548,5 +399,39 @@ public class CloudEnv extends Env {
 
     public void cancelCloudWarmUp(CancelCloudWarmUpStmt stmt) throws DdlException {
         getCacheHotspotMgr().cancel(stmt);
+    }
+
+    @Override
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
+        getCloudSystemInfoService().addFrontend(role, host, editLogPort);
+    }
+
+    @Override
+    public void dropFrontend(FrontendNodeType role, String host, int port) throws DdlException {
+        if (port == selfNode.getPort() && feType == FrontendNodeType.MASTER
+                && selfNode.getHost().equals(host)) {
+            throw new DdlException("can not drop current master node.");
+        }
+
+        Frontend frontend = checkFeExist(host, port);
+        if (frontend == null) {
+            throw new DdlException("Frontend does not exist.");
+        }
+
+        if (frontend.getRole() != role) {
+            throw new DdlException(role.toString() + " does not exist[" + NetUtils
+                    .getHostPortInAccessibleFormat(host, port) + "]");
+        }
+
+        if (Strings.isNullOrEmpty(frontend.getCloudUniqueId())) {
+            throw new DdlException("Frontend does not have a cloudUniqueId, wait for a minute.");
+        }
+
+        getCloudSystemInfoService().dropFrontend(frontend);
+    }
+
+    @Override
+    public void modifyFrontendHostName(String srcHost, int srcPort, String destHost) throws DdlException {
+        throw new DdlException("Modifying frontend hostname is not supported in cloud mode");
     }
 }

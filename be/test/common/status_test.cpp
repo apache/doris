@@ -50,8 +50,6 @@ TEST_F(StatusTest, OK) {
 TEST_F(StatusTest, TStatusCodeWithStatus) {
     // The definition in status.h
     //extern ErrorCode::ErrorCodeState error_states[ErrorCode::MAX_ERROR_CODE_DEFINE_NUM];
-    extern ErrorCode::ErrorCodeState error_states;
-    extern ErrorCode::ErrorCodeInitializer error_code_init;
     // The definition in Status_types.h
     extern const std::map<int, const char*> _TStatusCode_VALUES_TO_NAMES;
     ErrorCode::error_code_init.check_init();
@@ -79,8 +77,16 @@ TEST_F(StatusTest, TStatusCodeWithStatus) {
             continue;
         }
         EXPECT_TRUE(tstatus_st.first < ErrorCode::MAX_ERROR_CODE_DEFINE_NUM);
-        EXPECT_TRUE(ErrorCode::error_states[tstatus_st.first].description.compare(
-                            tstatus_st.second) == 0);
+        bool ret = ErrorCode::error_states[tstatus_st.first].description.compare(
+                           tstatus_st.second) == 0;
+        if (!ret) {
+            std::cout << "ErrorCode::error_states's " << tstatus_st.first << " compare to "
+                      << tstatus_st.second
+                      << " failed. you need check whether TStatusCode defined in thrift "
+                         "is same with ERROR_CODES in status.h"
+                      << std::endl;
+        }
+        EXPECT_TRUE(ret);
     }
 }
 

@@ -38,7 +38,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.function.Predicate;
 
-public class ShowRestoreStmt extends ShowStmt {
+public class ShowRestoreStmt extends ShowStmt implements NotFallbackInParser {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId").add("Label").add("Timestamp").add("DbName").add("State")
             .add("AllowLoad").add("ReplicationNum").add("ReplicaAllocation").add("ReserveReplica")

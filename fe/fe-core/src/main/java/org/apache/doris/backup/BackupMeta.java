@@ -30,6 +30,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
+import java.io.ByteArrayInputStream;
 import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
@@ -38,11 +39,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 
 public class BackupMeta implements Writable, GsonPostProcessable {
-
     // tbl name -> tbl
     @SerializedName(value = "tblNameMap")
     private Map<String, Table> tblNameMap = Maps.newHashMap();
@@ -86,12 +87,19 @@ public class BackupMeta implements Writable, GsonPostProcessable {
     }
 
     public static BackupMeta fromFile(String filePath, int metaVersion) throws IOException {
-        File file = new File(filePath);
+        return fromInputStream(new FileInputStream(filePath), metaVersion);
+    }
+
+    public static BackupMeta fromBytes(byte[] bytes, int metaVersion) throws IOException {
+        return fromInputStream(new ByteArrayInputStream(bytes), metaVersion);
+    }
+
+    protected static BackupMeta fromInputStream(InputStream stream, int metaVersion) throws IOException {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(metaVersion);
         metaContext.setThreadLocalInfo();
-        try (DataInputStream dis = new DataInputStream(new FileInputStream(file))) {
-            BackupMeta backupMeta = BackupMeta.read(dis, metaVersion);
+        try (DataInputStream dis = new DataInputStream(stream)) {
+            BackupMeta backupMeta = BackupMeta.read(dis);
             return backupMeta;
         } finally {
             MetaContext.remove();
@@ -105,22 +113,6 @@ public class BackupMeta implements Writable, GsonPostProcessable {
             dos.flush();
         } finally {
             dos.close();
-        }
-    }
-
-    public boolean compatibleWith(BackupMeta other) {
-        // TODO
-        return false;
-    }
-
-    public static BackupMeta read(DataInput in, int metaVersion) throws IOException {
-        if (metaVersion < FeMetaVersion.VERSION_136) {
-            BackupMeta backupMeta = new BackupMeta();
-            backupMeta.readFields(in);
-            return backupMeta;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, BackupMeta.class);
         }
     }
 

@@ -113,6 +113,6 @@ suite("test_cast") {
         """
     explain {
         sql """select k0 from table_decimal38_4 union all select k0 from table_decimal27_9;"""
-        contains """AS DECIMALV3(38, 4)"""
+        contains """AS decimalv3(38,4)"""
     }
 }

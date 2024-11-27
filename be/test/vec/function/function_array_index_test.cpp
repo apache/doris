@@ -16,14 +16,10 @@
 // under the License.
 
 #include <string>
-#include <vector>
 
-#include "common/status.h"
 #include "function_test_util.h"
-#include "testutil/any_type.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
@@ -144,10 +140,10 @@ TEST(function_array_index_test, array_contains) {
 
         Array vec = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
                      ut_type::DECIMALFIELD(0.0)};
-        DataSet data_set = {{{vec, ut_type::DECIMAL(-17014116.67)}, UInt8(1)},
-                            {{vec, ut_type::DECIMAL(0)}, UInt8(1)},
-                            {{Null(), ut_type::DECIMAL(0)}, Null()},
-                            {{empty_arr, ut_type::DECIMAL(0)}, UInt8(0)}};
+        DataSet data_set = {{{vec, ut_type::DECIMALV2(-17014116.67)}, UInt8(1)},
+                            {{vec, ut_type::DECIMALV2(0)}, UInt8(1)},
+                            {{Null(), ut_type::DECIMALV2(0)}, Null()},
+                            {{empty_arr, ut_type::DECIMALV2(0)}, UInt8(0)}};
 
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
@@ -156,7 +152,7 @@ TEST(function_array_index_test, array_contains) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::String};
 
-        Array vec = {Field("abc", 3), Field("", 0), Field("def", 3)};
+        Array vec = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
         DataSet data_set = {{{vec, std::string("abc")}, UInt8(1)},
                             {{vec, std::string("aaa")}, UInt8(0)},
                             {{vec, std::string("")}, UInt8(1)},
@@ -244,10 +240,10 @@ TEST(function_array_index_test, array_position) {
 
         Array vec = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
                      ut_type::DECIMALFIELD(0)};
-        DataSet data_set = {{{vec, ut_type::DECIMAL(-17014116.67)}, Int64(2)},
-                            {{vec, ut_type::DECIMAL(0)}, Int64(3)},
-                            {{Null(), ut_type::DECIMAL(0)}, Null()},
-                            {{empty_arr, ut_type::DECIMAL(0)}, Int64(0)}};
+        DataSet data_set = {{{vec, ut_type::DECIMALV2(-17014116.67)}, Int64(2)},
+                            {{vec, ut_type::DECIMALV2(0)}, Int64(3)},
+                            {{Null(), ut_type::DECIMALV2(0)}, Null()},
+                            {{empty_arr, ut_type::DECIMALV2(0)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
@@ -256,7 +252,7 @@ TEST(function_array_index_test, array_position) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::String};
 
-        Array vec = {Field("abc", 3), Field("", 0), Field("def", 3)};
+        Array vec = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
         DataSet data_set = {{{vec, std::string("abc")}, Int64(1)},
                             {{vec, std::string("aaa")}, Int64(0)},
                             {{vec, std::string("")}, Int64(2)},

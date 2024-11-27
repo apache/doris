@@ -35,9 +35,12 @@
 #include "common/consts.h"
 #include "common/status.h"
 #include "gutil/stringprintf.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/options.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
@@ -59,7 +62,7 @@ class TabletColumn;
 
 using TabletColumnPtr = std::shared_ptr<TabletColumn>;
 
-class TabletColumn {
+class TabletColumn : public MetadataAdder<TabletColumn> {
 public:
     TabletColumn();
     TabletColumn(const ColumnPB& column);
@@ -89,6 +92,7 @@ public:
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
     bool is_array_type() const { return _type == FieldType::OLAP_FIELD_TYPE_ARRAY; }
+    bool is_agg_state_type() const { return _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE; }
     bool is_jsonb_type() const { return _type == FieldType::OLAP_FIELD_TYPE_JSONB; }
     bool is_length_variable_type() const {
         return _type == FieldType::OLAP_FIELD_TYPE_CHAR ||
@@ -121,8 +125,9 @@ public:
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
-            vectorized::DataTypePtr type) const;
-    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix) const;
+            vectorized::DataTypePtr type, int current_be_exec_version) const;
+    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix,
+                                                            int current_be_exec_version) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
@@ -160,6 +165,12 @@ public:
     bool is_extracted_column() const {
         return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id > 0;
     };
+    std::string suffix_path() const {
+        return is_extracted_column() ? _column_path->get_path() : "";
+    }
+    bool is_nested_subcolumn() const {
+        return _column_path != nullptr && _column_path->has_nested_part();
+    }
     int32_t parent_unique_id() const { return _parent_col_unique_id; }
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
@@ -217,13 +228,16 @@ private:
 
     bool _has_bitmap_index = false;
     bool _visible = true;
-    int32_t _parent_col_unique_id = -1;
+
     std::vector<TabletColumnPtr> _sub_columns;
     uint32_t _sub_column_count = 0;
 
     bool _result_is_nullable = false;
     int _be_exec_version = -1;
-    vectorized::PathInDataPtr _column_path;
+
+    // The extracted sub-columns from "variant" contain the following information:
+    int32_t _parent_col_unique_id = -1;     // "variant" -> col_unique_id
+    vectorized::PathInDataPtr _column_path; // the path of the sub-columns themselves
 
     // Record information about columns merged into a sparse column within a variant
     // `{"id": 100, "name" : "jack", "point" : 3.9}`
@@ -240,7 +254,7 @@ bool operator!=(const TabletColumn& a, const TabletColumn& b);
 
 class TabletSchema;
 
-class TabletIndex {
+class TabletIndex : public MetadataAdder<TabletIndex> {
 public:
     TabletIndex() = default;
     void init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema);
@@ -282,7 +296,7 @@ private:
     std::map<string, string> _properties;
 };
 
-class TabletSchema {
+class TabletSchema : public MetadataAdder<TabletSchema> {
 public:
     enum ColumnType { NORMAL = 0, DROPPED = 1, VARIANT = 2 };
     // TODO(yingchun): better to make constructor as private to avoid
@@ -291,14 +305,26 @@ public:
     TabletSchema();
     virtual ~TabletSchema();
 
-    void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false);
+    // Init from pb
+    // ignore_extracted_columns: ignore the extracted columns from variant column
+    // reuse_cached_column: reuse the cached column in the schema if they are the same, to reduce memory usage
+    void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false,
+                      bool reuse_cached_column = false);
     // Notice: Use deterministic way to serialize protobuf,
     // since serialize Map in protobuf may could lead to un-deterministic by default
-    static std::string deterministic_string_serialize(const TabletSchemaPB& schema_pb);
+    template <class PbType>
+    static std::string deterministic_string_serialize(const PbType& pb) {
+        std::string output;
+        google::protobuf::io::StringOutputStream string_output_stream(&output);
+        google::protobuf::io::CodedOutputStream output_stream(&string_output_stream);
+        output_stream.SetSerializationDeterministic(true);
+        pb.SerializeToCodedStream(&output_stream);
+        return output;
+    }
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
-    void append_index(TabletIndex index);
-    void update_index(const TabletColumn& column, TabletIndex index);
+    void append_index(TabletIndex&& index);
+    void update_index(const TabletColumn& column, const IndexType& index_type, TabletIndex&& index);
     void remove_index(int64_t index_id);
     void clear_index();
     // Must make sure the row column is always the last column
@@ -317,6 +343,7 @@ public:
     const TabletColumn& column(size_t ordinal) const;
     Result<const TabletColumn*> column(const std::string& field_name) const;
     Status have_column(const std::string& field_name) const;
+    bool exist_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     TabletColumn& mutable_column_by_uid(int32_t col_unique_id);
     TabletColumn& mutable_column(size_t ordinal);
@@ -342,6 +369,10 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
+    void set_variant_enable_flatten_nested(bool flatten_nested) {
+        _variant_enable_flatten_nested = flatten_nested;
+    }
+    bool variant_flatten_nested() const { return _variant_enable_flatten_nested; }
     void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
         _enable_single_replica_compaction = enable_single_replica_compaction;
     }
@@ -358,9 +389,23 @@ public:
     int32_t sequence_col_idx() const { return _sequence_col_idx; }
     void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
+    bool has_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
+    int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
+    void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
+    long row_store_page_size() const { return _row_store_page_size; }
+    void set_storage_page_size(long storage_page_size) { _storage_page_size = storage_page_size; }
+    long storage_page_size() const { return _storage_page_size; }
 
-    const std::vector<TabletIndex>& indexes() const { return _indexes; }
+    const std::vector<const TabletIndex*> inverted_indexes() const {
+        std::vector<const TabletIndex*> inverted_indexes;
+        for (const auto& index : _indexes) {
+            if (index.index_type() == IndexType::INVERTED) {
+                inverted_indexes.emplace_back(&index);
+            }
+        }
+        return inverted_indexes;
+    }
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
             if (index.index_type() == IndexType::INVERTED) {
@@ -369,17 +414,15 @@ public:
         }
         return false;
     }
-    std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
-    bool has_inverted_index(const TabletColumn& col) const;
-    bool has_inverted_index_with_index_id(int64_t index_id, const std::string& suffix_path) const;
-    const TabletIndex* get_inverted_index_with_index_id(int64_t index_id,
-                                                        const std::string& suffix_name) const;
-    // check_valid: check if this column supports inverted index
+    bool has_inverted_index_with_index_id(int64_t index_id) const;
+    // Check whether this column supports inverted index
     // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
-    // If returned, the index file will not be found.
-    const TabletIndex* get_inverted_index(const TabletColumn& col, bool check_valid = true) const;
-    const TabletIndex* get_inverted_index(int32_t col_unique_id,
-                                          const std::string& suffix_path) const;
+    const TabletIndex* inverted_index(const TabletColumn& col) const;
+
+    // Regardless of whether this column supports inverted index
+    // TabletIndex information will be returned as long as it exists.
+    const TabletIndex* inverted_index(int32_t col_unique_id,
+                                      const std::string& suffix_path = "") const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
@@ -473,7 +516,7 @@ public:
         return str;
     }
 
-    vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
+    vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids) const;
 
     std::shared_ptr<TabletSchema> copy_without_variant_extracted_columns();
     InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
@@ -485,14 +528,19 @@ public:
 
     const std::vector<int32_t>& row_columns_uids() const { return _row_store_column_unique_ids; }
 
+    int64_t get_metadata_size() const override;
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
+
+    void clear_column_cache_handlers();
 
     KeysType _keys_type = DUP_KEYS;
     SortType _sort_type = SortType::LEXICAL;
     size_t _sort_col_num = 0;
     std::vector<TabletColumnPtr> _cols;
+    std::vector<Cache::Handle*> _column_cache_handlers;
 
     std::vector<TabletIndex> _indexes;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
@@ -508,6 +556,8 @@ private:
     size_t _num_rows_per_row_block = 0;
     CompressKind _compress_kind = COMPRESS_NONE;
     segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
+    long _row_store_page_size = segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+    long _storage_page_size = segment_v2::STORAGE_PAGE_SIZE_DEFAULT_VALUE;
     size_t _next_column_unique_id = 0;
     std::string _auto_increment_column;
 
@@ -517,6 +567,7 @@ private:
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
     int32_t _version_col_idx = -1;
+    int32_t _skip_bitmap_col_idx = -1;
     int32_t _schema_version = -1;
     int64_t _table_id = -1;
     int64_t _db_id = -1;
@@ -530,6 +581,8 @@ private:
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
+    bool _variant_enable_flatten_nested = false;
+    int64_t _vl_field_mem_size {0}; // variable length field
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

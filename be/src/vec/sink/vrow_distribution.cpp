@@ -23,7 +23,7 @@
 
 #include <cstdint>
 #include <memory>
-#include <sstream>
+#include <string>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -42,6 +42,7 @@
 #include "vec/sink/writer/vtablet_writer.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs>
 VRowDistribution::_get_partition_function() {
@@ -50,7 +51,7 @@ VRowDistribution::_get_partition_function() {
 
 Status VRowDistribution::_save_missing_values(
         std::vector<std::vector<std::string>>& col_strs, // non-const ref for move
-        int col_size, Block* block, std::vector<int64_t> filter,
+        int col_size, Block* block, const std::vector<int64_t>& filter,
         const std::vector<const NullMap*>& col_null_maps) {
     // de-duplication for new partitions but save all rows.
     RETURN_IF_ERROR(_batching_block->add_rows(block, filter));
@@ -68,8 +69,10 @@ Status VRowDistribution::_save_missing_values(
             }
             cur_row_values.push_back(node);
         }
-        //For duplicate cur_values, they will be filtered in FE
-        _partitions_need_create.emplace_back(cur_row_values);
+        if (!_deduper.contains(cur_row_values)) {
+            _deduper.insert(cur_row_values);
+            _partitions_need_create.emplace_back(cur_row_values);
+        }
     }
 
     // to avoid too large mem use
@@ -100,7 +103,7 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_be_endpoint(be_endpoint);
 
     VLOG_NOTICE << "automatic partition rpc begin request " << request;
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     int time_out = _state->execution_timeout() * 1000;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
@@ -114,6 +117,10 @@ Status VRowDistribution::automatic_create_partition() {
     if (result.status.status_code == TStatusCode::OK) {
         // add new created partitions
         RETURN_IF_ERROR(_vpartition->add_partitions(result.partitions));
+        for (const auto& part : result.partitions) {
+            _new_partition_ids.insert(part.id);
+            VLOG_TRACE << "record new id: " << part.id;
+        }
         RETURN_IF_ERROR(_create_partition_callback(_caller, &result));
     }
 
@@ -132,7 +139,7 @@ static TCreatePartitionResult cast_as_create_result(TReplacePartitionResult& arg
 
 // use _partitions and replace them
 Status VRowDistribution::_replace_overwriting_partition() {
-    SCOPED_TIMER(_add_partition_request_timer);
+    SCOPED_TIMER(_add_partition_request_timer); // also for replace_partition
     TReplacePartitionRequest request;
     TReplacePartitionResult result;
     request.__set_overwrite_group_id(_vpartition->get_overwrite_group_id());
@@ -142,16 +149,20 @@ Status VRowDistribution::_replace_overwriting_partition() {
     // only request for partitions not recorded for replacement
     std::set<int64_t> id_deduper;
     for (const auto* part : _partitions) {
-        if (part == nullptr) [[unlikely]] {
-            return Status::InternalError(
-                    "Cannot found origin partitions in auto detect overwriting, stop processing");
-        }
-        if (_new_partition_ids.contains(part->id)) {
-            // this is a new partition. dont replace again.
-        } else {
-            // request for replacement
-            id_deduper.insert(part->id);
-        }
+        if (part != nullptr) {
+            if (_new_partition_ids.contains(part->id)) {
+                // this is a new partition. dont replace again.
+                VLOG_TRACE << "skip new partition: " << part->id;
+            } else {
+                // request for replacement
+                id_deduper.insert(part->id);
+            }
+        } else if (_missing_map.empty()) {
+            // no origin partition. and not allow to create.
+            return Status::InvalidArgument(
+                    "Cannot found origin partitions in auto detect overwriting, stop "
+                    "processing");
+        } // else: part is null and _missing_map is not empty. dealed outside using auto-partition way. nothing to do here.
     }
     if (id_deduper.empty()) {
         return Status::OK(); // no need to request
@@ -165,7 +176,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
     request.__set_be_endpoint(be_endpoint);
 
     VLOG_NOTICE << "auto detect replace partition request: " << request;
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     int time_out = _state->execution_timeout() * 1000;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
@@ -180,6 +191,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
         // record new partitions
         for (const auto& part : result.partitions) {
             _new_partition_ids.insert(part.id);
+            VLOG_TRACE << "record new id: " << part.id;
         }
         // replace data in _partitions
         RETURN_IF_ERROR(_vpartition->replace_partitions(request_part_ids, result.partitions));
@@ -288,7 +300,7 @@ Status VRowDistribution::_filter_block(vectorized::Block* block,
 Status VRowDistribution::_generate_rows_distribution_for_non_auto_partition(
         vectorized::Block* block, bool has_filtered_rows,
         std::vector<RowPartTabletIds>& row_part_tablet_ids) {
-    auto num_rows = block->rows();
+    int num_rows = cast_set<int>(block->rows());
 
     bool stop_processing = false;
     RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
@@ -302,14 +314,60 @@ Status VRowDistribution::_generate_rows_distribution_for_non_auto_partition(
     return Status::OK();
 }
 
+Status VRowDistribution::_deal_missing_map(vectorized::Block* block,
+                                           const std::vector<uint16_t>& partition_cols_idx,
+                                           int64_t& rows_stat_val) {
+    // for missing partition keys, calc the missing partition and save in _partitions_need_create
+    auto [part_ctxs, part_exprs] = _get_partition_function();
+    int part_col_num = cast_set<int>(part_exprs.size());
+    // the two vectors are in column-first-order
+    std::vector<std::vector<std::string>> col_strs;
+    std::vector<const NullMap*> col_null_maps;
+    col_strs.resize(part_col_num);
+    col_null_maps.reserve(part_col_num);
+
+    for (int i = 0; i < part_col_num; ++i) {
+        auto return_type = part_exprs[i]->data_type();
+        // expose the data column. the return type would be nullable
+        const auto& [range_left_col, col_const] =
+                unpack_if_const(block->get_by_position(partition_cols_idx[i]).column);
+        if (range_left_col->is_nullable()) {
+            col_null_maps.push_back(&(
+                    assert_cast<const ColumnNullable*>(range_left_col.get())->get_null_map_data()));
+        } else {
+            col_null_maps.push_back(nullptr);
+        }
+        for (auto row : _missing_map) {
+            col_strs[i].push_back(
+                    return_type->to_string(*range_left_col, index_check_const(row, col_const)));
+        }
+    }
+
+    // calc the end value and save them. in the end of sending, we will create partitions for them and deal them.
+    RETURN_IF_ERROR(
+            _save_missing_values(col_strs, part_col_num, block, _missing_map, col_null_maps));
+
+    size_t new_bt_rows = _batching_block->rows();
+    size_t new_bt_bytes = _batching_block->bytes();
+    rows_stat_val -= new_bt_rows - _batching_rows;
+    _state->update_num_rows_load_total(_batching_rows - new_bt_rows);
+    _state->update_num_bytes_load_total(_batching_bytes - new_bt_bytes);
+    DorisMetrics::instance()->load_rows->increment(_batching_rows - new_bt_rows);
+    DorisMetrics::instance()->load_bytes->increment(_batching_bytes - new_bt_bytes);
+    _batching_rows = new_bt_rows;
+    _batching_bytes = new_bt_bytes;
+
+    return Status::OK();
+}
+
 Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
         vectorized::Block* block, const std::vector<uint16_t>& partition_cols_idx,
         bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
         int64_t& rows_stat_val) {
-    auto num_rows = block->rows();
+    int num_rows = cast_set<int>(block->rows());
     std::vector<uint16_t> partition_keys = _vpartition->get_partition_keys();
 
-    auto partition_col = block->get_by_position(partition_keys[0]);
+    auto& partition_col = block->get_by_position(partition_keys[0]);
     _missing_map.clear();
     _missing_map.reserve(partition_col.column->size());
     bool stop_processing = false;
@@ -327,63 +385,64 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
     RETURN_IF_ERROR(_filter_block(block, row_part_tablet_ids));
 
     if (!_missing_map.empty()) {
-        // for missing partition keys, calc the missing partition and save in _partitions_need_create
-        auto [part_ctxs, part_exprs] = _get_partition_function();
-        auto part_col_num = part_exprs.size();
-        // the two vectors are in column-first-order
-        std::vector<std::vector<std::string>> col_strs;
-        std::vector<const NullMap*> col_null_maps;
-        col_strs.resize(part_col_num);
-        col_null_maps.reserve(part_col_num);
-
-        for (int i = 0; i < part_col_num; ++i) {
-            auto return_type = part_exprs[i]->data_type();
-            // expose the data column. the return type would be nullable
-            const auto& [range_left_col, col_const] =
-                    unpack_if_const(block->get_by_position(partition_cols_idx[i]).column);
-            if (range_left_col->is_nullable()) {
-                col_null_maps.push_back(&(assert_cast<const ColumnNullable*>(range_left_col.get())
-                                                  ->get_null_map_data()));
-            } else {
-                col_null_maps.push_back(nullptr);
-            }
-            for (auto row : _missing_map) {
-                col_strs[i].push_back(
-                        return_type->to_string(*range_left_col, index_check_const(row, col_const)));
-            }
-        }
-
-        // calc the end value and save them. in the end of sending, we will create partitions for them and deal them.
-        RETURN_IF_ERROR(
-                _save_missing_values(col_strs, part_col_num, block, _missing_map, col_null_maps));
-
-        size_t new_bt_rows = _batching_block->rows();
-        size_t new_bt_bytes = _batching_block->bytes();
-        rows_stat_val -= new_bt_rows - _batching_rows;
-        _state->update_num_rows_load_total(_batching_rows - new_bt_rows);
-        _state->update_num_bytes_load_total(_batching_bytes - new_bt_bytes);
-        DorisMetrics::instance()->load_rows->increment(_batching_rows - new_bt_rows);
-        DorisMetrics::instance()->load_bytes->increment(_batching_bytes - new_bt_bytes);
-        _batching_rows = new_bt_rows;
-        _batching_bytes = new_bt_bytes;
+        RETURN_IF_ERROR(_deal_missing_map(block, partition_cols_idx, rows_stat_val));
     }
     return Status::OK();
 }
 
 Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
-        vectorized::Block* block, bool has_filtered_rows,
-        std::vector<RowPartTabletIds>& row_part_tablet_ids) {
-    auto num_rows = block->rows();
+        vectorized::Block* block, const std::vector<uint16_t>& partition_cols_idx,
+        bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
+        int64_t& rows_stat_val) {
+    int num_rows = cast_set<int>(block->rows());
 
+    // for non-auto-partition situation, goes into two 'else' branch. just find the origin partitions, replace them by rpc,
+    //  and find the new partitions to use.
+    // for auto-partition's, find and save origins in _partitions and replace them. at meanwhile save the missing values for auto
+    //  partition. then we find partition again to get replaced partitions in _partitions. this time _missing_map is ignored cuz
+    //  we already saved missing values.
     bool stop_processing = false;
-    RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
-                                                 _tablet_indexes, stop_processing, _skip));
+    if (_vpartition->is_auto_partition() &&
+        _state->query_options().enable_auto_create_when_overwrite) {
+        // allow auto create partition for missing rows.
+        std::vector<uint16_t> partition_keys = _vpartition->get_partition_keys();
+        auto partition_col = block->get_by_position(partition_keys[0]);
+        _missing_map.clear();
+        _missing_map.reserve(partition_col.column->size());
+
+        RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
+                                                     _tablet_indexes, stop_processing, _skip,
+                                                     &_missing_map));
+
+        // allow and really need to create during auto-detect-overwriting.
+        if (!_missing_map.empty()) {
+            RETURN_IF_ERROR(_deal_missing_map(block, partition_cols_idx, rows_stat_val));
+        }
+    } else {
+        RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
+                                                     _tablet_indexes, stop_processing, _skip));
+    }
     RETURN_IF_ERROR(_replace_overwriting_partition());
 
     // regenerate locations for new partitions & tablets
     _reset_find_tablets(num_rows);
-    RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
-                                                 _tablet_indexes, stop_processing, _skip));
+    if (_vpartition->is_auto_partition() &&
+        _state->query_options().enable_auto_create_when_overwrite) {
+        // here _missing_map is just a placeholder
+        RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
+                                                     _tablet_indexes, stop_processing, _skip,
+                                                     &_missing_map));
+        if (VLOG_TRACE_IS_ON) {
+            std::string tmp;
+            for (auto v : _missing_map) {
+                tmp += std::to_string(v).append(", ");
+            }
+            VLOG_TRACE << "Trace missing map of " << this << ':' << tmp;
+        }
+    } else {
+        RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
+                                                     _tablet_indexes, stop_processing, _skip));
+    }
     if (has_filtered_rows) {
         for (int i = 0; i < num_rows; i++) {
             _skip[i] = _skip[i] || _block_convertor->filter_map()[i];
@@ -446,7 +505,7 @@ Status VRowDistribution::generate_rows_distribution(
             VLOG_DEBUG << "Partition-calculated block:" << block->dump_data(0, 1);
             DCHECK(result_idx != -1);
 
-            partition_cols_idx.push_back(result_idx);
+            partition_cols_idx.push_back(cast_set<uint16_t>(result_idx));
         }
 
         // change the column to compare to transformed.
@@ -454,10 +513,11 @@ Status VRowDistribution::generate_rows_distribution(
     }
 
     Status st = Status::OK();
-    if (_vpartition->is_auto_detect_overwrite()) {
+    if (_vpartition->is_auto_detect_overwrite() && !_deal_batched) {
         // when overwrite, no auto create partition allowed.
-        st = _generate_rows_distribution_for_auto_overwrite(block.get(), has_filtered_rows,
-                                                            row_part_tablet_ids);
+        st = _generate_rows_distribution_for_auto_overwrite(block.get(), partition_cols_idx,
+                                                            has_filtered_rows, row_part_tablet_ids,
+                                                            rows_stat_val);
     } else if (_vpartition->is_auto_partition() && !_deal_batched) {
         st = _generate_rows_distribution_for_auto_partition(block.get(), partition_cols_idx,
                                                             has_filtered_rows, row_part_tablet_ids,

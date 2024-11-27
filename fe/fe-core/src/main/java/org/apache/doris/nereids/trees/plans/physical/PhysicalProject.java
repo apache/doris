@@ -34,12 +34,16 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Physical project plan.
@@ -47,6 +51,7 @@ import java.util.Optional;
 public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Project {
 
     private final List<NamedExpression> projects;
+    private final Supplier<Set<NamedExpression>> projectsSet;
     //multiLayerProjects is used to extract common expressions
     // projects: (A+B) * 2, (A+B) * 3
     // multiLayerProjects:
@@ -62,6 +67,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
             LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, child);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
     }
 
     public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
@@ -70,6 +76,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
     }
 
     public List<NamedExpression> getProjects() {
@@ -96,13 +103,13 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        PhysicalProject that = (PhysicalProject) o;
-        return projects.equals(that.projects);
+        PhysicalProject<?> that = (PhysicalProject<?>) o;
+        return projectsSet.get().equals(that.projectsSet.get());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(projects);
+        return Objects.hash(projectsSet.get());
     }
 
     @Override

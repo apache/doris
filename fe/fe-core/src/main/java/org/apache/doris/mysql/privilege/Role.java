@@ -662,14 +662,15 @@ public class Role implements Writable, GsonPostProcessable {
                 break;
             case CLUSTER:
                 cloudClusterPrivTable.addEntry(entry, false, false);
-                LOG.info("cloud cluster add list {}", cloudClusterPrivTable);
+                LOG.info("cloud cluster priv table after add {}", cloudClusterPrivTable);
                 break;
             case STAGE:
                 cloudStagePrivTable.addEntry(entry, false, false);
-                LOG.info("cloud stage add list {}", cloudStagePrivTable);
+                LOG.info("cloud stage priv table after add {}", cloudStagePrivTable);
                 break;
             case STORAGE_VAULT:
                 storageVaultPrivTable.addEntry(entry, false, false);
+                LOG.info("cloud storage vault priv table after add {}", storageVaultPrivTable);
                 break;
             default:
                 throw new DdlException("Unknown resource type: " + resourcePattern.getResourceType() + " name="
@@ -1102,48 +1103,58 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     private void compatibilityErrEnum() {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_129) {
-            if (Config.isNotCloudMode()) {
-                // not cloud mode,
-                // SHOW_VIEW_PRIV_DEPRECATED -> SHOW_VIEW_PRIV (9 -> 14)
-                tblPatternToPrivs.values().forEach(privBitSet -> {
-                    if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV_DEPRECATED)) {
-                        // remove SHOW_VIEW_PRIV_DEPRECATED
-                        privBitSet.unset(Privilege.SHOW_VIEW_PRIV_DEPRECATED.getIdx());
-                        // add SHOW_VIEW_PRIV
-                        privBitSet.set(Privilege.SHOW_VIEW_PRIV.getIdx());
-                    }
-                });
-            } else {
-                // cloud mode
-                // CLUSTER_USAGE_PRIV_DEPRECATED -> CLUSTER_USAGE_PRIV (9 -> 12)
-                clusterPatternToPrivs.values().forEach(privBitSet -> {
-                    if (privBitSet.containsPrivs(Privilege.CLUSTER_USAGE_PRIV_DEPRECATED)) {
-                        // remove CLUSTER_USAGE_PRIV_DEPRECATED
-                        privBitSet.unset(Privilege.CLUSTER_USAGE_PRIV_DEPRECATED.getIdx());
-                        // add CLUSTER_USAGE_PRIV
-                        privBitSet.set(Privilege.CLUSTER_USAGE_PRIV.getIdx());
-                    }
-                });
-                // STAGE_USAGE_PRIV_DEPRECATED -> STAGE_USAGE_PRIV (10 -> 13)
-                stagePatternToPrivs.values().forEach(privBitSet -> {
-                    if (privBitSet.containsPrivs(Privilege.STAGE_USAGE_PRIV_DEPRECATED)) {
-                        // remove CLUSTER_USAGE_PRIV_DEPRECATED
-                        privBitSet.unset(Privilege.STAGE_USAGE_PRIV_DEPRECATED.getIdx());
-                        // add CLUSTER_USAGE_PRIV
-                        privBitSet.set(Privilege.STAGE_USAGE_PRIV.getIdx());
-                    }
-                });
-                // SHOW_VIEW_PRIV_CLOUD_DEPRECATED -> SHOW_VIEW_PRIV (11 -> 14)
-                tblPatternToPrivs.values().forEach(privBitSet -> {
-                    if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV_CLOUD_DEPRECATED)) {
-                        // remove SHOW_VIEW_PRIV_CLOUD_DEPRECATED
-                        privBitSet.unset(Privilege.SHOW_VIEW_PRIV_CLOUD_DEPRECATED.getIdx());
-                        // add SHOW_VIEW_PRIV
-                        privBitSet.set(Privilege.SHOW_VIEW_PRIV.getIdx());
-                    }
-                });
-            }
+        int currentVersion = Env.getCurrentEnvJournalVersion();
+        if (currentVersion < FeMetaVersion.VERSION_123) {
+            // For versions lower than VERSION_123, neither the community nor the cloud requires compatibility logic.
+            return;
+        }
+
+        LOG.info("auth into compatibility logic, currentVersion={}", currentVersion);
+        if (Config.isNotCloudMode() && currentVersion >= FeMetaVersion.VERSION_129) {
+            // not cloud mode,
+            // For versions greater than VERSION_123,
+            // the community requires versions above VERSION_129 to follow compatibility logic.
+
+            // SHOW_VIEW_PRIV_DEPRECATED -> SHOW_VIEW_PRIV (9 -> 14)
+            tblPatternToPrivs.values().forEach(privBitSet -> {
+                if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV_DEPRECATED)) {
+                    // remove SHOW_VIEW_PRIV_DEPRECATED
+                    privBitSet.unset(Privilege.SHOW_VIEW_PRIV_DEPRECATED.getIdx());
+                    // add SHOW_VIEW_PRIV
+                    privBitSet.set(Privilege.SHOW_VIEW_PRIV.getIdx());
+                }
+            });
+        } else if (Config.isCloudMode()) {
+            // cloud mode
+            // For versions greater than VERSION_123, the cloud requires compatibility logic.
+
+            // CLUSTER_USAGE_PRIV_DEPRECATED -> CLUSTER_USAGE_PRIV (9 -> 12)
+            clusterPatternToPrivs.values().forEach(privBitSet -> {
+                if (privBitSet.containsPrivs(Privilege.CLUSTER_USAGE_PRIV_DEPRECATED)) {
+                    // remove CLUSTER_USAGE_PRIV_DEPRECATED
+                    privBitSet.unset(Privilege.CLUSTER_USAGE_PRIV_DEPRECATED.getIdx());
+                    // add CLUSTER_USAGE_PRIV
+                    privBitSet.set(Privilege.CLUSTER_USAGE_PRIV.getIdx());
+                }
+            });
+            // STAGE_USAGE_PRIV_DEPRECATED -> STAGE_USAGE_PRIV (10 -> 13)
+            stagePatternToPrivs.values().forEach(privBitSet -> {
+                if (privBitSet.containsPrivs(Privilege.STAGE_USAGE_PRIV_DEPRECATED)) {
+                    // remove CLUSTER_USAGE_PRIV_DEPRECATED
+                    privBitSet.unset(Privilege.STAGE_USAGE_PRIV_DEPRECATED.getIdx());
+                    // add CLUSTER_USAGE_PRIV
+                    privBitSet.set(Privilege.STAGE_USAGE_PRIV.getIdx());
+                }
+            });
+            // SHOW_VIEW_PRIV_CLOUD_DEPRECATED -> SHOW_VIEW_PRIV (11 -> 14)
+            tblPatternToPrivs.values().forEach(privBitSet -> {
+                if (privBitSet.containsPrivs(Privilege.SHOW_VIEW_PRIV_CLOUD_DEPRECATED)) {
+                    // remove SHOW_VIEW_PRIV_CLOUD_DEPRECATED
+                    privBitSet.unset(Privilege.SHOW_VIEW_PRIV_CLOUD_DEPRECATED.getIdx());
+                    // add SHOW_VIEW_PRIV
+                    privBitSet.set(Privilege.SHOW_VIEW_PRIV.getIdx());
+                }
+            });
         }
     }
 
@@ -1156,18 +1167,26 @@ public class Role implements Writable, GsonPostProcessable {
         workloadGroupPrivTable = new WorkloadGroupPrivTable();
         cloudClusterPrivTable = new ResourcePrivTable();
         cloudStagePrivTable = new ResourcePrivTable();
+        storageVaultPrivTable = new ResourcePrivTable();
         for (Entry<TablePattern, PrivBitSet> entry : tblPatternToPrivs.entrySet()) {
             try {
                 grantPrivs(entry.getKey(), entry.getValue().copy());
             } catch (DdlException e) {
-                LOG.warn("grant failed,", e);
+                LOG.warn("grant tblPatternToPrivs failed,", e);
             }
         }
         for (Entry<ResourcePattern, PrivBitSet> entry : resourcePatternToPrivs.entrySet()) {
             try {
                 grantPrivs(entry.getKey(), entry.getValue().copy());
             } catch (DdlException e) {
-                LOG.warn("grant failed,", e);
+                LOG.warn("grant resourcePatternToPrivs failed,", e);
+            }
+        }
+        for (Entry<ResourcePattern, PrivBitSet> entry : storageVaultPatternToPrivs.entrySet()) {
+            try {
+                grantPrivs(entry.getKey(), entry.getValue().copy());
+            } catch (DdlException e) {
+                LOG.warn("grant storageVaultPatternToPrivs failed,", e);
             }
         }
         for (Entry<ResourcePattern, PrivBitSet> entry : clusterPatternToPrivs.entrySet()) {
@@ -1194,7 +1213,7 @@ public class Role implements Writable, GsonPostProcessable {
             try {
                 grantPrivs(entry.getKey(), entry.getValue().copy());
             } catch (DdlException e) {
-                LOG.warn("grant failed,", e);
+                LOG.warn("grant workloadGroupPatternToPrivs failed,", e);
             }
         }
     }

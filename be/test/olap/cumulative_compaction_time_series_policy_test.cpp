@@ -401,10 +401,10 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, calc_cumulative_compaction_scor
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
             CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
                     CUMULATIVE_TIME_SERIES_POLICY);
-    const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
-                                                          cumulative_compaction_policy);
+    bool ret = _tablet->suitable_for_compaction(CompactionType::CUMULATIVE_COMPACTION,
+                                                cumulative_compaction_policy);
 
-    EXPECT_EQ(0, score);
+    EXPECT_EQ(true, ret);
 }
 
 TEST_F(TestTimeSeriesCumulativeCompactionPolicy, calc_cumulative_compaction_score_big_rowset) {
@@ -423,10 +423,10 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, calc_cumulative_compaction_scor
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
             CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
                     CUMULATIVE_TIME_SERIES_POLICY);
-    const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
-                                                          cumulative_compaction_policy);
+    bool ret = _tablet->suitable_for_compaction(CompactionType::CUMULATIVE_COMPACTION,
+                                                cumulative_compaction_policy);
 
-    EXPECT_EQ(5, score);
+    EXPECT_EQ(true, ret);
 }
 
 TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_candidate_rowsets) {

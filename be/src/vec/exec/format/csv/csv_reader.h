@@ -170,6 +170,22 @@ private:
     std::string _value_sep;
 };
 
+class HiveCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<HiveCsvTextFieldSplitter> {
+public:
+    explicit HiveCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
+                                      const string& value_sep, size_t value_sep_len = 1,
+                                      char trimming_char = 0, char escape_char = 0)
+            : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
+              _value_sep(value_sep),
+              _escape_char(escape_char) {}
+
+    void do_split(const Slice& line, std::vector<Slice>* splitted_values);
+
+private:
+    std::string _value_sep;
+    char _escape_char;
+};
+
 class CsvReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(CsvReader);
 
@@ -286,6 +302,7 @@ private:
     bool _trim_tailing_spaces = false;
     // `should_not_trim` is to manage the case that: user do not expect to trim double quotes but enclose is double quotes
     bool _not_trim_enclose = true;
+    bool _keep_cr = false;
 
     io::IOContext* _io_ctx = nullptr;
 

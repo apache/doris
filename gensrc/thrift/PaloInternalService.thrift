@@ -82,8 +82,8 @@ struct TResourceLimit {
 }
 
 enum TSerdeDialect {
-  DORIS,
-  PRESTO
+  DORIS = 0,
+  PRESTO = 1
 }
 
 // Query options that correspond to PaloService.PaloQueryOptions,
@@ -193,7 +193,7 @@ struct TQueryOptions {
   // non-pipelinex engine removed. always true.
   57: optional bool enable_pipeline_engine = true
 
-  58: optional i32 repeat_max_num = 0
+  58: optional i32 repeat_max_num = 0 // Deprecated
 
   59: optional i64 external_sort_bytes_threshold = 0
 
@@ -226,8 +226,8 @@ struct TQueryOptions {
   72: optional bool enable_orc_lazy_mat = true
 
   73: optional i64 scan_queue_mem_limit
-
-  74: optional bool enable_scan_node_run_serial = false; 
+  // deprecated
+  74: optional bool enable_scan_node_run_serial = false;
 
   75: optional bool enable_insert_strict = false;
 
@@ -308,7 +308,7 @@ struct TQueryOptions {
   113: optional bool enable_local_merge_sort = false;
 
   114: optional bool enable_parallel_result_sink = false;
-  
+
   115: optional bool enable_short_circuit_query_access_column_store = false;
 
   116: optional bool enable_no_need_read_data_opt = true;
@@ -316,7 +316,51 @@ struct TQueryOptions {
   117: optional bool read_csv_empty_line_as_null = false;
 
   118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
+
+  119: optional bool enable_match_without_inverted_index = true;
+
+  120: optional bool enable_fallback_on_missing_inverted_index = true;
+
+  121: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
+
+  122: optional i32 runtime_bloom_filter_min_size = 1048576;
+
+  //Access Parquet/ORC columns by name by default. Set this property to `false` to access columns
+  //by their ordinal position in the Hive table definition.  
+  123: optional bool hive_parquet_use_column_names = true;
+  124: optional bool hive_orc_use_column_names = true;
+
+  125: optional bool enable_segment_cache = true;
+
+  126: optional i32 runtime_bloom_filter_max_size = 16777216;
+
+  127: optional i32 in_list_value_count_threshold = 10;
+
+  // We need this two fields to make sure thrift id on master is compatible with other branch.
+  128: optional bool enable_verbose_profile = false;
+  129: optional i32 rpc_verbose_profile_max_instance_count = 0;
+
+  130: optional bool enable_adaptive_pipeline_task_serial_read_on_limit = true;
+  131: optional i32 adaptive_pipeline_task_serial_read_on_limit = 10000;
+
+  132: optional i32 parallel_prepare_threshold = 0;
+  133: optional i32 partition_topn_max_partitions = 1024;
+  134: optional i32 partition_topn_pre_partition_rows = 1000;
+
+  135: optional bool enable_parallel_outfile = false;
+
+  136: optional bool enable_phrase_query_sequential_opt = true;
+
+  137: optional bool enable_auto_create_when_overwrite = false;
+
+  138: optional i64 orc_tiny_stripe_threshold_bytes = 8388608;
+  139: optional i64 orc_once_max_read_bytes = 8388608;
+  140: optional i64 orc_max_merge_distance_bytes = 1048576;
+
+  141: optional bool ignore_runtime_filter_error = false;
   // For cloud, to control if the content would be written into file cache
+  // In write path, to control if the content would be written into file cache.
+  // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
 }
 
@@ -337,6 +381,7 @@ struct TRuntimeFilterTargetParamsV2 {
   1: required list<Types.TUniqueId> target_fragment_instance_ids
   // The address of the instance where the fragment is expected to run
   2: required Types.TNetworkAddress target_fragment_instance_addr
+  3: optional list<i32> target_fragment_ids
 }
 
 struct TRuntimeFilterParams {
@@ -731,7 +776,7 @@ struct TPipelineInstanceParams {
   4: optional i32 sender_id
   5: optional TRuntimeFilterParams runtime_filter_params
   6: optional i32 backend_num
-  7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans // deprecated
   8: optional list<i32> topn_filter_source_node_ids // deprecated after we set topn_filter_descs
   9: optional list<PlanNodes.TTopnFilterDesc> topn_filter_descs
 }
@@ -775,7 +820,7 @@ struct TPipelineFragmentParams {
   33: optional i32 num_local_sink
   34: optional i32 num_buckets
   35: optional map<i32, i32> bucket_seq_to_instance_idx
-  36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans // deprecated
   37: optional i32 parallel_instances
   38: optional i32 total_instances
   39: optional map<i32, i32> shuffle_idx_to_instance_idx
@@ -783,11 +828,27 @@ struct TPipelineFragmentParams {
   41: optional i64 wal_id
   42: optional i64 content_length
   43: optional Types.TNetworkAddress current_connect_fe
+  // Used by 2.1
+  44: optional list<i32> topn_filter_source_node_ids
 
   // For cloud
   1000: optional bool is_mow_table;
 }
 
 struct TPipelineFragmentParamsList {
-    1: optional list<TPipelineFragmentParams> params_list;
+  1: optional list<TPipelineFragmentParams> params_list;
+  2: optional Descriptors.TDescriptorTable desc_tbl;
+  // scan node id -> scan range params, only for external file scan
+  3: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params;
+  4: optional Types.TNetworkAddress coord;
+  5: optional TQueryGlobals query_globals;
+  6: optional Types.TResourceInfo resource_info;
+  // The total number of fragments on same BE host
+  7: optional i32 fragment_num_on_host
+  8: optional TQueryOptions query_options
+  9: optional bool is_nereids = true;
+  10: optional list<TPipelineWorkloadGroup> workload_groups
+  11: optional Types.TUniqueId query_id
+  12: optional list<i32> topn_filter_source_node_ids
+  13: optional Types.TNetworkAddress runtime_filter_merge_addr
 }

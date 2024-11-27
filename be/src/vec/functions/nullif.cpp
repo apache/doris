@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -85,7 +86,7 @@ public:
 
     // nullIf(col1, col2) == if(col1 = col2, NULL, col1)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnsWithTypeAndName eq_columns {
                 block.get_by_position(arguments[0]),
                 block.get_by_position(arguments[1]),
@@ -95,8 +96,9 @@ public:
                                   block.get_by_position(arguments[1]),
                                   {nullptr, result_type, ""}});
 
-        auto equals_func =
-                SimpleFunctionFactory::instance().get_function("eq", eq_columns, result_type);
+        auto equals_func = SimpleFunctionFactory::instance().get_function(
+                "eq", eq_columns, result_type,
+                {.enable_decimal256 = context->state()->enable_decimal256()});
         DCHECK(equals_func);
         RETURN_IF_ERROR(
                 equals_func->execute(context, eq_temporary_block, {0, 1}, 2, input_rows_count));
@@ -124,8 +126,9 @@ public:
                  block.get_by_position(arguments[0]),
                  new_result_column});
 
-        auto func_if = SimpleFunctionFactory::instance().get_function("if", if_columns,
-                                                                      new_result_column.type);
+        auto func_if = SimpleFunctionFactory::instance().get_function(
+                "if", if_columns, new_result_column.type,
+                {.enable_decimal256 = context->state()->enable_decimal256()});
         DCHECK(func_if);
         RETURN_IF_ERROR(func_if->execute(context, temporary_block, {0, 1, 2}, 3, input_rows_count));
         block.get_by_position(result).column = temporary_block.get_by_position(3).column;

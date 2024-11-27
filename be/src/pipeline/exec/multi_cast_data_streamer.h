@@ -23,10 +23,12 @@ namespace doris::pipeline {
 
 class Dependency;
 struct MultiCastBlock {
-    MultiCastBlock(vectorized::Block* block, int used_count, size_t mem_size);
+    MultiCastBlock(vectorized::Block* block, int need_copy, size_t mem_size);
 
     std::unique_ptr<vectorized::Block> _block;
-    int _used_count;
+    // Each block is copied during pull. If _un_finish_copy == 0,
+    // it indicates that this block has been fully used and can be released.
+    int _un_finish_copy;
     size_t _mem_size;
 };
 
@@ -58,12 +60,6 @@ public:
 
     RuntimeProfile* profile() { return _profile; }
 
-    void set_eos() {
-        std::lock_guard l(_mutex);
-        _eos = true;
-        _set_ready_for_read();
-    }
-
     void set_dep_by_sender_idx(int sender_idx, Dependency* dep) {
         _dependencies[sender_idx] = dep;
         _block_reading(sender_idx);
@@ -71,9 +67,9 @@ public:
 
 private:
     void _set_ready_for_read(int sender_idx);
-    void _set_ready_for_read();
     void _block_reading(int sender_idx);
 
+    void _copy_block(vectorized::Block* block, int& un_finish_copy);
     const RowDescriptor& _row_desc;
     RuntimeProfile* _profile = nullptr;
     std::list<MultiCastBlock> _multi_cast_blocks;
@@ -81,7 +77,6 @@ private:
     std::mutex _mutex;
     bool _eos = false;
     int _cast_sender_count = 0;
-    int _closed_sender_count = 0;
     int64_t _cumulative_mem_size = 0;
 
     RuntimeProfile::Counter* _process_rows = nullptr;

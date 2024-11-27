@@ -24,7 +24,8 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
-Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& src_index_dirs,
+Status compact_column(int64_t index_id,
+                      std::vector<std::unique_ptr<DorisCompoundReader>>& src_index_dirs,
                       std::vector<lucene::store::Directory*>& dest_index_dirs,
                       std::string_view tmp_path,
                       const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec,
@@ -40,39 +41,46 @@ Status compact_column(int64_t index_id, std::vector<lucene::store::Directory*>& 
                     "debug point: index compaction error");
         }
     })
-
-    lucene::store::Directory* dir =
-            DorisFSDirectoryFactory::getDirectory(io::global_local_filesystem(), tmp_path.data());
+    bool can_use_ram_dir = true;
+    lucene::store::Directory* dir = DorisFSDirectoryFactory::getDirectory(
+            io::global_local_filesystem(), tmp_path.data(), can_use_ram_dir);
+    DBUG_EXECUTE_IF("compact_column_getDirectory_error", {
+        _CLTHROWA(CL_ERR_IO, "debug point: compact_column_getDirectory_error in index compaction");
+    })
     lucene::analysis::SimpleAnalyzer<char> analyzer;
     auto* index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
                                                            true /* closeDirOnShutdown */);
-
+    DBUG_EXECUTE_IF("compact_column_create_index_writer_error", {
+        _CLTHROWA(CL_ERR_IO,
+                  "debug point: compact_column_create_index_writer_error in index compaction");
+    })
     DCHECK_EQ(src_index_dirs.size(), trans_vec.size());
-    index_writer->indexCompaction(src_index_dirs, dest_index_dirs, trans_vec,
+    std::vector<lucene::store::Directory*> tmp_src_index_dirs(src_index_dirs.size());
+    for (size_t i = 0; i < tmp_src_index_dirs.size(); ++i) {
+        tmp_src_index_dirs[i] = src_index_dirs[i].get();
+    }
+    index_writer->indexCompaction(tmp_src_index_dirs, dest_index_dirs, trans_vec,
                                   dest_segment_num_rows);
+    DBUG_EXECUTE_IF("compact_column_indexCompaction_error", {
+        _CLTHROWA(CL_ERR_IO,
+                  "debug point: compact_column_indexCompaction_error in index compaction");
+    })
 
     index_writer->close();
+    DBUG_EXECUTE_IF("compact_column_index_writer_close_error", {
+        _CLTHROWA(CL_ERR_IO,
+                  "debug point: compact_column_index_writer_close_error in index compaction");
+    })
     _CLDELETE(index_writer);
     // NOTE: need to ref_cnt-- for dir,
     // when index_writer is destroyed, if closeDir is set, dir will be close
     // _CLDECDELETE(dir) will try to ref_cnt--, when it decreases to 1, dir will be destroyed.
     _CLDECDELETE(dir)
-    for (auto* d : src_index_dirs) {
-        if (d != nullptr) {
-            d->close();
-            _CLDELETE(d);
-        }
-    }
-    for (auto* d : dest_index_dirs) {
-        if (d != nullptr) {
-            // NOTE: DO NOT close dest dir here, because it will be closed when dest index writer finalize.
-            //d->close();
-            //_CLDELETE(d);
-        }
-    }
 
-    // delete temporary segment_path
-    std::ignore = io::global_local_filesystem()->delete_directory(tmp_path.data());
+    // delete temporary segment_path, only when inverted_index_ram_dir_enable is false
+    if (!config::inverted_index_ram_dir_enable) {
+        std::ignore = io::global_local_filesystem()->delete_directory(tmp_path.data());
+    }
     return Status::OK();
 }
 } // namespace doris::segment_v2

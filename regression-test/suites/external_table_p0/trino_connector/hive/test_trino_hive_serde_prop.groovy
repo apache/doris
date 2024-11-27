@@ -16,19 +16,19 @@
 // under the License.
 
 suite("test_trino_hive_serde_prop", "external_docker,hive,external_docker_hive,p0,external") {
-    def host_ips = new ArrayList()
-    String[][] backends = sql """ show backends """
-    for (def b in backends) {
-        host_ips.add(b[1])
-    }
-    String [][] frontends = sql """ show frontends """
-    for (def f in frontends) {
-        host_ips.add(f[1])
-    }
-    dispatchTrinoConnectors(host_ips.unique())
-    
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def host_ips = new ArrayList()
+        String[][] backends = sql """ show backends """
+        for (def b in backends) {
+            host_ips.add(b[1])
+        }
+        String [][] frontends = sql """ show frontends """
+        for (def f in frontends) {
+            host_ips.add(f[1])
+        }
+        dispatchTrinoConnectors(host_ips.unique())
         String catalog_name = "test_trino_hive_serde_prop"
         String ex_db_name = "`stats_test`"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

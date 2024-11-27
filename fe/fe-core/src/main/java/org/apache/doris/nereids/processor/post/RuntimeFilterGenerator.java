@@ -101,132 +101,131 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     @Override
     public Plan processRoot(Plan plan, CascadesContext ctx) {
         Plan result = plan.accept(this, ctx);
-        // cte rf
+        // try to push rf inside CTEProducer
+        // collect cteProducers
         RuntimeFilterContext rfCtx = ctx.getRuntimeFilterContext();
-        int cteCount = rfCtx.getProcessedCTE().size();
-        if (cteCount != 0) {
-            Map<CTEId, Set<PhysicalCTEConsumer>> cteIdToConsumersWithRF = Maps.newHashMap();
-            Map<CTEId, List<RuntimeFilter>> cteToRFsMap = Maps.newHashMap();
-            Map<PhysicalCTEConsumer, Set<RuntimeFilter>> consumerToRFs = Maps.newHashMap();
-            Map<PhysicalCTEConsumer, Set<Expression>> consumerToSrcExpression = Maps.newHashMap();
-            List<RuntimeFilter> allRFs = rfCtx.getNereidsRuntimeFilter();
-            for (RuntimeFilter rf : allRFs) {
-                for (PhysicalRelation rel : rf.getTargetScans()) {
-                    if (rel instanceof PhysicalCTEConsumer) {
-                        PhysicalCTEConsumer consumer = (PhysicalCTEConsumer) rel;
-                        CTEId cteId = consumer.getCteId();
-                        cteToRFsMap.computeIfAbsent(cteId, key -> Lists.newArrayList()).add(rf);
-                        cteIdToConsumersWithRF.computeIfAbsent(cteId, key -> Sets.newHashSet()).add(consumer);
-                        consumerToRFs.computeIfAbsent(consumer, key -> Sets.newHashSet()).add(rf);
-                        consumerToSrcExpression.computeIfAbsent(consumer, key -> Sets.newHashSet())
-                                .add(rf.getSrcExpr());
-                    }
+        Map<CTEId, PhysicalCTEProducer> cteProducerMap = plan.collect(PhysicalCTEProducer.class::isInstance)
+                .stream().collect(Collectors.toMap(p -> ((PhysicalCTEProducer) p).getCteId(),
+                        p -> (PhysicalCTEProducer) p));
+        // collect cteConsumers which are RF targets
+        Map<CTEId, Set<PhysicalCTEConsumer>> cteIdToConsumersWithRF = Maps.newHashMap();
+        Map<PhysicalCTEConsumer, Set<RuntimeFilter>> consumerToRFs = Maps.newHashMap();
+        Map<PhysicalCTEConsumer, Set<Expression>> consumerToSrcExpression = Maps.newHashMap();
+        List<RuntimeFilter> allRFs = rfCtx.getNereidsRuntimeFilter();
+        for (RuntimeFilter rf : allRFs) {
+            for (PhysicalRelation rel : rf.getTargetScans()) {
+                if (rel instanceof PhysicalCTEConsumer) {
+                    PhysicalCTEConsumer consumer = (PhysicalCTEConsumer) rel;
+                    CTEId cteId = consumer.getCteId();
+                    cteIdToConsumersWithRF.computeIfAbsent(cteId, key -> Sets.newHashSet()).add(consumer);
+                    consumerToRFs.computeIfAbsent(consumer, key -> Sets.newHashSet()).add(rf);
+                    consumerToSrcExpression.computeIfAbsent(consumer, key -> Sets.newHashSet())
+                            .add(rf.getSrcExpr());
                 }
             }
-            for (CTEId cteId : rfCtx.getCteProduceMap().keySet()) {
-                // if any consumer does not have RF, RF cannot be pushed down.
-                // cteIdToConsumersWithRF.get(cteId).size() can not be 1, o.w. this cte will be inlined.
-                if (cteIdToConsumersWithRF.get(cteId) != null
-                        && ctx.getCteIdToConsumers().get(cteId).size() == cteIdToConsumersWithRF.get(cteId).size()
-                            && cteIdToConsumersWithRF.get(cteId).size() >= 2) {
-                    // check if there is a common srcExpr among all the consumers
-                    Set<PhysicalCTEConsumer> consumers = cteIdToConsumersWithRF.get(cteId);
-                    PhysicalCTEConsumer consumer0 = consumers.iterator().next();
-                    Set<Expression> candidateSrcExpressions = consumerToSrcExpression.get(consumer0);
-                    for (PhysicalCTEConsumer currentConsumer : consumers) {
-                        Set<Expression> srcExpressionsOnCurrentConsumer = consumerToSrcExpression.get(currentConsumer);
-                        candidateSrcExpressions.retainAll(srcExpressionsOnCurrentConsumer);
-                        if (candidateSrcExpressions.isEmpty()) {
+        }
+        for (CTEId cteId : cteIdToConsumersWithRF.keySet()) {
+            // if any consumer does not have RF, RF cannot be pushed down.
+            // cteIdToConsumersWithRF.get(cteId).size() can not be 1, o.w. this cte will be inlined.
+            if (ctx.getCteIdToConsumers().get(cteId).size() == cteIdToConsumersWithRF.get(cteId).size()
+                        && cteIdToConsumersWithRF.get(cteId).size() >= 2) {
+                // check if there is a common srcExpr among all the consumers
+                Set<PhysicalCTEConsumer> consumers = cteIdToConsumersWithRF.get(cteId);
+                PhysicalCTEConsumer consumer0 = consumers.iterator().next();
+                Set<Expression> candidateSrcExpressions = consumerToSrcExpression.get(consumer0);
+                for (PhysicalCTEConsumer currentConsumer : consumers) {
+                    Set<Expression> srcExpressionsOnCurrentConsumer = consumerToSrcExpression.get(currentConsumer);
+                    candidateSrcExpressions.retainAll(srcExpressionsOnCurrentConsumer);
+                    if (candidateSrcExpressions.isEmpty()) {
+                        break;
+                    }
+                }
+                if (!candidateSrcExpressions.isEmpty()) {
+                    // find RFs to push down
+                    for (Expression srcExpr : candidateSrcExpressions) {
+                        List<RuntimeFilter> rfsToPushDown = Lists.newArrayList();
+                        for (PhysicalCTEConsumer consumer : cteIdToConsumersWithRF.get(cteId)) {
+                            for (RuntimeFilter rf : consumerToRFs.get(consumer)) {
+                                if (rf.getSrcExpr().equals(srcExpr)) {
+                                    rfsToPushDown.add(rf);
+                                }
+                            }
+                        }
+                        if (rfsToPushDown.isEmpty()) {
                             break;
                         }
-                    }
-                    if (!candidateSrcExpressions.isEmpty()) {
-                        // find RFs to push down
-                        for (Expression srcExpr : candidateSrcExpressions) {
-                            List<RuntimeFilter> rfsToPushDown = Lists.newArrayList();
-                            for (PhysicalCTEConsumer consumer : cteIdToConsumersWithRF.get(cteId)) {
-                                for (RuntimeFilter rf : consumerToRFs.get(consumer)) {
-                                    if (rf.getSrcExpr().equals(srcExpr)) {
-                                        rfsToPushDown.add(rf);
-                                    }
+
+                        // the most right deep buildNode from rfsToPushDown is used as buildNode for pushDown rf
+                        // since the srcExpr are the same, all buildNodes of rfToPushDown are in the same tree path
+                        // the longest ancestors means its corresponding rf build node is the most right deep one.
+                        List<RuntimeFilter> rightDeepRfs = Lists.newArrayList();
+                        List<Plan> rightDeepAncestors = rfsToPushDown.get(0).getBuilderNode().getAncestors();
+                        int rightDeepAncestorsSize = rightDeepAncestors.size();
+                        RuntimeFilter leftTop = rfsToPushDown.get(0);
+                        int leftTopAncestorsSize = rightDeepAncestorsSize;
+                        for (RuntimeFilter rf : rfsToPushDown) {
+                            List<Plan> ancestors = rf.getBuilderNode().getAncestors();
+                            int currentAncestorsSize = ancestors.size();
+                            if (currentAncestorsSize >= rightDeepAncestorsSize) {
+                                if (currentAncestorsSize == rightDeepAncestorsSize) {
+                                    rightDeepRfs.add(rf);
+                                } else {
+                                    rightDeepAncestorsSize = currentAncestorsSize;
+                                    rightDeepAncestors = ancestors;
+                                    rightDeepRfs.clear();
+                                    rightDeepRfs.add(rf);
                                 }
                             }
-                            if (rfsToPushDown.isEmpty()) {
+                            if (currentAncestorsSize < leftTopAncestorsSize) {
+                                leftTopAncestorsSize = currentAncestorsSize;
+                                leftTop = rf;
+                            }
+                        }
+                        Preconditions.checkArgument(rightDeepAncestors.contains(leftTop.getBuilderNode()));
+                        // check nodes between right deep and left top are SPJ and not denied join and not mark join
+                        boolean valid = true;
+                        for (Plan cursor : rightDeepAncestors) {
+                            if (cursor.equals(leftTop.getBuilderNode())) {
                                 break;
                             }
-
-                            // the most right deep buildNode from rfsToPushDown is used as buildNode for pushDown rf
-                            // since the srcExpr are the same, all buildNodes of rfToPushDown are in the same tree path
-                            // the longest ancestors means its corresponding rf build node is the most right deep one.
-                            List<RuntimeFilter> rightDeepRfs = Lists.newArrayList();
-                            List<Plan> rightDeepAncestors = rfsToPushDown.get(0).getBuilderNode().getAncestors();
-                            int rightDeepAncestorsSize = rightDeepAncestors.size();
-                            RuntimeFilter leftTop = rfsToPushDown.get(0);
-                            int leftTopAncestorsSize = rightDeepAncestorsSize;
-                            for (RuntimeFilter rf : rfsToPushDown) {
-                                List<Plan> ancestors = rf.getBuilderNode().getAncestors();
-                                int currentAncestorsSize = ancestors.size();
-                                if (currentAncestorsSize >= rightDeepAncestorsSize) {
-                                    if (currentAncestorsSize == rightDeepAncestorsSize) {
-                                        rightDeepRfs.add(rf);
-                                    } else {
-                                        rightDeepAncestorsSize = currentAncestorsSize;
-                                        rightDeepAncestors = ancestors;
-                                        rightDeepRfs.clear();
-                                        rightDeepRfs.add(rf);
-                                    }
-                                }
-                                if (currentAncestorsSize < leftTopAncestorsSize) {
-                                    leftTopAncestorsSize = currentAncestorsSize;
-                                    leftTop = rf;
-                                }
+                            // valid = valid && SPJ_PLAN.contains(cursor.getClass());
+                            if (cursor instanceof AbstractPhysicalJoin) {
+                                AbstractPhysicalJoin cursorJoin = (AbstractPhysicalJoin) cursor;
+                                valid = (!RuntimeFilterGenerator.DENIED_JOIN_TYPES
+                                        .contains(cursorJoin.getJoinType())
+                                        || cursorJoin.isMarkJoin()) && valid;
                             }
-                            Preconditions.checkArgument(rightDeepAncestors.contains(leftTop.getBuilderNode()));
-                            // check nodes between right deep and left top are SPJ and not denied join and not mark join
-                            boolean valid = true;
-                            for (Plan cursor : rightDeepAncestors) {
-                                if (cursor.equals(leftTop.getBuilderNode())) {
-                                    break;
-                                }
-                                // valid = valid && SPJ_PLAN.contains(cursor.getClass());
-                                if (cursor instanceof AbstractPhysicalJoin) {
-                                    AbstractPhysicalJoin cursorJoin = (AbstractPhysicalJoin) cursor;
-                                    valid = (!RuntimeFilterGenerator.DENIED_JOIN_TYPES
-                                            .contains(cursorJoin.getJoinType())
-                                            || cursorJoin.isMarkJoin()) && valid;
-                                }
-                                if (!valid) {
-                                    break;
-                                }
-                            }
-
                             if (!valid) {
                                 break;
                             }
+                        }
 
-                            for (RuntimeFilter rfToPush : rightDeepRfs) {
-                                Expression rightDeepTargetExpressionOnCTE = null;
-                                int targetCount = rfToPush.getTargetExpressions().size();
-                                for (int i = 0; i < targetCount; i++) {
-                                    PhysicalRelation rel = rfToPush.getTargetScans().get(i);
-                                    if (rel instanceof PhysicalCTEConsumer
-                                            && ((PhysicalCTEConsumer) rel).getCteId().equals(cteId)) {
-                                        rightDeepTargetExpressionOnCTE = rfToPush.getTargetExpressions().get(i);
-                                        break;
-                                    }
+                        if (!valid) {
+                            break;
+                        }
+
+                        for (RuntimeFilter rfToPush : rightDeepRfs) {
+                            Expression rightDeepTargetExpressionOnCTE = null;
+                            int targetCount = rfToPush.getTargetExpressions().size();
+                            for (int i = 0; i < targetCount; i++) {
+                                PhysicalRelation rel = rfToPush.getTargetScans().get(i);
+                                if (rel instanceof PhysicalCTEConsumer
+                                        && ((PhysicalCTEConsumer) rel).getCteId().equals(cteId)) {
+                                    rightDeepTargetExpressionOnCTE = rfToPush.getTargetExpressions().get(i);
+                                    break;
                                 }
+                            }
 
-                                boolean pushedDown = doPushDownIntoCTEProducerInternal(
+                            boolean pushedDown = doPushDownIntoCTEProducerInternal(
+                                    rfToPush,
+                                    rightDeepTargetExpressionOnCTE,
+                                    rfCtx,
+                                    cteProducerMap.get(cteId)
+                            );
+                            if (pushedDown) {
+                                rfCtx.removeFilter(
                                         rfToPush,
-                                        rightDeepTargetExpressionOnCTE,
-                                        rfCtx,
-                                        rfCtx.getCteProduceMap().get(cteId)
-                                );
-                                if (pushedDown) {
-                                    rfCtx.removeFilter(
-                                            rfToPush,
-                                            rightDeepTargetExpressionOnCTE.getInputSlotExprIds().iterator().next());
-                                }
+                                        rightDeepTargetExpressionOnCTE.getInputSlotExprIds().iterator().next());
                             }
                         }
                     }
@@ -265,8 +264,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
                 .collect(Collectors.toList());
 
-        List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts().stream().collect(Collectors.toList());
-        boolean buildSideContainsConsumer = hasCTEConsumerDescendant((PhysicalPlan) join.right());
+        List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
+
         for (int i = 0; i < hashJoinConjuncts.size(); i++) {
             EqualPredicate equalTo = JoinUtils.swapEqualToForChildrenOrder(
                     (EqualPredicate) hashJoinConjuncts.get(i), join.left().getOutputSet());
@@ -277,9 +276,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 }
                 long buildSideNdv = getBuildSideNdv(join, equalTo);
                 Pair<PhysicalRelation, Slot> pair = ctx.getAliasTransferMap().get(equalTo.right());
-                // CteConsumer is not allowed to generate RF in order to avoid RF cycle.
-                if ((pair == null && buildSideContainsConsumer)
-                        || (pair != null && pair.first instanceof PhysicalCTEConsumer)) {
+                if (pair == null) {
                     continue;
                 }
                 if (equalTo.left().getInputSlots().size() == 1) {
@@ -304,20 +301,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         scan.getOutput().forEach(slot -> ctx.aliasTransferMapPut(slot, Pair.of(scan, slot)));
         return scan;
-    }
-
-    @Override
-    public PhysicalCTEProducer<? extends Plan> visitPhysicalCTEProducer(PhysicalCTEProducer<? extends Plan> producer,
-            CascadesContext context) {
-        CTEId cteId = producer.getCteId();
-        context.getRuntimeFilterContext().getCteProduceMap().put(cteId, producer);
-        Set<CTEId> processedCTE = context.getRuntimeFilterContext().getProcessedCTE();
-        if (!processedCTE.contains(cteId)) {
-            PhysicalPlan inputPlanNode = (PhysicalPlan) producer.child(0);
-            inputPlanNode.accept(this, context);
-            processedCTE.add(cteId);
-        }
-        return producer;
     }
 
     private void generateBitMapRuntimeFilterForNLJ(PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
@@ -678,40 +661,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             for (Plan child : root.children()) {
                 getAllScanInfo(child, scans);
             }
-        }
-    }
-
-    /**
-     * Check whether plan root contains cte consumer descendant.
-     */
-    public static boolean hasCTEConsumerDescendant(PhysicalPlan root) {
-        if (root instanceof PhysicalCTEConsumer) {
-            return true;
-        } else if (root.children().size() == 1) {
-            return hasCTEConsumerDescendant((PhysicalPlan) root.child(0));
-        } else {
-            for (Object child : root.children()) {
-                if (hasCTEConsumerDescendant((PhysicalPlan) child)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-    }
-
-    /**
-     * Check whether runtime filter target is remote or local
-     */
-    public static boolean hasRemoteTarget(AbstractPlan join, AbstractPlan scan) {
-        if (scan instanceof PhysicalCTEConsumer) {
-            return true;
-        } else {
-            Preconditions.checkArgument(join.getMutableState(AbstractPlan.FRAGMENT_ID).isPresent(),
-                    "cannot find fragment id for Join node");
-            Preconditions.checkArgument(scan.getMutableState(AbstractPlan.FRAGMENT_ID).isPresent(),
-                    "cannot find fragment id for scan node");
-            return join.getMutableState(AbstractPlan.FRAGMENT_ID).get()
-                    != scan.getMutableState(AbstractPlan.FRAGMENT_ID).get();
         }
     }
 }

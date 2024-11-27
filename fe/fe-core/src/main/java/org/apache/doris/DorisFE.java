@@ -27,6 +27,7 @@ import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.LogUtils;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.lock.DeadlockMonitor;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.HttpServer;
@@ -60,6 +61,8 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
+import java.time.LocalDate;
+import java.util.concurrent.TimeUnit;
 
 public class DorisFE {
     private static final Logger LOG = LogManager.getLogger(DorisFE.class);
@@ -93,6 +96,13 @@ public class DorisFE {
         options.enableHttpServer = true;
         options.enableQeService = true;
         start(DORIS_HOME_DIR, PID_DIR, args, options);
+    }
+
+    private static void startMonitor() {
+        if (Config.enable_deadlock_detection) {
+            DeadlockMonitor deadlockMonitor = new DeadlockMonitor();
+            deadlockMonitor.startMonitoring(Config.deadlock_detection_interval_minute, TimeUnit.MINUTES);
+        }
     }
 
     // entrance for doris frontend
@@ -152,6 +162,8 @@ public class DorisFE {
                 LOG.error("start doris failed.", e);
                 System.exit(-1);
             }
+
+            fuzzyConfigs();
 
             LOG.info("Doris FE starting...");
 
@@ -214,7 +226,7 @@ public class DorisFE {
             }
 
             ThreadPoolManager.registerAllThreadPoolMetric();
-
+            startMonitor();
             while (true) {
                 Thread.sleep(2000);
             }
@@ -222,7 +234,9 @@ public class DorisFE {
             // Some exception may thrown before LOG is inited.
             // So need to print to stdout
             e.printStackTrace();
-            LOG.warn("", e);
+            LOG.error("", e);
+            // to avoid nonDaemon Thread block main Thread, we need to force exit
+            System.exit(-1);
         }
     }
 
@@ -403,6 +417,13 @@ public class DorisFE {
         LOG.info("Build info: {}", Version.DORIS_BUILD_INFO);
         LOG.info("Build hash: {}", Version.DORIS_BUILD_HASH);
         LOG.info("Java compile version: {}", Version.DORIS_JAVA_COMPILE_VERSION);
+
+        if (Config.isCloudMode()) {
+            LogUtils.stdout("Run FE in the cloud mode, cloud_unique_id: " + Config.cloud_unique_id
+                    + ", meta_service_endpoint: " + Config.meta_service_endpoint);
+        } else {
+            LogUtils.stdout("Run FE in the local mode");
+        }
     }
 
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
@@ -508,6 +529,16 @@ public class DorisFE {
         if (Config.isCloudMode() && Config.enable_feature_binlog) {
             Config.enable_feature_binlog = false;
             LOG.warn("Force set enable_feature_binlog=false because it is not supported in the cloud mode yet");
+        }
+    }
+
+    private static void fuzzyConfigs() {
+        if (!Config.use_fuzzy_conf) {
+            return;
+        }
+        if (Config.fuzzy_test_type.equalsIgnoreCase("daily") || Config.fuzzy_test_type.equalsIgnoreCase("rqg")) {
+            Config.random_add_cluster_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
+            LOG.info("fuzzy set random_add_cluster_keys_for_mow={}", Config.random_add_cluster_keys_for_mow);
         }
     }
 

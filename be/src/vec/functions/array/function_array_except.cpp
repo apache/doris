@@ -61,12 +61,12 @@ struct ExceptAction {
     template <bool is_left>
     bool apply(Set& set, Set& result_set, const Element& elem) {
         if constexpr (is_left) {
-            if (!set.find(elem)) {
+            if (!set.contains(elem)) {
                 set.insert(elem);
                 return true;
             }
         } else {
-            if (!set.find(elem)) {
+            if (!set.contains(elem)) {
                 set.insert(elem);
             }
         }

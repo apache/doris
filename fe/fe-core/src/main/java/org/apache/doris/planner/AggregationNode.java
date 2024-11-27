@@ -26,20 +26,26 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TNormalizedAggregateNode;
+import org.apache.doris.thrift.TNormalizedPlanNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TSortInfo;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -49,6 +55,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Aggregation computation.
@@ -64,6 +71,8 @@ public class AggregationNode extends PlanNode {
 
     // If true, use streaming preaggregation algorithm. Not valid if this is a merge agg.
     private boolean useStreamingPreagg;
+
+    private SortInfo sortByGroupKey;
 
     /**
      * Create an agg node that is not an intermediate node.
@@ -288,10 +297,80 @@ public class AggregationNode extends PlanNode {
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
         msg.agg_node.setIsFirstPhase(aggInfo.isFirstPhase());
         msg.agg_node.setIsColocate(isColocate);
+        if (sortByGroupKey != null) {
+            msg.agg_node.setAggSortInfoByGroupKey(sortByGroupKey.toThrift());
+        }
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
             msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));
         }
+    }
+
+    @Override
+    public void normalize(TNormalizedPlanNode normalizedPlan, Normalizer normalizer) {
+        TNormalizedAggregateNode normalizedAggregateNode = new TNormalizedAggregateNode();
+
+        // if (aggInfo.getGroupingExprs().size() > 3) {
+        //     throw new IllegalStateException("Too many grouping expressions, not use query cache");
+        // }
+
+        normalizedAggregateNode.setIntermediateTupleId(
+                normalizer.normalizeTupleId(aggInfo.getIntermediateTupleId().asInt()));
+        normalizedAggregateNode.setOutputTupleId(
+                normalizer.normalizeTupleId(aggInfo.getOutputTupleId().asInt()));
+        normalizedAggregateNode.setGroupingExprs(normalizeExprs(aggInfo.getGroupingExprs(), normalizer));
+        normalizedAggregateNode.setAggregateFunctions(normalizeExprs(aggInfo.getAggregateExprs(), normalizer));
+        normalizedAggregateNode.setIsFinalize(needsFinalize);
+        normalizedAggregateNode.setUseStreamingPreaggregation(useStreamingPreagg);
+
+        normalizeAggIntermediateProjects(normalizedAggregateNode, normalizer);
+        normalizeAggOutputProjects(normalizedAggregateNode, normalizer);
+
+        normalizedPlan.setNodeType(TPlanNodeType.AGGREGATION_NODE);
+        normalizedPlan.setAggregationNode(normalizedAggregateNode);
+    }
+
+    @Override
+    protected void normalizeProjects(TNormalizedPlanNode normalizedPlanNode, Normalizer normalizer) {
+        List<SlotDescriptor> outputSlots =
+                getOutputTupleIds()
+                        .stream()
+                        .flatMap(tupleId -> normalizer.getDescriptorTable().getTupleDesc(tupleId).getSlots().stream())
+                        .collect(Collectors.toList());
+
+        List<Expr> projectList = this.projectList;
+        if (projectList == null) {
+            projectList = this.aggInfo.getOutputTupleDesc()
+                    .getSlots()
+                    .stream()
+                    .map(SlotRef::new)
+                    .collect(Collectors.toList());
+        }
+
+        List<TExpr> projectThrift = normalizeProjects(outputSlots, projectList, normalizer);
+        normalizedPlanNode.setProjects(projectThrift);
+    }
+
+    private void normalizeAggIntermediateProjects(TNormalizedAggregateNode aggregateNode, Normalizer normalizer) {
+        List<Expr> projectToIntermediateTuple = ImmutableList.<Expr>builder()
+                .addAll(aggInfo.getGroupingExprs())
+                .addAll(aggInfo.getAggregateExprs())
+                .build();
+
+        List<SlotDescriptor> intermediateSlots = aggInfo.getIntermediateTupleDesc().getSlots();
+        List<TExpr> projects = normalizeProjects(intermediateSlots, projectToIntermediateTuple, normalizer);
+        aggregateNode.setProjectToAggIntermediateTuple(projects);
+    }
+
+    private void normalizeAggOutputProjects(TNormalizedAggregateNode aggregateNode, Normalizer normalizer) {
+        List<Expr> projectToIntermediateTuple = ImmutableList.<Expr>builder()
+                .addAll(aggInfo.getGroupingExprs())
+                .addAll(aggInfo.getAggregateExprs())
+                .build();
+
+        List<SlotDescriptor> intermediateSlots = aggInfo.getOutputTupleDesc().getSlots();
+        List<TExpr> projects = normalizeProjects(intermediateSlots, projectToIntermediateTuple, normalizer);
+        aggregateNode.setProjectToAggOutputTuple(projects);
     }
 
     protected String getDisplayLabelDetail() {
@@ -333,6 +412,7 @@ public class AggregationNode extends PlanNode {
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix).append("having: ").append(getExplainString(conjuncts)).append("\n");
         }
+        output.append(detailPrefix).append("sortByGroupKey:").append(sortByGroupKey != null).append("\n");
         output.append(detailPrefix).append(String.format(
                 "cardinality=%,d", cardinality)).append("\n");
         return output.toString();
@@ -408,7 +488,22 @@ public class AggregationNode extends PlanNode {
         }
     }
 
+    // If `GroupingExprs` is empty and agg need to finalize, the result must be output by single instance
+    @Override
+    public boolean isSerialOperator() {
+        return aggInfo.getGroupingExprs().isEmpty() && needsFinalize;
+    }
+
     public void setColocate(boolean colocate) {
         isColocate = colocate;
+    }
+
+
+    public boolean isSortByGroupKey() {
+        return sortByGroupKey != null;
+    }
+
+    public void setSortByGroupKey(SortInfo sortByGroupKey) {
+        this.sortByGroupKey = sortByGroupKey;
     }
 }

@@ -143,7 +143,6 @@ public:
     PartitionedHashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                       const DescriptorTbl& descs, uint32_t partition_count);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
@@ -166,7 +165,7 @@ public:
                                            _distribution_partition_exprs));
     }
 
-    bool is_shuffled_hash_join() const override {
+    bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
 

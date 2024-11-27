@@ -518,13 +518,18 @@ public class CacheAnalyzer {
     }
 
     public InternalService.PFetchCacheResult getCacheData() throws UserException {
-        if (parsedStmt instanceof LogicalPlanAdapter) {
-            cacheMode = innerCheckCacheModeForNereids(0);
-        } else if (parsedStmt instanceof SelectStmt) {
-            cacheMode = innerCheckCacheMode(0);
-        } else if (parsedStmt instanceof SetOperationStmt) {
-            cacheMode = innerCheckCacheModeSetOperation(0);
-        } else {
+        try {
+            if (parsedStmt instanceof LogicalPlanAdapter) {
+                cacheMode = innerCheckCacheModeForNereids(0);
+            } else if (parsedStmt instanceof SelectStmt) {
+                cacheMode = innerCheckCacheMode(0);
+            } else if (parsedStmt instanceof SetOperationStmt) {
+                cacheMode = innerCheckCacheModeSetOperation(0);
+            } else {
+                return null;
+            }
+        } catch (NullPointerException e) {
+            LOG.error("getCacheData error", e);
             return null;
         }
 
@@ -714,7 +719,7 @@ public class CacheAnalyzer {
     private CacheTable buildCacheTableForHiveScanNode(HiveScanNode node) {
         CacheTable cacheTable = new CacheTable();
         cacheTable.table = node.getTargetTable();
-        cacheTable.partitionNum = node.getReadPartitionNum();
+        cacheTable.partitionNum = node.getSelectedPartitionNum();
         cacheTable.latestPartitionTime = cacheTable.table.getUpdateTime();
         TableIf tableIf = cacheTable.table;
         DatabaseIf database = tableIf.getDatabase();

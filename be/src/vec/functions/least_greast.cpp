@@ -66,7 +66,8 @@ struct CompareMultiImpl {
         MutableColumnPtr result_column = data_type->create_column();
 
         Columns cols(arguments.size());
-        std::unique_ptr<bool[]> col_const = std::make_unique<bool[]>(arguments.size());
+        std::unique_ptr<bool[]> col_const =
+                std::make_unique_for_overwrite<bool[]>(arguments.size());
         for (int i = 0; i < arguments.size(); ++i) {
             std::tie(cols[i], col_const[i]) =
                     unpack_if_const(block.get_by_position(arguments[i]).column);

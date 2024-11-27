@@ -49,6 +49,7 @@ Usage: $0 <options>
      --meta-tool            build Backend meta tool. Default OFF.
      --cloud                build Cloud. Default OFF.
      --index-tool           build Backend inverted index tool. Default OFF.
+     --benchmark            build Google Benchmark. Default OFF.
      --broker               build Broker. Default ON.
      --spark-dpp            build Spark DPP application. Default ON.
      --hive-udf             build Hive UDF library for Spark Load. Default ON.
@@ -63,12 +64,15 @@ Usage: $0 <options>
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
+    DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
+
   Eg.
     $0                                      build all
     $0 --be                                 build Backend
     $0 --meta-tool                          build Backend meta tool
     $0 --cloud                              build Cloud
     $0 --index-tool                         build Backend inverted index tool
+    $0 --benchmark                          build Google Benchmark of Backend
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
     $0 --spark-dpp                          build Spark DPP application alone
@@ -128,6 +132,7 @@ if ! OPTS="$(getopt \
     -l 'broker' \
     -l 'meta-tool' \
     -l 'index-tool' \
+    -l 'benchmark' \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
@@ -150,6 +155,7 @@ BUILD_CLOUD=0
 BUILD_BROKER=0
 BUILD_META_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
+BUILD_BENCHMARK='OFF'
 BUILD_SPARK_DPP=0
 BUILD_BE_JAVA_EXTENSIONS=0
 BUILD_HIVE_UDF=0
@@ -158,6 +164,7 @@ HELP=0
 PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
+BUILD_AZURE='ON'
 BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
@@ -168,6 +175,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_BROKER=1
     BUILD_META_TOOL='OFF'
     BUILD_INDEX_TOOL='OFF'
+    BUILD_BENCHMARK='OFF'
     BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
     BUILD_BE_JAVA_EXTENSIONS=1
@@ -201,6 +209,11 @@ else
             ;;
         --index-tool)
             BUILD_INDEX_TOOL='ON'
+            shift
+            ;;
+        --benchmark)
+            BUILD_BENCHMARK='ON'
+            BUILD_BE=1 # go into BE cmake building, but benchmark instead of doris_be
             shift
             ;;
         --spark-dpp)
@@ -381,9 +394,6 @@ fi
 if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
 fi
-if [[ -z "${ENABLE_STACKTRACE}" ]]; then
-    ENABLE_STACKTRACE='ON'
-fi
 
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
@@ -435,8 +445,20 @@ if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
     DISABLE_JAVA_CHECK_STYLE='OFF'
 fi
 
+if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+    BUILD_AZURE='OFF'
+fi
+
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
+fi
+
+if [[ -z "${ENABLE_CACHE_LOCK_DEBUG}" ]]; then
+    ENABLE_CACHE_LOCK_DEBUG='OFF'
+fi
+
+if [[ -z "${BUILD_BENCHMARK}" ]]; then
+    BUILD_BENCHMARK='OFF'
 fi
 
 if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
@@ -469,6 +491,7 @@ echo "Get params:
     BUILD_BROKER                -- ${BUILD_BROKER}
     BUILD_META_TOOL             -- ${BUILD_META_TOOL}
     BUILD_INDEX_TOOL            -- ${BUILD_INDEX_TOOL}
+    BUILD_BENCHMARK             -- ${BUILD_BENCHMARK}
     BUILD_SPARK_DPP             -- ${BUILD_SPARK_DPP}
     BUILD_BE_JAVA_EXTENSIONS    -- ${BUILD_BE_JAVA_EXTENSIONS}
     BUILD_HIVE_UDF              -- ${BUILD_HIVE_UDF}
@@ -484,8 +507,8 @@ echo "Get params:
     USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
     USE_JEMALLOC                -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER         -- ${USE_BTHREAD_SCANNER}
-    ENABLE_STACKTRACE           -- ${ENABLE_STACKTRACE}
     ENABLE_INJECTION_POINT      -- ${ENABLE_INJECTION_POINT}
+    ENABLE_CACHE_LOCK_DEBUG     -- ${ENABLE_CACHE_LOCK_DEBUG}
     DENABLE_CLANG_COVERAGE      -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME          -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                  -- ${ENABLE_PCH}
@@ -499,9 +522,6 @@ fi
 
 # Assesmble FE modules
 FE_MODULES=''
-# TODO: docs are temporarily removed, so this var is always OFF
-# Fix it later
-BUILD_DOCS='OFF'
 modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-common")
@@ -572,7 +592,9 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
         -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
+        -DENABLE_CACHE_LOCK_DEBUG="${ENABLE_CACHE_LOCK_DEBUG}" \
         -DMAKE_TEST=OFF \
+        -DBUILD_BENCHMARK="${BUILD_BENCHMARK}" \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DWITH_MYSQL="${WITH_MYSQL}" \
@@ -586,12 +608,12 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
-        -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
+        -DBUILD_AZURE="${BUILD_AZURE}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -623,6 +645,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+        -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
         -DMAKE_TEST=OFF \
         "${CMAKE_USE_CCACHE}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
@@ -630,20 +653,13 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
+        -DBUILD_AZURE="${BUILD_AZURE}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
         "${DORIS_HOME}/cloud/"
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
     cd "${DORIS_HOME}"
     echo "Build cloud done"
-fi
-
-if [[ "${BUILD_DOCS}" = "ON" ]]; then
-    # Build docs, should be built before Frontend
-    echo "Build docs"
-    cd "${DORIS_HOME}/docs"
-    ./build_help_zip.sh
-    cd "${DORIS_HOME}"
 fi
 
 function build_ui() {
@@ -741,10 +757,13 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
 fi
 
 if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
+    # need remove old version hadoop jars if $DORIS_OUTPUT been used multiple times, otherwise will cause jar conflict
+    rm -rf "${DORIS_OUTPUT}/be/lib/hadoop_hdfs"
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \
-        "${DORIS_OUTPUT}/be/www"
+        "${DORIS_OUTPUT}/be/www" \
+        "${DORIS_OUTPUT}/be/tools/FlameGraph"
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
@@ -790,8 +809,13 @@ EOF
     fi
 
     cp -r -p "${DORIS_HOME}/webroot/be"/* "${DORIS_OUTPUT}/be/www"/
+    cp -r -p "${DORIS_HOME}/tools/FlameGraph"/* "${DORIS_OUTPUT}/be/tools/FlameGraph"/
     if [[ "${STRIP_DEBUG_INFO}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/debug_info" "${DORIS_OUTPUT}/be/lib"/
+    fi
+
+    if [[ "${BUILD_BENCHMARK}" = "ON" ]]; then
+        cp -r -p "${DORIS_HOME}/be/output/lib/benchmark_test" "${DORIS_OUTPUT}/be/lib/"/
     fi
 
     if [[ "${BUILD_FS_BENCHMARK}" = "ON" ]]; then
@@ -865,11 +889,15 @@ fi
 
 if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     rm -rf "${DORIS_HOME}/output/ms"
+    rm -rf "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
     if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_HOME}/cloud/output/lib"
     fi
     cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
 fi
+
+mkdir -p "${DORIS_HOME}/output/tools"
+cp -r -p tools/fdb "${DORIS_HOME}/output/tools"
 
 echo "***************************************"
 echo "Successfully build Doris"

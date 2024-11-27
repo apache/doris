@@ -23,6 +23,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 template <class HashTableContext, bool is_intersected>
@@ -48,14 +49,14 @@ public:
 
 private:
     friend class SetSinkOperatorX<is_intersect>;
-    template <class HashTableContext, bool is_intersected>
-    friend struct vectorized::HashTableBuild;
 
-    RuntimeProfile::Counter* _build_timer; // time to build hash table
     vectorized::MutableBlock _mutable_block;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     vectorized::Arena _arena;
+
+    RuntimeProfile::Counter* _merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _build_timer = nullptr;
 };
 
 template <bool is_intersect>
@@ -86,8 +87,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
-
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -107,13 +106,14 @@ private:
                                  size_t& rows);
 
     const int _cur_child_id;
-    const int _child_quantity;
+    const size_t _child_quantity;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     const bool _is_colocate;
     const std::vector<TExpr> _partition_exprs;
-    using OperatorBase::_child_x;
+    using OperatorBase::_child;
 };
+#include "common/compile_check_end.h"
 
 } // namespace pipeline
 } // namespace doris

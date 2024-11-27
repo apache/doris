@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_width_bucket_function", "arrow_flight_sql") {
+suite("test_width_bucket_function") {
     qt_sql "select width_bucket(1, 2, 3, 2)"
     qt_sql "select width_bucket(null, 2, 3, 2)"
     qt_sql "select width_bucket(6, 2, 6, 4)"
@@ -89,4 +89,9 @@ suite("test_width_bucket_function", "arrow_flight_sql") {
     qt_select_width_bucket_3 "select width_bucket(10.0,0,11,10);"
     qt_select_width_bucket_4 "select width_bucket(10,0,10.1,10);"
     qt_select_width_bucket_5 "select width_bucket(10,0,10.10,10);"
+
+    test {
+      sql "select width_bucket(4, 0, 8, 0)"
+      exception "buckets must be a positive integer value"
+    }
 }

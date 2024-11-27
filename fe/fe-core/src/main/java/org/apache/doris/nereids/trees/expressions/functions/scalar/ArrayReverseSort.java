@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
@@ -46,6 +48,14 @@ public class ArrayReverseSort extends ScalarFunction
      */
     public ArrayReverseSort(Expression arg) {
         super("array_reverse_sort", arg);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType argType = child().getDataType();
+        if (((ArrayType) argType).getItemType().isComplexType()) {
+            throw new AnalysisException("array_reverse_sort does not support complex types: " + toSql());
+        }
     }
 
     /**

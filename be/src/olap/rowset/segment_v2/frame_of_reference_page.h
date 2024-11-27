@@ -54,11 +54,12 @@ public:
         return Status::OK();
     }
 
-    OwnedSlice finish() override {
+    Status finish(OwnedSlice* slice) override {
         DCHECK(!_finished);
         _finished = true;
         _encoder->flush();
-        return _buf.build();
+        RETURN_IF_CATCH_EXCEPTION({ *slice = _buf.build(); });
+        return Status::OK();
     }
 
     Status reset() override {

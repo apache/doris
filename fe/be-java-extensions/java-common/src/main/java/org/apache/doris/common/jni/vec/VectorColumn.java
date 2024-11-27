@@ -1540,6 +1540,12 @@ public class VectorColumn {
                 appendDateTime(o.getDateTime());
                 break;
             case CHAR:
+                if (o.canGetCharAsBytes()) {
+                    appendBytesAndOffset(o.getCharAsBytes());
+                } else {
+                    appendStringAndOffset(o.getChar());
+                }
+                break;
             case VARCHAR:
             case STRING:
                 if (o.canGetStringAsBytes()) {

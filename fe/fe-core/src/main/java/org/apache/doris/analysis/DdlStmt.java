@@ -17,9 +17,14 @@
 
 package org.apache.doris.analysis;
 
-public abstract class DdlStmt extends StatementBase {
+public abstract class DdlStmt extends StatementBase implements NotFallbackInParser {
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DDL;
     }
 }

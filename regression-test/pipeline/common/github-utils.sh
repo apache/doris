@@ -245,6 +245,7 @@ file_changed_fe_ut() {
     if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'fe'* ]] ||
+            [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'fe_plugins'* ]] ||
             [[ "${af}" == 'bin/start_fe.sh' ]] ||
             [[ "${af}" == 'docs/zh-CN/docs/sql-manual/'* ]] ||
@@ -262,6 +263,8 @@ file_changed_be_ut() {
     if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||
+            [[ "${af}" == 'gensrc'* ]] ||
+            [[ "${af}" == 'common/cpp'* ]] ||
             [[ "${af}" == 'contrib'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
             [[ "${af}" == 'bin/start_be.sh' ]] ||
@@ -280,6 +283,8 @@ file_changed_cloud_ut() {
     if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'cloud/src/'* ]] ||
+            [[ "${af}" == 'gensrc'* ]] ||
+            [[ "${af}" == 'common/cpp'* ]] ||
             [[ "${af}" == 'cloud/test/'* ]]; then
             echo "cloud-ut related file changed, return need" && return 0
         fi
@@ -308,7 +313,9 @@ file_changed_cloud_p0() {
             [[ "${af}" == 'build.sh' ]] ||
             [[ "${af}" == 'env.sh' ]] ||
             [[ "${af}" == 'run-regression-test.sh' ]] ||
+            [[ "${af}" == 'cloud/CMakeLists.txt' ]] ||
             [[ "${af}" == 'cloud/src/'* ]] ||
+            [[ "${af}" == 'cloud/cmake/'* ]] ||
             [[ "${af}" == 'cloud/test/'* ]]; then
             echo "cloud-p0 related file changed, return need" && return 0
         fi
@@ -369,6 +376,7 @@ file_changed_performance() {
             [[ "${af}" == 'regression-test/pipeline/common/doris-utils.sh' ]] ||
             [[ "${af}" == 'regression-test/pipeline/common/oss-utils.sh' ]] ||
             [[ "${af}" == 'regression-test/pipeline/performance/'* ]] ||
+            [[ "${af}" == 'tools/clickbench-tools/run-clickbench-queries.sh' ]] ||
             [[ "${af}" == 'tools/tpch-tools/bin/run-tpch-queries.sh' ]] ||
             [[ "${af}" == 'tools/tpcds-tools/bin/run-tpcds-queries.sh' ]] ||
             [[ "${af}" == 'regression-test/pipeline/tpch/tpch-sf100/'* ]]; then

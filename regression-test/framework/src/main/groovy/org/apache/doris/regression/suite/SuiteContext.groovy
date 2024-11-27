@@ -28,6 +28,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.util.concurrent.ExecutorService
 import java.util.function.Function
+import org.apache.doris.regression.util.JdbcUtils
 
 class ConnectionInfo {
     Connection conn
@@ -222,20 +223,26 @@ class SuiteContext implements Closeable {
         return spec
     }
 
-    Map<String, String> getSrcSpec() {
+    Map<String, String> getSrcSpec(String db = null) {
+        if (db == null) {
+            db = dbName
+        }
         String[] jdbc = getJdbcNetInfo().split(":")
         Map<String, String> spec = getSpec(jdbc)
         spec.put("thrift_port", config.feSourceThriftNetworkAddress.port.toString())
-        spec.put("database", dbName)
+        spec.put("database", db)
 
         return spec
     }
 
-    Map<String, String> getDestSpec() {
+    Map<String, String> getDestSpec(String db = null) {
+        if (db == null) {
+            db = dbName
+        }
         String[] jdbc = getDownstreamJdbcNetInfo().split(":")
         Map<String, String> spec = getSpec(jdbc)
         spec.put("thrift_port", config.feTargetThriftNetworkAddress.port.toString())
-        spec.put("database", "TEST_" + dbName)
+        spec.put("database", "TEST_" + db)
 
         return spec
     }
@@ -290,7 +297,7 @@ class SuiteContext implements Closeable {
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
         def originConnection = threadLocalConn.get()
         try {
-            log.info("Create new connection for user '${user}'")
+            log.info("Create new connection for user '${user}' to '${url}'")
             return DriverManager.getConnection(url, user, password).withCloseable { newConn ->
                 def newConnInfo = new ConnectionInfo()
                 newConnInfo.conn = newConn
@@ -300,12 +307,42 @@ class SuiteContext implements Closeable {
                 return actionSupplier.call()
             }
         } finally {
-            log.info("Recover original connection")
+            log.info("Recover original connection to '${url}'")
             if (originConnection == null) {
                 threadLocalConn.remove()
             } else {
                 threadLocalConn.set(originConnection)
             }
+        }
+    }
+
+    def reconnectToMasterFe = { ->
+        log.info("Reconnecting to a new master frontend...")
+        def result = JdbcUtils.executeToMapArray(getConnection(), "SHOW FRONTENDS")
+        def master = null
+        for (def row : result) {
+            if (row.IsMaster == "true") {
+                master = row
+                break
+            }
+        }
+        if (master) {
+            log.info("master found: ${master.Host}:${master.HttpPort}")
+            def url = Config.buildUrlWithDb(master.Host as String, master.QueryPort as Integer, dbName)
+            ConnectionInfo connInfo = threadLocalConn.get()
+            def userName = null
+            def userPass = null
+            if (connInfo) {
+                userName = connInfo.username
+                userPass = connInfo.password
+            } else {
+                userName = config.jdbcUser
+                userPass = config.jdbcPassword
+            }
+            connectTo(url, connInfo.username, connInfo.password)
+            log.info("Successfully reconnected to the master")
+        } else {
+            throw new Exception("No master found to reconnect")
         }
     }
 

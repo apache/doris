@@ -208,7 +208,7 @@ PhysicalResultSink
 --NestedLoopJoin[LEFT_SEMI_JOIN]
 ----filter((t1.id > 1))
 ------PhysicalOlapScan[t1]
-----PhysicalOlapScan[t2]
+----PhysicalStorageLayerAggregate[t2]
 
 -- !pushdown_inner_join_subquery_outer --
 PhysicalResultSink

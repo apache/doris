@@ -18,7 +18,7 @@
 suite("test_backup_restore_with_huge_tables") {
     String dbName = "test_backup_restore_with_huge_tables_db"
     String suiteName = "test_backup_restore_with_huge_tables"
-    String repoName = "${suiteName}_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String tableNamePrefix = "${suiteName}"
 

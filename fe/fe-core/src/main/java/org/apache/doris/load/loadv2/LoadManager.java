@@ -31,8 +31,6 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -103,16 +101,13 @@ public class LoadManager implements Writable {
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private MysqlLoadManager mysqlLoadManager;
-    private TokenManager tokenManager;
 
     public LoadManager(LoadJobScheduler loadJobScheduler) {
         this.loadJobScheduler = loadJobScheduler;
-        this.tokenManager = new TokenManager();
-        this.mysqlLoadManager = new MysqlLoadManager(tokenManager);
+        this.mysqlLoadManager = new MysqlLoadManager();
     }
 
     public void start() {
-        tokenManager.start();
         mysqlLoadManager.start();
     }
 
@@ -184,10 +179,6 @@ public class LoadManager implements Writable {
 
     public MysqlLoadManager getMysqlLoadManager() {
         return mysqlLoadManager;
-    }
-
-    public TokenManager getTokenManager() {
-        return tokenManager;
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {
@@ -635,14 +626,13 @@ public class LoadManager implements Writable {
                     }
                     // check auth
                     try {
-                        checkJobAuth(loadJob.getDb().getCatalog().getName(), loadJob.getDb().getName(),
-                                loadJob.getTableNames());
-                    } catch (AnalysisException e) {
+                        loadJob.checkAuth("show load");
+                    } catch (DdlException e) {
                         continue;
                     }
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
-                } catch (RuntimeException | DdlException | MetaNotFoundException e) {
+                } catch (RuntimeException | DdlException e) {
                     // ignore this load job
                     LOG.warn("get load job info failed. job id: {}", loadJob.getId(), e);
                 }
@@ -650,27 +640,6 @@ public class LoadManager implements Writable {
             return loadJobInfos;
         } finally {
             readUnlock();
-        }
-    }
-
-    public void checkJobAuth(String ctlName, String dbName, Set<String> tableNames) throws AnalysisException {
-        if (tableNames.isEmpty()) {
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), ctlName, dbName,
-                            PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
-                        PrivPredicate.LOAD.getPrivs().toString(), dbName);
-            }
-        } else {
-            for (String tblName : tableNames) {
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), ctlName, dbName,
-                                tblName, PrivPredicate.LOAD)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
-                            PrivPredicate.LOAD.getPrivs().toString(), tblName);
-                    return;
-                }
-            }
         }
     }
 
@@ -851,25 +820,24 @@ public class LoadManager implements Writable {
                     }
                 } else {
                     List<LoadJob> jobs = labelToJob.get(label);
-                    if (jobs == null) {
-                        // no job for this label, just return
-                        return;
-                    }
-                    Iterator<LoadJob> iter = jobs.iterator();
-                    while (iter.hasNext()) {
-                        LoadJob job = iter.next();
-                        if (!job.isCompleted()) {
-                            continue;
+                    if (jobs != null) {
+                        // stream load labelToJob is null
+                        Iterator<LoadJob> iter = jobs.iterator();
+                        while (iter.hasNext()) {
+                            LoadJob job = iter.next();
+                            if (!job.isCompleted()) {
+                                continue;
+                            }
+                            if (job instanceof BulkLoadJob) {
+                                ((BulkLoadJob) job).recycleProgress();
+                            }
+                            iter.remove();
+                            idToLoadJob.remove(job.getId());
+                            ++counter;
                         }
-                        if (job instanceof BulkLoadJob) {
-                            ((BulkLoadJob) job).recycleProgress();
+                        if (jobs.isEmpty()) {
+                            labelToJob.remove(label);
                         }
-                        iter.remove();
-                        idToLoadJob.remove(job.getId());
-                        ++counter;
-                    }
-                    if (jobs.isEmpty()) {
-                        labelToJob.remove(label);
                     }
                 }
             }

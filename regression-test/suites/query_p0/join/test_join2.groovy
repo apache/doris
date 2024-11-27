@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_join2", "query,p0,arrow_flight_sql") {
+suite("test_join2", "query,p0") {
     def DBname = "regression_test_join2"
     def TBname1 = "J1_TBL"
     def TBname2 = "J2_TBL"
@@ -84,7 +84,7 @@ suite("test_join2", "query,p0,arrow_flight_sql") {
             FROM ${TBname1} NATURAL JOIN ${TBname2}
             ORDER BY 1,2,3,4,5,6;
         """
-        exception "natural join is not supported"
+        exception "mismatched input 'NATURAL'"
     }
     
     qt_join4 """

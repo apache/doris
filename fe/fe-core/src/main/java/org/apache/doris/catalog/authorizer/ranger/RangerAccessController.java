@@ -18,6 +18,7 @@
 package org.apache.doris.catalog.authorizer.ranger;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.authorizer.ranger.doris.DorisAccessType;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
@@ -92,6 +93,11 @@ public abstract class RangerAccessController implements CatalogAccessController 
             String tbl) {
         RangerAccessResourceImpl resource = createResource(ctl, db, tbl);
         RangerAccessRequestImpl request = createRequest(currentUser);
+        // If the access type is not set here, it defaults to ANY1 ACCESS.
+        // The internal logic of the ranger is to traverse all permission items.
+        // Since the ranger UI will set the access type to 'SELECT',
+        // we will keep it consistent with the UI here to avoid performance issues
+        request.setAccessType(DorisAccessType.SELECT.name());
         request.setResource(resource);
 
         if (LOG.isDebugEnabled()) {
@@ -119,6 +125,7 @@ public abstract class RangerAccessController implements CatalogAccessController 
             String col) {
         RangerAccessResourceImpl resource = createResource(ctl, db, tbl, col);
         RangerAccessRequestImpl request = createRequest(currentUser);
+        request.setAccessType(DorisAccessType.SELECT.name());
         request.setResource(resource);
 
         if (LOG.isDebugEnabled()) {

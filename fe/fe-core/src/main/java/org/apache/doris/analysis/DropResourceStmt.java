@@ -26,7 +26,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 // DROP RESOURCE resource_name
-public class DropResourceStmt extends DdlStmt {
+public class DropResourceStmt extends DdlStmt implements NotFallbackInParser {
     private boolean ifExists;
     private String resourceName;
 
@@ -61,5 +61,10 @@ public class DropResourceStmt extends DdlStmt {
         sb.append("DROP ");
         sb.append("RESOURCE `").append(resourceName).append("`");
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
     }
 }

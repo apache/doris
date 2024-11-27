@@ -48,6 +48,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // new one scanner
     _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
+    _schema_scanner->set_dependency(_data_dependency, _finish_dependency);
     if (nullptr == _schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
@@ -59,7 +60,7 @@ Status SchemaScanLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
-    return _schema_scanner->start(state);
+    return _schema_scanner->get_next_block_async(state);
 }
 
 SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
@@ -119,25 +120,22 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         _common_scanner_param->catalog =
                 state->obj_pool()->add(new std::string(tnode.schema_scan_node.catalog));
     }
+
+    if (tnode.schema_scan_node.__isset.fe_addr_list) {
+        for (const auto& fe_addr : tnode.schema_scan_node.fe_addr_list) {
+            _common_scanner_param->fe_addr_list.insert(fe_addr);
+        }
+    } else if (tnode.schema_scan_node.__isset.ip && tnode.schema_scan_node.__isset.port) {
+        TNetworkAddress fe_addr;
+        fe_addr.hostname = tnode.schema_scan_node.ip;
+        fe_addr.port = tnode.schema_scan_node.port;
+        _common_scanner_param->fe_addr_list.insert(fe_addr);
+    }
     return Status::OK();
 }
 
 Status SchemaScanOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
-
-    if (_common_scanner_param->user) {
-        TSetSessionParams param;
-        param.__set_user(*_common_scanner_param->user);
-        //TStatus t_status;
-        //RETURN_IF_ERROR(SchemaJniHelper::set_session(param, &t_status));
-        //RETURN_IF_ERROR(Status(t_status));
-    }
-
-    return Status::OK();
-}
-
-Status SchemaScanOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
 
     // get dest tuple desc
     _dest_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -193,6 +191,14 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
 
     _tuple_idx = 0;
 
+    if (_common_scanner_param->user) {
+        TSetSessionParams param;
+        param.__set_user(*_common_scanner_param->user);
+        //TStatus t_status;
+        //RETURN_IF_ERROR(SchemaJniHelper::set_session(param, &t_status));
+        //RETURN_IF_ERROR(Status(t_status));
+    }
+
     return Status::OK();
 }
 
@@ -226,8 +232,12 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         while (true) {
             RETURN_IF_CANCELLED(state);
 
+            if (local_state._data_dependency->is_blocked_by() != nullptr) {
+                break;
+            }
             // get all slots from schema table.
-            RETURN_IF_ERROR(local_state._schema_scanner->get_next_block(&src_block, &schema_eos));
+            RETURN_IF_ERROR(
+                    local_state._schema_scanner->get_next_block(state, &src_block, &schema_eos));
 
             if (schema_eos) {
                 *eos = true;
@@ -256,6 +266,9 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     } while (block->rows() == 0 && !*eos);
 
     local_state.reached_limit(block, eos);
+    if (*eos) {
+        local_state._finish_dependency->set_always_ready();
+    }
     return Status::OK();
 }
 

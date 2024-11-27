@@ -454,7 +454,7 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " BRPC " ]]; then
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             for patch_file in "${TP_PATCH_DIR}"/brpc-*; do
                 echo "patch ${patch_file}"
-                patch -p1 <"${patch_file}"
+                patch -p1 --ignore-whitespace <"${patch_file}"
             done
             touch "${PATCHED_MARK}"
         fi
@@ -500,6 +500,25 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " KRB5 " ]]; then
         cd -
     fi
     echo "Finished patching ${KRB5_SOURCE}"
+fi
+
+# patch bitshuffle
+MACHINE_OS=$(uname -s)
+
+if [[ "${MACHINE_OS}" == "Darwin" ]]; then
+    echo "MacOS. Skipping BITSHUFFLE patching."
+else
+    if [[ " ${TP_ARCHIVES[*]} " =~ " BITSHUFFLE " ]]; then
+        if [[ "${BITSHUFFLE_SOURCE}" = "bitshuffle-0.5.1" ]]; then
+            cd "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}"
+            if [[ ! -f "${PATCHED_MARK}" ]]; then
+                patch -p1 <"${TP_PATCH_DIR}/bitshuffle-0.5.1.patch"
+                touch "${PATCHED_MARK}"
+            fi
+            cd -
+        fi
+        echo "Finished patching ${BITSHUFFLE_SOURCE}"
+    fi
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

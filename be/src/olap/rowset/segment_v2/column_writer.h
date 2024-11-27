@@ -63,7 +63,7 @@ struct ColumnWriterOptions {
     bool need_inverted_index = false;
     uint8_t gram_size;
     uint16_t gram_bf_size;
-    std::vector<const TabletIndex*> indexes;
+    std::vector<const TabletIndex*> indexes; // unused
     const TabletIndex* inverted_index = nullptr;
     InvertedIndexFileWriter* inverted_index_file_writer;
     std::string to_string() const {
@@ -217,9 +217,15 @@ public:
     // used for append not null data. When page is full, will append data not reach num_rows.
     Status append_data_in_current_page(const uint8_t** ptr, size_t* num_written);
 
-    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_written);
+    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_written) {
+        RETURN_IF_CATCH_EXCEPTION(
+                { return _internal_append_data_in_current_page(ptr, num_written); });
+    }
     friend class ArrayColumnWriter;
     friend class OffsetColumnWriter;
+
+private:
+    Status _internal_append_data_in_current_page(const uint8_t* ptr, size_t* num_written);
 
 private:
     std::unique_ptr<PageBuilder> _page_builder;

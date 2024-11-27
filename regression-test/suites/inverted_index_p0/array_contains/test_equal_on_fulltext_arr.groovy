@@ -33,7 +33,7 @@ suite("test_equal_on_fulltext_arr", "array_contains_inverted_index"){
 	CREATE TABLE IF NOT EXISTS ${indexTblName}(
 		`id`int(11)NULL,
 		`c` array<text> NULL,
-		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="unicode") COMMENT ''
+		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="none") COMMENT ''
 	) ENGINE=OLAP
 	DUPLICATE KEY(`id`)
 	COMMENT 'OLAP'

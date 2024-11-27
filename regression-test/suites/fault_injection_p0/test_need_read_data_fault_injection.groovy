@@ -73,6 +73,7 @@ suite("test_need_read_data_fault_injection", "nonConcurrent") {
       load_httplogs_data.call(indexTbName, 'test_need_read_data_fault_injection', 'true', 'json', 'documents-1000.json')
 
       sql "sync"
+      sql """ set enable_common_expr_pushdown = true """
 
       try {
         GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
@@ -86,6 +87,18 @@ suite("test_need_read_data_fault_injection", "nonConcurrent") {
         qt_sql """ select count() from ${indexTbName} where (clientip match '3' or request match 'gif' or clientip match '4'); """
         qt_sql """ select count() from ${indexTbName} where (clientip match 'images' or clientip match '5' or clientip match 'english'); """
 
+      } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
+      }
+      try {
+        GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index", [column_name: "clientip"])
+        qt_sql """ select request from ${indexTbName} where (clientip match 'images' or clientip match '5' or clientip match 'english'); """
+      } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
+      }
+      try {
+        GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index", [column_name: "clientip,request"])
+        qt_sql """ select status from ${indexTbName} where (clientip match 'images' or clientip match '5' or request match_phrase 'hm'); """
       } finally {
         GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
       }

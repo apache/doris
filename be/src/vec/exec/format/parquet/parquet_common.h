@@ -17,10 +17,12 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
 #include <stddef.h>
 
 #include <cstdint>
 #include <ostream>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -156,4 +158,131 @@ private:
     size_t _num_filtered;
     size_t _read_index;
 };
+
+enum class ColumnOrderName { UNDEFINED, TYPE_DEFINED_ORDER };
+
+enum class SortOrder { SIGNED, UNSIGNED, UNKNOWN };
+
+class ParsedVersion {
+public:
+    ParsedVersion(std::string application, std::optional<std::string> version,
+                  std::optional<std::string> app_build_hash);
+
+    const std::string& application() const { return _application; }
+
+    const std::optional<std::string>& version() const { return _version; }
+
+    const std::optional<std::string>& app_build_hash() const { return _app_build_hash; }
+
+    bool operator==(const ParsedVersion& other) const;
+
+    bool operator!=(const ParsedVersion& other) const;
+
+    size_t hash() const;
+
+    std::string to_string() const;
+
+private:
+    std::string _application;
+    std::optional<std::string> _version;
+    std::optional<std::string> _app_build_hash;
+};
+
+class VersionParser {
+public:
+    static Status parse(const std::string& created_by,
+                        std::unique_ptr<ParsedVersion>* parsed_version);
+};
+
+class SemanticVersion {
+public:
+    SemanticVersion(int major, int minor, int patch);
+
+#ifdef BE_TEST
+    SemanticVersion(int major, int minor, int patch, bool has_unknown);
+#endif
+
+    SemanticVersion(int major, int minor, int patch, std::optional<std::string> unknown,
+                    std::optional<std::string> pre, std::optional<std::string> build_info);
+
+    static Status parse(const std::string& version,
+                        std::unique_ptr<SemanticVersion>* semantic_version);
+
+    int compare_to(const SemanticVersion& other) const;
+
+    bool operator==(const SemanticVersion& other) const;
+
+    bool operator!=(const SemanticVersion& other) const;
+
+    std::string to_string() const;
+
+private:
+    class NumberOrString {
+    public:
+        explicit NumberOrString(const std::string& value_string);
+
+        NumberOrString(const NumberOrString& other);
+
+        int compare_to(const NumberOrString& that) const;
+        std::string to_string() const;
+
+        bool operator<(const NumberOrString& that) const;
+        bool operator==(const NumberOrString& that) const;
+        bool operator!=(const NumberOrString& that) const;
+        bool operator>(const NumberOrString& that) const;
+        bool operator<=(const NumberOrString& that) const;
+        bool operator>=(const NumberOrString& that) const;
+
+    private:
+        std::string _original;
+        bool _is_numeric;
+        int _number;
+    };
+
+    class Prerelease {
+    public:
+        explicit Prerelease(std::string original);
+
+        int compare_to(const Prerelease& that) const;
+        std::string to_string() const;
+
+        bool operator<(const Prerelease& that) const;
+        bool operator==(const Prerelease& that) const;
+        bool operator!=(const Prerelease& that) const;
+        bool operator>(const Prerelease& that) const;
+        bool operator<=(const Prerelease& that) const;
+        bool operator>=(const Prerelease& that) const;
+
+        const std::string& original() const { return _original; }
+
+    private:
+        static std::vector<std::string> _split(const std::string& s, const std::regex& delimiter);
+
+        std::string _original;
+        std::vector<NumberOrString> _identifiers;
+    };
+
+    static int _compare_integers(int x, int y);
+    static int _compare_booleans(bool x, bool y);
+
+    int _major;
+    int _minor;
+    int _patch;
+    bool _prerelease;
+    std::optional<std::string> _unknown;
+    std::optional<Prerelease> _pre;
+    std::optional<std::string> _build_info;
+};
+
+class CorruptStatistics {
+public:
+    static bool should_ignore_statistics(const std::string& created_by,
+                                         tparquet::Type::type physical_type);
+
+private:
+    static const SemanticVersion PARQUET_251_FIXED_VERSION;
+    static const SemanticVersion CDH_5_PARQUET_251_FIXED_START;
+    static const SemanticVersion CDH_5_PARQUET_251_FIXED_END;
+};
+
 } // namespace doris::vectorized

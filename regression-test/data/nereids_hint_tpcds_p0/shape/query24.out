@@ -31,23 +31,24 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------PhysicalOlapScan[store_returns]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
-------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject
-----------NestedLoopJoin[INNER_JOIN](cast(paid as DOUBLE) > cast((0.05 * avg(cast(netpaid as DECIMALV3(38, 4)))) as DOUBLE))
-------------PhysicalProject
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecGather]
-------------------hashAgg[LOCAL]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-------------PhysicalProject
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------filter((ssales.i_color = 'aquamarine'))
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------PhysicalDistribute[DistributionSpecGather]
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalProject
+------------NestedLoopJoin[INNER_JOIN](cast(paid as DOUBLE) > cast((0.05 * avg(cast(netpaid as DECIMALV3(38, 4)))) as DOUBLE))
+--------------PhysicalProject
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashAgg[LOCAL]
+----------------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------------PhysicalProject
+--------------------------filter((ssales.i_color = 'aquamarine'))
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalProject
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute[DistributionSpecGather]
+--------------------hashAgg[LOCAL]
+----------------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 Hint log:
 Used: leading(store_sales broadcast store shuffle { customer shuffle customer_address } shuffle item shuffle store_returns )  

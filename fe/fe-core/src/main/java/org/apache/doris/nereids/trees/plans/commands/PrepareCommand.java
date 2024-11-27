@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -38,7 +39,7 @@ import java.util.List;
  * Prepared Statement
  */
 public class PrepareCommand extends Command {
-    private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
+    private static final Logger LOG = LogManager.getLogger(PrepareCommand.class);
 
     private final List<Placeholder> placeholders = new ArrayList<>();
     private final LogicalPlan logicalPlan;
@@ -121,5 +122,10 @@ public class PrepareCommand extends Command {
 
     public PrepareCommand withPlaceholders(List<Placeholder> placeholders) {
         return new PrepareCommand(this.name, this.logicalPlan, placeholders, this.originalStmt);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.PREPARE;
     }
 }

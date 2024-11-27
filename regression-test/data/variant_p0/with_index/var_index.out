@@ -19,4 +19,6 @@
 8	{"timestamp":[123]}
 9	{"timestamp":17.0}
 10	{"timestamp":"17.0"}
+11	{"nested":[{"a":1}]}
+11	{"nested":[{"b":"1024"}]}
 

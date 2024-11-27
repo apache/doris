@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -29,7 +31,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -38,7 +39,7 @@ import java.util.List;
 import java.util.Map;
 
 // Alter table statement.
-public class AlterTableStmt extends DdlStmt {
+public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
     private TableName tbl;
     private List<AlterClause> ops;
 
@@ -66,8 +67,6 @@ public class AlterTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
         tbl.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
         InternalDatabaseUtil.checkDatabase(tbl.getDb(), ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tbl.getCtl(), tbl.getDb(), tbl.getTbl(),
@@ -103,6 +102,16 @@ public class AlterTableStmt extends DdlStmt {
                 if (table.getKeysType() != KeysType.UNIQUE_KEYS
                         && alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                     throw new AnalysisException("Sequence load only supported in unique tables.");
+                }
+                if (alterFeature == EnableFeatureClause.Features.UPDATE_FLEXIBLE_COLUMNS) {
+                    if (!(table.getKeysType() == KeysType.UNIQUE_KEYS && table.getEnableUniqueKeyMergeOnWrite())) {
+                        throw new AnalysisException("Update flexible columns feature is only supported"
+                                + " on merge-on-write unique tables.");
+                    }
+                    if (table.hasSkipBitmapColumn()) {
+                        throw new AnalysisException("table " + table.getName()
+                                + " has enabled update flexible columns feature already.");
+                    }
                 }
                 // analyse sequence column
                 Type sequenceColType = null;
@@ -148,6 +157,11 @@ public class AlterTableStmt extends DdlStmt {
                     } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                         addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
                                 null, null);
+                    } else if (alterFeature == EnableFeatureClause.Features.UPDATE_FLEXIBLE_COLUMNS) {
+                        ColumnDef skipBItmapCol = ColumnDef.newSkipBitmapColumnDef(AggregateType.NONE);
+                        List<Column> fullSchema = table.getBaseSchema(true);
+                        String lastCol = fullSchema.get(fullSchema.size() - 1).getName();
+                        addColumnClause = new AddColumnClause(skipBItmapCol, new ColumnPosition(lastCol), null, null);
                     }
                     addColumnClause.analyze(analyzer);
                     clauses.add(addColumnClause);
@@ -198,6 +212,10 @@ public class AlterTableStmt extends DdlStmt {
                     sb.append("DROP ROLLUP ");
                 }
                 sb.append(((AddRollupClause) op).getRollupName());
+            } else if (op instanceof CreateIndexClause) {
+                sb.append(((CreateIndexClause) op).toSql(true));
+            } else if (op instanceof DropIndexClause) {
+                sb.append(((DropIndexClause) op).toSql(true));
             } else {
                 sb.append(op.toSql());
             }
@@ -209,5 +227,10 @@ public class AlterTableStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

@@ -81,25 +81,24 @@ public:
     void stop();
 
     // execute one plan fragment
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params);
+    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type);
 
-    Status exec_plan_fragment(const TPipelineFragmentParams& params);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type);
 
     void remove_pipeline_context(
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
 
     // TODO(zc): report this is over
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
+    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type,
+                              const FinishCallback& cb);
 
-    Status exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
+                              const FinishCallback& cb);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
     Status trigger_pipeline_context_report(const ReportStatusRequest,
                                            std::shared_ptr<pipeline::PipelineFragmentContext>&&);
-
-    // Cancel instance (pipeline or nonpipeline).
-    void cancel_instance(const TUniqueId instance_id, const Status reason);
 
     // Can be used in both version.
     void cancel_query(const TUniqueId query_id, const Status reason);
@@ -113,6 +112,7 @@ public:
     // execute external query, all query info are packed in TScanOpenParams
     Status exec_external_plan_fragment(const TScanOpenParams& params,
                                        const TQueryPlanInfo& t_query_plan_info,
+                                       const TUniqueId& query_id,
                                        const TUniqueId& fragment_instance_id,
                                        std::vector<TScanColumnDesc>* selected_columns);
 
@@ -148,6 +148,11 @@ public:
     std::shared_ptr<QueryContext> get_or_erase_query_ctx_with_lock(const TUniqueId& query_id);
 
 private:
+    struct BrpcItem {
+        TNetworkAddress network_address;
+        std::vector<std::weak_ptr<QueryContext>> queries;
+    };
+
     std::shared_ptr<QueryContext> _get_or_erase_query_ctx(const TUniqueId& query_id);
 
     template <typename Param>
@@ -155,7 +160,10 @@ private:
 
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
-                          std::shared_ptr<QueryContext>& query_ctx);
+                          QuerySource query_type, std::shared_ptr<QueryContext>& query_ctx);
+
+    void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
+                               const BrpcItem& brpc_item);
 
     // This is input params
     ExecEnv* _exec_env = nullptr;
@@ -167,7 +175,10 @@ private:
     // call _lock, so that there is dead lock.
     std::mutex _lock;
 
-    std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
+    // (QueryID, FragmentID) -> PipelineFragmentContext
+    std::unordered_map<std::pair<TUniqueId, int>,
+                       std::shared_ptr<pipeline::PipelineFragmentContext>>
+            _pipeline_map;
 
     // query id -> QueryContext
     std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctx_map;
@@ -182,8 +193,6 @@ private:
     UIntGauge* timeout_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
-    std::unique_ptr<ThreadPool> _async_report_thread_pool =
-            nullptr; // used for pipeliine context report
 };
 
 uint64_t get_fragment_executing_count();

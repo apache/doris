@@ -51,6 +51,11 @@
 #include "util/once.h"
 #include "util/slice.h"
 
+namespace bvar {
+template <typename T>
+class Adder;
+}
+
 namespace doris {
 
 class Tablet;
@@ -77,6 +82,8 @@ enum KeysType : int;
 enum SortType : int;
 
 enum TabletStorageType { STORAGE_TYPE_LOCAL, STORAGE_TYPE_REMOTE, STORAGE_TYPE_REMOTE_AND_LOCAL };
+
+extern bvar::Adder<uint64_t> unused_remote_rowset_num;
 
 static inline constexpr auto TRACE_TABLET_LOCK_THRESHOLD = std::chrono::seconds(1);
 
@@ -108,7 +115,6 @@ public:
 
     DataDir* data_dir() const { return _data_dir; }
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
-    TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
 
     const std::string& tablet_path() const { return _tablet_path; }
 
@@ -141,6 +147,7 @@ public:
 
     size_t num_rows();
     int version_count() const;
+    int stale_version_count() const;
     bool exceed_version_limit(int32_t limit) override;
     uint64_t segment_count() const;
     Version max_version() const;
@@ -157,6 +164,7 @@ public:
     double bloom_filter_fpp() const;
     size_t next_unique_id() const;
     size_t row_size() const;
+    int64_t avg_rs_meta_serialize_size() const;
 
     // operation in rowsets
     Status add_rowset(RowsetSharedPtr rowset);
@@ -212,9 +220,11 @@ public:
 
     // operation for compaction
     bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
-    uint32_t calc_compaction_score(
+    bool suitable_for_compaction(
             CompactionType compaction_type,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
+
+    uint32_t calc_compaction_score();
 
     // This function to find max continuous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
@@ -267,8 +277,6 @@ public:
     void delete_all_files();
 
     void check_tablet_path_exists();
-
-    TabletInfo get_tablet_info() const;
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
@@ -351,7 +359,7 @@ public:
     // MUST hold EXCLUSIVE `_meta_lock`
     void add_rowsets(const std::vector<RowsetSharedPtr>& to_add);
     // MUST hold EXCLUSIVE `_meta_lock`
-    void delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
+    Status delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
 
     // MUST hold SHARED `_meta_lock`
     const auto& rowset_map() const { return _rs_version_map; }
@@ -409,7 +417,8 @@ public:
     CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() override;
     Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                               DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                              const RowsetIdUnorderedSet& cur_rowset_ids) override;
+                              const RowsetIdUnorderedSet& cur_rowset_ids,
+                              int64_t lock_id = -1) override;
 
     void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);
     bool check_all_rowset_segment();
@@ -421,24 +430,13 @@ public:
                              int64_t start = -1);
     bool should_skip_compaction(CompactionType compaction_type, int64_t now);
 
-    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
-                          bool include_stale = false) {
-        std::shared_lock rlock(_meta_lock);
-        for (auto& [v, rs] : _rs_version_map) {
-            visitor(rs);
-        }
-        if (!include_stale) return;
-        for (auto& [v, rs] : _stale_rs_version_map) {
-            visitor(rs);
-        }
-    }
-
     std::vector<std::string> get_binlog_filepath(std::string_view binlog_version) const;
     std::pair<std::string, int64_t> get_binlog_info(std::string_view binlog_version) const;
     std::string get_rowset_binlog_meta(std::string_view binlog_version,
                                        std::string_view rowset_id) const;
     Status get_rowset_binlog_metas(const std::vector<int64_t>& binlog_versions,
                                    RowsetBinlogMetasPB* metas_pb);
+    Status get_rowset_binlog_metas(Version binlog_versions, RowsetBinlogMetasPB* metas_pb);
     std::string get_segment_filepath(std::string_view rowset_id,
                                      std::string_view segment_index) const;
     std::string get_segment_filepath(std::string_view rowset_id, int64_t segment_index) const;
@@ -451,13 +449,7 @@ public:
     void gc_binlogs(int64_t version);
     Status ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb);
 
-    inline void report_error(const Status& st) {
-        if (st.is<ErrorCode::IO_ERROR>()) {
-            ++_io_error_times;
-        } else if (st.is<ErrorCode::CORRUPTION>()) {
-            _io_error_times = config::max_tablet_io_errors + 1;
-        }
-    }
+    void report_error(const Status& st);
 
     inline int64_t get_io_error_times() const { return _io_error_times; }
 
@@ -483,8 +475,24 @@ public:
     }
     inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
     void clear_cache() override;
-    Status calc_local_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
-                               int32_t* rowset_count, int64_t* file_count);
+
+    int32_t get_compaction_score() const { return _compaction_score; }
+
+    void set_compaction_score(int32_t compaction_score) { _compaction_score = compaction_score; }
+
+    void add_compaction_score(int32_t score) {
+        if (_compaction_score < 0) {
+            return;
+        }
+        _compaction_score += score;
+    }
+
+    void minus_compaction_score(int32_t score) {
+        if (_compaction_score < 0) {
+            return;
+        }
+        _compaction_score -= score;
+    }
 
 private:
     Status _init_once_action();
@@ -524,6 +532,10 @@ private:
     ////////////////////////////////////////////////////////////////////////////
 
     void _clear_cache_by_rowset(const BetaRowsetSharedPtr& rowset);
+    void check_table_size_correctness();
+    std::string get_segment_path(const RowsetMetaSharedPtr& rs_meta, int64_t seg_id);
+    int64_t get_segment_file_size(const RowsetMetaSharedPtr& rs_meta);
+    int64_t get_inverted_index_file_szie(const RowsetMetaSharedPtr& rs_meta);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -612,6 +624,9 @@ private:
     std::shared_ptr<const VersionWithTime> _visible_version;
 
     std::atomic_bool _is_full_compaction_running = false;
+
+    int32_t _compaction_score = -1;
+    int32_t _score_check_cnt = 0;
 };
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {
@@ -683,6 +698,11 @@ inline int Tablet::version_count() const {
     return _tablet_meta->version_count();
 }
 
+inline int Tablet::stale_version_count() const {
+    std::shared_lock rdlock(_meta_lock);
+    return _tablet_meta->stale_version_count();
+}
+
 inline Version Tablet::max_version() const {
     std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->max_version();
@@ -735,6 +755,10 @@ inline size_t Tablet::next_unique_id() const {
 
 inline size_t Tablet::row_size() const {
     return _tablet_meta->tablet_schema()->row_size();
+}
+
+inline int64_t Tablet::avg_rs_meta_serialize_size() const {
+    return _tablet_meta->avg_rs_meta_serialize_size();
 }
 
 } // namespace doris

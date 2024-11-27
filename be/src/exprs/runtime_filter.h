@@ -48,7 +48,6 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
-class ObjectPool;
 class RuntimePredicateWrapper;
 class PPublishFilterRequest;
 class PPublishFilterRequestV2;
@@ -65,11 +64,12 @@ class TQueryOptions;
 namespace vectorized {
 class VExpr;
 class VExprContext;
-struct SharedRuntimeFilterContext;
+struct RuntimeFilterContextSPtr;
 } // namespace vectorized
 
 namespace pipeline {
 class RuntimeFilterTimer;
+class CountedFinishDependency;
 } // namespace pipeline
 
 enum class RuntimeFilterType {
@@ -128,6 +128,8 @@ struct RuntimeFilterParams {
     // used in bloom filter
     int64_t bloom_filter_size;
     int32_t max_in_num;
+    int64_t runtime_bloom_filter_min_size;
+    int64_t runtime_bloom_filter_max_size;
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
@@ -157,17 +159,15 @@ protected:
 
 struct UpdateRuntimeFilterParams {
     UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
-                              butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
-            : request(req), data(data_stream), pool(obj_pool) {}
+                              butil::IOBufAsZeroCopyInputStream* data_stream)
+            : request(req), data(data_stream) {}
     const PPublishFilterRequest* request = nullptr;
     butil::IOBufAsZeroCopyInputStream* data = nullptr;
-    ObjectPool* pool = nullptr;
 };
 
 struct UpdateRuntimeFilterParamsV2 {
     const PPublishFilterRequestV2* request;
     butil::IOBufAsZeroCopyInputStream* data;
-    ObjectPool* pool = nullptr;
     PrimitiveType column_type = INVALID_TYPE;
 };
 
@@ -192,42 +192,38 @@ enum RuntimeFilterState {
 /// that can be pushed down to node based on the results of the right table.
 class IRuntimeFilter {
 public:
-    IRuntimeFilter(RuntimeFilterParamsContext* state, ObjectPool* pool,
-                   const TRuntimeFilterDesc* desc, bool need_local_merge = false)
+    IRuntimeFilter(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc)
             : _state(state),
-              _pool(pool),
               _filter_id(desc->filter_id),
               _is_broadcast_join(true),
               _has_remote_target(false),
               _has_local_target(false),
-              _rf_state(RuntimeFilterState::NOT_READY),
               _rf_state_atomic(RuntimeFilterState::NOT_READY),
               _role(RuntimeFilterRole::PRODUCER),
               _expr_order(-1),
               registration_time_(MonotonicMillis()),
-              _wait_infinitely(_state->runtime_filter_wait_infinitely),
-              _rf_wait_time_ms(_state->runtime_filter_wait_time_ms),
+              _wait_infinitely(_state->get_query_ctx()->runtime_filter_wait_infinitely()),
+              _rf_wait_time_ms(_state->get_query_ctx()->runtime_filter_wait_time_ms()),
               _runtime_filter_type(get_runtime_filter_type(desc)),
-              _profile(
-                      new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
-                                                     _filter_id, to_string(_runtime_filter_type)))),
-              _need_local_merge(need_local_merge) {}
+              _profile(new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
+                                                      _filter_id,
+                                                      to_string(_runtime_filter_type)))) {}
 
     ~IRuntimeFilter() = default;
 
-    static Status create(RuntimeFilterParamsContext* state, ObjectPool* pool,
-                         const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
-                         const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
-                         bool build_bf_exactly = false, bool need_local_merge = false);
+    static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
+                         const TQueryOptions* query_options, const RuntimeFilterRole role,
+                         int node_id, std::shared_ptr<IRuntimeFilter>* res,
+                         bool build_bf_exactly = false);
 
-    SharedRuntimeFilterContext& get_shared_context_ref();
+    RuntimeFilterContextSPtr& get_shared_context_ref();
 
     // insert data to build filter
     void insert_batch(vectorized::ColumnPtr column, size_t start);
 
     // publish filter
     // push filter to remote node or push down it to scan_node
-    Status publish(bool publish_local = false);
+    Status publish(RuntimeState* state, bool publish_local = false);
 
     Status send_filter_size(RuntimeState* state, uint64_t local_filter_size);
 
@@ -257,12 +253,6 @@ public:
     void set_role(const RuntimeFilterRole role) { _role = role; }
     int expr_order() const { return _expr_order; }
 
-    // only used for consumer
-    // if filter is not ready for filter data scan_node
-    // will wait util it ready or timeout
-    // This function will wait at most config::runtime_filter_shuffle_wait_time_ms
-    // if return true , filter is ready to use
-    bool await();
     void update_state();
     // this function will be called if a runtime filter sent by rpc
     // it will notify all wait threads
@@ -272,8 +262,6 @@ public:
     Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
                           int node_id = -1, bool build_bf_exactly = false);
 
-    BloomFilterFuncBase* get_bloomfilter() const;
-
     // serialize _wrapper to protobuf
     Status serialize(PMergeFilterRequest* request, void** data, int* len);
     Status serialize(PPublishFilterRequest* request, void** data = nullptr, int* len = nullptr);
@@ -281,18 +269,17 @@ public:
 
     Status merge_from(const RuntimePredicateWrapper* wrapper);
 
-    static Status create_wrapper(const MergeRuntimeFilterParams* param, ObjectPool* pool,
+    static Status create_wrapper(const MergeRuntimeFilterParams* param,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(const UpdateRuntimeFilterParams* param, ObjectPool* pool,
+    static Status create_wrapper(const UpdateRuntimeFilterParams* param,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
     static Status create_wrapper(const UpdateRuntimeFilterParamsV2* param,
-                                 RuntimePredicateWrapper** wrapper);
+                                 std::shared_ptr<RuntimePredicateWrapper>* wrapper);
     Status change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
-    Status update_filter(const UpdateRuntimeFilterParams* param);
-    void update_filter(RuntimePredicateWrapper* filter_wrapper, int64_t merge_time,
-                       int64_t start_apply);
+    void update_filter(std::shared_ptr<RuntimePredicateWrapper> filter_wrapper, int64_t merge_time,
+                       int64_t start_apply, uint64_t local_merge_time);
 
     void set_ignored();
 
@@ -303,13 +290,14 @@ public:
     bool need_sync_filter_size();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(const TNetworkAddress* addr);
+    Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr,
+                          uint64_t local_merge_time);
 
     void init_profile(RuntimeProfile* parent_profile);
 
     std::string debug_string() const;
 
-    void update_runtime_filter_type_to_profile();
+    void update_runtime_filter_type_to_profile(uint64_t local_merge_time);
 
     int filter_id() const { return _filter_id; }
 
@@ -345,7 +333,7 @@ public:
     int32_t wait_time_ms() const {
         int32_t res = 0;
         if (wait_infinitely()) {
-            res = _state->execution_timeout;
+            res = _state->get_query_ctx()->execution_timeout();
             // Convert to ms
             res *= 1000;
         } else {
@@ -363,7 +351,8 @@ public:
 
     void set_synced_size(uint64_t global_size);
 
-    void set_dependency(std::shared_ptr<pipeline::Dependency> dependency);
+    void set_finish_dependency(
+            const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
 
     int64_t get_synced_size() const { return _synced_size; }
 
@@ -375,13 +364,10 @@ protected:
     void to_protobuf(PMinMaxFilter* filter);
 
     template <class T>
-    Status _update_filter(const T* param);
-
-    template <class T>
     Status serialize_impl(T* request, void** data, int* len);
 
     template <class T>
-    static Status _create_wrapper(const T* param, ObjectPool* pool,
+    static Status _create_wrapper(const T* param,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
     void _set_push_down(bool push_down) { _is_push_down = push_down; }
@@ -395,10 +381,8 @@ protected:
     }
 
     RuntimeFilterParamsContext* _state = nullptr;
-    ObjectPool* _pool = nullptr;
     // _wrapper is a runtime filter function wrapper
-    // _wrapper should alloc from _pool
-    RuntimePredicateWrapper* _wrapper = nullptr;
+    std::shared_ptr<RuntimePredicateWrapper> _wrapper;
     // runtime filter id
     int _filter_id;
     // Specific types BoardCast or Shuffle
@@ -408,7 +392,6 @@ protected:
     // will apply to local node
     bool _has_local_target;
     // filter is ready for consumer
-    RuntimeFilterState _rf_state;
     std::atomic<RuntimeFilterState> _rf_state_atomic;
     // role consumer or producer
     RuntimeFilterRole _role;
@@ -432,14 +415,12 @@ protected:
     // parent profile
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
-    // `_need_local_merge` indicates whether this runtime filter is global on this BE.
-    // All runtime filters should be merged on each BE before push_to_remote or publish.
-    bool _need_local_merge = false;
+    RuntimeProfile::Counter* _wait_timer = nullptr;
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 
     int64_t _synced_size = -1;
-    std::shared_ptr<pipeline::Dependency> _dependency;
+    std::shared_ptr<pipeline::CountedFinishDependency> _dependency;
 };
 
 // avoid expose RuntimePredicateWrapper

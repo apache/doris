@@ -91,13 +91,13 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_deltas_total, MetricUnit::R
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_deltas_total, MetricUnit::ROWSETS, "",
                                      compaction_deltas_total, Labels({{"type", "cumulative"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(full_compaction_deltas_total, MetricUnit::ROWSETS, "",
-                                     compaction_deltas_total, Labels({{"type", "base"}}));
+                                     compaction_deltas_total, Labels({{"type", "full"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_bytes_total, MetricUnit::BYTES, "",
                                      compaction_bytes_total, Labels({{"type", "base"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_bytes_total, MetricUnit::BYTES, "",
                                      compaction_bytes_total, Labels({{"type", "cumulative"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(full_compaction_bytes_total, MetricUnit::BYTES, "",
-                                     compaction_bytes_total, Labels({{"type", "base"}}));
+                                     compaction_bytes_total, Labels({{"type", "full"}}));
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(segment_read_total, MetricUnit::OPERATIONS,
                                      "(segment_v2) total number of segments read", segment_read,
@@ -186,6 +186,14 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(s3_file_open_writing, MetricUnit::FILESYSTEM)
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_total, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_cache, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(num_io_bytes_read_from_remote, MetricUnit::OPERATIONS);
+
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_ctx_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_ctx_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_task_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_task_queued, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_task_running, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_task_submit_failed, MetricUnit::NOUNIT);
 
 const std::string DorisMetrics::_s_registry_name = "doris_be";
 const std::string DorisMetrics::_s_hook_name = "doris_metrics";
@@ -306,6 +314,14 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_total);
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_cache);
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_remote);
+
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, query_ctx_cnt);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_ctx_cnt);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_cnt);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_cnt);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_queued);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_running);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_submit_failed);
 }
 
 void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,
@@ -332,7 +348,7 @@ void DorisMetrics::_update_process_thread_num() {
     std::filesystem::directory_iterator dict_iter("/proc/self/task/", ec);
     if (ec) {
         LOG(WARNING) << "failed to count thread num: " << ec.message();
-        process_fd_num_used->set_value(0);
+        process_thread_num->set_value(0);
         return;
     }
     int64_t count =

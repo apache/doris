@@ -118,7 +118,7 @@ suite('test_manager_interface_1',"p0") {
     
 	    sql """ drop table test_metadata_name_ids """ 
 
-        qt_metadata_2 """ select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${tableName}
+        qt_metadata_3 """ select CATALOG_NAME,DATABASE_NAME,TABLE_NAME from ${tableName}
             where CATALOG_NAME="internal" and DATABASE_NAME ="test_manager_metadata_name_ids" and TABLE_NAME="test_metadata_name_ids";""" 
     }
     test_metadata_name_ids()
@@ -273,18 +273,19 @@ suite('test_manager_interface_1',"p0") {
         assertTrue(result[0][0].toLowerCase() ==  "test_manager_tb_1")
 
         
-        result = sql """ show create table  test_manager_tb_1"""   
+        result = sql """ show create table  test_manager_tb_1"""
+        logger.info ("result = ${result}")   
         assertTrue(result[0][0] == "test_manager_tb_1") // TABLE NAME
         // assertTrue(result[0][1].substring() == "test_manager_tb_1") //DDL 
         def ddl_str =  result[0][1] 
         def idx =  ddl_str.indexOf("PROPERTIES")
         assertTrue(idx != -1 );
         assertTrue( ddl_str.startsWith("""CREATE TABLE `test_manager_tb_1` (
-  `k1` TINYINT NULL,
-  `k2` DECIMAL(10, 2) NULL DEFAULT "10.05",
-  `k3` CHAR(10) NULL COMMENT 'string column',
-  `k4` INT NOT NULL DEFAULT "1" COMMENT 'int column',
-  `k5` TEXT NULL
+  `k1` tinyint NULL,
+  `k2` decimal(10,2) NULL DEFAULT "10.05",
+  `k3` char(10) NULL COMMENT 'string column',
+  `k4` int NOT NULL DEFAULT "1" COMMENT 'int column',
+  `k5` text NULL
 ) ENGINE=OLAP
 DUPLICATE KEY(`k1`, `k2`, `k3`)
 COMMENT 'manager_test_table'
@@ -322,21 +323,21 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         );"""
     
         List<List<Object>> result = sql """ show  create table  test_manager_tb_2 """ 
-        println result 
+        logger.info("result = ${result}" ) 
         assertTrue(result.size() == 1)
         assertTrue(result[0][0] == "test_manager_tb_2")
-        def ddl_str =  result[0][1] 
-        def idx =  ddl_str.indexOf("min_load_replica_num")
-        assertTrue( ddl_str.substring(idx,ddl_str.length()).startsWith("""min_load_replica_num" = "-1"""))
+        if (!isCloudMode()) {
+            def ddl_str =  result[0][1] 
+            def idx =  ddl_str.indexOf("min_load_replica_num")
+            assertTrue( ddl_str.substring(idx,ddl_str.length()).startsWith("""min_load_replica_num" = "-1"""))
 
-        sql """alter table test_manager_tb_2 set ("min_load_replica_num" = "1")"""
-        result = sql """ show  create table  test_manager_tb_2 """ 
-        assertTrue(result[0][0] == "test_manager_tb_2")
-        ddl_str =  result[0][1] 
-        idx =  ddl_str.indexOf("min_load_replica_num")
-        assertTrue( ddl_str.substring(idx,ddl_str.length()).startsWith("""min_load_replica_num" = "1"""))
-
-
+            sql """alter table test_manager_tb_2 set ("min_load_replica_num" = "1")"""
+            result = sql """ show  create table  test_manager_tb_2 """ 
+            assertTrue(result[0][0] == "test_manager_tb_2")
+            ddl_str =  result[0][1] 
+            idx =  ddl_str.indexOf("min_load_replica_num")
+            assertTrue( ddl_str.substring(idx,ddl_str.length()).startsWith("""min_load_replica_num" = "1"""))
+        }
 
         sql """ DROP table  test_manager_tb_2 FORCE"""
         sql """ drop database test_manager_tb_properties_case FORCE""" 
@@ -368,9 +369,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
 
 
         List<List<Object>>  result = sql  """ show table status from test_manager_tb_case_3 like 'test_manager_tb%' """ 
-        println result
-        
-        println result[0][4] 
+        logger.info("result = ${result}" ) 
         assertTrue(result[0][4] == 0 )// Rows
 
         def create_time = result[0][11] //Create_time
@@ -414,7 +413,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             sleep(10000)
         }
         if (j == retryTime) {
-            println result
+            logger.info("result = ${result}" )
             logger.info("  TEST show table status from $db_name like '$table_name';ROWS UPDATE FAIL.");
             assertTrue(false);
         }
@@ -448,7 +447,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         
 
         List<List<Object>>   result = sql """ insert into test_manager_tb values (5,"hell0",50); """ 
-        println result
+        logger.info("result = ${result}" )
         assertTrue(result[0][0] == 1)
         result = sql """ insert into test_manager_tb values (5,"hell0",50); """ 
         assertTrue(result[0][0] == 1)
@@ -471,7 +470,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             }
             sleep(1000);
         }        
-        println result
+        logger.info("result = ${result}" )
 
         if (j == retryTime) {
             logger.info("  TEST show index from '$table_name' FAIL.");
@@ -482,7 +481,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         
         assertTrue(result[0][2] == "bitmap_index_name" )//Key_name
         assertTrue(result[0][4] == "k1" )//Column_name
-        assertTrue(result[0][10] == "BITMAP" ) //BITMAP
+        assertTrue(result[0][10] == "BITMAP" || result[0][10] == "INVERTED" ) //BITMAP
         assertTrue(result[0][11] == "bitmap_k1" ) //bitmap_siteid
 
         sql """ drop INDEX bitmap_index_name on test_manager_tb;""" 
@@ -521,7 +520,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         futures.add( thread {
             sleep(1000);
             List<List<Object>> result = sql """ show proc '/current_query_stmts' """ 
-            println result
+            logger.info("result = ${result}" )
             def x = 0
             def queryid = ""
             logger.info("result = ${result}")
@@ -546,7 +545,6 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             
             x = 0 
             result = sql """  show proc '/current_queries' """
-            println result
             logger.info("result = ${result}")
             for( int i = 0;i<result.size();i++) {
                 if (result[i][0] == queryid )//QueryId
@@ -559,7 +557,6 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             assertTrue(x == 1)
 
             result = sql """  show processlist  """
-            println result
             logger.info("result = ${result}")
             for( int i =0 ;i < result.size();i++ ){
                 assertTrue( result[i][2].toLowerCase() != "null"  )//User
@@ -579,7 +576,6 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
             sleep(5000)
 
             result = sql """  show proc '/current_queries' """
-            println result
             logger.info("result = ${result}")
             for( int i = 0;i<result.size();i++) {
                 if (result[i][0] == queryid )//QueryId
@@ -597,7 +593,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         def total_tablet_num  = 0;
         def total_healthy_num = 0;
         result = sql """  SHOW PROC '/cluster_health/tablet_health' """ 
-        println result
+        logger.info("result = ${result}" )
 
         for( int i =0 ;i < result.size();i++ ){
             assertTrue(result[i][0].toLowerCase() != null ) // DbId
@@ -680,33 +676,33 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
     
         sql """ set global enable_audit_plugin = true; """ 
         List<List<Object>> result =sql  """ show create table __internal_schema.audit_log; """ 
-        println result
+        logger.info("result = ${result}" )
         
         assertTrue(result[0][0] == "audit_log")
 
         assertTrue(result[0][1].contains("CREATE TABLE `audit_log`"))
-        assertTrue(result[0][1].contains("`query_id` VARCHAR(48) NULL,"))
-        assertTrue(result[0][1].contains("`time` DATETIME(3) NULL,"))
-        assertTrue(result[0][1].contains("`client_ip` VARCHAR(128) NULL,")) 
-        assertTrue(result[0][1].contains("`user` VARCHAR(128) NULL,")) 
-        assertTrue(result[0][1].contains("`catalog` VARCHAR(128) NULL")) 
-        assertTrue(result[0][1].contains("`db` VARCHAR(128) NULL,"))
-        assertTrue(result[0][1].contains("`state` VARCHAR(128) NULL"))
-        assertTrue(result[0][1].contains("`error_code` INT NULL,"))
-        assertTrue(result[0][1].contains("`error_message` TEXT NULL,"))
-        assertTrue(result[0][1].contains("`query_time` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`scan_bytes` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`scan_rows` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`return_rows` BIGINT NULL,")) 
-        assertTrue(result[0][1].contains("`stmt_id` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`is_query` TINYINT NULL,"))
-        assertTrue(result[0][1].contains("`frontend_ip` VARCHAR(128) NULL,"))
-        assertTrue(result[0][1].contains("`cpu_time_ms` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`sql_hash` VARCHAR(128) NULL,"))
-        assertTrue(result[0][1].contains("`sql_digest` VARCHAR(128) NULL,"))
-        assertTrue(result[0][1].contains("`peak_memory_bytes` BIGINT NULL,"))
-        assertTrue(result[0][1].contains("`workload_group` TEXT NULL,"))
-        assertTrue(result[0][1].contains("`stmt` TEXT NULL"))
+        assertTrue(result[0][1].contains("`query_id` varchar(48) NULL,"))
+        assertTrue(result[0][1].contains("`time` datetime(3) NULL,"))
+        assertTrue(result[0][1].contains("`client_ip` varchar(128) NULL,")) 
+        assertTrue(result[0][1].contains("`user` varchar(128) NULL,")) 
+        assertTrue(result[0][1].contains("`catalog` varchar(128) NULL")) 
+        assertTrue(result[0][1].contains("`db` varchar(128) NULL,"))
+        assertTrue(result[0][1].contains("`state` varchar(128) NULL"))
+        assertTrue(result[0][1].contains("`error_code` int NULL,"))
+        assertTrue(result[0][1].contains("`error_message` text NULL,"))
+        assertTrue(result[0][1].contains("`query_time` bigint NULL,"))
+        assertTrue(result[0][1].contains("`scan_bytes` bigint NULL,"))
+        assertTrue(result[0][1].contains("`scan_rows` bigint NULL,"))
+        assertTrue(result[0][1].contains("`return_rows` bigint NULL,")) 
+        assertTrue(result[0][1].contains("`stmt_id` bigint NULL,"))
+        assertTrue(result[0][1].contains("`is_query` tinyint NULL,"))
+        assertTrue(result[0][1].contains("`frontend_ip` varchar(128) NULL,"))
+        assertTrue(result[0][1].contains("`cpu_time_ms` bigint NULL,"))
+        assertTrue(result[0][1].contains("`sql_hash` varchar(128) NULL,"))
+        assertTrue(result[0][1].contains("`sql_digest` varchar(128) NULL,"))
+        assertTrue(result[0][1].contains("`peak_memory_bytes` bigint NULL,"))
+        assertTrue(result[0][1].contains("`workload_group` text NULL,"))
+        assertTrue(result[0][1].contains("`stmt` text NULL"))
 
         assertTrue(result[0][1].contains("ENGINE=OLAP"))
 
@@ -733,7 +729,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         List<List<Object>> result = sql """ 
             admin show frontend config 
         """
-        println result
+        logger.info("result = ${result}" )
 
         def x = 0;
 
@@ -755,7 +751,7 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
         result = sql """ 
             admin show frontend config 
         """
-        println result
+        logger.info("result = ${result}" )
 
         x = 0 
         for(int i = 0 ;i<result.size();i++) {
@@ -771,24 +767,24 @@ DISTRIBUTED BY HASH(`k1`) BUCKETS 1"""))
     
         val -= 2 
         sql """ admin set frontend config("query_metadata_name_ids_timeout"= "${val}")"""
-        println result
+        logger.info("result = ${result}" )
 
         
         x = 0
         result = sql """ show global variables like "create_table_partition_max_num" """
-        println result
+        logger.info("result = ${result}" )
 
         assert(result[0][0] == "create_table_partition_max_num")
         val = result[0][1].toBigInteger() + 1 ; 
         assert(result[0][2] == "10000")
         sql """ set global create_table_partition_max_num = ${val} """ 
         result = sql """ show global variables like "create_table_partition_max_num" """
-        println result
+        logger.info("result = ${result}" )
 
         assert(result[0][1].toBigInteger() == val)        
         val -= 1
         sql """ set global create_table_partition_max_num = ${val} """ 
-        println result
+        logger.info("result = ${result}" )
 
         result = sql """  show frontend config """
         x  = 0  

@@ -29,7 +29,7 @@ import com.google.common.base.Strings;
   syntax:
       RESUME ROUTINE LOAD [database.]name
  */
-public class ResumeRoutineLoadStmt extends DdlStmt {
+public class ResumeRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
 
     private final LabelName labelName;
     private String db;
@@ -62,5 +62,10 @@ public class ResumeRoutineLoadStmt extends DdlStmt {
             }
             db = analyzer.getDefaultDb();
         }
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.RESUME;
     }
 }

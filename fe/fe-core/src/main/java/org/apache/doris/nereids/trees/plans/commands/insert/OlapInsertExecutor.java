@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
@@ -40,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.ExchangeNode;
+import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
@@ -71,10 +71,10 @@ import java.util.stream.Collectors;
  * Insert executor for olap table
  */
 public class OlapInsertExecutor extends AbstractInsertExecutor {
-    protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(OlapInsertExecutor.class);
-    protected long txnId = INVALID_TXN_ID;
     protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
+
+    protected OlapTable olapTable;
 
     /**
      * constructor
@@ -82,10 +82,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     public OlapInsertExecutor(ConnectContext ctx, Table table,
             String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert);
-    }
-
-    public long getTxnId() {
-        return txnId;
+        this.olapTable = (OlapTable) table;
     }
 
     @Override
@@ -124,32 +121,40 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     ctx.getSessionVariable().getSendBatchParallelism(),
                     false,
                     isStrictMode,
-                    timeout);
-            // complete and set commands both modify thrift struct
-            olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
-            if (!olapInsertCtx.isAllowAutoPartition()) {
-                olapTableSink.setAutoPartition(false);
-            }
-            if (olapInsertCtx.isAutoDetectOverwrite()) {
-                olapTableSink.setAutoDetectOverwite(true);
-                olapTableSink.setOverwriteGroupId(olapInsertCtx.getOverwriteGroupId());
-            }
-            // update
+                    timeout, olapInsertCtx);
 
             // set schema and partition info for tablet id shuffle exchange
             if (fragment.getPlanRoot() instanceof ExchangeNode
                     && fragment.getDataPartition().getType() == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED) {
-                DataStreamSink dataStreamSink = (DataStreamSink) (fragment.getChild(0).getSink());
-                Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
-                dataStreamSink.setTabletSinkSchemaParam(olapTableSink.createSchema(
-                        database.getId(), olapTableSink.getDstTable(), analyzer));
-                dataStreamSink.setTabletSinkPartitionParam(olapTableSink.createPartition(
-                        database.getId(), olapTableSink.getDstTable(), analyzer));
+                DataSink childFragmentSink = fragment.getChild(0).getSink();
+                DataStreamSink dataStreamSink = null;
+                if (childFragmentSink instanceof MultiCastDataSink) {
+                    MultiCastDataSink multiCastDataSink = (MultiCastDataSink) childFragmentSink;
+                    int outputExchangeId = (fragment.getPlanRoot()).getId().asInt();
+                    // which DataStreamSink link to the output exchangeNode?
+                    for (DataStreamSink currentDataStreamSink : multiCastDataSink.getDataStreamSinks()) {
+                        int sinkExchangeId = currentDataStreamSink.getExchNodeId().asInt();
+                        if (outputExchangeId == sinkExchangeId) {
+                            dataStreamSink = currentDataStreamSink;
+                            break;
+                        }
+                    }
+                    if (dataStreamSink == null) {
+                        throw new IllegalStateException("Can not find DataStreamSink in the MultiCastDataSink");
+                    }
+                } else if (childFragmentSink instanceof DataStreamSink) {
+                    dataStreamSink = (DataStreamSink) childFragmentSink;
+                } else {
+                    throw new IllegalStateException("Unsupported DataSink: " + childFragmentSink);
+                }
+
+                dataStreamSink.setTabletSinkSchemaParam(olapTableSink.getOlapTableSchemaParam());
+                dataStreamSink.setTabletSinkPartitionParam(olapTableSink.getOlapTablePartitionParam());
                 dataStreamSink.setTabletSinkTupleDesc(olapTableSink.getTupleDescriptor());
-                List<TOlapTableLocationParam> locationParams = olapTableSink
-                        .createLocation(olapTableSink.getDstTable());
+                List<TOlapTableLocationParam> locationParams = olapTableSink.getOlapTableLocationParams();
                 dataStreamSink.setTabletSinkLocationParam(locationParams.get(0));
                 dataStreamSink.setTabletSinkTxnId(olapTableSink.getTxnId());
+                dataStreamSink.setTabletSinkExprs(fragment.getOutputExprs());
             }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);

@@ -47,7 +47,7 @@ suite("test_create_view_auth","p0,auth") {
             assertTrue(e.getMessage().contains("Admin_priv,Create_priv"))
         }
     }
-    sql """grant create_priv on ${dbName}.v1 to ${user}"""
+    sql """grant create_priv on ${dbName}.* to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         try {
             sql "create view ${dbName}.v1 as select * from ${dbName}.${tableName};"

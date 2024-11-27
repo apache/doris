@@ -22,7 +22,7 @@
 #include "vec/exec/scan/new_es_scanner.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 // Prefer to the local host
 static std::string get_host_and_port(const std::vector<doris::TNetworkAddress>& es_hosts) {
     std::string host_port;
@@ -44,12 +44,10 @@ static std::string get_host_and_port(const std::vector<doris::TNetworkAddress>& 
 
 Status EsScanLocalState::_init_profile() {
     RETURN_IF_ERROR(Base::_init_profile());
-    _es_profile.reset(new RuntimeProfile("EsIterator"));
-    Base::_scanner_profile->add_child(_es_profile.get(), true, nullptr);
 
-    _rows_read_counter = ADD_COUNTER(_es_profile, "RowsRead", TUnit::UNIT);
-    _read_timer = ADD_TIMER(_es_profile, "TotalRawReadTime(*)");
-    _materialize_timer = ADD_TIMER(_es_profile, "MaterializeTupleTime(*)");
+    _blocks_read_counter = ADD_COUNTER(_runtime_profile, "BlocksRead", TUnit::UNIT);
+    _read_timer = ADD_TIMER(_runtime_profile, "TotalRawReadTime(*)");
+    _materialize_timer = ADD_TIMER(_runtime_profile, "MaterializeTupleTime(*)");
     return Status::OK();
 }
 
@@ -84,8 +82,9 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* sca
                 std::to_string(RuntimeFilterConsumer::_state->batch_size());
         properties[ESScanReader::KEY_HOST_PORT] = get_host_and_port(es_scan_range->es_hosts);
         // push down limit to Elasticsearch
-        // if predicate in _conjunct_ctxs can not be processed by Elasticsearch, we can not push down limit operator to Elasticsearch
-        if (p.limit() != -1 && p.limit() <= RuntimeFilterConsumer::_state->batch_size()) {
+        // if predicate in _conjuncts can not be processed by Elasticsearch, we can not push down limit operator to Elasticsearch
+        if (p.limit() != -1 && p.limit() <= RuntimeFilterConsumer::_state->batch_size() &&
+            p.conjuncts().empty()) {
             properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(p.limit());
         }
 
@@ -137,8 +136,8 @@ Status EsScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status EsScanOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(ScanOperatorX<EsScanLocalState>::prepare(state));
+Status EsScanOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(ScanOperatorX<EsScanLocalState>::open(state));
 
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {

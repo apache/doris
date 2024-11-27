@@ -45,6 +45,7 @@ class DataTypeDateV2;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /** DateTime stores time as unix timestamp.
 	* The value itself is independent of time zone.
@@ -108,7 +109,7 @@ public:
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const Int64& num) const;
+    void push_number(ColumnString::Chars& chars, const Int64& num) const;
 
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
@@ -143,4 +144,5 @@ constexpr bool IsTimeType = IsDateTimeType<DataType> || IsDateType<DataType>;
 template <typename DataType>
 constexpr bool IsTimeV2Type = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

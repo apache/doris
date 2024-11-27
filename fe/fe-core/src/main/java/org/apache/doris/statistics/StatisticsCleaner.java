@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -27,6 +28,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Maps;
@@ -35,6 +37,7 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -74,6 +77,7 @@ public class StatisticsCleaner extends MasterDaemon {
     }
 
     public synchronized void clear() {
+        clearTableStats();
         try {
             if (!init()) {
                 return;
@@ -99,6 +103,59 @@ public class StatisticsCleaner extends MasterDaemon {
         } while (!expiredStats.isEmpty());
     }
 
+    private void clearTableStats() {
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        Set<Long> tableIds = analysisManager.getIdToTblStatsKeys();
+        InternalCatalog internalCatalog = Env.getCurrentInternalCatalog();
+        for (long id : tableIds) {
+            try {
+                TableStatsMeta stats = analysisManager.findTableStatsStatus(id);
+                if (stats == null) {
+                    continue;
+                }
+                // If ctlName, dbName and tblName exist, it means the table stats is created under new version.
+                // First try to find the table by the given names. If table exists, means the tableMeta is valid,
+                // it should be kept in memory.
+                try {
+                    StatisticsUtil.findTable(stats.ctlName, stats.dbName, stats.tblName);
+                    continue;
+                } catch (Exception e) {
+                    LOG.debug("Table {}.{}.{} not found.", stats.ctlName, stats.dbName, stats.tblName);
+                }
+                // If we couldn't find table by names, try to find it in internal catalog. This is to support older
+                // version which the tableStats object doesn't store the names but only table id.
+                // We may remove external table's tableStats here, but it's not a big problem.
+                // Because the stats in column_statistics table is still available,
+                // the only disadvantage is auto analyze may be triggered for this table.
+                // But it only happens once, the new table stats object will have all the catalog, db and table names.
+                if (tableExistInInternalCatalog(internalCatalog, id)) {
+                    continue;
+                }
+                LOG.info("Table {}.{}.{} with id {} not exist, remove its table stats record.",
+                        stats.ctlName, stats.dbName, stats.tblName, id);
+                analysisManager.removeTableStats(id);
+                Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(id));
+            } catch (Exception e) {
+                LOG.info(e);
+            }
+        }
+    }
+
+    private boolean tableExistInInternalCatalog(InternalCatalog internalCatalog, long tableId) {
+        List<Long> dbIds = internalCatalog.getDbIds();
+        for (long dbId : dbIds) {
+            Database database = internalCatalog.getDbNullable(dbId);
+            if (database == null) {
+                continue;
+            }
+            TableIf table = database.getTableNullable(tableId);
+            if (table != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private boolean init() {
         try {
             String dbName = FeConstants.INTERNAL_DB_NAME;
@@ -120,10 +177,9 @@ public class StatisticsCleaner extends MasterDaemon {
 
     private Map<Long, DatabaseIf<? extends TableIf>> constructDbMap() {
         Map<Long, DatabaseIf<? extends TableIf>> idToDb = Maps.newHashMap();
-        for (CatalogIf<? extends DatabaseIf<? extends TableIf>> ctl : idToCatalog.values()) {
-            for (DatabaseIf<? extends TableIf> db : ctl.getAllDbs()) {
-                idToDb.put(db.getId(), db);
-            }
+        Collection<DatabaseIf<? extends TableIf>> internalDBs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
+        for (DatabaseIf<? extends TableIf> db : internalDBs) {
+            idToDb.put(db.getId(), db);
         }
         return idToDb;
     }
@@ -210,6 +266,16 @@ public class StatisticsCleaner extends MasterDaemon {
                     long catalogId = statsId.catalogId;
                     if (!idToCatalog.containsKey(catalogId)) {
                         expiredStats.expiredCatalog.add(catalogId);
+                        continue;
+                    }
+                    // Skip check external DBs and tables to avoid fetch too much metadata.
+                    // Remove expired external table stats only when the external catalog is dropped.
+                    // TODO: Need to check external database and table exist or not. But for now, we only check catalog.
+                    // Because column_statistics table only keep table id and db id.
+                    // But meta data doesn't always cache all external tables' ids.
+                    // So we may fail to find the external table only by id. Need to use db name and table name instead.
+                    // Have to store db name and table name in column_statistics in the future.
+                    if (catalogId != InternalCatalog.INTERNAL_CATALOG_ID) {
                         continue;
                     }
                     long dbId = statsId.dbId;

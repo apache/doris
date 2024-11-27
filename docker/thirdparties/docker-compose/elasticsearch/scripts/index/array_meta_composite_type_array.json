@@ -1,0 +1,10 @@
+{
+  "_meta": {
+    "doris":{
+      "array_fields":[
+        "sports",
+        "scores"
+      ]
+    }
+  }
+}

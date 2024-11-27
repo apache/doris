@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <bvar/bvar.h>
 #include <gen_cpp/BackendService_types.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -40,6 +41,7 @@ class ThreadPool;
 class ExecEnv;
 class CgroupCpuCtl;
 class QueryContext;
+class IOThrottle;
 
 namespace vectorized {
 class SimplifiedScanScheduler;
@@ -55,6 +57,8 @@ struct TrackerLimiterGroup;
 class WorkloadGroup : public std::enable_shared_from_this<WorkloadGroup> {
 public:
     explicit WorkloadGroup(const WorkloadGroupInfo& tg_info);
+
+    explicit WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_query_thread_pool);
 
     int64_t version() const { return _version; }
 
@@ -76,34 +80,60 @@ public:
         return _memory_limit;
     };
 
+    int64_t weighted_memory_limit() const { return _weighted_memory_limit; };
+
+    void set_weighted_memory_limit(int64_t weighted_memory_limit) {
+        _weighted_memory_limit = weighted_memory_limit;
+    }
+
+    // make memory snapshots and refresh total memory used at the same time.
+    int64_t make_memory_tracker_snapshots(
+            std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots);
+    // call make_memory_tracker_snapshots, so also refresh total memory used.
     int64_t memory_used();
 
-    int spill_threshold_low_water_mark() const {
-        return _spill_low_watermark.load(std::memory_order_relaxed);
+    void do_sweep();
+
+    int memory_low_watermark() const {
+        return _memory_low_watermark.load(std::memory_order_relaxed);
     }
-    int spill_threashold_high_water_mark() const {
-        return _spill_high_watermark.load(std::memory_order_relaxed);
+    int memory_high_watermark() const {
+        return _memory_high_watermark.load(std::memory_order_relaxed);
     }
 
-    void set_weighted_memory_used(int64_t wg_total_mem_used, double ratio);
+    void set_weighted_memory_ratio(double ratio);
+    bool add_wg_refresh_interval_memory_growth(int64_t size) {
+        auto realtime_total_mem_used =
+                _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
+        if ((realtime_total_mem_used >
+             ((double)_weighted_memory_limit *
+              _memory_high_watermark.load(std::memory_order_relaxed) / 100))) {
+            return false;
+        } else {
+            _wg_refresh_interval_memory_growth.fetch_add(size);
+            return true;
+        }
+    }
+    void sub_wg_refresh_interval_memory_growth(int64_t size) {
+        _wg_refresh_interval_memory_growth.fetch_sub(size);
+    }
 
     void check_mem_used(bool* is_low_wartermark, bool* is_high_wartermark) const {
-        auto weighted_mem_used = _weighted_mem_used.load(std::memory_order_relaxed);
-        *is_low_wartermark =
-                (weighted_mem_used > ((double)_memory_limit *
-                                      _spill_low_watermark.load(std::memory_order_relaxed) / 100));
-        *is_high_wartermark =
-                (weighted_mem_used > ((double)_memory_limit *
-                                      _spill_high_watermark.load(std::memory_order_relaxed) / 100));
+        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+        *is_low_wartermark = (realtime_total_mem_used >
+                              ((double)_weighted_memory_limit *
+                               _memory_low_watermark.load(std::memory_order_relaxed) / 100));
+        *is_high_wartermark = (realtime_total_mem_used >
+                               ((double)_weighted_memory_limit *
+                                _memory_high_watermark.load(std::memory_order_relaxed) / 100));
     }
 
     std::string debug_string() const;
+    std::string memory_debug_string() const;
 
     void check_and_update(const WorkloadGroupInfo& tg_info);
 
     void add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
-
-    void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
     // when mem_limit <=0 , it's an invalid value, then current group not participating in memory GC
     // because mem_limit is not a required property
@@ -125,11 +155,6 @@ public:
         return Status::OK();
     }
 
-    void remove_query(TUniqueId query_id) {
-        std::unique_lock<std::shared_mutex> wlock(_mutex);
-        _query_ctxs.erase(query_id);
-    }
-
     void shutdown() {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
         _is_shutdown = true;
@@ -137,17 +162,12 @@ public:
 
     bool can_be_dropped() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        return _is_shutdown && _query_ctxs.size() == 0;
-    }
-
-    int query_num() {
-        std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        return _query_ctxs.size();
+        return _is_shutdown && _query_ctxs.empty();
     }
 
     int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc);
 
-    void upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* exec_env);
+    void upsert_task_scheduler(WorkloadGroupInfo* tg_info);
 
     void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                              vectorized::SimplifiedScanScheduler** scan_sched,
@@ -163,15 +183,49 @@ public:
 
     std::string thread_debug_info();
 
+    std::shared_ptr<IOThrottle> get_local_scan_io_throttle(const std::string& disk_dir);
+
+    std::shared_ptr<IOThrottle> get_remote_scan_io_throttle();
+
+    void upsert_scan_io_throttle(WorkloadGroupInfo* tg_info);
+
+    void update_cpu_adder(int64_t delta_cpu_time);
+
+    void update_total_local_scan_io_adder(size_t scan_bytes);
+
+    int64_t get_mem_used() { return _mem_used_status->get_value(); }
+    uint64_t get_cpu_usage() { return _cpu_usage_per_second->get_value(); }
+    int64_t get_local_scan_bytes_per_second() {
+        return _total_local_scan_io_per_second->get_value();
+    }
+    int64_t get_remote_scan_bytes_per_second();
+
+    ThreadPool* get_memtable_flush_pool_ptr() {
+        // no lock here because this is called by memtable flush,
+        // to avoid lock competition with the workload thread pool's update
+        return _memtable_flush_pool.get();
+    }
+    void create_cgroup_cpu_ctl();
+
+    std::weak_ptr<CgroupCpuCtl> get_cgroup_cpu_ctl_wptr();
+
 private:
+    void create_cgroup_cpu_ctl_no_lock();
+    void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
+    void upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
+                                    std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr);
+
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
     int64_t _version;
     int64_t _memory_limit; // bytes
-    // `_weighted_mem_used` is a rough memory usage in this group,
-    // because we can only get a precise memory usage by MemTracker which is not include page cache.
-    std::atomic_int64_t _weighted_mem_used = 0; // bytes
+    // `weighted_memory_limit` less than or equal to _memory_limit, calculate after exclude public memory.
+    // more detailed description in `refresh_wg_weighted_memory_limit`.
+    std::atomic<int64_t> _weighted_memory_limit {0}; //
+    // last value of make_memory_tracker_snapshots, refresh every time make_memory_tracker_snapshots is called.
+    std::atomic_int64_t _total_mem_used = 0; // bytes
+    std::atomic_int64_t _wg_refresh_interval_memory_growth;
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
     std::vector<TrackerLimiterGroup> _mem_tracker_limiter_pool;
@@ -179,8 +233,10 @@ private:
     std::atomic<int> _scan_thread_num;
     std::atomic<int> _max_remote_scan_thread_num;
     std::atomic<int> _min_remote_scan_thread_num;
-    std::atomic<int> _spill_low_watermark;
-    std::atomic<int> _spill_high_watermark;
+    std::atomic<int> _memory_low_watermark;
+    std::atomic<int> _memory_high_watermark;
+    std::atomic<int64_t> _scan_bytes_per_second {-1};
+    std::atomic<int64_t> _remote_scan_bytes_per_second {-1};
 
     // means workload group is mark dropped
     // new query can not submit
@@ -189,11 +245,27 @@ private:
     std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctxs;
 
     std::shared_mutex _task_sched_lock;
-    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl {nullptr};
+    // _cgroup_cpu_ctl not only used by threadpool which managed by WorkloadGroup,
+    // but also some global background threadpool which not owned by WorkloadGroup,
+    // so it should be shared ptr;
+    std::shared_ptr<CgroupCpuCtl> _cgroup_cpu_ctl {nullptr};
     std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched {nullptr};
     std::unique_ptr<ThreadPool> _memtable_flush_pool {nullptr};
+
+    std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;
+    std::shared_ptr<IOThrottle> _remote_scan_io_throttle {nullptr};
+
+    // for some background workload, it doesn't need to create query thread pool
+    const bool _need_create_query_thread_pool;
+
+    // bvar metric
+    std::unique_ptr<bvar::Status<int64_t>> _mem_used_status;
+    std::unique_ptr<bvar::Adder<uint64_t>> _cpu_usage_adder;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _cpu_usage_per_second;
+    std::unique_ptr<bvar::Adder<size_t>> _total_local_scan_io_adder;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<size_t>>> _total_local_scan_io_per_second;
 };
 
 using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
@@ -210,8 +282,10 @@ struct WorkloadGroupInfo {
     const int scan_thread_num = 0;
     const int max_remote_scan_thread_num = 0;
     const int min_remote_scan_thread_num = 0;
-    const int spill_low_watermark = 0;
-    const int spill_high_watermark = 0;
+    const int memory_low_watermark = 0;
+    const int memory_high_watermark = 0;
+    const int read_bytes_per_second = -1;
+    const int remote_read_bytes_per_second = -1;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

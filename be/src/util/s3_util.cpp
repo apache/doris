@@ -29,7 +29,9 @@
 #include <util/string_util.h>
 
 #include <atomic>
+#ifdef USE_AZURE
 #include <azure/storage/blobs/blob_container_client.hpp>
+#endif
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
@@ -40,8 +42,11 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/obj_retry_strategy.h"
+#include "cpp/sync_point.h"
+#ifdef USE_AZURE
 #include "io/fs/azure_obj_storage_client.h"
+#endif
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
@@ -52,7 +57,8 @@ namespace doris {
 namespace s3_bvar {
 bvar::LatencyRecorder s3_get_latency("s3_get");
 bvar::LatencyRecorder s3_put_latency("s3_put");
-bvar::LatencyRecorder s3_delete_latency("s3_delete");
+bvar::LatencyRecorder s3_delete_object_latency("s3_delete_object");
+bvar::LatencyRecorder s3_delete_objects_latency("s3_delete_objects");
 bvar::LatencyRecorder s3_head_latency("s3_head");
 bvar::LatencyRecorder s3_multi_part_upload_latency("s3_multi_part_upload");
 bvar::LatencyRecorder s3_list_latency("s3_list");
@@ -63,8 +69,20 @@ bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
 
 namespace {
 
-bool is_s3_conf_valid(const S3ClientConf& conf) {
-    return !conf.endpoint.empty() && !conf.region.empty() && !conf.ak.empty() && !conf.sk.empty();
+doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
+    if (conf.endpoint.empty()) {
+        return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
+    }
+    if (conf.region.empty()) {
+        return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
+    }
+    if (conf.ak.empty()) {
+        return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
+    }
+    if (conf.sk.empty()) {
+        return Status::InvalidArgument<false>("Invalid s3 conf, empty sk");
+    }
+    return Status::OK();
 }
 
 // Return true is convert `str` to int successfully
@@ -86,10 +104,33 @@ constexpr char S3_MAX_CONN_SIZE[] = "AWS_MAX_CONN_SIZE";
 constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
 constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
 
+auto metric_func_factory(bvar::Adder<int64_t>& ns_bvar, bvar::Adder<int64_t>& req_num_bvar) {
+    return [&](int64_t ns) {
+        if (ns > 0) {
+            ns_bvar << ns;
+        } else {
+            req_num_bvar << 1;
+        }
+    };
+}
+
 } // namespace
+
+bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
+bvar::Adder<int64_t> get_rate_limit_exceed_req_num("get_rate_limit_exceed_req_num");
+bvar::Adder<int64_t> put_rate_limit_ns("put_rate_limit_ns");
+bvar::Adder<int64_t> put_rate_limit_exceed_req_num("put_rate_limit_exceed_req_num");
+
 S3RateLimiterHolder* S3ClientFactory::rate_limiter(S3RateLimitType type) {
     CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
     return _rate_limiters[static_cast<size_t>(type)].get();
+}
+
+int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit) {
+    if (type == S3RateLimitType::UNKNOWN) {
+        return -1;
+    }
+    return S3ClientFactory::instance().rate_limiter(type)->reset(max_speed, max_burst, limit);
 }
 
 class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
@@ -149,10 +190,19 @@ S3ClientFactory::S3ClientFactory() {
     };
     Aws::InitAPI(_aws_options);
     _ca_cert_file_path = get_valid_ca_cert_path();
+    _rate_limiters = {
+            std::make_unique<S3RateLimiterHolder>(
+                    S3RateLimitType::GET, config::s3_get_token_per_second,
+                    config::s3_get_bucket_tokens, config::s3_get_token_limit,
+                    metric_func_factory(get_rate_limit_ns, get_rate_limit_exceed_req_num)),
+            std::make_unique<S3RateLimiterHolder>(
+                    S3RateLimitType::PUT, config::s3_put_token_per_second,
+                    config::s3_put_bucket_tokens, config::s3_put_token_limit,
+                    metric_func_factory(put_rate_limit_ns, put_rate_limit_exceed_req_num))};
 }
 
-string S3ClientFactory::get_valid_ca_cert_path() {
-    vector<std::string> vec_ca_file_path = doris::split(config::ca_cert_file_paths, ";");
+std::string S3ClientFactory::get_valid_ca_cert_path() {
+    auto vec_ca_file_path = doris::split(config::ca_cert_file_paths, ";");
     auto it = vec_ca_file_path.begin();
     for (; it != vec_ca_file_path.end(); ++it) {
         if (std::filesystem::exists(*it)) {
@@ -172,7 +222,7 @@ S3ClientFactory& S3ClientFactory::instance() {
 }
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf& s3_conf) {
-    if (!is_s3_conf_valid(s3_conf)) {
+    if (!is_s3_conf_valid(s3_conf).ok()) {
         return nullptr;
     }
 
@@ -199,6 +249,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
         const S3ClientConf& s3_conf) {
+#ifdef USE_AZURE
     auto cred =
             std::make_shared<Azure::Storage::StorageSharedKeyCredential>(s3_conf.ak, s3_conf.sk);
 
@@ -209,6 +260,10 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
     auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
     LOG_INFO("create one azure client with {}", s3_conf.to_string());
     return std::make_shared<io::AzureObjStorageClient>(std::move(containerClient));
+#else
+    LOG_FATAL("BE is not compiled with azure support, export BUILD_AZURE=ON before building");
+    return nullptr;
+#endif
 }
 
 std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
@@ -238,7 +293,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
 #else
         aws_config.maxConnections =
-                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_size();
+                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_thread_num();
 #endif
     }
 
@@ -253,8 +308,8 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.scheme = Aws::Http::Scheme::HTTP;
     }
 
-    aws_config.retryStrategy =
-            std::make_shared<Aws::Client::DefaultRetryStrategy>(config::max_s3_client_retry);
+    aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
+            config::max_s3_client_retry /*scaleFactor = 25*/);
     std::shared_ptr<Aws::S3::S3Client> new_client;
     if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
         Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
@@ -316,7 +371,8 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         }
     }
     if (auto it = properties.find(S3_PROVIDER); it != properties.end()) {
-        if (0 == strcmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
+        // S3 Provider properties should be case insensitive.
+        if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
             s3_conf->client_conf.provider = io::ObjStorageType::AZURE;
         }
     }
@@ -336,8 +392,8 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         s3_conf->client_conf.use_virtual_addressing = it->second != "true";
     }
 
-    if (!is_s3_conf_valid(s3_conf->client_conf)) {
-        return Status::InvalidArgument("S3 properties are incorrect, please check properties.");
+    if (auto st = is_s3_conf_valid(s3_conf->client_conf); !st.ok()) {
+        return st;
     }
     return Status::OK();
 }
@@ -346,14 +402,15 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     S3Conf ret {
             .bucket = info.bucket(),
             .prefix = info.prefix(),
-            .client_conf {
-                    .endpoint = info.endpoint(),
-                    .region = info.region(),
-                    .ak = info.ak(),
-                    .sk = info.sk(),
-                    .bucket = info.bucket(),
-                    .provider = io::ObjStorageType::AWS,
-            },
+            .client_conf {.endpoint = info.endpoint(),
+                          .region = info.region(),
+                          .ak = info.ak(),
+                          .sk = info.sk(),
+                          .token {},
+                          .bucket = info.bucket(),
+                          .provider = io::ObjStorageType::AWS,
+                          .use_virtual_addressing =
+                                  info.has_use_path_style() ? !info.use_path_style() : true},
             .sse_enabled = info.sse_enabled(),
     };
 

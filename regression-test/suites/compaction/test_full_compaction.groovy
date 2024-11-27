@@ -19,10 +19,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_full_compaction") {
     def tableName = "test_full_compaction"
-    def isCloudMode = {
-        def ret = sql_return_maparray  """show backends"""
-        ret.Tag[0].contains("cloud_cluster_name")
-    }
 
     try {
         String backend_id;
@@ -55,6 +51,7 @@ suite("test_full_compaction") {
             BUCKETS 1 
             PROPERTIES ("replication_allocation" = "tag.location.default: 1",
             "disable_auto_compaction" = "true",
+            "enable_mow_light_delete" = "false",
             "enable_unique_key_merge_on_write" = "true");"""
 
         // version1 (1,1)(2,2)
@@ -170,7 +167,7 @@ suite("test_full_compaction") {
             assert tabletJson.rowsets instanceof List
             rowsetCount +=((List<String>) tabletJson.rowsets).size()
         }
-        def cloudMode = isCloudMode.call()
+        def cloudMode = isCloudMode()
         if (cloudMode) {
             assert (rowsetCount == 2)
         } else {

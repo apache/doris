@@ -17,26 +17,38 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 /**
  * Insert executor for olap table with group commit
@@ -44,23 +56,72 @@ import java.util.Optional;
 public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(OlapGroupCommitInsertExecutor.class);
 
+    private Backend groupCommitBackend;
+
     public OlapGroupCommitInsertExecutor(ConnectContext ctx, Table table,
             String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx,
-            boolean emptyInsert) {
+            boolean emptyInsert, Backend backend) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert);
+        this.groupCommitBackend = backend;
     }
 
-    protected static void analyzeGroupCommit(ConnectContext ctx, TableIf table, UnboundTableSink<?> tableSink) {
+    protected static void analyzeGroupCommit(ConnectContext ctx, TableIf table, LogicalPlan logicalQuery,
+            Optional<InsertCommandContext> insertCtx) {
         // The flag is set to false before execute sql, if it is true, this is a http stream
         if (ctx.isGroupCommit()) {
             return;
         }
-        ctx.setGroupCommit(ctx.getSessionVariable().isEnableInsertGroupCommit() && !ctx.isTxnModel()
-                && !ctx.getSessionVariable().isEnableUniqueKeyPartialUpdate() && table instanceof OlapTable
-                && ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
-                && !((OlapTable) table).getQualifiedDbName().equalsIgnoreCase(FeConstants.INTERNAL_DB_NAME)
-                && tableSink.getPartitions().isEmpty()
-                && (tableSink.child() instanceof OneRowRelation || tableSink.child() instanceof LogicalUnion));
+        if (logicalQuery instanceof UnboundTableSink) {
+            UnboundTableSink<?> tableSink = (UnboundTableSink<?>) logicalQuery;
+            List<Pair<BooleanSupplier, Supplier<String>>> conditions = new ArrayList<>();
+            conditions.add(Pair.of(() -> ctx.getSessionVariable().isEnableInsertGroupCommit(),
+                    () -> "group_commit session variable: " + ctx.getSessionVariable().groupCommit));
+            conditions.add(Pair.of(() -> !ctx.isTxnModel(), () -> "isTxnModel"));
+            conditions.add(Pair.of(() -> !ctx.getSessionVariable().isEnableUniqueKeyPartialUpdate(),
+                    () -> "enableUniqueKeyPartialUpdate"));
+            conditions.add(Pair.of(() -> table instanceof OlapTable,
+                    () -> "not olapTable, class: " + table.getClass().getName()));
+            conditions.add(Pair.of(() -> ((OlapTable) table).getTableProperty().getUseSchemaLightChange(),
+                    () -> "notUseSchemaLightChange"));
+            conditions.add(Pair.of(
+                    () -> !((OlapTable) table).getQualifiedDbName().equalsIgnoreCase(FeConstants.INTERNAL_DB_NAME),
+                    () -> "db is internal"));
+            conditions.add(Pair.of(() -> tableSink.getPartitions().isEmpty(),
+                    () -> "partitions is empty: " + tableSink.getPartitions()));
+            conditions.add(Pair.of(() -> (!(table instanceof MTMV) || MTMVUtil.allowModifyMTMVData(ctx)),
+                    () -> "not allowModifyMTMVData"));
+            conditions.add(Pair.of(() -> !(insertCtx.isPresent() && insertCtx.get() instanceof OlapInsertCommandContext
+                    && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite()), () -> "is overwrite command"));
+            conditions.add(Pair.of(
+                    () -> tableSink.child() instanceof OneRowRelation || tableSink.child() instanceof LogicalUnion,
+                    () -> "not one row relation or union, class: " + tableSink.child().getClass().getName()));
+            ctx.setGroupCommit(conditions.stream().allMatch(p -> p.first.getAsBoolean()));
+            if (!ctx.isGroupCommit() && LOG.isDebugEnabled()) {
+                for (Pair<BooleanSupplier, Supplier<String>> pair : conditions) {
+                    if (pair.first.getAsBoolean() == false) {
+                        LOG.debug("group commit is off for query_id: {}, table: {}, because: {}",
+                                DebugUtil.printId(ctx.queryId()), table.getName(), pair.second.get());
+                        break;
+                    }
+                }
+            }
+        } else {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("group commit is off for query_id: {}, table: {}, because logicalQuery class: {}",
+                        DebugUtil.printId(ctx.queryId()), table.getName(), logicalQuery.getClass().getName());
+            }
+        }
+    }
+
+    @Override
+    protected void beforeExec() {
+        if (Env.getCurrentEnv().getGroupCommitManager().isBlock(this.table.getId())) {
+            String msg = "insert table " + this.table.getId() + GroupCommitPlanner.SCHEMA_CHANGE;
+            LOG.info(msg);
+            throw new AnalysisException(msg);
+        }
+        // this is used for old coordinator
+        this.coordinator.setGroupCommitBe(groupCommitBackend);
     }
 
     @Override

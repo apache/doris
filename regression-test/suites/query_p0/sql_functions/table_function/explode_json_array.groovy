@@ -60,9 +60,13 @@ suite("explode_json_array") {
     qt_outer_join_explode_json_array11 """SELECT id, age, e1 FROM (SELECT id, age, e1 FROM (SELECT b.id, a.age FROM 
                                         person a LEFT JOIN person b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]')
                                         TMP AS e1) AS T ORDER BY age, e1"""
-    qt_outer_join_explode_json_array11 """SELECT id, age, e1 FROM (SELECT id, age, e1 FROM (SELECT b.id, a.age FROM
+    qt_outer_join_explode_json_array111 """SELECT id, age, e1 FROM (SELECT id, age, e1 FROM (SELECT b.id, a.age FROM
                                         person a LEFT JOIN person b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_JSON('[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]')
                                         TMP AS e1) AS T ORDER BY age, e1"""
+
+    qt_outer_join_explode_json_array112 """SELECT id, age, e1 FROM (SELECT id, age, e1 FROM (SELECT b.id, a.age FROM
+                                        person a LEFT JOIN person b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_JSON(cast('[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]' as Json))
+                                        TMP AS e1) AS T ORDER BY age, cast(e1 as string)"""
 
     qt_explode_json_array12 """ SELECT c_age, COUNT(1) FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[9223372036854775807,9223372036854775808]') t1 as c_age 

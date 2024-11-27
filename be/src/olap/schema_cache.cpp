@@ -40,25 +40,8 @@ SchemaCache* SchemaCache::instance() {
 }
 
 // format: tabletId-unique_id1-uniqueid2...-version-type
-std::string SchemaCache::get_schema_key(int64_t tablet_id, const TabletSchemaSPtr& schema,
-                                        const std::vector<uint32_t>& column_ids, int32_t version,
-                                        Type type) {
-    if (column_ids.empty() || schema->column(column_ids[0]).unique_id() < 0) {
-        return "";
-    }
-    std::string key = fmt::format("{}-", tablet_id);
-    std::for_each(column_ids.begin(), column_ids.end(), [&](const ColumnId& cid) {
-        uint32_t col_unique_id = schema->column(cid).unique_id();
-        key.append(fmt::format("{}", col_unique_id));
-        key.append("-");
-    });
-    key.append(fmt::format("{}-{}", version, type));
-    return key;
-}
-
-// format: tabletId-unique_id1-uniqueid2...-version-type
 std::string SchemaCache::get_schema_key(int64_t tablet_id, const std::vector<TColumn>& columns,
-                                        int32_t version, Type type) {
+                                        int32_t version) {
     if (columns.empty() || columns[0].col_unique_id < 0) {
         return "";
     }
@@ -67,7 +50,7 @@ std::string SchemaCache::get_schema_key(int64_t tablet_id, const std::vector<TCo
         key.append(fmt::format("{}", col.col_unique_id));
         key.append("-");
     });
-    key.append(fmt::format("{}-{}", version, type));
+    key.append(fmt::format("{}", version));
     return key;
 }
 

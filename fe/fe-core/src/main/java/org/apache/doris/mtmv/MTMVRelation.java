@@ -17,7 +17,10 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.datasource.CatalogMgr;
+
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.Set;
 
@@ -60,5 +63,20 @@ public class MTMVRelation {
                 + ", baseTablesOneLevel=" + baseTablesOneLevel
                 + ", baseViews=" + baseViews
                 + '}';
+    }
+
+    public void compatible(CatalogMgr catalogMgr) {
+        compatible(catalogMgr, baseTables);
+        compatible(catalogMgr, baseViews);
+        compatible(catalogMgr, baseTablesOneLevel);
+    }
+
+    private void compatible(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) {
+        if (CollectionUtils.isEmpty(infos)) {
+            return;
+        }
+        for (BaseTableInfo baseTableInfo : infos) {
+            baseTableInfo.compatible(catalogMgr);
+        }
     }
 }

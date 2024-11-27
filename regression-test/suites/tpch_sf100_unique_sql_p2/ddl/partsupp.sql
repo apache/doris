@@ -9,6 +9,7 @@ UNIQUE KEY(`ps_partkey`,`ps_suppkey`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 24
 PROPERTIES (
+    "enable_mow_light_delete" = "true",
     "replication_num" = "3"
 )
 

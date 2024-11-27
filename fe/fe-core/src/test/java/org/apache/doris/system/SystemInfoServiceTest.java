@@ -21,6 +21,7 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.meta.MetaContext;
@@ -133,6 +134,7 @@ public class SystemInfoServiceTest {
 
     @Test
     public void testSelectBackendIdsByPolicy() throws Exception {
+        Config.disable_backend_black_list = true;
         // 1. no backend
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy, 1).size());

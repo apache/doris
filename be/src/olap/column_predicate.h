@@ -165,6 +165,7 @@ public:
     explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
             : _column_id(column_id), _opposite(opposite) {
         _predicate_params = std::make_shared<PredicateParams>();
+        reset_judge_selectivity();
     }
 
     virtual ~ColumnPredicate() = default;
@@ -183,14 +184,12 @@ public:
                 "Not Implemented evaluate with inverted index, please check the predicate");
     }
 
-    virtual double get_ignore_threshold() const {
-        return vectorized::VRuntimeFilterWrapper::EXPECTED_FILTER_RATE;
-    }
+    virtual double get_ignore_threshold() const { return 0; }
 
     // evaluate predicate on IColumn
     // a short circuit eval way
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel, uint16_t size) const {
-        if (_always_true) {
+        if (always_true()) {
             return size;
         }
 
@@ -198,12 +197,7 @@ public:
         _evaluated_rows += size;
         _passed_rows += new_size;
         if (_can_ignore()) {
-            // If the pass rate is very high, for example > 50%, then the filter is useless.
-            // Some filter is useless, for example ssb 4.3, it consumes a lot of cpu but it is
-            // useless.
-            vectorized::VRuntimeFilterWrapper::calculate_filter(
-                    get_ignore_threshold(), _evaluated_rows - _passed_rows, _evaluated_rows,
-                    _has_calculate_filter, _always_true);
+            do_judge_selectivity(size - new_size, size);
         }
         return new_size;
     }
@@ -268,8 +262,6 @@ public:
     }
 
     virtual int get_filter_id() const { return -1; }
-    // now InListPredicateBase BloomFilterColumnPredicate BitmapFilterColumnPredicate  = true
-    virtual bool is_filter() const { return false; }
     PredicateFilterInfo get_filtered_info() const {
         return PredicateFilterInfo {static_cast<int>(type()), _evaluated_rows - 1,
                                     _evaluated_rows - 1 - _passed_rows};
@@ -309,6 +301,13 @@ public:
     }
 
     bool always_true() const { return _always_true; }
+    // Return whether the ColumnPredicate was created by a runtime filter.
+    // If true, it was definitely created by a runtime filter.
+    // If false, it may still have been created by a runtime filter,
+    // as certain filters like "in filter" generate key ranges instead of ColumnPredicate.
+    // is_runtime_filter uses _can_ignore, except for BitmapFilter,
+    // as BitmapFilter cannot ignore data.
+    virtual bool is_runtime_filter() const { return _can_ignore(); }
 
 protected:
     virtual std::string _debug_string() const = 0;
@@ -324,14 +323,43 @@ protected:
         throw Exception(INTERNAL_ERROR, "Not Implemented _evaluate_inner");
     }
 
+    void reset_judge_selectivity() const {
+        _always_true = false;
+        _judge_counter = config::runtime_filter_sampling_frequency;
+        _judge_input_rows = 0;
+        _judge_filter_rows = 0;
+    }
+
+    void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) const {
+        if ((_judge_counter--) == 0) {
+            reset_judge_selectivity();
+        }
+        if (!_always_true) {
+            _judge_filter_rows += filter_rows;
+            _judge_input_rows += input_rows;
+            vectorized::VRuntimeFilterWrapper::judge_selectivity(
+                    get_ignore_threshold(), _judge_filter_rows, _judge_input_rows, _always_true);
+        }
+    }
+
     uint32_t _column_id;
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
     std::shared_ptr<PredicateParams> _predicate_params;
     mutable uint64_t _evaluated_rows = 1;
     mutable uint64_t _passed_rows = 0;
+    // VRuntimeFilterWrapper and ColumnPredicate share the same logic,
+    // but it's challenging to unify them, so the code is duplicated.
+    // _judge_counter, _judge_input_rows, _judge_filter_rows, and _always_true
+    // are variables used to implement the _always_true logic, calculated periodically
+    // based on runtime_filter_sampling_frequency. During each period, if _always_true
+    // is evaluated as true, the logic for always_true is applied for the rest of that period
+    // without recalculating. At the beginning of the next period,
+    // reset_judge_selectivity is used to reset these variables.
+    mutable int _judge_counter = 0;
+    mutable uint64_t _judge_input_rows = 0;
+    mutable uint64_t _judge_filter_rows = 0;
     mutable bool _always_true = false;
-    mutable bool _has_calculate_filter = false;
 };
 
 } //namespace doris

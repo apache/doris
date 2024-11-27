@@ -311,9 +311,6 @@ public class SingleNodePlanner {
             // TODO: External sort could be used for very large limits
             // not just unlimited order-by
             boolean useTopN = true;
-            if (limit == -1 && analyzer.getContext().getSessionVariable().enableSpilling) {
-                useTopN = false;
-            }
             root = new SortNode(ctx.getNextNodeId(), root, stmt.getSortInfo(),
                     useTopN);
             ((SortNode) root).setDefaultLimit(limit == -1);
@@ -1989,7 +1986,8 @@ public class SingleNodePlanner {
                 scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case PAIMON_EXTERNAL_TABLE:
-                scanNode = new PaimonScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                scanNode = new PaimonScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true,
+                    ConnectContext.get().getSessionVariable());
                 break;
             case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 scanNode = new TrinoConnectorScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);

@@ -50,7 +50,7 @@ suite("test_cloud_http_stream_2pc_mow", "p0") {
             set 'version', '1'
             set 'two_phase_commit', 'true'
             set 'sql', """
-                    insert into ${db}.${tableName1} select * from http_stream("column_separator"=",", "format"="csv")
+                    insert into ${db}.${tableName} select * from http_stream("column_separator"=",", "format"="csv")
                     """
             time 10000
             file 'all_types.csv'

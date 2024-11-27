@@ -19,7 +19,8 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
@@ -29,15 +30,15 @@ import java.util.List;
 /**
  * MaterializedViewProjectScanRule
  */
-public class MaterializedViewProjectScanRule extends MaterializedViewScanRule {
+public class MaterializedViewProjectScanRule extends AbstractMaterializedViewScanRule {
 
     public static final MaterializedViewProjectScanRule INSTANCE = new MaterializedViewProjectScanRule();
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalProject(logicalOlapScan()).thenApplyMultiNoThrow(ctx -> {
-                    LogicalProject<LogicalOlapScan> root = ctx.root;
+                logicalProject(any().when(LogicalCatalogRelation.class::isInstance)).thenApplyMultiNoThrow(ctx -> {
+                    LogicalProject<Plan> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
                 }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_SCAN));
     }

@@ -26,11 +26,15 @@
 #include <json2pb/pb_to_json.h>
 #include <time.h>
 
+#include <cstdint>
 #include <set>
 #include <utility>
 
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/config.h"
+#include "gutil/integral_types.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
@@ -38,6 +42,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/debug_points.h"
@@ -306,6 +311,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_disable_auto_compaction(tablet_schema.disable_auto_compaction);
     }
 
+    if (tablet_schema.__isset.variant_enable_flatten_nested) {
+        schema->set_variant_enable_flatten_nested(tablet_schema.variant_enable_flatten_nested);
+    }
+
     if (tablet_schema.__isset.enable_single_replica_compaction) {
         schema->set_enable_single_replica_compaction(
                 tablet_schema.enable_single_replica_compaction);
@@ -316,6 +325,12 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     }
     if (tablet_schema.__isset.store_row_column) {
         schema->set_store_row_column(tablet_schema.store_row_column);
+    }
+    if (tablet_schema.__isset.row_store_page_size) {
+        schema->set_row_store_page_size(tablet_schema.row_store_page_size);
+    }
+    if (tablet_schema.__isset.storage_page_size) {
+        schema->set_storage_page_size(tablet_schema.storage_page_size);
     }
     if (tablet_schema.__isset.skip_write_index_on_load) {
         schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
@@ -334,7 +349,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
 }
 
 TabletMeta::TabletMeta(const TabletMeta& b)
-        : _table_id(b._table_id),
+        : MetadataAdder(b),
+          _table_id(b._table_id),
           _index_id(b._index_id),
           _partition_id(b._partition_id),
           _tablet_id(b._tablet_id),
@@ -529,6 +545,25 @@ void TabletMeta::serialize(string* meta_binary) {
                      << partition_id << " new=" << tablet_meta_pb.DebugString();
     });
     bool serialize_success = tablet_meta_pb.SerializeToString(meta_binary);
+    if (!_rs_metas.empty() || !_stale_rs_metas.empty()) {
+        _avg_rs_meta_serialize_size =
+                meta_binary->length() / (_rs_metas.size() + _stale_rs_metas.size());
+        if (meta_binary->length() > config::tablet_meta_serialize_size_limit ||
+            !serialize_success) {
+            int64_t origin_meta_size = meta_binary->length();
+            int64_t stale_rowsets_num = tablet_meta_pb.stale_rs_metas().size();
+            tablet_meta_pb.clear_stale_rs_metas();
+            meta_binary->clear();
+            serialize_success = tablet_meta_pb.SerializeToString(meta_binary);
+            LOG(WARNING) << "tablet meta serialization size exceeds limit: "
+                         << config::tablet_meta_serialize_size_limit
+                         << " clean up stale rowsets, tablet id: " << tablet_id()
+                         << " stale rowset num: " << stale_rowsets_num
+                         << " serialization size before clean " << origin_meta_size
+                         << " serialization size after clean " << meta_binary->length();
+        }
+    }
+
     if (!serialize_success) {
         LOG(FATAL) << "failed to serialize meta " << tablet_id();
     }
@@ -633,7 +668,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             RowsetId rst_id;
             rst_id.init(tablet_meta_pb.delete_bitmap().rowset_ids(i));
             auto seg_id = tablet_meta_pb.delete_bitmap().segment_ids(i);
-            uint32_t ver = tablet_meta_pb.delete_bitmap().versions(i);
+            auto ver = tablet_meta_pb.delete_bitmap().versions(i);
             auto bitmap = tablet_meta_pb.delete_bitmap().segment_delete_bitmaps(i).data();
             delete_bitmap().delete_bitmap[{rst_id, seg_id, ver}] = roaring::Roaring::read(bitmap);
         }
@@ -1054,11 +1089,21 @@ bool DeleteBitmap::empty() const {
 }
 
 uint64_t DeleteBitmap::cardinality() const {
+    std::shared_lock l(lock);
     uint64_t res = 0;
     for (auto entry : delete_bitmap) {
         res += entry.second.cardinality();
     }
     return res;
+}
+
+uint64_t DeleteBitmap::get_size() const {
+    std::shared_lock l(lock);
+    uint64_t charge = 0;
+    for (auto& [k, v] : delete_bitmap) {
+        charge += v.getSizeInBytes();
+    }
+    return charge;
 }
 
 bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const {
@@ -1075,6 +1120,16 @@ bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row
         }
     }
     return false;
+}
+
+void DeleteBitmap::remove_sentinel_marks() {
+    for (auto it = delete_bitmap.begin(), end = delete_bitmap.end(); it != end;) {
+        if (std::get<1>(it->first) == DeleteBitmap::INVALID_SEGMENT_ID) {
+            it = delete_bitmap.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 int DeleteBitmap::set(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap) {
@@ -1126,6 +1181,59 @@ void DeleteBitmap::merge(const DeleteBitmap& other) {
         auto [j, succ] = this->delete_bitmap.insert(i);
         if (!succ) j->second |= i.second;
     }
+}
+
+void DeleteBitmap::add_to_remove_queue(
+        const std::string& version_str,
+        const std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>&
+                vector) {
+    std::shared_lock l(stale_delete_bitmap_lock);
+    _stale_delete_bitmap.emplace(version_str, vector);
+}
+
+void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector) {
+    if (!config::enable_delete_bitmap_merge_on_compaction) {
+        return;
+    }
+    std::shared_lock l(stale_delete_bitmap_lock);
+    //<rowset_id, start_version, end_version>
+    std::vector<std::tuple<std::string, uint64_t, uint64_t>> to_delete;
+    int64_t tablet_id = -1;
+    for (auto& version_str : vector) {
+        auto it = _stale_delete_bitmap.find(version_str);
+        if (it != _stale_delete_bitmap.end()) {
+            auto delete_bitmap_vector = it->second;
+            for (auto& delete_bitmap_tuple : it->second) {
+                if (tablet_id < 0) {
+                    tablet_id = std::get<0>(delete_bitmap_tuple);
+                }
+                auto start_bmk = std::get<1>(delete_bitmap_tuple);
+                auto end_bmk = std::get<2>(delete_bitmap_tuple);
+                // the key range of to be removed is [start_bmk,end_bmk),
+                // due to the different definitions of the right boundary,
+                // so use end_bmk as right boundary when removing local delete bitmap,
+                // use (end_bmk - 1) as right boundary when removing ms delete bitmap
+                remove(start_bmk, end_bmk);
+                to_delete.emplace_back(std::make_tuple(std::get<0>(start_bmk).to_string(), 0,
+                                                       std::get<2>(end_bmk) - 1));
+            }
+            _stale_delete_bitmap.erase(version_str);
+        }
+    }
+    if (tablet_id == -1 || to_delete.empty()) {
+        return;
+    }
+    CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+    auto st = engine.meta_mgr().remove_old_version_delete_bitmap(tablet_id, to_delete);
+    if (!st.ok()) {
+        LOG(WARNING) << "fail to remove_stale_delete_bitmap_from_queue for tablet=" << tablet_id
+                     << ",st=" << st;
+    }
+}
+
+uint64_t DeleteBitmap::get_delete_bitmap_count() {
+    std::shared_lock l(lock);
+    return delete_bitmap.size();
 }
 
 // We cannot just copy the underlying memory to construct a string

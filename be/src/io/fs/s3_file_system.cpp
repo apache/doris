@@ -18,9 +18,8 @@
 #include "io/fs/s3_file_system.h"
 
 #include <fmt/format.h>
-#include <stddef.h>
 
-#include <algorithm>
+#include <cstddef>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 // IWYU pragma: no_include <bits/chrono.h>
@@ -32,7 +31,6 @@
 #include <fstream> // IWYU pragma: keep
 #include <future>
 #include <memory>
-#include <sstream>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -46,7 +44,7 @@
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_writer.h"
 #include "io/fs/s3_obj_storage_client.h"
-#include "util/bvar_helper.h"
+#include "runtime/exec_env.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -69,13 +67,6 @@ Result<std::string> get_key(const Path& full_path) {
     return uri.get_key();
 }
 
-// TODO(plat1ko): AwsTransferManager will be deprecated
-std::shared_ptr<Aws::Utils::Threading::PooledThreadExecutor>& default_executor() {
-    static auto executor = Aws::MakeShared<Aws::Utils::Threading::PooledThreadExecutor>(
-            "default", config::s3_transfer_executor_pool_size);
-    return executor;
-}
-
 } // namespace
 
 ObjClientHolder::ObjClientHolder(S3ClientConf conf) : _conf(std::move(conf)) {}
@@ -95,7 +86,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
     S3ClientConf reset_conf;
     {
         std::shared_lock lock(_mtx);
-        if (conf.ak == _conf.ak && conf.sk == _conf.sk && conf.token == _conf.token) {
+        if (conf.get_hash() == _conf.get_hash()) {
             return Status::OK(); // Same conf
         }
 
@@ -104,6 +95,10 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.sk = conf.sk;
         reset_conf.token = conf.token;
         reset_conf.bucket = conf.bucket;
+        reset_conf.connect_timeout_ms = conf.connect_timeout_ms;
+        reset_conf.max_connections = conf.max_connections;
+        reset_conf.request_timeout_ms = conf.request_timeout_ms;
+        reset_conf.use_virtual_addressing = conf.use_virtual_addressing;
         // Should check endpoint here?
     }
 
@@ -329,7 +324,8 @@ Status S3FileSystem::upload_impl(const Path& local_file, const Path& remote_file
     FileReaderSPtr local_reader;
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(local_file, &local_reader));
     size_t local_buffer_size = config::s3_file_system_local_upload_buffer_size;
-    std::unique_ptr<char[]> write_buffer = std::make_unique<char[]>(local_buffer_size);
+    std::unique_ptr<char[]> write_buffer =
+            std::make_unique_for_overwrite<char[]>(local_buffer_size);
     size_t cur_read = 0;
     while (cur_read < local_reader->size()) {
         size_t bytes_read = 0;
@@ -370,7 +366,8 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
         FileReaderSPtr local_reader;
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(local_file, &local_reader));
         size_t local_buffer_size = config::s3_file_system_local_upload_buffer_size;
-        std::unique_ptr<char[]> write_buffer = std::make_unique<char[]>(local_buffer_size);
+        std::unique_ptr<char[]> write_buffer =
+                std::make_unique_for_overwrite<char[]>(local_buffer_size);
         size_t cur_read = 0;
         while (cur_read < local_reader->size()) {
             size_t bytes_read = 0;
@@ -383,13 +380,19 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
         return Status::OK();
     };
 
+    Status s = Status::OK();
     std::vector<std::future<Status>> futures;
     for (int i = 0; i < local_files.size(); ++i) {
         auto task = std::make_shared<std::packaged_task<Status(size_t idx)>>(upload_task);
         futures.emplace_back(task->get_future());
-        default_executor()->Submit([t = std::move(task), idx = i]() mutable { (*t)(idx); });
+        auto st = ExecEnv::GetInstance()->s3_file_system_thread_pool()->submit_func(
+                [t = std::move(task), idx = i]() mutable { (*t)(idx); });
+        // We shouldn't return immediately since the previous submitted tasks might still be running in the thread pool
+        if (!st.ok()) {
+            s = st;
+            break;
+        }
     }
-    Status s = Status::OK();
     for (auto&& f : futures) {
         auto cur_s = f.get();
         if (!cur_s.ok()) {
@@ -405,7 +408,7 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
     auto key = DORIS_TRY(get_key(remote_file));
     int64_t size;
     RETURN_IF_ERROR(file_size(remote_file, &size));
-    std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+    std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
     size_t bytes_read = 0;
     // clang-format off
     auto resp = client->get_object( {.bucket = _bucket, .key = key,},

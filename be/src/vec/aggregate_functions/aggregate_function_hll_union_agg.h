@@ -76,7 +76,7 @@ struct AggregateFunctionHLLData {
     void reset() { dst_hll.clear(); }
 
     void add(const IColumn* column, size_t row_num) {
-        const auto& sources = assert_cast<const ColumnHLL&>(*column);
+        const auto& sources = assert_cast<const ColumnHLL&, TypeCheckOnRelease::DISABLE>(*column);
         dst_hll.merge(sources.get_element(row_num));
     }
 };
@@ -122,7 +122,7 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena*) const override {
         this->data(place).add(columns[0], row_num);
     }
 

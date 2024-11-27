@@ -81,7 +81,7 @@ public class InnerJoinRightAssociateProject extends OneExplorationRuleFactory {
                     topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopHashConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopOtherConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
-                    Plan left = CBOUtils.newProject(topUsedExprIds, a);
+                    Plan left = CBOUtils.newProjectIfNeeded(topUsedExprIds, a);
                     Plan right = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(

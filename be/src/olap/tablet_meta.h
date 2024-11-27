@@ -43,6 +43,7 @@
 #include "io/fs/file_system.h"
 #include "olap/binlog_config.h"
 #include "olap/lru_cache.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
@@ -90,7 +91,7 @@ class TBinlogConfig;
 
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
-class TabletMeta {
+class TabletMeta : public MetadataAdder<TabletMeta> {
 public:
     static TabletMetaSharedPtr create(
             const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
@@ -117,6 +118,11 @@ public:
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
+
+// UT
+#ifdef BE_TEST
+    TabletMeta(TabletSchemaSPtr tablet_schema) : _schema(tablet_schema) {}
+#endif
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
@@ -165,6 +171,7 @@ public:
     // Remote disk space occupied by tablet.
     size_t tablet_remote_size() const;
     size_t version_count() const;
+    size_t stale_version_count() const;
     size_t version_count_cross_with_range(const Version& range) const;
     Version max_version() const;
 
@@ -192,9 +199,6 @@ public:
     void revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap);
 
     const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
-    // return the snapshot of rowset_meta
-    // the return value is map<rowset_id_str, rowset_meta_sptr>
-    std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
@@ -232,6 +236,7 @@ public:
     static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                          ColumnPB* column);
 
+    DeleteBitmapPtr delete_bitmap_ptr() { return _delete_bitmap; }
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
@@ -286,6 +291,8 @@ public:
         std::lock_guard wlock(_meta_lock);
         _ttl_seconds = ttl_seconds;
     }
+
+    int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -342,6 +349,8 @@ private:
     int64_t _time_series_compaction_empty_rowsets_threshold = 0;
     int64_t _time_series_compaction_level_threshold = 0;
 
+    int64_t _avg_rs_meta_serialize_size = 0;
+
     // cloud
     int64_t _ttl_seconds = 0;
 
@@ -369,6 +378,7 @@ private:
 class DeleteBitmap {
 public:
     mutable std::shared_mutex lock;
+    mutable std::shared_mutex stale_delete_bitmap_lock;
     using SegmentId = uint32_t;
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
@@ -449,6 +459,12 @@ public:
     uint64_t cardinality() const;
 
     /**
+     * return the total size of the Delete Bitmap(after serialized)
+     */
+
+    uint64_t get_size() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place
@@ -516,13 +532,21 @@ public:
      */
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
 
-    class AggCachePolicy : public LRUCachePolicyTrackingManual {
+    void remove_sentinel_marks();
+
+    void add_to_remove_queue(const std::string& version_str,
+                             const std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey,
+                                                          DeleteBitmap::BitmapKey>>& vector);
+    void remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector);
+
+    uint64_t get_delete_bitmap_count();
+
+    class AggCachePolicy : public LRUCachePolicy {
     public:
         AggCachePolicy(size_t capacity)
-                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE,
-                                               capacity, LRUCacheType::SIZE,
-                                               config::delete_bitmap_agg_cache_stale_sweep_time_sec,
-                                               256) {}
+                : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
     };
 
     class AggCache {
@@ -550,9 +574,11 @@ public:
 private:
     mutable std::shared_ptr<AggCache> _agg_cache;
     int64_t _tablet_id;
+    // <version, <tablet_id, BitmapKeyStart, BitmapKeyEnd>>
+    std::map<std::string,
+             std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>>
+            _stale_delete_bitmap;
 };
-
-static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
 
 inline TabletUid TabletMeta::tablet_uid() const {
     return _tablet_uid;
@@ -617,7 +643,7 @@ inline size_t TabletMeta::num_rows() const {
 inline size_t TabletMeta::tablet_footprint() const {
     size_t total_size = 0;
     for (auto& rs : _rs_metas) {
-        total_size += rs->data_disk_size();
+        total_size += rs->total_disk_size();
     }
     return total_size;
 }
@@ -626,7 +652,7 @@ inline size_t TabletMeta::tablet_local_size() const {
     size_t total_size = 0;
     for (auto& rs : _rs_metas) {
         if (rs->is_local()) {
-            total_size += rs->data_disk_size();
+            total_size += rs->total_disk_size();
         }
     }
     return total_size;
@@ -636,13 +662,17 @@ inline size_t TabletMeta::tablet_remote_size() const {
     size_t total_size = 0;
     for (auto& rs : _rs_metas) {
         if (!rs->is_local()) {
-            total_size += rs->data_disk_size();
+            total_size += rs->total_disk_size();
         }
     }
     return total_size;
 }
 
 inline size_t TabletMeta::version_count() const {
+    return _rs_metas.size();
+}
+
+inline size_t TabletMeta::stale_version_count() const {
     return _rs_metas.size();
 }
 
@@ -694,15 +724,6 @@ inline bool TabletMeta::all_beta() const {
         }
     }
     return true;
-}
-
-inline std::unordered_map<std::string, RowsetMetaSharedPtr> TabletMeta::snapshot_rs_metas() const {
-    std::unordered_map<std::string, RowsetMetaSharedPtr> id_to_rowset_meta_map;
-    std::shared_lock rlock(_meta_lock);
-    std::for_each(_rs_metas.cbegin(), _rs_metas.cend(), [&](const auto& rowset_meta) {
-        id_to_rowset_meta_map.emplace(rowset_meta->rowset_id().to_string(), rowset_meta);
-    });
-    return id_to_rowset_meta_map;
 }
 
 std::string tablet_state_name(TabletState state);

@@ -46,7 +46,6 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/frame_of_reference_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/plain_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/rle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/segcompaction_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/result_buffer_mgr_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
@@ -113,15 +112,4 @@ if (OS_MACOSX AND ARCH_ARM)
         COMMAND ${DSYMUTIL} $<TARGET_FILE:doris_be_test>
         COMMAND ${LLVM_STRIP} --strip-all $<TARGET_FILE:doris_be_test>
     )
-endif()
-
-if (BUILD_BENCHMARK_TOOL AND BUILD_BENCHMARK_TOOL STREQUAL "ON")
-    add_executable(benchmark_tool
-    tools/benchmark_tool.cpp
-    testutil/test_util.cpp
-    olap/tablet_schema_helper.cpp
-    )
-
-    target_link_libraries(benchmark_tool ${TEST_LINK_LIBS})
-    set_target_properties(benchmark_tool PROPERTIES COMPILE_FLAGS "-fno-access-control")
 endif()

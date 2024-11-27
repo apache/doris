@@ -49,7 +49,6 @@ namespace doris {
 class RuntimeProfile;
 namespace vectorized {
 class VExprContext;
-class VScanNode;
 } // namespace vectorized
 } // namespace doris
 
@@ -75,16 +74,6 @@ Status VMetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     VLOG_CRITICAL << "VMetaScanner::prepare";
     RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
-    bool has_col_nullable =
-            std::any_of(std::begin(_tuple_desc->slots()), std::end(_tuple_desc->slots()),
-                        [](SlotDescriptor* slot_desc) { return slot_desc->is_nullable(); });
-
-    if (has_col_nullable) {
-        // We do not allow any columns to be Nullable here, since FE can not
-        // transmit a NULL value to BE, so we can not distinguish a empty string
-        // from a NULL value.
-        return Status::InternalError("Logical error, VMetaScanner do not allow ColumnNullable");
-    }
     return Status::OK();
 }
 
@@ -147,60 +136,90 @@ Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColum
         }
 
         for (int _row_idx = 0; _row_idx < _batch_data.size(); _row_idx++) {
-            // No need to check nullable column since no nullable column is
-            // guaranteed in VMetaScanner::prepare
             vectorized::IColumn* col_ptr = columns[col_idx].get();
-            switch (slot_desc->type().type) {
-            case TYPE_BOOLEAN: {
-                bool data = _batch_data[_row_idx].column_value[col_idx].boolVal;
-                reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)
-                        ->insert_value((uint8_t)data);
-                break;
-            }
-            case TYPE_INT: {
-                int64_t data = _batch_data[_row_idx].column_value[col_idx].intVal;
-                reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)
-                        ->insert_value(data);
-                break;
-            }
-            case TYPE_BIGINT: {
-                int64_t data = _batch_data[_row_idx].column_value[col_idx].longVal;
-                reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)
-                        ->insert_value(data);
-                break;
-            }
-            case TYPE_FLOAT: {
-                double data = _batch_data[_row_idx].column_value[col_idx].doubleVal;
-                reinterpret_cast<vectorized::ColumnVector<vectorized::Float32>*>(col_ptr)
-                        ->insert_value(data);
-                break;
-            }
-            case TYPE_DOUBLE: {
-                double data = _batch_data[_row_idx].column_value[col_idx].doubleVal;
-                reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)
-                        ->insert_value(data);
-                break;
-            }
-            case TYPE_DATETIMEV2: {
-                uint64_t data = _batch_data[_row_idx].column_value[col_idx].longVal;
-                reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)
-                        ->insert_value(data);
-                break;
-            }
-            case TYPE_STRING:
-            case TYPE_CHAR:
-            case TYPE_VARCHAR: {
-                std::string data = _batch_data[_row_idx].column_value[col_idx].stringVal;
-                reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(data.c_str(),
-                                                                                  data.length());
-                break;
-            }
-            default: {
-                std::string error_msg =
-                        fmt::format("Invalid column type {} on column: {}.",
-                                    slot_desc->type().debug_string(), slot_desc->col_name());
-                return Status::InternalError(std::string(error_msg));
-            }
+            TCell& cell = _batch_data[_row_idx].column_value[col_idx];
+            if (cell.__isset.isNull && cell.isNull) {
+                DCHECK(slot_desc->is_nullable())
+                        << "cell is null but column is not nullable: " << slot_desc->col_name();
+                auto& null_col = reinterpret_cast<ColumnNullable&>(*col_ptr);
+                null_col.get_nested_column().insert_default();
+                null_col.get_null_map_data().push_back(1);
+            } else {
+                if (slot_desc->is_nullable()) {
+                    auto& null_col = reinterpret_cast<ColumnNullable&>(*col_ptr);
+                    null_col.get_null_map_data().push_back(0);
+                    col_ptr = null_col.get_nested_column_ptr();
+                }
+                switch (slot_desc->type().type) {
+                case TYPE_BOOLEAN: {
+                    bool data = cell.boolVal;
+                    reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)
+                            ->insert_value((uint8_t)data);
+                    break;
+                }
+                case TYPE_TINYINT: {
+                    int8_t data = (int8_t)cell.intVal;
+                    reinterpret_cast<vectorized::ColumnVector<vectorized::Int8>*>(col_ptr)
+                            ->insert_value(data);
+                    break;
+                }
+                case TYPE_SMALLINT: {
+                    int16_t data = (int16_t)cell.intVal;
+                    reinterpret_cast<vectorized::ColumnVector<vectorized::Int16>*>(col_ptr)
+                            ->insert_value(data);
+                    break;
+                }
+                case TYPE_INT: {
+                    int32_t data = cell.intVal;
+                    reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)
+                            ->insert_value(data);
+                    break;
+                }
+                case TYPE_BIGINT: {
+                    int64_t data = cell.longVal;
+                    reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)
+                            ->insert_value(data);
+                    break;
+                }
+                case TYPE_FLOAT: {
+                    double data = cell.doubleVal;
+                    reinterpret_cast<vectorized::ColumnVector<vectorized::Float32>*>(col_ptr)
+                            ->insert_value(data);
+                    break;
+                }
+                case TYPE_DOUBLE: {
+                    double data = cell.doubleVal;
+                    reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)
+                            ->insert_value(data);
+                    break;
+                }
+                case TYPE_DATEV2: {
+                    uint32_t data = (uint32_t)cell.longVal;
+                    reinterpret_cast<vectorized::ColumnVector<vectorized::UInt32>*>(col_ptr)
+                            ->insert_value(data);
+                    break;
+                }
+                case TYPE_DATETIMEV2: {
+                    uint64_t data = cell.longVal;
+                    reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)
+                            ->insert_value(data);
+                    break;
+                }
+                case TYPE_STRING:
+                case TYPE_CHAR:
+                case TYPE_VARCHAR: {
+                    std::string data = cell.stringVal;
+                    reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(
+                            data.c_str(), data.length());
+                    break;
+                }
+                default: {
+                    std::string error_msg =
+                            fmt::format("Invalid column type {} on column: {}.",
+                                        slot_desc->type().debug_string(), slot_desc->col_name());
+                    return Status::InternalError(std::string(error_msg));
+                }
+                }
             }
         }
     }
@@ -242,6 +261,9 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::TASKS:
         RETURN_IF_ERROR(_build_tasks_metadata_request(meta_scan_range, &request));
         break;
+    case TMetadataType::PARTITION_VALUES:
+        RETURN_IF_ERROR(_build_partition_values_metadata_request(meta_scan_range, &request));
+        break;
     default:
         _meta_eos = true;
         return Status::OK();
@@ -256,7 +278,7 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
 
     // _state->execution_timeout() is seconds, change to milliseconds
     int time_out = _state->execution_timeout() * 1000;
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     TFetchSchemaTableDataResult result;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
@@ -378,6 +400,7 @@ Status VMetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::CATALOGS);
+    metadata_table_params.__set_current_user_ident(_user_identity);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
@@ -457,6 +480,27 @@ Status VMetaScanner::_build_tasks_metadata_request(const TMetaScanRange& meta_sc
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::TASKS);
     metadata_table_params.__set_tasks_metadata_params(meta_scan_range.tasks_params);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_partition_values_metadata_request(
+        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_partition_values_metadata_request";
+    if (!meta_scan_range.__isset.partition_values_params) {
+        return Status::InternalError(
+                "Can not find TPartitionValuesMetadataParams from meta_scan_range.");
+    }
+
+    // create request
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::PARTITION_VALUES);
+    metadata_table_params.__set_partition_values_metadata_params(
+            meta_scan_range.partition_values_params);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

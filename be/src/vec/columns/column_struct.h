@@ -83,22 +83,32 @@ public:
 
     std::string get_name() const override;
     bool is_column_struct() const override { return true; }
-    const char* get_family_name() const override { return "Struct"; }
     MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
 
     bool is_variable_length() const override { return true; }
 
+    bool is_exclusive() const override {
+        for (const auto& col : columns) {
+            if (!col->is_exclusive()) {
+                return false;
+            }
+        }
+        return IColumn::is_exclusive();
+    }
+
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
 
     [[noreturn]] StringRef get_data_at(size_t n) const override {
-        LOG(FATAL) << "Method get_data_at is not supported for " + get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method get_data_at is not supported for " + get_name());
         __builtin_unreachable();
     }
     [[noreturn]] void insert_data(const char* pos, size_t length) override {
-        LOG(FATAL) << "Method insert_data is not supported for " + get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method insert_data is not supported for " + get_name());
         __builtin_unreachable();
     }
     void insert(const Field& x) override;
@@ -124,15 +134,11 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
-        return append_data_by_selector_impl<ColumnStruct>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const Selector& selector, size_t begin,
-                                 size_t end) const override {
-        return append_data_by_selector_impl<ColumnStruct>(res, selector, begin, end);
-    }
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
@@ -145,8 +151,7 @@ public:
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void shrink_padding_chars() override;
 
     void reserve(size_t n) override;
     void resize(size_t n) override;

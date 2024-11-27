@@ -17,11 +17,9 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#ifdef ENABLE_STACKTRACE
-#include "util/stack_util.h"
-#endif
-
+#include "common/config.h"
 #include "common/expected.h"
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -78,6 +76,8 @@ namespace ErrorCode {
     TStatusError(HTTP_ERROR, true);                       \
     TStatusError(TABLET_MISSING, true);                   \
     TStatusError(NOT_MASTER, true);                       \
+    TStatusError(OBTAIN_LOCK_FAILED, false);              \
+    TStatusError(SNAPSHOT_EXPIRED, false);                \
     TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
@@ -120,7 +120,6 @@ namespace ErrorCode {
     E(NEED_SEND_AGAIN, -241, false);                         \
     E(OS_ERROR, -242, true);                                 \
     E(DIR_NOT_EXIST, -243, true);                            \
-    E(FILE_NOT_EXIST, -244, true);                           \
     E(CREATE_FILE_ERROR, -245, true);                        \
     E(STL_ERROR, -246, true);                                \
     E(MUTEX_ERROR, -247, true);                              \
@@ -288,11 +287,13 @@ namespace ErrorCode {
     E(INVERTED_INDEX_NOT_IMPLEMENTED, -6009, false);         \
     E(INVERTED_INDEX_COMPACTION_ERROR, -6010, false);        \
     E(INVERTED_INDEX_ANALYZER_ERROR, -6011, false);          \
+    E(INVERTED_INDEX_FILE_CORRUPTED, -6012, false);          \
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);                        \
     E(INVALID_TABLET_STATE, -7211, false);                   \
-    E(ROWSETS_EXPIRED, -7311, false);
+    E(ROWSETS_EXPIRED, -7311, false);                        \
+    E(CGROUP_ERROR, -7411, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
@@ -316,8 +317,8 @@ extern ErrorCodeState error_states[MAX_ERROR_CODE_DEFINE_NUM];
 class ErrorCodeInitializer {
 public:
     ErrorCodeInitializer(int temp) : signal_value(temp) {
-        for (int i = 0; i < MAX_ERROR_CODE_DEFINE_NUM; ++i) {
-            error_states[i].error_code = 0;
+        for (auto& error_state : error_states) {
+            error_state.error_code = 0;
         }
 #define M(NAME, ENABLESTACKTRACE)                                  \
     error_states[TStatusCode::NAME].stacktrace = ENABLESTACKTRACE; \
@@ -340,7 +341,7 @@ public:
 #undef M
     }
 
-    void check_init() {
+    void check_init() const {
         //the signal value is 0, it means the global error states not inited, it's logical error
         // DO NOT use dcheck here, because dcheck depend on glog, and glog maybe not inited at this time.
         if (signal_value == 0) {
@@ -363,9 +364,9 @@ public:
     Status(int code, std::string msg, std::string stack = "") : _code(code) {
         _err_msg = std::make_unique<ErrMsg>();
         _err_msg->_msg = std::move(msg);
-#ifdef ENABLE_STACKTRACE
-        _err_msg->_stack = std::move(stack);
-#endif
+        if (config::enable_stacktrace) {
+            _err_msg->_stack = std::move(stack);
+        }
     }
 
     // copy c'tor makes copy of error detail so Status can be returned by value
@@ -416,13 +417,12 @@ public:
         } else {
             status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
         }
-#ifdef ENABLE_STACKTRACE
-        if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
+        if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace &&
+            config::enable_stacktrace) {
             // Delete the first one frame pointers, which are inside the status.h
             status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
-#endif
         return status;
     }
 
@@ -436,19 +436,26 @@ public:
         } else {
             status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
         }
-#ifdef ENABLE_STACKTRACE
-        if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace) {
+        if (stacktrace && ErrorCode::error_states[abs(code)].stacktrace &&
+            config::enable_stacktrace) {
             status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
-#endif
         return status;
     }
 
-    static Status OK() { return Status(); }
+    static Status OK() { return {}; }
 
+// default have stacktrace. could disable manually.
 #define ERROR_CTOR(name, code)                                                       \
     template <bool stacktrace = true, typename... Args>                              \
+    static Status name(std::string_view msg, Args&&... args) {                       \
+        return Error<ErrorCode::code, stacktrace>(msg, std::forward<Args>(args)...); \
+    }
+
+// default have no stacktrace. could enable manually.
+#define ERROR_CTOR_NOSTACK(name, code)                                               \
+    template <bool stacktrace = false, typename... Args>                             \
     static Status name(std::string_view msg, Args&&... args) {                       \
         return Error<ErrorCode::code, stacktrace>(msg, std::forward<Args>(args)...); \
     }
@@ -456,30 +463,33 @@ public:
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
-    ERROR_CTOR(InvalidArgument, INVALID_ARGUMENT)
-    ERROR_CTOR(InvalidJsonPath, INVALID_JSON_PATH)
+    ERROR_CTOR_NOSTACK(InvalidArgument, INVALID_ARGUMENT)
+    ERROR_CTOR_NOSTACK(InvalidJsonPath, INVALID_JSON_PATH)
     ERROR_CTOR(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
     ERROR_CTOR(Corruption, CORRUPTION)
     ERROR_CTOR(IOError, IO_ERROR)
     ERROR_CTOR(NotFound, NOT_FOUND)
-    ERROR_CTOR(AlreadyExist, ALREADY_EXIST)
+    ERROR_CTOR_NOSTACK(AlreadyExist, ALREADY_EXIST)
     ERROR_CTOR(NotSupported, NOT_IMPLEMENTED_ERROR)
-    ERROR_CTOR(EndOfFile, END_OF_FILE)
+    ERROR_CTOR_NOSTACK(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
-    ERROR_CTOR(WaitForRf, PIP_WAIT_FOR_RF)
-    ERROR_CTOR(WaitForScannerContext, PIP_WAIT_FOR_SC)
+    ERROR_CTOR_NOSTACK(WaitForRf, PIP_WAIT_FOR_RF)
+    ERROR_CTOR_NOSTACK(WaitForScannerContext, PIP_WAIT_FOR_SC)
     ERROR_CTOR(RuntimeError, RUNTIME_ERROR)
-    ERROR_CTOR(Cancelled, CANCELLED)
+    ERROR_CTOR_NOSTACK(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)
     ERROR_CTOR(RpcError, THRIFT_RPC_ERROR)
-    ERROR_CTOR(TimedOut, TIMEOUT)
-    ERROR_CTOR(TooManyTasks, TOO_MANY_TASKS)
+    ERROR_CTOR_NOSTACK(TimedOut, TIMEOUT)
+    ERROR_CTOR_NOSTACK(TooManyTasks, TOO_MANY_TASKS)
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)
-    ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
-    ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
+    ERROR_CTOR_NOSTACK(DataQualityError, DATA_QUALITY_ERROR)
+    ERROR_CTOR_NOSTACK(NotAuthorized, NOT_AUTHORIZED)
     ERROR_CTOR(HttpError, HTTP_ERROR)
-    ERROR_CTOR(NeedSendAgain, NEED_SEND_AGAIN)
+    ERROR_CTOR_NOSTACK(NeedSendAgain, NEED_SEND_AGAIN)
+    ERROR_CTOR_NOSTACK(CgroupError, CGROUP_ERROR)
+    ERROR_CTOR_NOSTACK(ObtainLockFailed, OBTAIN_LOCK_FAILED)
+    ERROR_CTOR_NOSTACK(NetworkError, NETWORK_ERROR)
 #undef ERROR_CTOR
 
     template <int code>
@@ -545,9 +555,7 @@ private:
     int _code;
     struct ErrMsg {
         std::string _msg;
-#ifdef ENABLE_STACKTRACE
         std::string _stack;
-#endif
     };
     std::unique_ptr<ErrMsg> _err_msg;
 
@@ -590,25 +598,23 @@ public:
         return error_st_;
     }
 
+    AtomicStatus(const AtomicStatus&) = delete;
+    void operator=(const AtomicStatus&) = delete;
+
 private:
     std::atomic_int16_t error_code_ = 0;
     Status error_st_;
     // mutex's lock is not a const method, but we will use this mutex in
     // some const method, so that it should be mutable.
     mutable std::mutex mutex_;
-
-    AtomicStatus(const AtomicStatus&) = delete;
-    void operator=(const AtomicStatus&) = delete;
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
     ostr << status.msg();
-#ifdef ENABLE_STACKTRACE
-    if (status._err_msg && !status._err_msg->_stack.empty()) {
+    if (status._err_msg && !status._err_msg->_stack.empty() && config::enable_stacktrace) {
         ostr << '\n' << status._err_msg->_stack;
     }
-#endif
     return ostr;
 }
 
@@ -645,9 +651,6 @@ inline std::string Status::to_string_no_stack() const {
             throw Exception(_status_);  \
         }                               \
     } while (false)
-
-#define RETURN_ERROR_IF_NON_VEC \
-    return Status::NotSupported("Non-vectorized engine is not supported since Doris 2.0.");
 
 #define RETURN_IF_STATUS_ERROR(status, stmt) \
     do {                                     \

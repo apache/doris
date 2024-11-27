@@ -90,12 +90,13 @@ suite('test_manager_interface_2',"p0") {
         """
         
         List<List<Object>> result = sql """ show partitions from  test_manager_tb """ 
-        println result 
+        logger.info("result = ${result}" ) 
         for( int i =0 ; i <result.size();i++) {
             assertTrue( result[i][1] in ["less100","less200","less2000"])
 
-            println   result[i][1] + ".ReplicationNum = " + result[i][9]
-            assertTrue( result[i][9].toBigInteger() == 1) // ReplicationNum
+            logger.info (result[i][1] + ".ReplicationNum = " + result[i][9])
+            
+            assertTrue( result[i][9].toBigInteger() == 1  ||result[i][9].toBigInteger() == 3 )  // ReplicationNum
         }
 
 
@@ -183,7 +184,7 @@ suite('test_manager_interface_2',"p0") {
         sql """ALTER SYSTEM ADD BACKEND "${address}:${notExistPort}";"""
 
         result = sql """SHOW BACKENDS;"""
-        println result
+        logger.info("result = ${result}" )
         def x = 0 
         for(int i  =0 ;i<result.size();i++) {
             //HeartbeatPort: 
@@ -225,7 +226,7 @@ suite('test_manager_interface_2',"p0") {
         sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_query" = "true"); """
         sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_load" = "true"); """
         result = sql """SHOW BACKENDS;"""
-        println result
+        logger.info("result = ${result}" )
         x = 0
         for(int i  =0 ;i<result.size();i++) {
             //HeartbeatPort: 
@@ -253,7 +254,7 @@ suite('test_manager_interface_2',"p0") {
 
 
         result = sql """ SHOW FRONTENDS """
-        println result
+        logger.info("result = ${result}" )
         x = 0
         for(int i  =0 ;i<result.size();i++) {
             if (result[i][18]=="Yes") {
@@ -291,9 +292,10 @@ suite('test_manager_interface_2',"p0") {
         }
 
         sql """ALTER SYSTEM ADD BROKER test_manager_broker "${address}:${notExistPort}";"""
+        checkNereidsExecute("show broker")
         result = sql """ show broker """ 
         x =  0
-        println result
+        logger.info("result = ${result}" )
         for ( int i =0 ;i<result.size();i++){
 
             assertTrue(result[i][3] in ["true","false"])//Alive
@@ -316,6 +318,9 @@ suite('test_manager_interface_2',"p0") {
 
         sql """ ALTER TABLE internal.__internal_schema.column_statistics SET ("replication_num" = "1") """
 
+    }
+    if (isCloudMode()) {
+        return
     }
     test_system()
 

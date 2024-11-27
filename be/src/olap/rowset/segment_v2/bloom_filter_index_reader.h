@@ -38,7 +38,7 @@ class BloomFilterIndexIterator;
 class BloomFilter;
 class BloomFilterIndexPB;
 
-class BloomFilterIndexReader {
+class BloomFilterIndexReader : public MetadataAdder<BloomFilterIndexReader> {
 public:
     explicit BloomFilterIndexReader(io::FileReaderSPtr file_reader,
                                     const BloomFilterIndexPB& bloom_filter_index_meta)
@@ -47,7 +47,8 @@ public:
         _bloom_filter_index_meta.reset(new BloomFilterIndexPB(bloom_filter_index_meta));
     }
 
-    Status load(bool use_page_cache, bool kept_in_memory);
+    Status load(bool use_page_cache, bool kept_in_memory,
+                OlapReaderStatistics* _bf_index_load_stats = nullptr);
 
     BloomFilterAlgorithmPB algorithm() { return _bloom_filter_index_meta->algorithm(); }
 
@@ -59,6 +60,8 @@ public:
 private:
     Status _load(bool use_page_cache, bool kept_in_memory);
 
+    int64_t get_metadata_size() const override;
+
 private:
     friend class BloomFilterIndexIterator;
 
@@ -67,6 +70,7 @@ private:
     const TypeInfo* _type_info = nullptr;
     std::unique_ptr<BloomFilterIndexPB> _bloom_filter_index_meta = nullptr;
     std::unique_ptr<IndexedColumnReader> _bloom_filter_reader;
+    OlapReaderStatistics* _index_load_stats = nullptr;
 };
 
 class BloomFilterIndexIterator {

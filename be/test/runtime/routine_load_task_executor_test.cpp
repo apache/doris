@@ -55,7 +55,7 @@ public:
         k_stream_load_rollback_result = TLoadTxnRollbackResult();
         k_stream_load_put_result = TStreamLoadPutResult();
 
-        _env.set_master_info(new TMasterInfo());
+        _env.set_cluster_info(new ClusterInfo());
         _env.set_new_load_stream_mgr(NewLoadStreamMgr::create_unique());
         _env.set_stream_load_executor(StreamLoadExecutor::create_unique(&_env));
 
@@ -63,7 +63,7 @@ public:
         config::max_consumer_num_per_group = 3;
     }
 
-    void TearDown() override { delete _env.master_info(); }
+    void TearDown() override { delete _env.cluster_info(); }
 
     ExecEnv _env;
 };
@@ -94,7 +94,7 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
 
     RoutineLoadTaskExecutor executor(&_env);
     Status st;
-    st = executor.init();
+    st = executor.init(1024 * 1024);
     EXPECT_TRUE(st.ok());
     // submit task
     st = executor.submit_task(task);

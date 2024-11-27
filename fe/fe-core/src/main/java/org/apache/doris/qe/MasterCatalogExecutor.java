@@ -64,11 +64,20 @@ public class MasterCatalogExecutor {
         boolean isReturnToPool = false;
         try {
             TInitExternalCtlMetaResult result = client.initExternalCtlMeta(request);
-            Env.getCurrentEnv().getJournalObservable().waitOn(result.maxJournalId, waitTimeoutMs);
             if (!result.getStatus().equalsIgnoreCase(STATUS_OK)) {
                 throw new UserException(result.getStatus());
+            } else {
+                // DO NOT wait on journal replayed, this may cause deadlock.
+                // 1. hold table read lock
+                // 2. wait on journal replayed
+                // 3. previous journal (eg, txn journal) replayed need to hold table write lock
+                // 4. deadlock
+                // But no waiting on journal replayed may cause some request on non-master FE failed for some time.
+                // There is no good solution for this.
+                // In feature version, this whole process is refactored, so we temporarily remove this waiting.
+                // Env.getCurrentEnv().getJournalObservable().waitOn(result.maxJournalId, timeoutMs);
+                isReturnToPool = true;
             }
-            isReturnToPool = true;
         } catch (Exception e) {
             LOG.warn("Failed to finish forward init operation, please try again. ", e);
             throw e;

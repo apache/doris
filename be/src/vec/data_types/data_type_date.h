@@ -35,6 +35,7 @@
 #include "vec/data_types/serde/data_type_date64_serde.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class BufferWritable;
 class ReadBuffer;
@@ -65,7 +66,7 @@ public:
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const Int64& num) const;
+    void push_number(ColumnString::Chars& chars, const Int64& num) const;
     std::string to_string(Int64 int_val) const {
         doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
         char buf[64];
@@ -92,5 +93,5 @@ public:
         return std::make_shared<DataTypeDate64SerDe>(nesting_level);
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -80,15 +80,13 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
         batch_size = _state->batch_size();
     }
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    if (env == nullptr) {
-        return Status::InternalError("Failed to get/create JVM");
-    }
     SCOPED_TIMER(_open_scanner_time);
+    _scanner_params.emplace("time_zone", _state->timezone());
     RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
     // Call org.apache.doris.common.jni.JniScanner#open
     env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_open);
-    _scanner_opened = true;
     RETURN_ERROR_IF_EXC(env);
+    _scanner_opened = true;
     return Status::OK();
 }
 
@@ -154,6 +152,13 @@ Status JniConnector::get_table_schema(std::string& table_schema_str) {
 
 std::map<std::string, std::string> JniConnector::get_statistics(JNIEnv* env) {
     jobject metrics = env->CallObjectMethod(_jni_scanner_obj, _jni_scanner_get_statistics);
+    jthrowable exc = (env)->ExceptionOccurred();
+    if (exc != nullptr) {
+        LOG(WARNING) << "get_statistics has error: "
+                     << JniUtil::GetJniExceptionMsg(env).to_string();
+        env->DeleteLocalRef(metrics);
+        return std::map<std::string, std::string> {};
+    }
     std::map<std::string, std::string> result = JniUtil::convert_to_cpp_map(env, metrics);
     env->DeleteLocalRef(metrics);
     return result;
@@ -163,7 +168,7 @@ Status JniConnector::close() {
     if (!_closed) {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-        if (_scanner_opened) {
+        if (_scanner_opened && _jni_scanner_obj != nullptr) {
             // _fill_block may be failed and returned, we should release table in close.
             // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
@@ -456,8 +461,6 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
     case TYPE_DATEV2:
         return "datev2";
     case TYPE_DATETIME:
-        [[fallthrough]];
-    case TYPE_TIME:
         return "datetimev1";
     case TYPE_DATETIMEV2:
         [[fallthrough]];
@@ -540,8 +543,6 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
     case TYPE_DATEV2:
         return "datev2";
     case TYPE_DATETIME:
-        [[fallthrough]];
-    case TYPE_TIME:
         return "datetimev1";
     case TYPE_DATETIMEV2:
         [[fallthrough]];

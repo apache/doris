@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -46,17 +47,19 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.system.Backend;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.sparkproject.guava.base.Throwables;
 
 import java.io.Closeable;
 import java.util.ArrayList;
@@ -114,7 +117,7 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
     // Used to update consumer's stats
-    private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
+    private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
@@ -162,6 +165,14 @@ public class StatementContext implements Closeable {
     private boolean isShortCircuitQuery;
 
     private ShortCircuitQueryContext shortCircuitQueryContext;
+
+    private FormatOptions formatOptions = FormatOptions.getDefault();
+
+    private List<PlannerHook> plannerHooks = new ArrayList<>();
+
+    private String disableJoinReorderReason;
+
+    private Backend groupCommitMergeBackend;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -352,7 +363,7 @@ public class StatementContext implements Closeable {
         return idToPlaceholderRealExpr;
     }
 
-    public Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
+    public Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
         return cteIdToConsumerGroup;
     }
 
@@ -435,7 +446,8 @@ public class StatementContext implements Closeable {
         String fullTableName = tableIf.getNameWithFullQualifiers();
         String resourceName = "tableReadLock(" + fullTableName + ")";
         plannerResources.push(new CloseableResource(
-                resourceName, Thread.currentThread().getName(), originStatement.originStmt, tableIf::readUnlock));
+                resourceName, Thread.currentThread().getName(),
+                originStatement == null ? null : originStatement.originStmt, tableIf::readUnlock));
     }
 
     /** releasePlannerResources */
@@ -478,6 +490,22 @@ public class StatementContext implements Closeable {
 
     public void setPlaceholders(List<Placeholder> placeholders) {
         this.placeholders = placeholders;
+    }
+
+    public void setFormatOptions(FormatOptions options) {
+        this.formatOptions = options;
+    }
+
+    public FormatOptions getFormatOptions() {
+        return formatOptions;
+    }
+
+    public List<PlannerHook> getPlannerHooks() {
+        return plannerHooks;
+    }
+
+    public void addPlannerHook(PlannerHook plannerHook) {
+        this.plannerHooks.add(plannerHook);
     }
 
     private static class CloseableResource implements Closeable {
@@ -534,5 +562,22 @@ public class StatementContext implements Closeable {
         tableId = StatementScopeIdGenerator.newTableId();
         this.tableIdMapping.put(tableIdentifier, tableId);
         return tableId;
+    }
+
+    public Optional<String> getDisableJoinReorderReason() {
+        return Optional.ofNullable(disableJoinReorderReason);
+    }
+
+    public void setDisableJoinReorderReason(String disableJoinReorderReason) {
+        this.disableJoinReorderReason = disableJoinReorderReason;
+    }
+
+    public Backend getGroupCommitMergeBackend() {
+        return groupCommitMergeBackend;
+    }
+
+    public void setGroupCommitMergeBackend(
+            Backend groupCommitMergeBackend) {
+        this.groupCommitMergeBackend = groupCommitMergeBackend;
     }
 }

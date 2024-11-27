@@ -109,7 +109,7 @@ public class ResourceTagQueryTest {
         Env.getCurrentEnv().createDb(createDbStmt);
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getAllBackends();
+        backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
@@ -280,7 +280,7 @@ public class ResourceTagQueryTest {
         Assert.assertEquals(1000000, execMemLimit);
 
         List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
-        Assert.assertEquals(12, userProps.size());
+        Assert.assertEquals(13, userProps.size());
 
         // now :
         // be1 be2 be3 ==>tag1;

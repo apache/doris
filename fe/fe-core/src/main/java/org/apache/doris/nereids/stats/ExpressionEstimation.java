@@ -128,6 +128,10 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visit(Expression expr, Statistics context) {
+        ColumnStatistic stats = context.findColumnStatistics(expr);
+        if (stats != null) {
+            return stats;
+        }
         List<Expression> childrenExpr = expr.children();
         if (CollectionUtils.isEmpty(childrenExpr)) {
             return ColumnStatistic.UNKNOWN;
@@ -135,26 +139,28 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         return expr.child(0).accept(this, context);
     }
 
-    //TODO: case-when need to re-implemented
     @Override
     public ColumnStatistic visitCaseWhen(CaseWhen caseWhen, Statistics context) {
         double ndv = caseWhen.getWhenClauses().size();
+        double width = 1;
         if (caseWhen.getDefaultValue().isPresent()) {
             ndv += 1;
         }
         for (WhenClause clause : caseWhen.getWhenClauses()) {
             ColumnStatistic colStats = ExpressionEstimation.estimate(clause.getResult(), context);
             ndv = Math.max(ndv, colStats.ndv);
+            width = Math.max(width, clause.getResult().getDataType().width());
         }
         if (caseWhen.getDefaultValue().isPresent()) {
             ColumnStatistic colStats = ExpressionEstimation.estimate(caseWhen.getDefaultValue().get(), context);
             ndv = Math.max(ndv, colStats.ndv);
+            width = Math.max(width, caseWhen.getDefaultValue().get().getDataType().width());
         }
         return new ColumnStatisticBuilder()
                 .setNdv(ndv)
                 .setMinValue(Double.NEGATIVE_INFINITY)
                 .setMaxValue(Double.POSITIVE_INFINITY)
-                .setAvgSizeByte(8)
+                .setAvgSizeByte(width)
                 .setNumNulls(0)
                 .build();
     }
@@ -162,15 +168,20 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     @Override
     public ColumnStatistic visitIf(If ifClause, Statistics context) {
         double ndv = 2;
+        double width = 1;
         ColumnStatistic colStatsThen = ExpressionEstimation.estimate(ifClause.child(1), context);
         ndv = Math.max(ndv, colStatsThen.ndv);
+        width = Math.max(width, ifClause.child(1).getDataType().width());
+
         ColumnStatistic colStatsElse = ExpressionEstimation.estimate(ifClause.child(2), context);
         ndv = Math.max(ndv, colStatsElse.ndv);
+        width = Math.max(width, ifClause.child(2).getDataType().width());
+
         return new ColumnStatisticBuilder()
                 .setNdv(ndv)
                 .setMinValue(Double.NEGATIVE_INFINITY)
                 .setMaxValue(Double.POSITIVE_INFINITY)
-                .setAvgSizeByte(8)
+                .setAvgSizeByte(width)
                 .setNumNulls(0)
                 .build();
     }
@@ -242,9 +253,9 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         return new ColumnStatisticBuilder()
                 .setMaxValue(literalVal)
                 .setMinValue(literalVal)
-                .setNdv(1)
-                .setNumNulls(1)
-                .setAvgSizeByte(1)
+                .setNdv(literal.isNullLiteral() ? 0 : 1)
+                .setNumNulls(literal.isNullLiteral() ? 1 : 0)
+                .setAvgSizeByte(literal.getDataType().width())
                 .setMinExpr(literal.toLegacyLiteral())
                 .setMaxExpr(literal.toLegacyLiteral())
                 .build();
@@ -274,13 +285,13 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         int exprResultTypeWidth = binaryArithmetic.getDataType().width();
         double dataSize = exprResultTypeWidth * rowCount;
         if (binaryArithmetic instanceof Add) {
-            return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
+            return new ColumnStatisticBuilder().setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
                     .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(leftMin + rightMin)
                     .setMaxValue(leftMax + rightMax)
                     .setMinExpr(null).setMaxExpr(null).build();
         }
         if (binaryArithmetic instanceof Subtract) {
-            return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
+            return new ColumnStatisticBuilder().setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
                     .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(leftMin - rightMax)
                     .setMaxValue(leftMax - rightMin).setMinExpr(null)
                     .setMaxExpr(null).build();
@@ -297,7 +308,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                         Math.max(leftMin * rightMin, leftMin * rightMax),
                         leftMax * rightMin),
                     leftMax * rightMax);
-            return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
+            return new ColumnStatisticBuilder().setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
                     .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(min).setMaxValue(max)
                     .setMaxExpr(null).setMinExpr(null).build();
         }
@@ -312,14 +323,14 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                             Math.max(leftMin / noneZeroDivisor(rightMin), leftMin / noneZeroDivisor(rightMax)),
                             leftMax / noneZeroDivisor(rightMin)),
                     leftMax / noneZeroDivisor(rightMax));
-            return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
+            return new ColumnStatisticBuilder().setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
                     .setNumNulls(numNulls).setDataSize(binaryArithmetic.getDataType().width()).setMinValue(min)
                     .setMaxValue(max).build();
         }
         if (binaryArithmetic instanceof Mod) {
             double min = -Math.max(Math.abs(rightMin), Math.abs(rightMax));
             double max = -min;
-            return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv)
+            return new ColumnStatisticBuilder().setNdv(ndv)
                     .setAvgSizeByte(exprResultTypeWidth)
                     .setDataSize(dataSize)
                     .setNumNulls(numNulls)
@@ -342,14 +353,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (columnStat.isUnKnown) {
             return ColumnStatistic.UNKNOWN;
         }
-        /*
-        we keep columnStat.min and columnStat.max, but set ndv=1.
-        if there is group-by keys, we will update count when visiting group clause
-        */
-        double width = min.child().getDataType().width();
-        return new ColumnStatisticBuilder().setCount(1).setNdv(1).setAvgSizeByte(width)
-                .setMinValue(columnStat.minValue).setMinExpr(columnStat.minExpr)
-                .setMaxValue(columnStat.maxValue).setMaxExpr(columnStat.maxExpr).build();
+        // if this is scalar agg, we will update count and ndv to 1 when visiting group clause
+        return new ColumnStatisticBuilder(columnStat).build();
     }
 
     @Override
@@ -359,23 +364,15 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (columnStat.isUnKnown) {
             return ColumnStatistic.UNKNOWN;
         }
-        /*
-        we keep columnStat.min and columnStat.max, but set ndv=1.
-        if there is group-by keys, we will update count when visiting group clause
-        */
-        int width = max.child().getDataType().width();
-        return new ColumnStatisticBuilder().setCount(1D).setNdv(1D).setAvgSizeByte(width)
-                .setMinValue(columnStat.minValue).setMinExpr(columnStat.minExpr)
-                .setMaxValue(columnStat.maxValue).setMaxExpr(columnStat.maxExpr)
-                .build();
+        // if this is scalar agg, we will update count and ndv to 1 when visiting group clause
+        return new ColumnStatisticBuilder(columnStat).build();
     }
 
     @Override
     public ColumnStatistic visitCount(Count count, Statistics context) {
         double width = count.getDataType().width();
-        return new ColumnStatisticBuilder().setCount(1D).setAvgSizeByte(width).setNumNulls(0)
-                .setDataSize(width).setMinValue(0).setMaxValue(context.getRowCount())
-                .setMaxExpr(null).setMinExpr(null).build();
+        // for scalar agg, ndv and row count will be normalized by 1 in StatsCalculator.computeAggregate()
+        return new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN).setAvgSizeByte(width).build();
     }
 
     // TODO: return a proper estimated stat after supports histogram
@@ -393,14 +390,14 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     @Override
     public ColumnStatistic visitYear(Year year, Statistics context) {
         ColumnStatistic childStat = year.child().accept(this, context);
+        double rowCount = context.getRowCount();
         long minYear = 1970;
         long maxYear = 2038;
         return new ColumnStatisticBuilder()
-                .setCount(childStat.count)
                 .setNdv(maxYear - minYear + 1)
                 .setAvgSizeByte(4)
                 .setNumNulls(childStat.numNulls)
-                .setDataSize(4 * childStat.count)
+                .setDataSize(4 * rowCount)
                 .setMinValue(minYear)
                 .setMaxValue(maxYear).setMinExpr(null).build();
     }
@@ -591,7 +588,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(childColumnStats)
                 .setAvgSizeByte(toDate.getDataType().width())
                 .setDataSize(toDate.getDataType().width() * context.getRowCount());
-        if (childColumnStats.minOrMaxIsInf()) {
+        if (childColumnStats.isMinMaxInvalid()) {
             return columnStatisticBuilder.build();
         }
         double minValue;
@@ -622,7 +619,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(childColumnStats)
                 .setAvgSizeByte(toDays.getDataType().width())
                 .setDataSize(toDays.getDataType().width() * context.getRowCount());
-        if (childColumnStats.minOrMaxIsInf()) {
+        if (childColumnStats.isMinMaxInvalid()) {
             return columnStatisticBuilder.build();
         }
         double minValue;

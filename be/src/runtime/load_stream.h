@@ -52,19 +52,26 @@ public:
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);
+    void add_num_segments(int64_t num_segments) { _num_segments += num_segments; }
+    void disable_num_segments_check() { _check_num_segments = false; }
+    void pre_close();
     Status close();
     int64_t id() const { return _id; }
 
     friend std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_stream);
 
 private:
+    Status _run_in_heavy_work_pool(std::function<Status()> fn);
+
     int64_t _id;
     LoadStreamWriterSharedPtr _load_stream_writer;
     std::vector<std::unique_ptr<ThreadPoolToken>> _flush_tokens;
     std::unordered_map<int64_t, std::unique_ptr<SegIdMapping>> _segids_mapping;
     std::atomic<uint32_t> _next_segid;
+    int64_t _num_segments = 0;
+    bool _check_num_segments = true;
     bthread::Mutex _lock;
-    std::shared_ptr<Status> _failed_st;
+    AtomicStatus _status;
     PUniqueId _load_id;
     int64_t _txn_id;
     RuntimeProfile* _profile = nullptr;
@@ -84,12 +91,12 @@ public:
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
 
-    Status close(const std::vector<PTabletID>& tablets_to_commit,
-                 std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
+    void close(const std::vector<PTabletID>& tablets_to_commit,
+               std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
 private:
-    Status _init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
-                               int64_t partition_id);
+    void _init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
+                             int64_t partition_id);
 
 private:
     int64_t _id;
@@ -122,8 +129,8 @@ public:
         }
     }
 
-    Status close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
-                 std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
+    void close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
+               std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
     // callbacks called by brpc
     int on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) override;

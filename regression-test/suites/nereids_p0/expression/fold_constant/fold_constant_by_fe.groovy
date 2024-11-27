@@ -19,6 +19,7 @@ suite("test_fold_constant_by_fe") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_fold_nondeterministic_fn=true'
+    sql 'set enable_fold_constant_by_be=false'
 
     def results = sql 'select uuid(), uuid()'
     assertFalse(Objects.equals(results[0][0], results[0][1]))
@@ -154,4 +155,14 @@ suite("test_fold_constant_by_fe") {
         res = res.split('VUNION')[1]
         assertFalse(res.contains("unix"))
     }
+
+    // test null like string cause of fe need to fold constant like that to enable not null derive
+    res = sql """explain select null like '%123%'"""
+    assertFalse(res.contains("like"))
+    // now fe fold constant still can not deal with this case
+    res = sql """explain select "12" like '%123%'"""
+    assertTrue(res.contains("like"))
+
+    testFoldConst("select DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY) + INTERVAL 3600 SECOND")
+
 }

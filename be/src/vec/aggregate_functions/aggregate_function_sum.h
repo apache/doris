@@ -100,7 +100,8 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(TResult(column.get_data()[row_num]));
     }
 
@@ -125,7 +126,7 @@ public:
         column.get_data().push_back(this->data(place).get());
     }
 
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena*,
                                  size_t num_rows) const override {
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         auto* data = col.get_data().data();
@@ -146,7 +147,7 @@ public:
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           const size_t num_rows, Arena* arena) const override {
+                                           const size_t num_rows, Arena*) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
         auto& src = assert_cast<const ColVecType&>(*columns[0]);
         DCHECK(col.item_size() == sizeof(Data))
@@ -161,7 +162,7 @@ public:
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena* arena) const override {
+                                           Arena*) const override {
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         const size_t num_rows = column.size();
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
@@ -172,7 +173,7 @@ public:
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
-                                                 Arena* arena) const override {
+                                                 Arena*) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
@@ -183,19 +184,19 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena*,
                                    const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        this->deserialize_from_column(rhs, *column, nullptr, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec(places, offset, rhs, arena, num_rows);
+        this->merge_vec(places, offset, rhs, nullptr, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const IColumn* column,
-                                            Arena* arena, const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
+                                            AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                            const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, nullptr, num_rows);
         DEFER({ this->destroy_vec(rhs, num_rows); });
-        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+        this->merge_vec_selected(places, offset, rhs, nullptr, num_rows);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
@@ -231,7 +232,6 @@ struct SumSimple {
 template <typename T>
 using AggregateFunctionSumSimple = typename SumSimple<T, true>::Function;
 
-const static std::string DECIMAL256_SUFFIX {"_decimal256"};
 template <typename T, bool level_up>
 struct SumSimpleDecimal256 {
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64

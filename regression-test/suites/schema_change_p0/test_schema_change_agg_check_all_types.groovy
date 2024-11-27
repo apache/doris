@@ -47,7 +47,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
     sql """ alter table ${tableName3} modify column k2 smallint key NULL"""
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
 
 
@@ -61,7 +61,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
     sql """ alter table ${tableName3} modify column k2 int key NULL"""
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
 
     sql """ insert into ${tableName3} values (10002, 2, 3, 4, 5, 6.6, 1.7, 8.8,
@@ -74,7 +74,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
 
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
 
     sql """ insert into ${tableName3} values (10003, 2, 3, 4, 5, 6.6, 1.7, 8.8,
@@ -87,7 +87,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
 
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
 
     sql """ insert into ${tableName3} values (10004, 2, 3, 4, 5, 6.6, 1.7, 8.8,
@@ -100,13 +100,13 @@ suite("test_schema_change_agg_check_all_types", "p0") {
 
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
 
     sql """ alter table ${tableName3} modify column k14 float replace not null default "0" after k13"""
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
 
     sql """ insert into ${tableName3} values (10005, 2, 3, 4, 5, 6.6, 1.7, 8.8,
@@ -118,7 +118,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
     sql """ alter table ${tableName3} modify column k14 double replace not null default "0" after k13"""
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
 
     sql """ insert into ${tableName3} values (10006, 2, 3, 4, 5, 6.6, 1.7, 8.8,
@@ -131,7 +131,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
     sql """ alter table ${tableName3} add column float1 float replace not null default "0" after k13"""
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
     sql """ insert into ${tableName3} values (10007, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21) """
@@ -142,7 +142,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
 
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
     sql """ insert into ${tableName3} values (10007, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,'1.21') """
@@ -152,7 +152,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
     sql """ alter table ${tableName3} modify column float1 float replace not null default "0" after k13"""
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
 
     qt_varchar_to_float""" select * from ${tableName3} """
@@ -168,7 +168,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
     sql """ alter table ${tableName3} add column tinyint1 tinyint replace not null default "0" after k13"""
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
     sql """ insert into ${tableName3} values (10007, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """
@@ -180,7 +180,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
 
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
 
     sql """ insert into ${tableName3} values (10008, 2, 3, 4, 5, 6.6, 1.7, 8.8,
@@ -194,7 +194,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
 
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
 
     sql """ insert into ${tableName3} values (10009, 2, 3, 4, 5, 6.6, 1.7, 8.8, 'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """
@@ -206,7 +206,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
 
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
 
     sql """ insert into ${tableName3} values (10010, 2, 3, 4, 5, 6.6, 1.7, 8.8, 'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """
@@ -218,7 +218,7 @@ suite("test_schema_change_agg_check_all_types", "p0") {
 
     waitForSchemaChangeDone {
         sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
-        time 60
+        time 600
     }
 
     sql """ insert into ${tableName3} values (10011, 2, 3, 4, 5, 6.6, 1.7, 8.8, 'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21,1) """

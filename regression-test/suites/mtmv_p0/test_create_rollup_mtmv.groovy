@@ -78,9 +78,7 @@ suite("test_create_rollup_mtmv","mtmv") {
     order_qt_refresh_mv "SELECT * FROM ${mvName}"
     order_qt_sync_mv "SELECT k3 FROM ${mvName}"
 
-    def explainResult = sql """explain SELECT k3 FROM ${mvName}"""
-    logger.info("explainResult: " + explainResult.toString())
-    assertTrue(explainResult.toString().contains('rollup1'))
+    mv_rewrite_success_without_check_chosen("""SELECT k3 FROM ${mvName}""", "rollup1")
 
     sql """alter table ${mvName} drop ROLLUP rollup1;"""
 

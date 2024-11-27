@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -101,21 +102,21 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     }
 
     /** prune */
-    public List<Long> prune() {
-        Builder<Long> scanPartitionIds = ImmutableList.builder();
+    public <K> List<K> prune() {
+        Builder<K> scanPartitionIdents = ImmutableList.builder();
         for (OnePartitionEvaluator partition : partitions) {
             if (!canBePrunedOut(partition)) {
-                scanPartitionIds.add(partition.getPartitionId());
+                scanPartitionIdents.add((K) partition.getPartitionIdent());
             }
         }
-        return scanPartitionIds.build();
+        return scanPartitionIdents.build();
     }
 
     /**
      * prune partition with `idToPartitions` as parameter.
      */
-    public static List<Long> prune(List<Slot> partitionSlots, Expression partitionPredicate,
-            Map<Long, PartitionItem> idToPartitions, CascadesContext cascadesContext,
+    public static <K> List<K> prune(List<Slot> partitionSlots, Expression partitionPredicate,
+            Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType) {
         partitionPredicate = PartitionPruneExpressionExtractor.extract(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
@@ -125,14 +126,19 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                 "partitionPruningExpandThreshold",
                 10, sessionVariable -> sessionVariable.partitionPruningExpandThreshold);
 
+        partitionPredicate = OrToIn.INSTANCE.rewriteTree(
+                partitionPredicate, new ExpressionRewriteContext(cascadesContext));
+        if (BooleanLiteral.TRUE.equals(partitionPredicate)) {
+            return Utils.fastToImmutableList(idToPartitions.keySet());
+        } else if (BooleanLiteral.FALSE.equals(partitionPredicate) || partitionPredicate.isNullLiteral()) {
+            return ImmutableList.of();
+        }
+
         List<OnePartitionEvaluator> evaluators = Lists.newArrayListWithCapacity(idToPartitions.size());
-        for (Entry<Long, PartitionItem> kv : idToPartitions.entrySet()) {
+        for (Entry<K, PartitionItem> kv : idToPartitions.entrySet()) {
             evaluators.add(toPartitionEvaluator(
                     kv.getKey(), kv.getValue(), partitionSlots, cascadesContext, expandThreshold));
         }
-
-        partitionPredicate = OrToIn.INSTANCE.rewriteTree(
-                partitionPredicate, new ExpressionRewriteContext(cascadesContext));
         PartitionPruner partitionPruner = new PartitionPruner(evaluators, partitionPredicate);
         //TODO: we keep default partition because it's too hard to prune it, we return false in canPrune().
         return partitionPruner.prune();
@@ -141,7 +147,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     /**
      * convert partition item to partition evaluator
      */
-    public static final OnePartitionEvaluator toPartitionEvaluator(long id, PartitionItem partitionItem,
+    public static final <K> OnePartitionEvaluator<K> toPartitionEvaluator(K id, PartitionItem partitionItem,
             List<Slot> partitionSlots, CascadesContext cascadesContext, int expandThreshold) {
         if (partitionItem instanceof ListPartitionItem) {
             return new OneListPartitionEvaluator(

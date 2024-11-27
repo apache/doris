@@ -35,11 +35,13 @@ class Block;
 
 namespace doris::vectorized {
 
-const std::string PaimonJniReader::PAIMON_OPTION_PREFIX = "paimon_option_prefix.";
+const std::string PaimonJniReader::PAIMON_OPTION_PREFIX = "paimon.";
+const std::string PaimonJniReader::HADOOP_OPTION_PREFIX = "hadoop.";
 
 PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                                  RuntimeState* state, RuntimeProfile* profile,
-                                 const TFileRangeDesc& range)
+                                 const TFileRangeDesc& range,
+                                 const TFileScanRangeParams* range_params)
         : JniReader(file_slot_descs, state, profile) {
     std::vector<std::string> column_names;
     std::vector<std::string> column_types;
@@ -60,21 +62,25 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
             std::to_string(range.table_format_params.paimon_params.last_update_time);
     params["required_fields"] = join(column_names, ",");
     params["columns_types"] = join(column_types, "#");
+    if (range_params->__isset.serialized_table) {
+        params["serialized_table"] = range_params->serialized_table;
+    }
 
     // Used to create paimon option
     for (auto& kv : range.table_format_params.paimon_params.paimon_options) {
         params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
+    }
+    if (range.table_format_params.paimon_params.__isset.hadoop_conf) {
+        for (auto& kv : range.table_format_params.paimon_params.hadoop_conf) {
+            params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
+        }
     }
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/paimon/PaimonJniScanner",
                                                     params, column_names);
 }
 
 Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_jni_connector->get_next_block(block, read_rows, eof));
-    if (*eof) {
-        RETURN_IF_ERROR(_jni_connector->close());
-    }
-    return Status::OK();
+    return _jni_connector->get_next_block(block, read_rows, eof);
 }
 
 Status PaimonJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,

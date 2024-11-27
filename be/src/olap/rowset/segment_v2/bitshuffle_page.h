@@ -142,12 +142,13 @@ public:
         return Status::OK();
     }
 
-    OwnedSlice finish() override {
+    Status finish(OwnedSlice* slice) override {
         if (_count > 0) {
             _first_value = cell(0);
             _last_value = cell(_count - 1);
         }
-        return _finish(SIZE_OF_TYPE);
+        RETURN_IF_CATCH_EXCEPTION({ *slice = _finish(SIZE_OF_TYPE); });
+        return Status::OK();
     }
 
     Status reset() override {

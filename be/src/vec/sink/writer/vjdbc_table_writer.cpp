@@ -57,8 +57,11 @@ JdbcConnectorParam VJdbcTableWriter::create_connect_param(const doris::TDataSink
 }
 
 VJdbcTableWriter::VJdbcTableWriter(const TDataSink& t_sink,
-                                   const VExprContextSPtrs& output_expr_ctxs)
-        : AsyncResultWriter(output_expr_ctxs), JdbcConnector(create_connect_param(t_sink)) {}
+                                   const VExprContextSPtrs& output_expr_ctxs,
+                                   std::shared_ptr<pipeline::Dependency> dep,
+                                   std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_expr_ctxs, dep, fin_dep),
+          JdbcConnector(create_connect_param(t_sink)) {}
 
 Status VJdbcTableWriter::write(RuntimeState* state, vectorized::Block& block) {
     Block output_block;

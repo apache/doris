@@ -45,7 +45,7 @@ import java.util.Optional;
  * e.g.
  * ALTER TABLE stats_test.example_tbl SET STATS ('row_count'='6001215');
  */
-public class AlterTableStatsStmt extends DdlStmt {
+public class AlterTableStatsStmt extends DdlStmt implements NotFallbackInParser {
 
     private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET =
             new ImmutableSet.Builder<StatsType>()

@@ -31,6 +31,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class BufferControlBlock;
 class RuntimeState;
 
@@ -66,6 +67,8 @@ private:
     int _add_one_cell(const ColumnPtr& column_ptr, size_t row_idx, const DataTypePtr& type,
                       MysqlRowBuffer<is_binary_format>& buffer, int scale = -1);
 
+    Status _write_one_block(RuntimeState* state, Block& block);
+
     BufferControlBlock* _sinker = nullptr;
 
     const VExprContextSPtrs& _output_vexpr_ctxs;
@@ -94,3 +97,5 @@ private:
 };
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

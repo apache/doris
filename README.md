@@ -18,24 +18,51 @@ under the License.
 -->
 
 <div align="center">
-    <img src="https://doris.apache.org/assets/images/home-banner-7f193353c932af31634eca0a028f03ed.png" align="right" height="240"/>
-</div>
 
 # Apache Doris
+
 [![License](https://img.shields.io/badge/license-Apache%202-4EB1BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
 [![GitHub release](https://img.shields.io/github/release/apache/doris.svg)](https://github.com/apache/doris/releases)
 [![OSSRank](https://shields.io/endpoint?url=https://ossrank.com/shield/516)](https://ossrank.com/p/516)
-[![Jenkins Vec](https://img.shields.io/jenkins/tests?compact_message&jobUrl=https://ci-builds.apache.org/job/Doris/job/doris_daily_enable_vectorized&label=VectorizedEngine)](https://ci-builds.apache.org/job/Doris/job/doris_daily_enable_vectorized)
-[![Total Lines](https://tokei.rs/b1/github/apache/doris?category=lines)](https://github.com/apache/doris)
-[![Join the Doris Community on Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-2kl08hzc0-SPJe4VWmL_qzrFd2u2XYQA)
+[![Commit activity](https://img.shields.io/github/commit-activity/m/apache/doris)](https://github.com/apache/doris/commits/master/)
 [![EN doc](https://img.shields.io/badge/Docs-English-blue.svg)](https://doris.apache.org/docs/get-starting/quick-start)
-[![CN doc](https://img.shields.io/badge/文档-中文版-blue.svg)]([https://doris.apache.org/zh-CN/docs/dev/get-starting/what-is-apache-doris](https://doris.apache.org/zh-CN/docs/get-starting/what-is-apache-doris))
+[![CN doc](https://img.shields.io/badge/文档-中文版-blue.svg)](https://doris.apache.org/zh-CN/docs/get-starting/quick-start/)
 
-Apache Doris is an MPP-based real-time data warehouse known for its high query speed. For queries on large datasets, it returns results in sub-seconds. It supports both high-concurrency point queries and high-throughput complex analysis. It can be used for report analysis, ad-hoc queries, unified data warehouse building, and data lake query acceleration. Based on Apache Doris, users can build applications for user behavior analysis, A/B testing platform, log analysis, and e-commerce order analysis.
+<div>
 
-Please visit our 🔗[official download page](https://doris.apache.org/download/) to get the latest release version.
+[![Official Website](<https://img.shields.io/badge/-Visit%20the%20Official%20Website%20%E2%86%92-rgb(15,214,106)?style=for-the-badge>)](https://doris.apache.org/)
+[![Quick Download](<https://img.shields.io/badge/-Quick%20%20Download%20%E2%86%92-rgb(66,56,255)?style=for-the-badge>)](https://doris.apache.org/download)
 
-The current stable version is the 2.0.x series, and the latest version is the 2.1.x series. For production, it is recommended to use the latest version of the 2.0.x series. And if used for POC or testing, it is recommended to use the latest version of the 2.1.x series.
+
+</div>
+
+
+<div>
+    <a href="https://twitter.com/doris_apache"><img src="https://img.shields.io/badge/- @Doris_Apache -424549?style=social&logo=x" height=25></a>
+    &nbsp;
+    <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
+    &nbsp;
+    <a href="https://apachedoriscommunity.slack.com/join/shared_invite/zt-2kl08hzc0-SPJe4VWmL_qzrFd2u2XYQA"><img src="https://img.shields.io/badge/-Slack-red?style=social&logo=slack" height=25></a>
+    &nbsp;
+    <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
+
+</div>
+
+</div>
+
+---
+
+
+
+
+Apache Doris is an easy-to-use, high-performance and real-time analytical database based on MPP architecture, known for its extreme speed and ease of use. It only requires a sub-second response time to return query results under massive data and can support not only high-concurrent point query scenarios but also high-throughput complex analysis scenarios.
+
+All this makes Apache Doris an ideal tool for scenarios including report analysis, ad-hoc query, unified data warehouse, and data lake query acceleration. On Apache Doris, users can build various applications, such as user behavior analysis, AB test platform, log retrieval analysis, user portrait analysis, and order analysis.
+
+🎉 Version 2.1.4 released now. Check out the 🔗[Release Notes](https://doris.apache.org/docs/releasenotes/release-2.1.4) here. The 2.1 verison delivers exceptional performance with 100% higher out-of-the-box queries proven by TPC-DS 1TB tests, enhanced data lake analytics that are 4-6 times speedier than Trino and Spark, solid support for semi-structured data analysis with new Variant types and suite of analytical functions, asynchronous materialized views for query acceleration, optimized real-time writing at scale, and better workload management with stability and runtime SQL resource tracking.
+
+
+🎉 Version 2.0.12 is now released ! This fully evolved and stable release is ready for all users to upgrade. Check out the 🔗[Release Notes](https://doris.apache.org/docs/2.0/releasenotes/release-2.0.12) here. 
 
 👀 Have a look at the 🔗[Official Website](https://doris.apache.org/) for a comprehensive list of Apache Doris's core features, blogs and user cases.
 
@@ -43,7 +70,11 @@ The current stable version is the 2.0.x series, and the latest version is the 2.
 
 As shown in the figure below, after various data integration and processing, the data sources are usually stored in the real-time data warehouse Apache Doris and the offline data lake or data warehouse (in Apache Hive, Apache Iceberg or Apache Hudi).
 
-<img src="https://dev-to-uploads.s3.amazonaws.com/uploads/articles/sekvbs5ih5rb16wz6n9k.png">
+<br />
+
+<img src="https://cdn.selectdb.com/static/What_is_Apache_Doris_3_a61692c2ce.png" />
+
+<br />
 
 Apache Doris is widely used in the following scenarios:
 
@@ -71,7 +102,11 @@ The overall architecture of Apache Doris is shown in the following figure. The D
 
 Both types of processes are horizontally scalable, and a single cluster can support up to hundreds of machines and tens of petabytes of storage capacity. And these two types of processes guarantee high availability of services and high reliability of data through consistency protocols. This highly integrated architecture design greatly reduces the operation and maintenance cost of a distributed system.
 
-![The overall architecture of Apache Doris](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/mnz20ae3s23vv3e9ltmi.png)
+<br />
+
+![The overall architecture of Apache Doris](https://cdn.selectdb.com/static/What_is_Apache_Doris_adb26397e2.png)
+
+<br />
 
 In terms of interfaces, Apache Doris adopts MySQL protocol, supports standard SQL, and is highly compatible with MySQL dialect. Users can access Doris through various client tools and it supports seamless connection with BI tools.
 
@@ -101,24 +136,28 @@ Doris also supports strongly consistent materialized views. Materialized views a
 
 Doris adopts the MPP model in its query engine to realize parallel execution between and within nodes. It also supports distributed shuffle join for multiple large tables so as to handle complex queries.
 
-![](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/vjlmumwyx728uymsgcw0.png)
+<br />
+
+![Query Engine](https://cdn.selectdb.com/static/What_is_Apache_Doris_1_c6f5ba2af9.png)
+
+<br />
 
 The Doris query engine is vectorized, with all memory structures laid out in a columnar format. This can largely reduce virtual function calls, improve cache hit rates, and make efficient use of SIMD instructions. Doris delivers a 5–10 times higher performance in wide table aggregation scenarios than non-vectorized engines.
 
-![](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/ck2m3kbnodn28t28vphp.png)
+<br />
+
+![Doris query engine](https://cdn.selectdb.com/static/What_is_Apache_Doris_2_29cf58cc6b.png)
+
+<br />
 
 Apache Doris uses Adaptive Query Execution technology to dynamically adjust the execution plan based on runtime statistics. For example, it can generate runtime filter, push it to the probe side, and automatically penetrate it to the Scan node at the bottom, which drastically reduces the amount of data in the probe and increases join performance. The runtime filter in Doris supports In/Min/Max/Bloom filter.
 
 ### 🚅 Query Optimizer
 
-In terms of optimizers, Doris uses a combination of CBO and RBO. RBO supports constant folding, subquery rewriting, predicate pushdown. The Doris CBO is under continuous optimization for more accurate statistical information collection and derivation, and more accurate cost model prediction.
-
-The query optimizer in V2.0 has a richer statistical base and adopts the Cascades framework. It is capable of self-tuning in most query scenarios and supports all 99 SQLs in TPC-DS, so users can expect high performance without any fine-tuning or SQL rewriting.
-
-The query optimizer in V2.1 comes with enhanced statistics-based inference and enumeration framework. We have upgraded the cost model and expanded the optimization rules to serve the needs of more use cases.
+In terms of optimizers, Doris uses a combination of CBO and RBO. RBO supports constant folding, subquery rewriting, predicate pushdown and CBO supports Join Reorder. The Doris CBO is under continuous optimization for more accurate statistical information collection and derivation, and more accurate cost model prediction.
 
 
-**Technical Overview**: 🔗[Introduction to Apache Doris](https://doris.apache.org/docs/get-starting/what-is-apache-doris)
+**Technical Overview**: 🔗[Introduction to Apache Doris](https://doris.apache.org/docs/dev/summary/basic-summary)
 
 ## 🎆 Why choose Apache Doris?
 
@@ -138,14 +177,9 @@ The query optimizer in V2.1 comes with enhanced statistics-based inference and e
 
 **Apache Doris has graduated from Apache incubator successfully and become a Top-Level Project in June 2022**. 
 
-Currently, the Apache Doris community has gathered more than 600 contributors from over 200 companies in different industries, and the number of monthly active contributors exceeds 120.
-
-
-[![Monthly Active Contributors](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorMonthlyActivity&repo=apache/doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorMonthlyActivity&repo=apache/doris)
-
-[![Contributor over time](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorOverTime&repo=apache/doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorOverTime&repo=apache/doris)
-
 We deeply appreciate 🔗[community contributors](https://github.com/apache/doris/graphs/contributors) for their contribution to Apache Doris.
+
+[![contrib graph](https://contrib.rocks/image?repo=apache/doris)](https://github.com/apache/doris/graphs/contributors)
 
 ## 👨‍👩‍👧‍👦 Users
 
@@ -161,19 +195,17 @@ Add your company logo at Apache Doris Website: 🔗[Add Your Company](https://gi
 
 All Documentation   🔗[Docs](https://doris.apache.org/docs/get-starting/quick-start)  
 
-Documentation Repo    🔗[Docs Repo](https://github.com/apache/doris-website) 
-
 ### ⬇️ Download 
 
 All release and binary version 🔗[Download](https://doris.apache.org/download) 
 
 ### 🗄️ Compile
 
-See how to compile  🔗[Compilation](https://doris.apache.org/docs/install/source-install/compilation-with-docker)
+See how to compile  🔗[Compilation](https://doris.apache.org/docs/dev/install/source-install/compilation-general)
 
 ### 📮 Install
 
-See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/install/cluster-deployment/standard-deployment) 
+See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/dev/install/standard-deployment) 
 
 ## 🧩 Components
 
@@ -219,7 +251,7 @@ Contact us through the following mailing list.
 
 * Apache Doris Official Website - [Site](https://doris.apache.org)
 * Developer Mailing list - <dev@doris.apache.org>. Mail to <dev-subscribe@doris.apache.org>, follow the reply to subscribe the mail list.
-* Slack channel - [Join the Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-2kl08hzc0-SPJe4VWmL_qzrFd2u2XYQA)
+* Slack channel - [Join the Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-28il1o2wk-DD6LsLOz3v4aD92Mu0S0aQ)
 * Twitter - [Follow @doris_apache](https://twitter.com/doris_apache)
 
 

@@ -247,7 +247,7 @@ public class CopyIntoTest extends TestWithFeService {
                 minTimes = 0;
                 result = stages;
 
-                Env.getCurrentSystemInfo().getAllBackendsMap();
+                Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
                 minTimes = 0;
                 result = idToBackendRef;
             }

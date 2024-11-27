@@ -29,6 +29,7 @@
 #include "CLucene/SharedHeader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/io_common.h"
 
 class CLuceneError;
@@ -46,8 +47,6 @@ class CLUCENE_EXPORT DorisFSDirectory : public lucene::store::Directory {
 public:
     static const char* const WRITE_LOCK_FILE;
     static const int64_t MAX_HEADER_DATA_SIZE = 1024 * 128; // 128k
-private:
-    int filemode;
 
 protected:
     mutable std::mutex _this_lock;
@@ -91,6 +90,12 @@ public:
 
     virtual void init(const io::FileSystemSPtr& fs, const char* path,
                       lucene::store::LockFactory* lock_factory = nullptr);
+
+    void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
+
+private:
+    int32_t filemode;
+    io::FileWriterOptions _opts;
 };
 
 class CLUCENE_EXPORT DorisRAMFSDirectory : public DorisFSDirectory {
@@ -175,8 +180,6 @@ class DorisFSDirectory::FSIndexInput : public lucene::store::BufferedIndexInput 
             : BufferedIndexInput(buffer_size) {
         this->_pos = 0;
         this->_handle = std::move(handle);
-        this->_io_ctx.reader_type = ReaderType::READER_QUERY;
-        this->_io_ctx.is_index_data = false;
     }
 
 protected:
@@ -184,7 +187,7 @@ protected:
 
 public:
     static bool open(const io::FileSystemSPtr& fs, const char* path, IndexInput*& ret,
-                     CLuceneError& error, int32_t bufferSize = -1);
+                     CLuceneError& error, int32_t bufferSize = -1, int64_t file_size = -1);
     ~FSIndexInput() override;
 
     IndexInput* clone() const override;
@@ -194,8 +197,9 @@ public:
     const char* getDirectoryType() const override { return DorisFSDirectory::getClassName(); }
     const char* getObjectName() const override { return getClassName(); }
     static const char* getClassName() { return "FSIndexInput"; }
-
-    void setIdxFileCache(bool index) override { _io_ctx.is_index_data = index; }
+    void setIoContext(const void* io_ctx) override;
+    const void* getIoContext() override;
+    void setIndexFile(bool isIndexFile) override;
 
     std::mutex _this_lock;
 
@@ -204,6 +208,39 @@ protected:
     void seekInternal(const int64_t position) override;
     // IndexInput methods
     void readInternal(uint8_t* b, const int32_t len) override;
+};
+
+class DorisFSDirectory::FSIndexOutput : public lucene::store::BufferedIndexOutput {
+protected:
+    void flushBuffer(const uint8_t* b, const int32_t size) override;
+
+public:
+    FSIndexOutput() = default;
+    void init(const io::FileSystemSPtr& fs, const char* path);
+    ~FSIndexOutput() override;
+    void close() override;
+    int64_t length() const override;
+
+    void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
+
+private:
+    io::FileWriterPtr _writer;
+    io::FileWriterOptions _opts;
+};
+
+class DorisFSDirectory::FSIndexOutputV2 : public lucene::store::BufferedIndexOutput {
+private:
+    io::FileWriter* _index_v2_file_writer = nullptr;
+
+protected:
+    void flushBuffer(const uint8_t* b, const int32_t size) override;
+
+public:
+    FSIndexOutputV2() = default;
+    void init(io::FileWriter* file_writer);
+    ~FSIndexOutputV2() override;
+    void close() override;
+    int64_t length() const override;
 };
 
 /**

@@ -35,7 +35,7 @@ import org.apache.commons.lang3.StringUtils;
  * DROP [ROW] POLICY [IF EXISTS] test_row_policy ON test_table [FOR user|ROLE role]
  **/
 @AllArgsConstructor
-public class DropPolicyStmt extends DdlStmt {
+public class DropPolicyStmt extends DdlStmt implements NotFallbackInParser {
 
     @Getter
     private final PolicyTypeEnum type;
@@ -104,5 +104,10 @@ public class DropPolicyStmt extends DdlStmt {
                 }
         }
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
     }
 }

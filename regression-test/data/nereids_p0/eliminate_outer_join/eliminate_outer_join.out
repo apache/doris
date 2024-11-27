@@ -13,7 +13,7 @@ PhysicalResultSink
 ------PhysicalOlapScan[partsupp]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -31,7 +31,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !3 --
@@ -48,7 +48,7 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: [broadcast]_2
+UnUsed: [broadcast]_1
 SyntaxError:
 
 -- !4 --
@@ -59,7 +59,7 @@ PhysicalResultSink
 ----PhysicalOlapScan[nation]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -73,7 +73,7 @@ PhysicalResultSink
 ----PhysicalOlapScan[supplier]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -89,7 +89,7 @@ PhysicalResultSink
 ----PhysicalOlapScan[partsupp]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -106,7 +106,7 @@ PhysicalResultSink
 ----PhysicalOlapScan[partsupp]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -123,7 +123,7 @@ PhysicalResultSink
 ----PhysicalOlapScan[partsupp]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
@@ -140,7 +140,7 @@ PhysicalResultSink
 ----PhysicalOlapScan[partsupp]
 
 Hint log:
-Used: [broadcast]_2
+Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 

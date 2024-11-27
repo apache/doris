@@ -52,6 +52,8 @@ public:
 
     int slot_id() const { return _slot_id; }
 
+    bool equals(const VExpr& other) override;
+
 private:
     int _slot_id;
     int _column_id;

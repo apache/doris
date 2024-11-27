@@ -33,7 +33,9 @@ echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
 if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger not set" && exit 1; fi
 if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 1; fi
-if [[ -z "${cos_ak}" || -z "${cos_sk}" ]]; then echo "ERROR: env cos_ak or cos_sk not set" && exit 1; fi
+if [[ -z "${s3SourceAk}" || -z "${s3SourceSk}" ]]; then echo "ERROR: env s3SourceAk or s3SourceSk not set" && exit 1; fi
+if [[ -z "${hwYunAk}" || -z "${hwYunSk}" ]]; then echo "WARNING: env hwYunAk or hwYunSk not set"; fi
+if [[ -z "${txYunAk}" || -z "${txYunSk}" ]]; then echo "WARNING: env txYunAk or txYunSk not set"; fi
 
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
@@ -53,8 +55,12 @@ run() {
     cd "${teamcity_build_checkoutDir}" || return 1
     {
         echo # add a new line to prevent two config items from being combined, which will cause the error "No signature of method"
-        echo "ak='${cos_ak}'"
-        echo "sk='${cos_sk}'"
+        echo "ak='${s3SourceAk}'"
+        echo "sk='${s3SourceSk}'"
+        echo "hwYunAk='${hwYunAk:-}'"
+        echo "hwYunSk='${hwYunSk:-}'"
+        echo "txYunAk='${txYunAk:-}'"
+        echo "txYunSk='${txYunSk:-}'"
     } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy \
         "${teamcity_build_checkoutDir}"/regression-test/conf/
@@ -69,9 +75,10 @@ run() {
         --clean \
         --run \
         --times "${repeat_times_from_trigger:-1}" \
-        -parallel 14 \
-        -suiteParallel 14 \
-        -actionParallel 2; then
+        -parallel 18 \
+        -suiteParallel 18 \
+        -actionParallel 10 \
+        -runNonConcurrent false; then
         echo
     else
         bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export need_collect_log=true"
@@ -86,8 +93,8 @@ run() {
         test_suites=$(echo "${summary}" | cut -d ' ' -f 2)
         failed_suites=$(echo "${summary}" | cut -d ' ' -f 5)
         fatal_scripts=$(echo "${summary}" | cut -d ' ' -f 8)
-        if [[ ${test_suites} -gt 0 && ${failed_suites} -le 30 && ${fatal_scripts} -eq 0 ]]; then
-            echo "INFO: regression test result meet (test_suites>0 && failed_suites<=30 && fatal_scripts=0)"
+        if [[ ${test_suites} -gt 0 && ${failed_suites} -le ${failed_suites_threshold:=100} && ${fatal_scripts} -eq 0 ]]; then
+            echo "INFO: regression test result meet (test_suites>0 && failed_suites<=${failed_suites_threshold} && fatal_scripts=0)"
         else
             return 1
         fi

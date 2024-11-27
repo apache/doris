@@ -24,6 +24,8 @@
 #include <iostream>
 #include <string>
 
+#include "olap/olap_common.h"
+
 namespace doris {
 
 inline const __int128 MAX_INT128 = ~((__int128)0x01 << 127);
@@ -36,6 +38,9 @@ public:
     }
 
     static std::string to_string(__int128 value) { return fmt::format(FMT_COMPILE("{}"), value); }
+    static std::string to_string(__uint128_t value) {
+        return fmt::format(FMT_COMPILE("{}"), value);
+    }
 };
 
 std::ostream& operator<<(std::ostream& os, __int128 const& value);

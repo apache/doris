@@ -389,7 +389,7 @@ public class TransactionState implements Writable {
     }
 
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {
-        if (this.subTxnIdToTableCommitInfo.isEmpty()) {
+        if (this.subTxnIds == null) {
             this.publishVersionTasks.put(backendId, Lists.newArrayList(task));
         } else {
             this.publishVersionTasks.computeIfAbsent(backendId, k -> Lists.newArrayList()).add(task);
@@ -427,6 +427,10 @@ public class TransactionState implements Writable {
 
     public TUniqueId getRequestId() {
         return requestId;
+    }
+
+    public void setTransactionId(long transactionId) {
+        this.transactionId = transactionId;
     }
 
     public long getTransactionId() {
@@ -822,7 +826,7 @@ public class TransactionState implements Writable {
     public void pruneAfterVisible() {
         publishVersionTasks.clear();
         tableIdToTabletDeltaRows.clear();
-        // TODO if subTransactionStates can be cleared?
+        involvedBackends.clear();
     }
 
     public void setSchemaForPartialUpdate(OlapTable olapTable) {

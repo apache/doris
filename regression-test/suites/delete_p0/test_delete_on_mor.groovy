@@ -19,22 +19,12 @@ suite("test_delete_on_mor") {
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
-    for (def use_nereids_planner : [false, true]) {
-        logger.info("current params: use_nereids_planner: ${use_nereids_planner}")
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
-            sql "use ${db};"
-            if (use_nereids_planner) {
-                sql """ set enable_nereids_dml = true; """
-                sql """ set enable_nereids_planner=true; """
-                sql """ set enable_fallback_to_original_planner=false; """
-            } else {
-                sql """ set enable_nereids_dml = false; """
-                sql """ set enable_nereids_planner = false; """
-            }
+    connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        sql "use ${db};"
 
-            def tableA = "test_delete_on_mor1"
-            sql """ DROP TABLE IF EXISTS ${tableA} """
-            sql """ CREATE TABLE IF NOT EXISTS ${tableA} (
+        def tableA = "test_delete_on_mor1"
+        sql """ DROP TABLE IF EXISTS ${tableA} """
+        sql """ CREATE TABLE IF NOT EXISTS ${tableA} (
                 `user_id` LARGEINT NOT NULL COMMENT "用户id",
                 `username` VARCHAR(50) NOT NULL COMMENT "用户昵称",
                 `city` VARCHAR(20) COMMENT "用户所在城市",
@@ -47,9 +37,9 @@ suite("test_delete_on_mor") {
                     "replication_allocation" = "tag.location.default: 1"
                 );"""
 
-            def tableB = "test_delete_on_mor2"
-            sql """ DROP TABLE IF EXISTS ${tableB} """
-            sql """ CREATE TABLE IF NOT EXISTS ${tableB} (
+        def tableB = "test_delete_on_mor2"
+        sql """ DROP TABLE IF EXISTS ${tableB} """
+        sql """ CREATE TABLE IF NOT EXISTS ${tableB} (
                 `user_id` LARGEINT NOT NULL COMMENT "用户id",
                 `username` VARCHAR(50) NOT NULL COMMENT "用户昵称",
                 `city` VARCHAR(20) COMMENT "用户所在城市",
@@ -62,7 +52,7 @@ suite("test_delete_on_mor") {
                     "replication_allocation" = "tag.location.default: 1"
                 );"""
 
-            sql """insert into ${tableA} values
+        sql """insert into ${tableA} values
                 (10000,"u1","北京",19,1),
                 (10000,"u1","北京",20,1),
                 (10001,"u3","北京",30,0),
@@ -71,7 +61,7 @@ suite("test_delete_on_mor") {
                 (10004,"u6","重庆",35,1),
                 (10004,"u7","重庆",35,1);  """
 
-            sql """insert into ${tableB} values
+        sql """insert into ${tableB} values
                 (10000,"u1","北京",18,1),
                 (10000,"u1","北京",20,1),
                 (10001,"u3","北京",30,0),
@@ -79,17 +69,17 @@ suite("test_delete_on_mor") {
                 (10003,"u5","广州",32,0),
                 (10004,"u6","深圳",35,1),
                 (10004,"u7","深圳",35,1); """
-            
-            sql "sync;"
-            qt_sql "select * from ${tableA} order by user_id;"
-            qt_sql "select * from ${tableB} order by user_id;"
-            sql """ DELETE FROM ${tableA} a USING ${tableB} b
+
+        sql "sync;"
+        qt_sql "select * from ${tableA} order by user_id;"
+        qt_sql "select * from ${tableB} order by user_id;"
+        sql """ DELETE FROM ${tableA} a USING ${tableB} b
                 WHERE a.user_id = b.user_id AND a.city = b.city
                 and b.city = '北京' AND b.age = 20;"""
-            sql "sync;"
-            qt_sql "select * from ${tableA} order by user_id;"
+        sql "sync;"
+        qt_sql "select * from ${tableA} order by user_id;"
 
-            sql """DELETE from ${tableA} USING
+        sql """DELETE from ${tableA} USING
             (
                 SELECT a.user_id, a.city
                 FROM ${tableA} a
@@ -97,10 +87,9 @@ suite("test_delete_on_mor") {
                 WHERE ${tableB}.city = '上海' AND ${tableB}.age = 20
             ) AS matched_rows
             WHERE ${tableA}.user_id = matched_rows.user_id AND ${tableA}.city = matched_rows.city; """
-            qt_sql "select * from ${tableA} order by user_id;"
+        qt_sql "select * from ${tableA} order by user_id;"
 
-            sql "DROP TABLE IF EXISTS ${tableA};"
-            sql "DROP TABLE IF EXISTS ${tableB};"
-        }
+        sql "DROP TABLE IF EXISTS ${tableA};"
+        sql "DROP TABLE IF EXISTS ${tableB};"
     }
 }

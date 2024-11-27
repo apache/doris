@@ -47,6 +47,9 @@ struct TTabletSchema {
     19: optional list<i32> cluster_key_idxes
     // col unique id for row store column
     20: optional list<i32> row_store_col_cids
+    21: optional i64 row_store_page_size = 16384
+    22: optional bool variant_enable_flatten_nested = false 
+    23: optional i64 storage_page_size = 65536
 }
 
 // this enum stands for different storage format in src_backends
@@ -309,6 +312,7 @@ struct TCloneReq {
     10: optional i32 timeout_s;
     11: optional Types.TReplicaId replica_id = 0
     12: optional i64 partition_id
+    13: optional i64 table_id = -1
 }
 
 struct TCompactionReq {
@@ -386,6 +390,7 @@ struct TSnapshotRequest {
     11: optional Types.TVersion start_version
     12: optional Types.TVersion end_version
     13: optional bool is_copy_binlog
+    14: optional Types.TTabletId ref_tablet_id
 }
 
 struct TReleaseSnapshotRequest {
@@ -432,6 +437,10 @@ struct TCalcDeleteBitmapPartitionInfo {
     1: required Types.TPartitionId partition_id
     2: required Types.TVersion version
     3: required list<Types.TTabletId> tablet_ids
+    4: optional list<i64> base_compaction_cnts
+    5: optional list<i64> cumulative_compaction_cnts
+    6: optional list<i64> cumulative_points
+    7: optional list<i64> sub_txn_ids
 }
 
 struct TCalcDeleteBitmapRequest {
@@ -564,7 +573,7 @@ struct TTopicItem {
 }
 
 enum TTopicType {
-    RESOURCE
+    RESOURCE = 0
 }
 
 struct TTopicUpdate {

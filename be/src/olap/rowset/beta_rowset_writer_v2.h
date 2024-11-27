@@ -130,6 +130,8 @@ public:
 
     int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
 
+    int32_t next_segment_id() { return _segment_creator.next_segment_id(); };
+
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
 
     int64_t segment_writer_ns() override { return _segment_writer_ns; }
@@ -139,7 +141,7 @@ public:
     }
 
     bool is_partial_update() override {
-        return _context.partial_update_info && _context.partial_update_info->is_partial_update;
+        return _context.partial_update_info && _context.partial_update_info->is_partial_update();
     }
 
 private:
@@ -152,6 +154,7 @@ private:
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
 
     SegmentFileCollection _seg_files;
+    InvertedIndexFileCollection _idx_files;
 
     SegmentCreator _segment_creator;
 

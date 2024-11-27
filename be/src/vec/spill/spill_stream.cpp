@@ -34,6 +34,7 @@
 #include "vec/spill/spill_writer.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* data_dir,
                          std::string spill_dir, size_t batch_rows, size_t batch_bytes,
                          RuntimeProfile* profile)
@@ -68,11 +69,14 @@ void SpillStream::gc() {
             LOG_EVERY_T(WARNING, 1) << fmt::format("failed to gc spill data, dir {}, error: {}",
                                                    query_gc_dir, status.to_string());
         }
-        // decrease spill data usage anyway, since in ~QueryContext() spill data of the query will be
-        // clean up as a last resort
-        data_dir_->update_spill_data_usage(-total_written_bytes_);
-        total_written_bytes_ = 0;
     }
+    // If QueryContext is destructed earlier than PipelineFragmentContext,
+    // spill_dir_ will be already moved to spill_gc directory.
+
+    // decrease spill data usage anyway, since in ~QueryContext() spill data of the query will be
+    // clean up as a last resort
+    data_dir_->update_spill_data_usage(-total_written_bytes_);
+    total_written_bytes_ = 0;
 }
 
 Status SpillStream::prepare() {
@@ -116,10 +120,10 @@ Status SpillStream::spill_eof() {
     DBUG_EXECUTE_IF("fault_inject::spill_stream::spill_eof", {
         return Status::Error<INTERNAL_ERROR>("fault_inject spill_stream spill_eof failed");
     });
-    RETURN_IF_ERROR(writer_->close());
+    auto status = writer_->close();
     total_written_bytes_ = writer_->get_written_bytes();
     writer_.reset();
-    return Status::OK();
+    return status;
 }
 
 Status SpillStream::read_next_block_sync(Block* block, bool* eos) {

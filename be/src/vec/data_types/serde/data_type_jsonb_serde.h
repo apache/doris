@@ -38,18 +38,18 @@ public:
     DataTypeJsonbSerDe(int nesting_level = 1) : DataTypeStringSerDe(nesting_level) {};
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const,
+                                 int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const,
+                                 int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override;
 
-    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+    Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
-    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+    Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
@@ -61,20 +61,24 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int start, int end,
+                               int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
     Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                   rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int row_num) const override;
+                                  int64_t row_num) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
-                              int end) const override;
+    Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                              int64_t end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const, const FormatOptions& options) const;
+                                  int64_t row_idx, bool col_const,
+                                  const FormatOptions& options) const;
 };
+
+void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
+                                rapidjson::Document::AllocatorType& allocator);
 } // namespace vectorized
 } // namespace doris

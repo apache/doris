@@ -7,9 +7,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------filter((main.k1 = 1))
 ----------PhysicalOlapScan[test]
 --PhysicalResultSink
-----hashJoin[INNER_JOIN] hashCondition=((m1.k1 = m2.k1)) otherCondition=()
+----hashJoin[INNER_JOIN] hashCondition=((m1.k1 = m2.k1)) otherCondition=() build RFs:RF0 k1->[k1]
 ------filter((temp.k1 = 1))
---------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF0
 ------filter((m2.k1 = 1))
 --------PhysicalCteConsumer ( cteId=CTEId#0 )
 
@@ -21,9 +21,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalOlapScan[test]
 --PhysicalResultSink
-----hashJoin[INNER_JOIN] hashCondition=((m1.k1 = m2.k1)) otherCondition=()
+----hashJoin[INNER_JOIN] hashCondition=((m1.k1 = m2.k1)) otherCondition=() build RFs:RF0 k1->[k1]
 ------filter((temp.k1 = 1))
---------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF0
 ------filter((m2.k1 = 1))
 --------PhysicalCteConsumer ( cteId=CTEId#0 )
 

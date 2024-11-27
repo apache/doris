@@ -72,6 +72,8 @@ struct TFinishTaskRequest {
     17: optional map<Types.TTabletId, Types.TVersion> succ_tablets
     18: optional map<i64, i64> table_id_to_delta_num_rows
     19: optional map<i64, map<i64, i64>> table_id_to_tablet_id_to_delta_num_rows
+    // for Cloud mow table only, used by FE to check if the response is for the latest request
+    20: optional list<AgentService.TCalcDeleteBitmapPartitionInfo> resp_partitions;
 }
 
 struct TTablet {
@@ -112,6 +114,8 @@ struct TReportRequest {
     11: i32 num_cores
     12: i32 pipeline_executor_size
     13: optional map<Types.TPartitionId, Types.TVersion> partitions_version
+    // tablet num in be, in cloud num_tablets may not eq tablet_list.size()
+    14: optional i64 num_tablets
 }
 
 struct TMasterResult {

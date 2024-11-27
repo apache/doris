@@ -24,7 +24,7 @@ import org.apache.doris.common.UserException;
 //
 // syntax:
 //      RESUME SYNC JOB [db.]jobName
-public class ResumeSyncJobStmt extends DdlStmt {
+public class ResumeSyncJobStmt extends DdlStmt implements NotFallbackInParser {
 
     private JobName jobName;
 
@@ -52,5 +52,10 @@ public class ResumeSyncJobStmt extends DdlStmt {
         stringBuilder.append("RESUME SYNC JOB ");
         stringBuilder.append(jobName.toSql());
         return stringBuilder.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.RESUME;
     }
 }

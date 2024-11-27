@@ -85,7 +85,7 @@ public class CostBasedRewriteJob implements RewriteJob {
         }
         if (checkHint.first) {
             checkHint.second.setStatus(Hint.HintStatus.SUCCESS);
-            if (((UseCboRuleHint) checkHint.second).isNotUseCboRule()) {
+            if (!((UseCboRuleHint) checkHint.second).isNotUseCboRule()) {
                 currentCtx.setRewritePlan(applyCboRuleCtx.getRewritePlan());
             }
             return;

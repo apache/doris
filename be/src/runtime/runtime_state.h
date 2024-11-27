@@ -38,6 +38,7 @@
 #include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
@@ -50,6 +51,10 @@
 
 namespace doris {
 class IRuntimeFilter;
+
+inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
+    return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
+}
 
 namespace pipeline {
 class PipelineXLocalStateBase;
@@ -113,12 +118,6 @@ public:
         return _query_options.__isset.scan_queue_mem_limit ? _query_options.scan_queue_mem_limit
                                                            : _query_options.mem_limit / 20;
     }
-    int64_t query_mem_limit() const {
-        if (_query_options.__isset.mem_limit && (_query_options.mem_limit > 0)) {
-            return _query_options.mem_limit;
-        }
-        return 0;
-    }
 
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
@@ -174,7 +173,7 @@ public:
                _query_options.check_overflow_for_decimal;
     }
 
-    bool enable_decima256() const {
+    bool enable_decimal256() const {
         return _query_options.__isset.enable_decimal256 && _query_options.enable_decimal256;
     }
 
@@ -263,7 +262,7 @@ public:
 
     int64_t load_job_id() const { return _load_job_id; }
 
-    std::string get_error_log_file_path() const;
+    std::string get_error_log_file_path();
 
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
@@ -343,8 +342,6 @@ public:
     bool disable_stream_preaggregations() const {
         return _query_options.disable_stream_preaggregations;
     }
-
-    bool enable_spill() const { return _query_options.enable_spilling; }
 
     int32_t runtime_filter_wait_time_ms() const {
         return _query_options.runtime_filter_wait_time_ms;
@@ -439,28 +436,20 @@ public:
 
     std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
 
-    // get mem limit for load channel
-    // if load mem limit is not set, or is zero, using query mem limit instead.
-    int64_t get_load_mem_limit();
-
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
     // runtime filter mgr can release the memory of local runtime filter
-    RuntimeFilterMgr* local_runtime_filter_mgr() {
-        if (_pipeline_x_runtime_filter_mgr) {
-            return _pipeline_x_runtime_filter_mgr;
-        } else {
-            return _runtime_filter_mgr.get();
-        }
-    }
+    RuntimeFilterMgr* local_runtime_filter_mgr() { return _runtime_filter_mgr; }
 
     RuntimeFilterMgr* global_runtime_filter_mgr();
 
-    void set_pipeline_x_runtime_filter_mgr(RuntimeFilterMgr* pipeline_x_runtime_filter_mgr) {
-        _pipeline_x_runtime_filter_mgr = pipeline_x_runtime_filter_mgr;
+    void set_runtime_filter_mgr(RuntimeFilterMgr* runtime_filter_mgr) {
+        _runtime_filter_mgr = runtime_filter_mgr;
     }
 
     QueryContext* get_query_ctx() { return _query_ctx; }
+
+    std::weak_ptr<QueryContext> get_query_ctx_weak();
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
@@ -472,9 +461,15 @@ public:
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
 
-    bool enable_scan_node_run_serial() const {
-        return _query_options.__isset.enable_scan_node_run_serial &&
-               _query_options.enable_scan_node_run_serial;
+    bool enable_verbose_profile() const {
+        return enable_profile() && _query_options.__isset.enable_verbose_profile &&
+               _query_options.enable_verbose_profile;
+    }
+
+    int rpc_verbose_profile_max_instance_count() const {
+        return _query_options.__isset.rpc_verbose_profile_max_instance_count
+                       ? _query_options.rpc_verbose_profile_max_instance_count
+                       : 0;
     }
 
     bool enable_share_hash_table_for_broadcast_join() const {
@@ -502,21 +497,22 @@ public:
                        : 0;
     }
 
+    int partition_topn_max_partitions() const {
+        return _query_options.__isset.partition_topn_max_partitions
+                       ? _query_options.partition_topn_max_partitions
+                       : 1024;
+    }
+
+    int partition_topn_per_partition_rows() const {
+        return _query_options.__isset.partition_topn_pre_partition_rows
+                       ? _query_options.partition_topn_pre_partition_rows
+                       : 1000;
+    }
+
     int64_t parallel_scan_min_rows_per_scanner() const {
         return _query_options.__isset.parallel_scan_min_rows_per_scanner
                        ? _query_options.parallel_scan_min_rows_per_scanner
                        : 0;
-    }
-
-    int repeat_max_num() const {
-#ifndef BE_TEST
-        if (!_query_options.__isset.repeat_max_num) {
-            return 10000;
-        }
-        return _query_options.repeat_max_num;
-#else
-        return 10;
-#endif
     }
 
     int64_t external_sort_bytes_threshold() const {
@@ -527,12 +523,6 @@ public:
     }
 
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
-
-    int64_t external_agg_bytes_threshold() const {
-        return _query_options.__isset.external_agg_bytes_threshold
-                       ? _query_options.external_agg_bytes_threshold
-                       : 0;
-    }
 
     inline bool enable_delete_sub_pred_v2() const {
         return _query_options.__isset.enable_delete_sub_predicate_v2 &&
@@ -571,13 +561,12 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            bool need_local_merge,
-                                            doris::IRuntimeFilter** producer_filter,
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter,
                                             bool build_bf_exactly);
 
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
-                                            doris::IRuntimeFilter** producer_filter);
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
     bool is_nereids() const;
 
     bool enable_join_spill() const {
@@ -606,9 +595,9 @@ public:
 
     int64_t min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
-            return _query_options.min_revocable_mem;
+            return std::max(_query_options.min_revocable_mem, (int64_t)1);
         }
-        return 0;
+        return 1;
     }
 
     void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }
@@ -626,10 +615,6 @@ public:
     void set_task_num(int task_num) { _task_num = task_num; }
 
     int task_num() const { return _task_num; }
-
-    vectorized::ColumnInt64* partial_update_auto_inc_column() {
-        return _partial_update_auto_inc_column;
-    };
 
 private:
     Status create_error_log_file();
@@ -653,11 +638,8 @@ private:
     const DescriptorTbl* _desc_tbl = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
 
-    // runtime filter
-    std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
-
     // owned by PipelineFragmentContext
-    RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
+    RuntimeFilterMgr* _runtime_filter_mgr = nullptr;
 
     // Lock protecting _error_log and _unreported_error_idx
     std::mutex _error_log_lock;
@@ -718,10 +700,9 @@ private:
     size_t _content_length = 0;
 
     // mini load
-    int64_t _normal_row_number;
     int64_t _error_row_number;
     std::string _error_log_file_path;
-    std::ofstream* _error_log_file = nullptr; // error file path, absolute path
+    std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
@@ -749,17 +730,18 @@ private:
     // prohibit copies
     RuntimeState(const RuntimeState&);
 
-    vectorized::ColumnInt64* _partial_update_auto_inc_column;
-
     // save error log to s3
     std::shared_ptr<io::S3FileSystem> _s3_error_fs;
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
+    std::mutex _s3_error_log_file_lock;
 };
 
-#define RETURN_IF_CANCELLED(state)                                                    \
-    do {                                                                              \
-        if (UNLIKELY((state)->is_cancelled())) return Status::Cancelled("Cancelled"); \
+#define RETURN_IF_CANCELLED(state)               \
+    do {                                         \
+        if (UNLIKELY((state)->is_cancelled())) { \
+            return (state)->cancel_reason();     \
+        }                                        \
     } while (false)
 
 } // namespace doris

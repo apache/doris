@@ -47,6 +47,7 @@ suite("test_delete"){
     "enable_single_replica_compaction" = "false"
     );
     """
+    sql """ set enable_common_expr_pushdown = true """
 
     sql """ INSERT INTO `${indexTblName}`(`a`, `b`, `c`) VALUES ('1', '6afef581285b6608bf80d5a4e46cf839', 'aaa'), ('2', '48a33ec3453a28bce84b8f96fe161956', 'bbb'),
                                                                 ('3', '021603e7dcfe65d44af0efd0e5aee154', 'ccc'), ('4', 'ee27ee1da291e46403c408e220bed6e1', 'ddd'),

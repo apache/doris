@@ -17,8 +17,11 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetUserPropertyVar;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -84,6 +87,7 @@ public class UserProperty implements Writable {
     public static final String PROP_WORKLOAD_GROUP = "default_workload_group";
 
     public static final String DEFAULT_CLOUD_CLUSTER = "default_cloud_cluster";
+    public static final String DEFAULT_COMPUTE_GROUP = "default_compute_group";
 
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
@@ -142,6 +146,7 @@ public class UserProperty implements Writable {
                 Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_WORKLOAD_GROUP + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_CLOUD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_COMPUTE_GROUP + "$", Pattern.CASE_INSENSITIVE));
     }
 
     public UserProperty() {
@@ -255,14 +260,9 @@ public class UserProperty implements Writable {
 
                 newDefaultLoadCluster = value;
             }  else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
-                // set property "DEFAULT_CLOUD_CLUSTER" = "cluster1"
-                if (keyArr.length != 1) {
-                    throw new DdlException(DEFAULT_CLOUD_CLUSTER + " format error");
-                }
-                if (value == null) {
-                    value = "";
-                }
-                newDefaultCloudCluster = value;
+                newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_CLOUD_CLUSTER, isReplay);
+            } else if (keyArr[0].equalsIgnoreCase(DEFAULT_COMPUTE_GROUP)) {
+                newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_COMPUTE_GROUP, isReplay);
             } else if (keyArr[0].equalsIgnoreCase(PROP_MAX_QUERY_INSTANCES)) {
                 // set property "max_query_instances" = "1000"
                 if (keyArr.length != 1) {
@@ -388,6 +388,30 @@ public class UserProperty implements Writable {
         }
         clusterToDppConfig = newDppConfigs;
         defaultCloudCluster = newDefaultCloudCluster;
+    }
+
+    private String checkCloudDefaultCluster(String[] keyArr, String value, String defaultComputeGroup, boolean isReplay)
+            throws ComputeGroupException, DdlException {
+        // isReplay not check auth, not throw exception
+        if (isReplay) {
+            return value;
+        }
+        // check cluster auth
+        if (!Strings.isNullOrEmpty(value) && !Env.getCurrentEnv().getAuth().checkCloudPriv(
+            new UserIdentity(qualifiedUser, "%"), value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+            throw new ComputeGroupException(String.format("set default compute group failed, "
+                + "user %s has no permission to use compute group '%s', please grant use privilege first ",
+                qualifiedUser, value),
+                ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP);
+        }
+        // set property "DEFAULT_CLOUD_CLUSTER" = "cluster1"
+        if (keyArr.length != 1) {
+            throw new DdlException(defaultComputeGroup + " format error");
+        }
+        if (value == null) {
+            value = "";
+        }
+        return value;
     }
 
     private long getLongProperty(String key, String value, String[] keyArr, String propName) throws DdlException {
@@ -534,6 +558,13 @@ public class UserProperty implements Writable {
             result.add(Lists.newArrayList(DEFAULT_CLOUD_CLUSTER, defaultCloudCluster));
         } else {
             result.add(Lists.newArrayList(DEFAULT_CLOUD_CLUSTER, ""));
+        }
+
+        // default cloud cluster
+        if (defaultCloudCluster != null) {
+            result.add(Lists.newArrayList(DEFAULT_COMPUTE_GROUP, defaultCloudCluster));
+        } else {
+            result.add(Lists.newArrayList(DEFAULT_COMPUTE_GROUP, ""));
         }
 
         for (Map.Entry<String, DppConfig> entry : clusterToDppConfig.entrySet()) {

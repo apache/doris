@@ -333,4 +333,9 @@ public abstract class InsertStmt extends DdlStmt implements NotFallbackInParser 
         String toSql();
 
     }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSERT;
+    }
 }

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS `customer` (
 UNIQUE KEY (`c_custkey`)
 DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 10
 PROPERTIES (
+"enable_mow_light_delete" = "true",
 "function_column.sequence_col" = 'c_custkey',
 "compression"="zstd",
 "replication_num" = "1",

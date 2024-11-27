@@ -51,6 +51,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class DeltaWriterV2;
 class RuntimeProfile;
@@ -70,7 +71,8 @@ public:
             int64_t tablet_id, std::function<std::unique_ptr<DeltaWriterV2>()> creator);
 
     // close all delta writers in this DeltaWriterV2Map if there is no other users
-    Status close(RuntimeProfile* profile = nullptr);
+    Status close(std::unordered_map<int64_t, int32_t>& segments_for_tablet,
+                 RuntimeProfile* profile = nullptr);
 
     // cancel all delta writers in this DeltaWriterV2Map
     void cancel(Status status);
@@ -107,3 +109,5 @@ private:
 
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -17,15 +17,18 @@
 
 #include "cloud/config.h"
 
+#include "common/status.h"
+
 namespace doris::config {
 
-DEFINE_String(cloud_unique_id, "");
-DEFINE_String(meta_service_endpoint, "");
+DEFINE_String(deploy_mode, "");
+DEFINE_mString(cloud_unique_id, "");
+DEFINE_mString(meta_service_endpoint, "");
 DEFINE_Bool(meta_service_use_load_balancer, "false");
 DEFINE_mInt32(meta_service_rpc_timeout_ms, "10000");
 DEFINE_Bool(meta_service_connection_pooled, "true");
 DEFINE_mInt64(meta_service_connection_pool_size, "20");
-DEFINE_mInt32(meta_service_connection_age_base_minutes, "5");
+DEFINE_mInt32(meta_service_connection_age_base_seconds, "30");
 DEFINE_mInt32(meta_service_idle_connection_timeout_ms, "0");
 DEFINE_mInt32(meta_service_rpc_retry_times, "200");
 DEFINE_mInt32(meta_service_brpc_timeout_ms, "10000");
@@ -35,7 +38,7 @@ DEFINE_Int64(tablet_cache_shards, "16");
 DEFINE_mInt32(tablet_sync_interval_s, "1800");
 
 DEFINE_mInt64(min_compaction_failure_interval_ms, "5000");
-DEFINE_mInt64(base_compaction_freeze_interval_s, "86400");
+DEFINE_mInt64(base_compaction_freeze_interval_s, "7200");
 DEFINE_mInt64(cu_compaction_freeze_interval_s, "1200");
 DEFINE_mInt64(cumu_compaction_interval_s, "1800");
 
@@ -48,6 +51,7 @@ DEFINE_mDouble(cumu_compaction_thread_num_factor, "0.5");
 DEFINE_mInt32(check_auto_compaction_interval_seconds, "5");
 DEFINE_mInt32(max_base_compaction_task_num_per_disk, "2");
 DEFINE_mBool(prioritize_query_perf_in_compaction, "false");
+DEFINE_mInt32(compaction_max_rowset_count, "10000");
 
 DEFINE_mInt32(refresh_s3_info_interval_s, "60");
 DEFINE_mInt32(vacuum_stale_rowsets_interval_s, "300");
@@ -59,4 +63,17 @@ DEFINE_mBool(save_load_error_log_to_s3, "false");
 
 DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 
+DEFINE_mBool(enable_new_tablet_do_compaction, "false");
+
+DEFINE_Int32(delete_bitmap_lock_expiration_seconds, "10");
+
+DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
+
+DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
+
+DEFINE_mInt32(tablet_txn_info_min_expired_seconds, "120");
+
+DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
+
+DEFINE_mBool(enable_cloud_tablet_report, "true");
 } // namespace doris::config

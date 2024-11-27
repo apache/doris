@@ -28,7 +28,7 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -60,7 +60,7 @@ public class UserManager implements Writable, GsonPostProcessable {
     public static final String ANY_HOST = "%";
     private static final Logger LOG = LogManager.getLogger(UserManager.class);
 
-    private static final QueryableReentrantReadWriteLock rwLock = new QueryableReentrantReadWriteLock(false);
+    private static final MonitoredReentrantReadWriteLock rwLock = new MonitoredReentrantReadWriteLock(false);
     private static final Lock rlock = rwLock.readLock();
     private static final Lock wlock = rwLock.writeLock();
 

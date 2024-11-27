@@ -204,12 +204,23 @@ public:
                 return bf->test_bytes(_value.data, _value.size);
             } else {
                 // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
-                // Datev1/DatetimeV1 using VecDatetimeValue in bloom filter, NO need to convert.
                 if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
                     decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
                     return bf->test_bytes(
                             const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
                             sizeof(decimal12_t));
+                    // Datev1 using uint24_t in bloom filter
+                } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
+                    uint24_t date_value(_value.to_olap_date());
+                    return bf->test_bytes(
+                            const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
+                            sizeof(uint24_t));
+                    // DatetimeV1 using int64_t in bloom filter
+                } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
+                    int64_t datetime_value(_value.to_olap_datetime());
+                    return bf->test_bytes(
+                            const_cast<char*>(reinterpret_cast<const char*>(&datetime_value)),
+                            sizeof(int64_t));
                 } else {
                     return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
                                           sizeof(T));
@@ -246,21 +257,24 @@ public:
     template <bool is_and>
     __attribute__((flatten)) void _evaluate_vec_internal(const vectorized::IColumn& column,
                                                          uint16_t size, bool* flags) const {
-        if (_can_ignore() && !_has_calculate_filter) {
+        uint16_t current_evaluated_rows = 0;
+        uint16_t current_passed_rows = 0;
+        if (_can_ignore()) {
             if (is_and) {
                 for (uint16_t i = 0; i < size; i++) {
-                    _evaluated_rows += flags[i];
+                    current_evaluated_rows += flags[i];
                 }
             } else {
-                _evaluated_rows += size;
+                current_evaluated_rows += size;
             }
+            _evaluated_rows += current_evaluated_rows;
         }
 
         if (column.is_nullable()) {
             const auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+            const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                            nullable_column_ptr->get_null_map_column())
                                            .get_data();
 
@@ -336,13 +350,13 @@ public:
             }
         }
 
-        if (_can_ignore() && !_has_calculate_filter) {
+        if (_can_ignore()) {
             for (uint16_t i = 0; i < size; i++) {
-                _passed_rows += flags[i];
+                current_passed_rows += flags[i];
             }
-            vectorized::VRuntimeFilterWrapper::calculate_filter(
-                    get_ignore_threshold(), _evaluated_rows - _passed_rows, _evaluated_rows,
-                    _has_calculate_filter, _always_true);
+            _passed_rows += current_passed_rows;
+            do_judge_selectivity(current_evaluated_rows - current_passed_rows,
+                                 current_evaluated_rows);
         }
     }
 
@@ -356,8 +370,7 @@ public:
         _evaluate_vec_internal<true>(column, size, flags);
     }
 
-    // todo: It may be necessary to set a more reasonable threshold
-    double get_ignore_threshold() const override { return 0.1; }
+    double get_ignore_threshold() const override { return get_comparison_ignore_thredhold(); }
 
 private:
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
@@ -366,7 +379,7 @@ private:
             const auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+            const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                            nullable_column_ptr->get_null_map_column())
                                            .get_data();
 
@@ -449,12 +462,12 @@ private:
     void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
         if (column.is_nullable()) {
-            auto* nullable_column_ptr =
+            const auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            auto& nested_column = nullable_column_ptr->get_nested_column();
-            auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                     nullable_column_ptr->get_null_map_column())
-                                     .get_data();
+            const auto& nested_column = nullable_column_ptr->get_nested_column();
+            const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
+                                           nullable_column_ptr->get_null_map_column())
+                                           .get_data();
 
             _base_evaluate_bit<true, is_and>(&nested_column, null_map.data(), sel, size, flags);
         } else {
@@ -468,7 +481,7 @@ private:
                                                  const TArray* __restrict data_array,
                                                  const TValue& value) const {
         //uint8_t helps compiler to generate vectorized code
-        uint8_t* flags = reinterpret_cast<uint8_t*>(bflags);
+        auto* flags = reinterpret_cast<uint8_t*>(bflags);
         if constexpr (is_and) {
             for (uint16_t i = 0; i < size; i++) {
                 if constexpr (is_nullable) {
@@ -514,9 +527,9 @@ private:
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
             if constexpr (std::is_same_v<T, StringRef>) {
-                auto* dict_column_ptr =
+                const auto* dict_column_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
-                auto* data_array = dict_column_ptr->get_data().data();
+                const auto* data_array = dict_column_ptr->get_data().data();
                 auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
                 _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
                                                     dict_code);
@@ -540,10 +553,10 @@ private:
                             uint16_t* sel, uint16_t size) const {
         if (column->is_column_dictionary()) {
             if constexpr (std::is_same_v<T, StringRef>) {
-                auto* dict_column_ptr =
+                const auto* dict_column_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
-                auto& pred_col = dict_column_ptr->get_data();
-                auto pred_col_data = pred_col.data();
+                const auto& pred_col = dict_column_ptr->get_data();
+                const auto* pred_col_data = pred_col.data();
                 auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
 
                 if constexpr (PT == PredicateType::EQ) {

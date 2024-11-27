@@ -17,7 +17,6 @@
 
 package org.apache.doris.plugin.audit;
 
-import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginContext;

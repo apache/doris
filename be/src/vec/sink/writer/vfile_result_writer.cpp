@@ -60,17 +60,18 @@
 
 namespace doris::vectorized {
 
-VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
-        : AsyncResultWriter(output_exprs) {}
+VFileResultWriter::VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                                     std::shared_ptr<pipeline::Dependency> dep,
+                                     std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_exprs, dep, fin_dep) {}
 
-VFileResultWriter::VFileResultWriter(const pipeline::ResultFileOptions* file_opts,
-                                     const TStorageBackendType::type storage_type,
-                                     const TUniqueId fragment_instance_id,
-                                     const VExprContextSPtrs& output_vexpr_ctxs,
-                                     std::shared_ptr<BufferControlBlock> sinker,
-                                     Block* output_block, bool output_object_data,
-                                     const RowDescriptor& output_row_descriptor)
-        : AsyncResultWriter(output_vexpr_ctxs),
+VFileResultWriter::VFileResultWriter(
+        const pipeline::ResultFileOptions* file_opts, const TStorageBackendType::type storage_type,
+        const TUniqueId fragment_instance_id, const VExprContextSPtrs& output_vexpr_ctxs,
+        std::shared_ptr<BufferControlBlock> sinker, Block* output_block, bool output_object_data,
+        const RowDescriptor& output_row_descriptor, std::shared_ptr<pipeline::Dependency> dep,
+        std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_vexpr_ctxs, dep, fin_dep),
           _file_opts(file_opts),
           _storage_type(storage_type),
           _fragment_instance_id(fragment_instance_id),
@@ -83,6 +84,11 @@ VFileResultWriter::VFileResultWriter(const pipeline::ResultFileOptions* file_opt
 Status VFileResultWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
     _init_profile(profile);
+    // check orc writer version
+    if (_file_opts->file_format == TFileFormatType::FORMAT_ORC &&
+        _file_opts->orc_writer_version < 1) {
+        return Status::InternalError("orc writer version is less than 1.");
+    }
     // Delete existing files
     if (_file_opts->delete_existing_files) {
         RETURN_IF_ERROR(_delete_dir());

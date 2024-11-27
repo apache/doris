@@ -21,10 +21,6 @@
 #include "vec/sink/writer/vfile_result_writer.h"
 
 namespace doris::vectorized {
-template <typename Parent>
-class BlockSerializer;
-template <typename Parent>
-class Channel;
 class BroadcastPBlockHolder;
 } // namespace doris::vectorized
 
@@ -40,38 +36,16 @@ public:
     ~ResultFileSinkLocalState() override;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
     [[nodiscard]] int sender_id() const { return _sender_id; }
 
-    RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
-    RuntimeProfile::Counter* local_send_timer() { return _local_send_timer; }
-    RuntimeProfile::Counter* brpc_send_timer() { return _brpc_send_timer; }
-    RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
-    RuntimeProfile::Counter* split_block_distribute_by_channel_timer() {
-        return _split_block_distribute_by_channel_timer;
-    }
-
 private:
     friend class ResultFileSinkOperatorX;
 
-    template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
-
-    std::unique_ptr<vectorized::Block> _output_block;
     std::shared_ptr<BufferControlBlock> _sender;
 
-    std::vector<vectorized::Channel<ResultFileSinkLocalState>*> _channels;
-    bool _only_local_exchange = false;
-    std::unique_ptr<vectorized::BlockSerializer<ResultFileSinkLocalState>> _serializer;
     std::shared_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
-    RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
-    RuntimeProfile::Counter* _local_send_timer = nullptr;
-    RuntimeProfile::Counter* _brpc_send_timer = nullptr;
-    RuntimeProfile::Counter* _merge_block_timer = nullptr;
-    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer = nullptr;
-
     int _sender_id;
 };
 
@@ -85,7 +59,6 @@ public:
                             const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
     Status init(const TDataSink& thrift_sink) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -108,11 +81,11 @@ private:
     // Owned by the RuntimeState.
     RowDescriptor _output_row_descriptor;
     int _buf_size = 4096; // Allocated from _pool
-    bool _is_top_sink = true;
     std::string _header;
     std::string _header_type;
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    std::shared_ptr<BufferControlBlock> _sender = nullptr;
 };
 
 } // namespace doris::pipeline

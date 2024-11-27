@@ -36,7 +36,7 @@ import lombok.Getter;
  **/
 @AllArgsConstructor
 @Getter
-public class ShowCreateMaterializedViewStmt extends ShowStmt {
+public class ShowCreateMaterializedViewStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()

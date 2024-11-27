@@ -22,7 +22,7 @@ suite("test_grant_auth","p0,auth") {
     String pwd = 'C123_567p'
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
-    sql """grant select_priv on `_internal_schema`.* to ${user}"""
+    sql """grant select_priv on `__internal_schema`.* to ${user}"""
 
     try_sql("DROP USER ${user}")
 }

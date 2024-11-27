@@ -26,9 +26,12 @@
 #include <ostream>
 #include <string>
 
+#include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/storage_engine.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/heartbeat_flags.h"
@@ -47,15 +50,15 @@ class TProcessor;
 
 namespace doris {
 
-HeartbeatServer::HeartbeatServer(TMasterInfo* master_info)
+HeartbeatServer::HeartbeatServer(ClusterInfo* cluster_info)
         : _engine(ExecEnv::GetInstance()->storage_engine()),
-          _master_info(master_info),
+          _cluster_info(cluster_info),
           _fe_epoch(0) {
     _be_epoch = GetCurrentTimeMicros() / 1000;
 }
 
 void HeartbeatServer::init_cluster_id() {
-    _master_info->cluster_id = _engine.effective_cluster_id();
+    _cluster_info->cluster_id = _engine.effective_cluster_id();
 }
 
 void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
@@ -63,7 +66,7 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
     //print heartbeat in every minute
     LOG_EVERY_N(INFO, 12) << "get heartbeat from FE."
                           << "host:" << master_info.network_address.hostname
-                          << ", port:" << master_info.network_address.port
+                          << ", rpc port:" << master_info.network_address.port
                           << ", cluster id:" << master_info.cluster_id
                           << ", frontend_info:" << PrintFrontendInfos(master_info.frontend_infos)
                           << ", counter:" << google::COUNTER << ", BE start time: " << _be_epoch;
@@ -106,22 +109,23 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     std::lock_guard<std::mutex> lk(_hb_mtx);
 
     // Check cluster id
-    if (_master_info->cluster_id == -1) {
+    if (_cluster_info->cluster_id == -1) {
         LOG(INFO) << "get first heartbeat. update cluster id";
         // write and update cluster id
         RETURN_IF_ERROR(_engine.set_cluster_id(master_info.cluster_id));
 
-        _master_info->cluster_id = master_info.cluster_id;
+        _cluster_info->cluster_id = master_info.cluster_id;
         LOG(INFO) << "record cluster id. host: " << master_info.network_address.hostname
                   << ". port: " << master_info.network_address.port
                   << ". cluster id: " << master_info.cluster_id
                   << ". frontend_infos: " << PrintFrontendInfos(master_info.frontend_infos);
     } else {
-        if (_master_info->cluster_id != master_info.cluster_id) {
+        if (_cluster_info->cluster_id != master_info.cluster_id) {
             return Status::InternalError(
                     "invalid cluster id. ignore. Record cluster id ={}, record frontend info {}. "
                     "Invalid cluster_id={}, invalid frontend info {}",
-                    _master_info->cluster_id, PrintFrontendInfos(_master_info->frontend_infos),
+                    _cluster_info->cluster_id,
+                    PrintFrontendInfos(ExecEnv::GetInstance()->get_frontends()),
                     master_info.cluster_id, PrintFrontendInfos(master_info.frontend_infos));
         }
     }
@@ -181,22 +185,22 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     }
 
     bool need_report = false;
-    if (_master_info->network_address.hostname != master_info.network_address.hostname ||
-        _master_info->network_address.port != master_info.network_address.port) {
+    if (_cluster_info->master_fe_addr.hostname != master_info.network_address.hostname ||
+        _cluster_info->master_fe_addr.port != master_info.network_address.port) {
         if (master_info.epoch > _fe_epoch) {
-            _master_info->network_address.hostname = master_info.network_address.hostname;
-            _master_info->network_address.port = master_info.network_address.port;
+            _cluster_info->master_fe_addr.hostname = master_info.network_address.hostname;
+            _cluster_info->master_fe_addr.port = master_info.network_address.port;
             _fe_epoch = master_info.epoch;
             need_report = true;
             LOG(INFO) << "master change. new master host: "
-                      << _master_info->network_address.hostname
-                      << ". port: " << _master_info->network_address.port
+                      << _cluster_info->master_fe_addr.hostname
+                      << ". port: " << _cluster_info->master_fe_addr.port
                       << ". epoch: " << _fe_epoch;
         } else {
             return Status::InternalError(
                     "epoch is not greater than local. ignore heartbeat. host: {}, port: {}, local "
                     "epoch: {}, received epoch: {}",
-                    _master_info->network_address.hostname, _master_info->network_address.port,
+                    _cluster_info->master_fe_addr.hostname, _cluster_info->master_fe_addr.port,
                     _fe_epoch, master_info.epoch);
         }
     } else {
@@ -209,16 +213,17 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     }
 
     if (master_info.__isset.token) {
-        if (!_master_info->__isset.token) {
-            _master_info->__set_token(master_info.token);
-            LOG(INFO) << "get token. token: " << _master_info->token;
-        } else if (_master_info->token != master_info.token) {
-            return Status::InternalError("invalid token");
+        if (_cluster_info->token == "") {
+            _cluster_info->token = master_info.token;
+            LOG(INFO) << "get token. token: " << _cluster_info->token;
+        } else if (_cluster_info->token != master_info.token) {
+            return Status::InternalError("invalid token. local: {}, master: {}",
+                                         _cluster_info->token, master_info.token);
         }
     }
 
     if (master_info.__isset.http_port) {
-        _master_info->__set_http_port(master_info.http_port);
+        _cluster_info->master_fe_http_port = master_info.http_port;
     }
 
     if (master_info.__isset.heartbeat_flags) {
@@ -227,7 +232,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     }
 
     if (master_info.__isset.backend_id) {
-        _master_info->__set_backend_id(master_info.backend_id);
+        _cluster_info->backend_id = master_info.backend_id;
         BackendOptions::set_backend_id(master_info.backend_id);
     }
     if (master_info.__isset.frontend_infos) {
@@ -237,6 +242,58 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 "Heartbeat from {}:{} does not have frontend_infos, this may because we are "
                 "upgrading cluster",
                 master_info.network_address.hostname, master_info.network_address.port);
+    }
+
+    if (master_info.__isset.meta_service_endpoint != config::is_cloud_mode()) {
+        LOG(WARNING) << "Detected mismatch in cloud mode configuration between FE and BE. "
+                     << "FE cloud mode: "
+                     << (master_info.__isset.meta_service_endpoint ? "true" : "false")
+                     << ", BE cloud mode: " << (config::is_cloud_mode() ? "true" : "false")
+                     << ". If fe is earlier than version 3.0.2, the message can be ignored.";
+    }
+
+    if (master_info.__isset.meta_service_endpoint) {
+        if (config::meta_service_endpoint.empty() && !master_info.meta_service_endpoint.empty()) {
+            auto st = config::set_config("meta_service_endpoint", master_info.meta_service_endpoint,
+                                         true);
+            LOG(INFO) << "set config meta_service_endpoing " << master_info.meta_service_endpoint
+                      << " " << st;
+        }
+
+        if (master_info.meta_service_endpoint != config::meta_service_endpoint) {
+            LOG(WARNING) << "Detected mismatch in meta_service_endpoint configuration between FE "
+                            "and BE. "
+                         << "FE meta_service_endpoint: " << master_info.meta_service_endpoint
+                         << ", BE meta_service_endpoint: " << config::meta_service_endpoint;
+            return Status::InvalidArgument<false>(
+                    "fe and be do not work in same mode, fe meta_service_endpoint: {},"
+                    " be meta_service_endpoint: {}",
+                    master_info.meta_service_endpoint, config::meta_service_endpoint);
+        }
+    }
+
+    if (master_info.__isset.cloud_unique_id &&
+        config::cloud_unique_id != master_info.cloud_unique_id &&
+        config::enable_use_cloud_unique_id_from_fe) {
+        auto st = config::set_config("cloud_unique_id", master_info.cloud_unique_id, true);
+        LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
+    }
+
+    if (master_info.__isset.tablet_report_inactive_duration_ms) {
+        doris::g_tablet_report_inactive_duration_ms =
+                master_info.tablet_report_inactive_duration_ms;
+    }
+
+    if (master_info.__isset.auth_token) {
+        if (_cluster_info->curr_auth_token == "") {
+            _cluster_info->curr_auth_token = master_info.auth_token;
+            LOG(INFO) << "set new auth token: " << master_info.auth_token;
+        } else if (_cluster_info->curr_auth_token != master_info.auth_token) {
+            LOG(INFO) << "last auth token: " << _cluster_info->last_auth_token
+                      << "set new auth token: " << master_info.auth_token;
+            _cluster_info->last_auth_token = _cluster_info->curr_auth_token;
+            _cluster_info->curr_auth_token = master_info.auth_token;
+        }
     }
 
     if (need_report) {
@@ -249,8 +306,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
 Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
                                std::unique_ptr<ThriftServer>* thrift_server,
-                               uint32_t worker_thread_num, TMasterInfo* local_master_info) {
-    HeartbeatServer* heartbeat_server = new HeartbeatServer(local_master_info);
+                               uint32_t worker_thread_num, ClusterInfo* cluster_info) {
+    HeartbeatServer* heartbeat_server = new HeartbeatServer(cluster_info);
     if (heartbeat_server == nullptr) {
         return Status::InternalError("Get heartbeat server failed");
     }

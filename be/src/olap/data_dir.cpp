@@ -1006,6 +1006,7 @@ void DataDir::perform_remote_rowset_gc() {
         auto st = fs->batch_delete(seg_paths);
         if (st.ok()) {
             deleted_keys.push_back(std::move(key));
+            unused_remote_rowset_num << -1;
         } else {
             LOG(WARNING) << "failed to delete remote rowset. err=" << st;
         }

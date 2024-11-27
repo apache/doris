@@ -46,7 +46,7 @@ class BaseTabletsChannel;
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
-                std::string sender_ip, int64_t backend_id, bool enable_profile);
+                std::string sender_ip, int64_t backend_id, bool enable_profile, int64_t wg_id);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -104,7 +104,7 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<BaseTabletsChannel>> _tablets_channels;
     // index id -> (received rows, filtered rows)
     std::unordered_map<int64_t, std::pair<size_t, size_t>> _tablets_channels_rows;
-    SpinLock _tablets_channels_lock;
+    std::mutex _tablets_channels_lock;
     // This is to save finished channels id, to handle the retry request.
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened

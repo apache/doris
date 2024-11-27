@@ -90,7 +90,7 @@ suite("test_generated_column") {
     ;
     """
     qt_gencol_array_function_insert "insert into test_gen_col_array_func values(1,[1,2],[3,2],default);"
-    qt_gencol_array_function_select "select * from test_gen_col_array_func"
+    qt_gencol_array_function_select "select pk,array_sort(a),array_sort(b),array_sort(c) from test_gen_col_array_func order by 1"
 
     sql "drop table if exists test_gen_col_element_at_func"
     qt_gencol_array_function_element_at_create """
@@ -100,7 +100,7 @@ suite("test_generated_column") {
     ;
     """
     qt_gencol_array_function_element_at_insert "insert into test_gen_col_element_at_func values(1,[1,2],[3,2],default);"
-    qt_gencol_array_function_element_at_select "select * from test_gen_col_element_at_func"
+    qt_gencol_array_function_element_at_select "select pk,array_sort(a),array_sort(b),c from test_gen_col_element_at_func order by 1"
 
     sql "drop table if exists gencol_like_t;"
     qt_create_table_like "create table gencol_like_t like test_gen_col_common;"

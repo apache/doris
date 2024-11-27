@@ -20,25 +20,28 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.datasource.statistics.CommonStatistics;
+import org.apache.doris.datasource.statistics.CommonStatistics.ReduceOperator;
+
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 
 public class HivePartitionStatistics {
     public static final HivePartitionStatistics EMPTY =
-            new HivePartitionStatistics(HiveCommonStatistics.EMPTY, ImmutableMap.of());
+            new HivePartitionStatistics(CommonStatistics.EMPTY, ImmutableMap.of());
 
-    private final HiveCommonStatistics commonStatistics;
+    private final CommonStatistics commonStatistics;
     private final Map<String, HiveColumnStatistics> columnStatisticsMap;
 
     public HivePartitionStatistics(
-            HiveCommonStatistics commonStatistics,
+            CommonStatistics commonStatistics,
             Map<String, HiveColumnStatistics> columnStatisticsMap) {
         this.commonStatistics = commonStatistics;
         this.columnStatisticsMap = columnStatisticsMap;
     }
 
-    public HiveCommonStatistics getCommonStatistics() {
+    public CommonStatistics getCommonStatistics() {
         return commonStatistics;
     }
 
@@ -48,7 +51,7 @@ public class HivePartitionStatistics {
 
     public static HivePartitionStatistics fromCommonStatistics(long rowCount, long fileCount, long totalFileBytes) {
         return new HivePartitionStatistics(
-                new HiveCommonStatistics(rowCount, fileCount, totalFileBytes),
+                new CommonStatistics(rowCount, fileCount, totalFileBytes),
                 ImmutableMap.of()
         );
     }
@@ -62,56 +65,32 @@ public class HivePartitionStatistics {
         }
 
         return new HivePartitionStatistics(
-            reduce(current.getCommonStatistics(), update.getCommonStatistics(), ReduceOperator.ADD),
-            // TODO merge columnStatisticsMap
-            current.getColumnStatisticsMap());
+                CommonStatistics
+                        .reduce(current.getCommonStatistics(), update.getCommonStatistics(), ReduceOperator.ADD),
+                // TODO merge columnStatisticsMap
+                current.getColumnStatisticsMap());
     }
 
     public static HivePartitionStatistics reduce(
             HivePartitionStatistics first,
             HivePartitionStatistics second,
             ReduceOperator operator) {
-        HiveCommonStatistics left = first.getCommonStatistics();
-        HiveCommonStatistics right = second.getCommonStatistics();
+        CommonStatistics left = first.getCommonStatistics();
+        CommonStatistics right = second.getCommonStatistics();
         return HivePartitionStatistics.fromCommonStatistics(
-            reduce(left.getRowCount(), right.getRowCount(), operator),
-            reduce(left.getFileCount(), right.getFileCount(), operator),
-            reduce(left.getTotalFileBytes(), right.getTotalFileBytes(), operator));
+                CommonStatistics.reduce(left.getRowCount(), right.getRowCount(), operator),
+                CommonStatistics.reduce(left.getFileCount(), right.getFileCount(), operator),
+                CommonStatistics.reduce(left.getTotalFileBytes(), right.getTotalFileBytes(), operator));
     }
 
-    public static HiveCommonStatistics reduce(
-            HiveCommonStatistics current,
-            HiveCommonStatistics update,
+    public static CommonStatistics reduce(
+            CommonStatistics current,
+            CommonStatistics update,
             ReduceOperator operator) {
-        return new HiveCommonStatistics(
-            reduce(current.getRowCount(), update.getRowCount(), operator),
-            reduce(current.getFileCount(), update.getFileCount(), operator),
-            reduce(current.getTotalFileBytes(), update.getTotalFileBytes(), operator));
+        return new CommonStatistics(
+                CommonStatistics.reduce(current.getRowCount(), update.getRowCount(), operator),
+                CommonStatistics.reduce(current.getFileCount(), update.getFileCount(), operator),
+                CommonStatistics.reduce(current.getTotalFileBytes(), update.getTotalFileBytes(), operator));
     }
 
-    public static long reduce(long current, long update, ReduceOperator operator) {
-        if (current >= 0 && update >= 0) {
-            switch (operator) {
-                case ADD:
-                    return current + update;
-                case SUBTRACT:
-                    return current - update;
-                case MAX:
-                    return Math.max(current, update);
-                case MIN:
-                    return Math.min(current, update);
-                default:
-                    throw new IllegalArgumentException("Unexpected operator: " + operator);
-            }
-        }
-
-        return 0;
-    }
-
-    public enum ReduceOperator {
-        ADD,
-        SUBTRACT,
-        MIN,
-        MAX,
-    }
 }

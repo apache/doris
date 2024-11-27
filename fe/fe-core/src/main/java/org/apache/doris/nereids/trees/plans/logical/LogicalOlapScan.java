@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -46,7 +48,9 @@ import com.google.common.collect.Maps;
 import org.apache.commons.lang3.tuple.Pair;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -62,6 +66,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     // Members for materialized index.
     ///////////////////////////////////////////////////////////////////////////
 
+    /**
     /**
      * The select materialized index id to read data from.
      */
@@ -495,7 +500,17 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             return;
         }
         Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
-        if (getTable().getKeysType().isAggregationFamily()) {
+        if (getTable() instanceof MTMV) {
+            MTMV mtmv = (MTMV) getTable();
+            MTMVCache cache = mtmv.getCache();
+            // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
+            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
+                return;
+            }
+            Plan originalPlan = cache.getOriginalPlan();
+            builder.addUniqueSlot(originalPlan.getLogicalProperties().getTrait());
+            builder.replaceUniqueBy(constructReplaceMap(mtmv));
+        } else if (getTable().getKeysType().isAggregationFamily() && !getTable().isRandomDistribution()) {
             ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
             for (Slot slot : outputSet) {
                 if (!(slot instanceof SlotReference)) {
@@ -508,5 +523,73 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             }
             builder.addUniqueSlot(uniqSlots.build());
         }
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        if (getTable() instanceof MTMV) {
+            MTMV mtmv = (MTMV) getTable();
+            MTMVCache cache = mtmv.getCache();
+            // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
+            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
+                return;
+            }
+            Plan originalPlan = cache.getOriginalPlan();
+            builder.addUniformSlot(originalPlan.getLogicalProperties().getTrait());
+            builder.replaceUniformBy(constructReplaceMap(mtmv));
+        }
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        if (getTable() instanceof MTMV) {
+            MTMV mtmv = (MTMV) getTable();
+            MTMVCache cache = mtmv.getCache();
+            // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
+            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
+                return;
+            }
+            Plan originalPlan = cache.getOriginalPlan();
+            builder.addEqualSet(originalPlan.getLogicalProperties().getTrait());
+            builder.replaceEqualSetBy(constructReplaceMap(mtmv));
+        }
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        if (getTable() instanceof MTMV) {
+            MTMV mtmv = (MTMV) getTable();
+            MTMVCache cache = mtmv.getCache();
+            // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
+            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
+                return;
+            }
+            Plan originalPlan = cache.getOriginalPlan();
+            builder.addFuncDepsDG(originalPlan.getLogicalProperties().getTrait());
+            builder.replaceFuncDepsBy(constructReplaceMap(mtmv));
+        }
+    }
+
+    Map<Slot, Slot> constructReplaceMap(MTMV mtmv) {
+        Map<Slot, Slot> replaceMap = new HashMap<>();
+        // Need remove invisible column, and then mapping them
+        List<Slot> originOutputs = new ArrayList<>();
+        for (Slot originSlot : mtmv.getCache().getOriginalPlan().getOutput()) {
+            if (!(originSlot instanceof SlotReference) || (((SlotReference) originSlot).isVisible())) {
+                originOutputs.add(originSlot);
+            }
+        }
+        List<Slot> targetOutputs = new ArrayList<>();
+        for (Slot targeSlot : getOutput()) {
+            if (!(targeSlot instanceof SlotReference) || (((SlotReference) targeSlot).isVisible())) {
+                targetOutputs.add(targeSlot);
+            }
+        }
+        Preconditions.checkArgument(originOutputs.size() == targetOutputs.size(),
+                "constructReplaceMap, the size of originOutputs and targetOutputs should be same");
+        for (int i = 0; i < targetOutputs.size(); i++) {
+            replaceMap.put(originOutputs.get(i), targetOutputs.get(i));
+        }
+        return replaceMap;
     }
 }

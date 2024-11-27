@@ -24,7 +24,9 @@
 #include <gen_cpp/PaloInternalService_types.h>
 
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -38,6 +40,7 @@
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class IndexChannel;
 class VNodeChannel;
@@ -129,15 +132,20 @@ public:
                                       std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                       int64_t& rows_stat_val);
     bool need_deal_batching() const { return _deal_batched && _batching_rows > 0; }
+    size_t batching_rows() const { return _batching_rows; }
     // create partitions when need for auto-partition table using #_partitions_need_create.
     Status automatic_create_partition();
     void clear_batching_stats();
+
+    // for auto partition
+    std::unique_ptr<MutableBlock> _batching_block;
+    bool _deal_batched = false; // If true, send batched block before any block's append.
 
 private:
     std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs> _get_partition_function();
 
     Status _save_missing_values(std::vector<std::vector<std::string>>& col_strs, int col_size,
-                                Block* block, std::vector<int64_t> filter,
+                                Block* block, const std::vector<int64_t>& filter,
                                 const std::vector<const NullMap*>& col_null_maps);
 
     void _get_tablet_ids(vectorized::Block* block, int32_t index_idx,
@@ -156,31 +164,48 @@ private:
             vectorized::Block* block, const std::vector<uint16_t>& partition_col_idx,
             bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
             int64_t& rows_stat_val);
+    // the whole process to deal missing rows. will call _save_missing_values
+    Status _deal_missing_map(vectorized::Block* block,
+                             const std::vector<uint16_t>& partition_cols_idx,
+                             int64_t& rows_stat_val);
 
     Status _generate_rows_distribution_for_non_auto_partition(
             vectorized::Block* block, bool has_filtered_rows,
             std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
     Status _generate_rows_distribution_for_auto_overwrite(
-            vectorized::Block* block, bool has_filtered_rows,
-            std::vector<RowPartTabletIds>& row_part_tablet_ids);
+            vectorized::Block* block, const std::vector<uint16_t>& partition_cols_idx,
+            bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
+            int64_t& rows_stat_val);
     Status _replace_overwriting_partition();
 
     void _reset_row_part_tablet_ids(std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                     int64_t rows);
     void _reset_find_tablets(int64_t rows);
 
+    struct NullableStringListHash {
+        std::size_t _hash(const TNullableStringLiteral& arg) const {
+            if (arg.is_null) {
+                return 0;
+            }
+            return std::hash<std::string>()(arg.value);
+        }
+        std::size_t operator()(const std::vector<TNullableStringLiteral>& arg) const {
+            std::size_t result = 0;
+            for (const auto& v : arg) {
+                result = (result << 1) ^ _hash(v);
+            }
+            return result;
+        }
+    };
+
     RuntimeState* _state = nullptr;
     int _batch_size = 0;
 
     // for auto partitions
     std::vector<std::vector<TNullableStringLiteral>> _partitions_need_create;
-
-public:
-    std::unique_ptr<MutableBlock> _batching_block;
-    bool _deal_batched = false; // If true, send batched block before any block's append.
-private:
     size_t _batching_rows = 0, _batching_bytes = 0;
+    std::unordered_set<std::vector<TNullableStringLiteral>, NullableStringListHash> _deduper;
 
     OlapTableBlockConvertor* _block_convertor = nullptr;
     OlapTabletFinder* _tablet_finder = nullptr;
@@ -207,3 +232,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

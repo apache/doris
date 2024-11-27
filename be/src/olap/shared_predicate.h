@@ -167,9 +167,9 @@ private:
     std::string _debug_string() const override {
         std::shared_lock<std::shared_mutex> lock(_mtx);
         if (!_nested) {
-            return "shared_predicate<unknow>";
+            return "shared_predicate(unknow)";
         }
-        return "shared_predicate<" + _nested->debug_string() + ">";
+        return "shared_predicate(" + _nested->debug_string() + ")";
     }
 
     mutable std::shared_mutex _mtx;

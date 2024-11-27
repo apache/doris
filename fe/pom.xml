@@ -239,16 +239,17 @@ under the License.
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-filerupload.version>1.5</commons-filerupload.version>
+        <commons-configuration2.version>2.11.0</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
         <commons-lang.version>2.6</commons-lang.version>
-        <commons-lang3.version>3.9</commons-lang3.version>
+        <commons-lang3.version>3.17.0</commons-lang3.version>
         <commons-pool2.version>2.2</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
         <commons-text.version>1.10.0</commons-text.version>
         <commons-validator.version>1.7</commons-validator.version>
         <gson.version>2.10.1</gson.version>
         <guava.version>32.1.2-jre</guava.version>
-        <jackson.version>2.15.2</jackson.version>
+        <jackson.version>2.16.0</jackson.version>
         <java-cup.version>0.11-a-czt02-cdh</java-cup.version>
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
@@ -258,7 +259,7 @@ under the License.
         <commons-io.version>2.7</commons-io.version>
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
-        <hikaricp.version>4.0.3</hikaricp.version>
+        <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed-core.version>8.5.86</tomcat-embed-core.version>
         <log4j2.version>2.18.0</log4j2.version>
@@ -266,13 +267,15 @@ under the License.
         <slf4j.version>2.0.6</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <!--Netty 4.1.94 is not compatible with arrow flight.-->
-        <netty-all.version>4.1.104.Final</netty-all.version>
+        <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
+        <netty-all.version>4.1.110.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
         <!-- NOTE: Using grpc-java whose version is newer than 1.34.0 will break the build on CentOS 6 due to the obsolete GLIBC -->
         <grpc-java.version>1.34.0</grpc-java.version>
-        <grpc.version>1.60.1</grpc.version>
+        <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
+        <grpc.version>1.63.0</grpc.version>
         <check.freamework.version>3.43.0</check.freamework.version>
         <protobuf.version>3.24.3</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
@@ -285,7 +288,7 @@ under the License.
         <automaton.version>1.11-8</automaton.version>
         <generex.version>1.0.1</generex.version>
         <fabric8.kubernetes.version>6.7.2</fabric8.kubernetes.version>
-        <logging-interceptor.version>4.7.2</logging-interceptor.version>
+        <logging-interceptor.version>4.12.0</logging-interceptor.version>
         <okhttp.version>4.9.3</okhttp.version>
         <okio.version>3.4.0</okio.version>
         <snakeyaml.version>2.0</snakeyaml.version>
@@ -310,17 +313,19 @@ under the License.
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.4.3</iceberg.version>
-        <maxcompute.version>0.45.2-public</maxcompute.version>
-        <avro.version>1.11.3</avro.version>
-        <arrow.version>15.0.2</arrow.version>
+        <maxcompute.version>0.49.0-public</maxcompute.version>
+        <avro.version>1.11.4</avro.version>
+        <arrow.version>17.0.0</arrow.version>
         <!-- hudi -->
         <hudi.version>0.14.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
+        <!-- lakesoul -->
+        <lakesoul.version>2.6.2</lakesoul.version>
 
         <parquet.version>1.13.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
-        <commons-compress.version>1.22</commons-compress.version>
+        <commons-compress.version>1.27.1</commons-compress.version>
         <scala.version>2.12.10</scala.version>
         <kryo.version>4.0.2</kryo.version>
         <lombok.version>1.18.24</lombok.version>
@@ -338,17 +343,21 @@ under the License.
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <spring.version>2.7.13</spring.version>
+        <spring.version>2.7.18</spring.version>
+        <spring-framework.version>5.3.39</spring-framework.version>
         <orc.version>1.8.4</orc.version>
-        <zookeeper.version>3.9.1</zookeeper.version>
-        <velocity-engine-core.version>2.3</velocity-engine-core.version>
+        <zookeeper.version>3.9.2</zookeeper.version>
+        <velocity-engine-core.version>2.4</velocity-engine-core.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <jetty.version>9.4.53.v20231009</jetty.version>
+        <jetty.version>9.4.56.v20240826</jetty.version>
         <immutables.version>2.9.3</immutables.version>
+        <ivy.version>2.5.2</ivy.version>
+        <icu4j.version>75.1</icu4j.version>
+        <ini4j.version>0.5.4</ini4j.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
         <aircompressor.version>0.27</aircompressor.version>
@@ -363,8 +372,10 @@ under the License.
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.version>202</airlift.version>
-        <azure.sdk.version>1.2.24</azure.sdk.version>
+        <azure.sdk.version>1.2.27</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
+        <semver4j.version>5.3.0</semver4j.version>
+        <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
     </properties>
     <profiles>
         <profile>
@@ -409,6 +420,55 @@ under the License.
     <dependencyManagement>
         <dependencies>
             <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-bom</artifactId>
+                <version>${netty-all.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-bom</artifactId>
+                <version>${grpc.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson.version}</version>
+                <scope>import</scope>
+                <type>pom</type>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.ivy</groupId>
+                <artifactId>ivy</artifactId>
+                <version>${ivy.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.ibm.icu</groupId>
+                <artifactId>icu4j</artifactId>
+                <version>${icu4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ini4j</groupId>
+                <artifactId>ini4j</artifactId>
+                <version>${ini4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-bom</artifactId>
+                <version>${jetty.version}</version>
+                <scope>import</scope>
+                <type>pom</type>
+            </dependency>
+            <dependency>
+                <groupId>org.glassfish</groupId>
+                <artifactId>javax.el</artifactId>
+                <scope>provided</scope>
+            </dependency>
+
+            <dependency>
                 <groupId>io.airlift</groupId>
                 <artifactId>aircompressor</artifactId>
                 <version>${aircompressor.version}</version>
@@ -427,6 +487,13 @@ under the License.
                 <groupId>org.apache.orc</groupId>
                 <artifactId>orc-core</artifactId>
                 <version>${orc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-framework-bom</artifactId>
+                <version>${spring-framework.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -645,31 +712,7 @@ under the License.
                     </exclusion>
                 </exclusions>
             </dependency>
-            <dependency>
-                <groupId>org.eclipse.jetty.websocket</groupId>
-                <artifactId>websocket-server</artifactId>
-                <version>${jetty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.eclipse.jetty.websocket</groupId>
-                <artifactId>websocket-client</artifactId>
-                <version>${jetty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.eclipse.jetty.websocket</groupId>
-                <artifactId>websocket-servlet</artifactId>
-                <version>${jetty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.eclipse.jetty.websocket</groupId>
-                <artifactId>websocket-common</artifactId>
-                <version>${jetty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.eclipse.jetty</groupId>
-                <artifactId>jetty-server</artifactId>
-                <version>${jetty.version}</version>
-            </dependency>
+
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>fe-common</artifactId>
@@ -703,6 +746,11 @@ under the License.
                 <groupId>commons-fileupload</groupId>
                 <artifactId>commons-fileupload</artifactId>
                 <version>${commons-filerupload.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-configuration2</artifactId>
+                <version>${commons-configuration2.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/commons-codec/commons-codec -->
@@ -762,17 +810,6 @@ under the License.
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava-testlib</artifactId>
                 <version>${guava.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-core -->
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-core</artifactId>
-                <version>${jackson.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/net.sourceforge.czt.dev/java-cup -->
             <dependency>
@@ -905,109 +942,6 @@ under the License.
                 <artifactId>metrics-core</artifactId>
                 <version>${metrics-core.version}</version>
             </dependency>
-            <!-- netty dependencies -->
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty</artifactId>
-                <scope>test</scope>
-                <version>${netty-3-test.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-all</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-buffer</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-common</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-udt</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-sctp</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-sctp</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-classes-kqueue</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-native-epoll</artifactId>
-                <classifier>linux-x86_64</classifier>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-rxtx</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-memcache</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-mqtt</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-http</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-http2</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-resolver</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-handler</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-classes-epoll</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-native-unix-common</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
             <!-- velocity-engine-core dependency-->
             <dependency>
                 <groupId>org.apache.velocity</groupId>
@@ -1053,32 +987,16 @@ under the License.
                         <groupId>org.elasticsearch</groupId>
                         <artifactId>*</artifactId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>com.sun.jersey</groupId>
+                        <artifactId>jersey-bundle</artifactId>
+                    </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.objenesis</groupId>
                 <artifactId>objenesis</artifactId>
                 <version>${objenesis.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-netty-shaded</artifactId>
-                <version>${grpc.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-protobuf</artifactId>
-                <version>${grpc.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-stub</artifactId>
-                <version>${grpc.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-core</artifactId>
-                <version>${grpc.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
             <dependency>
@@ -1115,30 +1033,6 @@ under the License.
                 <groupId>com.github.mifmif</groupId>
                 <artifactId>generex</artifactId>
                 <version>${generex.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-annotations -->
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-annotations</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-databind -->
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-databind</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.dataformat/jackson-dataformat-yaml -->
-            <dependency>
-                <groupId>com.fasterxml.jackson.dataformat</groupId>
-                <artifactId>jackson-dataformat-yaml</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.module/jackson-module-jaxb-annotations -->
-            <dependency>
-                <groupId>com.fasterxml.jackson.module</groupId>
-                <artifactId>jackson-module-jaxb-annotations</artifactId>
-                <version>${jackson.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/io.fabric8/kubernetes-client -->
             <dependency>
@@ -1202,6 +1096,8 @@ under the License.
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>kafka-clients</artifactId>
                 <version>${kafka-clients.version}</version>
+                <!--routine load test use kafka-clients-->
+                <scope>test</scope>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.github.oshi/oshi-core -->
             <dependency>
@@ -1313,6 +1209,10 @@ under the License.
                     <exclusion>
                         <artifactId>jackson-databind</artifactId>
                         <groupId>com.fasterxml.jackson.core</groupId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>javax.ws.rs</groupId>
+                        <artifactId>jsr311-api</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -1430,6 +1330,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro-ipc</artifactId>
+                <version>${avro.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro-mapred</artifactId>
                 <version>${avro.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
@@ -1638,23 +1543,8 @@ under the License.
                 <version>${tomcat-embed-core.version}</version>
             </dependency>
             <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-netty</artifactId>
-                <version>${grpc.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-context</artifactId>
-                <version>${grpc.version}</version>
-            </dependency>
-            <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-tcnative-boringssl-static</artifactId>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-api</artifactId>
-                <version>${grpc.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.google.flatbuffers</groupId>
@@ -1669,6 +1559,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>arrow-memory-netty</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-memory-netty-buffer-patch</artifactId>
                 <version>${arrow.version}</version>
             </dependency>
             <dependency>
@@ -1762,6 +1657,11 @@ under the License.
                 <version>${azure.sdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.semver4j</groupId>
+                <artifactId>semver4j</artifactId>
+                <version>${semver4j.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

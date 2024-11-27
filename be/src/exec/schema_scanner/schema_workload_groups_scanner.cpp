@@ -39,9 +39,11 @@ std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadGroupsScanner::_s_tbls_colu
         {"SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"MAX_REMOTE_SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"MIN_REMOTE_SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
-        {"SPILL_THRESHOLD_LOW_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"SPILL_THRESHOLD_HIGH_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"MEMORY_LOW_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"MEMORY_HIGH_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TAG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"READ_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
+        {"REMOTE_READ_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
 };
 
 SchemaWorkloadGroupsScanner::SchemaWorkloadGroupsScanner()
@@ -56,7 +58,7 @@ Status SchemaWorkloadGroupsScanner::start(RuntimeState* state) {
 }
 
 Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
 
     TSchemaTableRequestParams schema_table_request_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {
@@ -114,7 +116,7 @@ Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
     return Status::OK();
 }
 
-Status SchemaWorkloadGroupsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaWorkloadGroupsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

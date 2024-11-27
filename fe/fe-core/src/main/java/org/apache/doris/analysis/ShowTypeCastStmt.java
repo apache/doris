@@ -27,7 +27,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 
-public class ShowTypeCastStmt extends ShowStmt {
+public class ShowTypeCastStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Origin Type", ScalarType.createVarchar(32)))

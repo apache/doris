@@ -31,7 +31,7 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecGather]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------filter(((((store_sales.ss_list_price >= 150.00) AND (store_sales.ss_list_price <= 1.6E+2)) OR ((store_sales.ss_coupon_amt >= 6600.00) AND (store_sales.ss_coupon_amt <= 7.6E+3))) OR ((store_sales.ss_wholesale_cost >= 9.00) AND (store_sales.ss_wholesale_cost <= 29.00))) and (store_sales.ss_quantity <= 15) and (store_sales.ss_quantity >= 11))
+------------------------------filter(((((store_sales.ss_list_price >= 150.00) AND (store_sales.ss_list_price <= 160.00)) OR ((store_sales.ss_coupon_amt >= 6600.00) AND (store_sales.ss_coupon_amt <= 7600.00))) OR ((store_sales.ss_wholesale_cost >= 9.00) AND (store_sales.ss_wholesale_cost <= 29.00))) and (store_sales.ss_quantity <= 15) and (store_sales.ss_quantity >= 11))
 --------------------------------PhysicalOlapScan[store_sales]
 ----------------PhysicalLimit[LOCAL]
 ------------------hashAgg[GLOBAL]

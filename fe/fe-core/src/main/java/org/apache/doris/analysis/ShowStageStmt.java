@@ -30,7 +30,7 @@ import org.apache.logging.log4j.Logger;
 //
 // syntax:
 //      SHOW STAGES
-public class ShowStageStmt extends ShowStmt {
+public class ShowStageStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowStageStmt.class);
 
     private static final String NAME_COL = "StageName";

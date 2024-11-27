@@ -93,7 +93,9 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_convert_tz.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -117,8 +119,8 @@ inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column
               check_and_get_data_type<DataTypeUInt16>(arg_type) ||
               check_and_get_data_type<DataTypeUInt8>(arg_type);
     if (!ok) {
-        LOG(FATAL) << fmt::format("Illegal type of toDecimal() scale {}",
-                                  named_column.type->get_name());
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Illegal type of toDecimal() scale {}",
+                               named_column.type->get_name());
     }
 
     Field field;
@@ -145,7 +147,7 @@ struct TimeCast {
         } else {
             if (VecDateTimeValue dv {}; dv.from_date_str(s, len, local_time_zone)) {
                 // can be parse as a datetime
-                x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
+                x = TimeValue::make_time(dv.hour(), dv.minute(), dv.second());
                 return true;
             }
             return false;
@@ -210,7 +212,7 @@ struct TimeCast {
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = hour * 3600 + minute * 60 + second;
+        x = TimeValue::make_time(hour, minute, second);
         return true;
     }
     // Cast from number
@@ -227,7 +229,7 @@ struct TimeCast {
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = hour * 3600 + minute * 60 + second;
+        x = TimeValue::make_time(hour, minute, second);
         return true;
     }
     template <typename S>
@@ -243,7 +245,7 @@ struct TimeCast {
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = hour * 3600 + minute * 60 + second;
+        x = TimeValue::make_time(hour, minute, second);
         return true;
     }
 };
@@ -256,9 +258,24 @@ struct ConvertImpl {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
 
+    // `static_cast_set` is introduced to wrap `static_cast` and handle special cases.
+    // Doris uses `uint8` to represent boolean values internally.
+    // Directly `static_cast` to `uint8` can result in non-0/1 values,
+    // To address this, `static_cast_set` performs an additional check:
+    //  For `uint8` types, it explicitly uses `static_cast<bool>` to ensure
+    //  the result is either 0 or 1.
+    static void static_cast_set(ToFieldType& to, const FromFieldType& from) {
+        // uint8_t now use as boolean in doris
+        if constexpr (std::is_same_v<uint8_t, ToFieldType>) {
+            to = static_cast<bool>(from);
+        } else {
+            to = static_cast<ToFieldType>(from);
+        }
+    }
+
     template <typename Additions = void*>
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count,
+                          uint32_t result, size_t input_rows_count,
                           Additions additions = Additions()) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
@@ -375,8 +392,9 @@ struct ConvertImpl {
                     } else if constexpr (IsDateTimeV2Type<ToDataType>) {
                         DataTypeDateTimeV2::cast_from_date(vec_from[i], vec_to[i]);
                     } else {
-                        vec_to[i] =
-                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();
+                        static_cast_set(
+                                vec_to[i],
+                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
                     }
                 }
             } else if constexpr (IsTimeV2Type<FromDataType>) {
@@ -407,13 +425,16 @@ struct ConvertImpl {
                         }
                     } else {
                         if constexpr (IsDateTimeV2Type<FromDataType>) {
-                            vec_to[i] = reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
-                                                vec_from[i])
-                                                .to_int64();
+                            static_cast_set(
+                                    vec_to[i],
+                                    reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
+                                            vec_from[i])
+                                            .to_int64());
                         } else {
-                            vec_to[i] = reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
-                                                vec_from[i])
-                                                .to_int64();
+                            static_cast_set(vec_to[i],
+                                            reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
+                                                    vec_from[i])
+                                                    .to_int64());
                         }
                     }
                 }
@@ -428,21 +449,19 @@ struct ConvertImpl {
                     for (size_t i = 0; i < size; ++i) {
                         (*vec_null_map_to)[i] = !TimeCast::try_parse_time(
                                 vec_from[i], vec_to[i], context->state()->timezone_obj());
-                        vec_to[i] *= (1000 * 1000);
                     }
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
+                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>)&&(
+                                             std::is_same_v<ToDataType, DataTypeIPv6>)) {
+                    for (size_t i = 0; i < size; ++i) {
+                        map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
+                    }
                 } else {
                     for (size_t i = 0; i < size; ++i) {
-                        vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
+                        static_cast_set(vec_to[i], vec_from[i]);
                     }
-                }
-            }
-            // TODO: support boolean cast more reasonable
-            if constexpr (std::is_same_v<uint8_t, ToFieldType>) {
-                for (int i = 0; i < size; ++i) {
-                    vec_to[i] = static_cast<bool>(vec_to[i]);
                 }
             }
 
@@ -453,6 +472,12 @@ struct ConvertImpl {
         }
         return Status::OK();
     }
+
+private:
+    static void map_ipv4_to_ipv6(IPv4 ipv4, UInt8* buf) {
+        unaligned_store<UInt64>(buf, 0x0000FFFF00000000ULL | static_cast<UInt64>(ipv4));
+        unaligned_store<UInt64>(buf + 8, 0);
+    }
 };
 
 /** If types are identical, just take reference to column.
@@ -461,7 +486,7 @@ template <typename T, typename Name>
     requires(!T::is_parametric)
 struct ConvertImpl<T, T, Name> {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t /*input_rows_count*/) {
+                          uint32_t result, size_t /*input_rows_count*/) {
         block.get_by_position(result).column = block.get_by_position(arguments[0]).column;
         return Status::OK();
     }
@@ -474,7 +499,7 @@ struct ConvertImplToTimeType {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
 
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           size_t /*input_rows_count*/) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
@@ -552,14 +577,14 @@ struct ConvertImplGenericToString {
     }
 
     static Status execute2(FunctionContext* /*ctx*/, Block& block, const ColumnNumbers& arguments,
-                           const size_t result, size_t /*input_rows_count*/) {
+                           const uint32_t result, size_t /*input_rows_count*/) {
         return execute(block, arguments, result);
     }
 };
 //this is for data in compound type
 struct ConvertImplGenericFromString {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
         // result column must set type
@@ -576,6 +601,7 @@ struct ConvertImplGenericFromString {
             const bool is_complex = is_complex_type(data_type_to);
             DataTypeSerDe::FormatOptions format_options;
             format_options.converted_from_string = true;
+            format_options.escape_char = '\\';
 
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
@@ -612,7 +638,7 @@ struct ConvertImplGenericFromString {
 template <typename ColumnType>
 struct ConvertImplNumberToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
 
         auto column_string = ColumnString::create();
@@ -653,7 +679,7 @@ struct ConvertImplNumberToJsonb {
 
 struct ConvertImplStringToJsonbAsJsonbString {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         auto data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
@@ -677,7 +703,7 @@ struct ConvertImplStringToJsonbAsJsonbString {
 
 struct ConvertImplGenericFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         auto data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
@@ -718,14 +744,25 @@ struct ConvertImplGenericFromJsonb {
                 }
                 // add string to string column
                 if (context->jsonb_string_as_string() && is_dst_string && value->isString()) {
-                    auto blob = static_cast<const JsonbBlobVal*>(value);
-                    assert_cast<ColumnString&>(*col_to).insert_data(blob->getBlob(),
-                                                                    blob->getBlobLen());
+                    const auto* blob = static_cast<const JsonbBlobVal*>(value);
+                    assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(*col_to).insert_data(
+                            blob->getBlob(), blob->getBlobLen());
                     (*vec_null_map_to)[i] = 0;
                     continue;
                 }
-                std::string json_str = JsonbToJson::jsonb_to_json_string(val.data, val.size);
-                ReadBuffer read_buffer((char*)(json_str.data()), json_str.size());
+                std::string input_str;
+                if (context->jsonb_string_as_string() && value->isString()) {
+                    const auto* blob = static_cast<const JsonbBlobVal*>(value);
+                    input_str = std::string(blob->getBlob(), blob->getBlobLen());
+                } else {
+                    input_str = JsonbToJson::jsonb_to_json_string(val.data, val.size);
+                }
+                if (input_str.empty()) {
+                    col_to->insert_default();
+                    (*vec_null_map_to)[i] = 1;
+                    continue;
+                }
+                ReadBuffer read_buffer((char*)(input_str.data()), input_str.size());
                 Status st = data_type_to->from_string(read_buffer, col_to);
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
@@ -747,7 +784,7 @@ struct ConvertImplGenericFromJsonb {
 // Generic conversion of any type to jsonb.
 struct ConvertImplGenericToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         auto data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IDataType& type = *col_with_type_and_name.type;
@@ -798,10 +835,25 @@ struct ConvertImplGenericToJsonb {
     }
 };
 
+struct ConvertNothingToJsonb {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          const uint32_t result, size_t input_rows_count) {
+        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+        const IColumn& col_from = *col_with_type_and_name.column;
+        auto data_type_to = block.get_by_position(result).type;
+        size_t size = col_from.size();
+        auto col_to = data_type_to->create_column_const_with_default_value(size);
+        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 1);
+        block.replace_by_position(result, ColumnNullable::create(col_to->assume_mutable(),
+                                                                 std::move(col_null_map_to)));
+        return Status::OK();
+    }
+};
+
 template <TypeIndex type_index, typename ColumnType>
 struct ConvertImplFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
         // result column must set type
@@ -844,12 +896,19 @@ struct ConvertImplFromJsonb {
                     res[i] = 0;
                     continue;
                 }
-
                 if constexpr (type_index == TypeIndex::UInt8) {
+                    // cast from json value to boolean type
                     if (value->isTrue()) {
                         res[i] = 1;
                     } else if (value->isFalse()) {
                         res[i] = 0;
+                    } else if (value->isInt()) {
+                        res[i] = ((const JsonbIntVal*)value)->val() == 0 ? 0 : 1;
+                    } else if (value->isDouble()) {
+                        res[i] = static_cast<ColumnType::value_type>(
+                                         ((const JsonbDoubleVal*)value)->val()) == 0
+                                         ? 0
+                                         : 1;
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
@@ -859,15 +918,31 @@ struct ConvertImplFromJsonb {
                                      type_index == TypeIndex::Int32 ||
                                      type_index == TypeIndex::Int64 ||
                                      type_index == TypeIndex::Int128) {
+                    // cast from json value to integer types
                     if (value->isInt()) {
                         res[i] = ((const JsonbIntVal*)value)->val();
+                    } else if (value->isDouble()) {
+                        res[i] = static_cast<ColumnType::value_type>(
+                                ((const JsonbDoubleVal*)value)->val());
+                    } else if (value->isTrue()) {
+                        res[i] = 1;
+                    } else if (value->isFalse()) {
+                        res[i] = 0;
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
                     }
-                } else if constexpr (type_index == TypeIndex::Float64) {
+                } else if constexpr (type_index == TypeIndex::Float64 ||
+                                     type_index == TypeIndex::Float32) {
+                    // cast from json value to floating point types
                     if (value->isDouble()) {
                         res[i] = ((const JsonbDoubleVal*)value)->val();
+                    } else if (value->isFloat()) {
+                        res[i] = ((const JsonbFloatVal*)value)->val();
+                    } else if (value->isTrue()) {
+                        res[i] = 1;
+                    } else if (value->isFalse()) {
+                        res[i] = 0;
                     } else if (value->isInt()) {
                         res[i] = ((const JsonbIntVal*)value)->val();
                     } else {
@@ -896,7 +971,7 @@ struct ConvertImpl<DataTypeString, ToDataType, Name> {
     template <typename Additions = void*>
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count,
+                          uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
         return Status::RuntimeError("not support convert from string");
     }
@@ -966,9 +1041,9 @@ struct NameToDateTime {
     static constexpr auto name = "toDateTime";
 };
 
-template <typename DataType, typename Additions = void*, typename FromDataType = void*>
+template <typename DataType, typename FromDataType = void*>
 bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionContext* context,
-                    Additions additions [[maybe_unused]] = Additions()) {
+                    UInt32 scale [[maybe_unused]] = 0) {
     if constexpr (IsDateTimeType<DataType>) {
         return try_read_datetime_text(x, rb, context->state()->timezone_obj());
     }
@@ -982,7 +1057,6 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionCon
     }
 
     if constexpr (IsDateTimeV2Type<DataType>) {
-        UInt32 scale = additions;
         return try_read_datetime_v2_text(x, rb, context->state()->timezone_obj(), scale);
     }
 
@@ -1001,7 +1075,6 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionCon
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
         auto ret = TimeCast::try_parse_time(s, len, x, context->state()->timezone_obj());
-        x *= (1000 * 1000);
         return ret;
     }
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
@@ -1020,7 +1093,6 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionCon
 
 template <typename DataType, typename Additions = void*>
 StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x, ReadBuffer& rb,
-                                                 const cctz::time_zone& local_time_zone,
                                                  Additions additions
                                                  [[maybe_unused]] = Additions()) {
     if constexpr (IsDataTypeDecimalV2<DataType>) {
@@ -1054,167 +1126,9 @@ StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x
     }
 }
 
-/// Monotonicity.
-
-struct PositiveMonotonicity {
-    static bool has() { return true; }
-    static IFunction::Monotonicity get(const IDataType&, const Field&, const Field&) {
-        return {true};
-    }
-};
-
-struct UnknownMonotonicity {
-    static bool has() { return false; }
-    static IFunction::Monotonicity get(const IDataType&, const Field&, const Field&) {
-        return {false};
-    }
-};
-
-template <typename T>
-struct ToNumberMonotonicity {
-    static bool has() { return true; }
-
-    static UInt64 divide_by_range_of_type(UInt64 x) {
-        if constexpr (sizeof(T) < sizeof(UInt64))
-            return x >> (sizeof(T) * 8);
-        else
-            return 0;
-    }
-
-    static IFunction::Monotonicity get(const IDataType& type, const Field& left,
-                                       const Field& right) {
-        if (!type.is_value_represented_by_number()) return {};
-
-        /// If type is same, the conversion is always monotonic.
-        /// (Enum has separate case, because it is different data type)
-        if (check_and_get_data_type<DataTypeNumber<T>>(
-                    &type) /*|| check_and_get_data_type<DataTypeEnum<T>>(&type)*/)
-            return {true, true, true};
-
-        /// Float cases.
-
-        /// When converting to Float, the conversion is always monotonic.
-        if (std::is_floating_point_v<T>) return {true, true, true};
-
-        /// If converting from Float, for monotonicity, arguments must fit in range of result type.
-        if (WhichDataType(type).is_float()) {
-            if (left.is_null() || right.is_null()) return {};
-
-            Float64 left_float = left.get<Float64>();
-            Float64 right_float = right.get<Float64>();
-
-            if (left_float >= std::numeric_limits<T>::min() &&
-                left_float <= static_cast<Float64>(std::numeric_limits<T>::max()) &&
-                right_float >= std::numeric_limits<T>::min() &&
-                right_float <= static_cast<Float64>(std::numeric_limits<T>::max()))
-                return {true};
-
-            return {};
-        }
-
-        /// Integer cases.
-
-        const bool from_is_unsigned = type.is_value_represented_by_unsigned_integer();
-        const bool to_is_unsigned = std::is_unsigned_v<T>;
-
-        const size_t size_of_from = type.get_size_of_value_in_memory();
-        const size_t size_of_to = sizeof(T);
-
-        const bool left_in_first_half =
-                left.is_null() ? from_is_unsigned : (left.get<Int64>() >= 0);
-
-        const bool right_in_first_half =
-                right.is_null() ? !from_is_unsigned : (right.get<Int64>() >= 0);
-
-        /// Size of type is the same.
-        if (size_of_from == size_of_to) {
-            if (from_is_unsigned == to_is_unsigned) return {true, true, true};
-
-            if (left_in_first_half == right_in_first_half) return {true};
-
-            return {};
-        }
-
-        /// Size of type is expanded.
-        if (size_of_from < size_of_to) {
-            if (from_is_unsigned == to_is_unsigned) return {true, true, true};
-
-            if (!to_is_unsigned) return {true, true, true};
-
-            /// signed -> unsigned. If arguments from the same half, then function is monotonic.
-            if (left_in_first_half == right_in_first_half) return {true};
-
-            return {};
-        }
-
-        /// Size of type is shrinked.
-        if (size_of_from > size_of_to) {
-            /// Function cannot be monotonic on unbounded ranges.
-            if (left.is_null() || right.is_null()) return {};
-
-            if (from_is_unsigned == to_is_unsigned) {
-                /// all bits other than that fits, must be same.
-                if (divide_by_range_of_type(left.get<UInt64>()) ==
-                    divide_by_range_of_type(right.get<UInt64>()))
-                    return {true};
-
-                return {};
-            } else {
-                /// When signedness is changed, it's also required for arguments to be from the same half.
-                /// And they must be in the same half after converting to the result type.
-                if (left_in_first_half == right_in_first_half &&
-                    (T(left.get<Int64>()) >= 0) == (T(right.get<Int64>()) >= 0) &&
-                    divide_by_range_of_type(left.get<UInt64>()) ==
-                            divide_by_range_of_type(right.get<UInt64>()))
-                    return {true};
-
-                return {};
-            }
-        }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }
-};
-
-/** The monotonicity for the `to_string` function is mainly determined for test purposes.
-  * It is doubtful that anyone is looking to optimize queries with conditions `std::to_string(CounterID) = 34`.
-  */
-struct ToStringMonotonicity {
-    static bool has() { return true; }
-
-    static IFunction::Monotonicity get(const IDataType& type, const Field& left,
-                                       const Field& right) {
-        IFunction::Monotonicity positive(true, true);
-        IFunction::Monotonicity not_monotonic;
-
-        if (left.is_null() || right.is_null()) return {};
-
-        if (left.get_type() == Field::Types::UInt64 && right.get_type() == Field::Types::UInt64) {
-            return (left.get<Int64>() == 0 && right.get<Int64>() == 0) ||
-                                   (floor(log10(left.get<UInt64>())) ==
-                                    floor(log10(right.get<UInt64>())))
-                           ? positive
-                           : not_monotonic;
-        }
-
-        if (left.get_type() == Field::Types::Int64 && right.get_type() == Field::Types::Int64) {
-            return (left.get<Int64>() == 0 && right.get<Int64>() == 0) ||
-                                   (left.get<Int64>() > 0 && right.get<Int64>() > 0 &&
-                                    floor(log10(left.get<Int64>())) ==
-                                            floor(log10(right.get<Int64>())))
-                           ? positive
-                           : not_monotonic;
-        }
-
-        return not_monotonic;
-    }
-};
-
-template <typename ToDataType, typename Name, typename MonotonicityImpl>
+template <typename ToDataType, typename Name>
 class FunctionConvert : public IFunction {
 public:
-    using Monotonic = MonotonicityImpl;
-
     static constexpr auto name = Name::name;
 
     static FunctionPtr create() { return std::make_shared<FunctionConvert>(); }
@@ -1233,7 +1147,7 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         if (!arguments.size()) {
             return Status::RuntimeError("Function {} expects at least 1 arguments", get_name());
         }
@@ -1283,51 +1197,33 @@ public:
             return ret_status;
         }
     }
-
-    Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
-                                            const Field& right) const override {
-        return Monotonic::get(type, left, right);
-    }
 };
 
-using FunctionToUInt8 = FunctionConvert<DataTypeUInt8, NameToUInt8, ToNumberMonotonicity<UInt8>>;
-using FunctionToUInt16 =
-        FunctionConvert<DataTypeUInt16, NameToUInt16, ToNumberMonotonicity<UInt16>>;
-using FunctionToUInt32 =
-        FunctionConvert<DataTypeUInt32, NameToUInt32, ToNumberMonotonicity<UInt32>>;
-using FunctionToUInt64 =
-        FunctionConvert<DataTypeUInt64, NameToUInt64, ToNumberMonotonicity<UInt64>>;
-using FunctionToInt8 = FunctionConvert<DataTypeInt8, NameToInt8, ToNumberMonotonicity<Int8>>;
-using FunctionToInt16 = FunctionConvert<DataTypeInt16, NameToInt16, ToNumberMonotonicity<Int16>>;
-using FunctionToInt32 = FunctionConvert<DataTypeInt32, NameToInt32, ToNumberMonotonicity<Int32>>;
-using FunctionToInt64 = FunctionConvert<DataTypeInt64, NameToInt64, ToNumberMonotonicity<Int64>>;
-using FunctionToInt128 =
-        FunctionConvert<DataTypeInt128, NameToInt128, ToNumberMonotonicity<Int128>>;
-using FunctionToFloat32 =
-        FunctionConvert<DataTypeFloat32, NameToFloat32, ToNumberMonotonicity<Float32>>;
-using FunctionToFloat64 =
-        FunctionConvert<DataTypeFloat64, NameToFloat64, ToNumberMonotonicity<Float64>>;
+using FunctionToUInt8 = FunctionConvert<DataTypeUInt8, NameToUInt8>;
+using FunctionToUInt16 = FunctionConvert<DataTypeUInt16, NameToUInt16>;
+using FunctionToUInt32 = FunctionConvert<DataTypeUInt32, NameToUInt32>;
+using FunctionToUInt64 = FunctionConvert<DataTypeUInt64, NameToUInt64>;
+using FunctionToInt8 = FunctionConvert<DataTypeInt8, NameToInt8>;
+using FunctionToInt16 = FunctionConvert<DataTypeInt16, NameToInt16>;
+using FunctionToInt32 = FunctionConvert<DataTypeInt32, NameToInt32>;
+using FunctionToInt64 = FunctionConvert<DataTypeInt64, NameToInt64>;
+using FunctionToInt128 = FunctionConvert<DataTypeInt128, NameToInt128>;
+using FunctionToFloat32 = FunctionConvert<DataTypeFloat32, NameToFloat32>;
+using FunctionToFloat64 = FunctionConvert<DataTypeFloat64, NameToFloat64>;
 
-using FunctionToTimeV2 =
-        FunctionConvert<DataTypeTimeV2, NameToFloat64, ToNumberMonotonicity<Float64>>;
-using FunctionToString = FunctionConvert<DataTypeString, NameToString, ToStringMonotonicity>;
-using FunctionToDecimal32 =
-        FunctionConvert<DataTypeDecimal<Decimal32>, NameToDecimal32, UnknownMonotonicity>;
-using FunctionToDecimal64 =
-        FunctionConvert<DataTypeDecimal<Decimal64>, NameToDecimal64, UnknownMonotonicity>;
-using FunctionToDecimal128 =
-        FunctionConvert<DataTypeDecimal<Decimal128V2>, NameToDecimal128, UnknownMonotonicity>;
-using FunctionToDecimal128V3 =
-        FunctionConvert<DataTypeDecimal<Decimal128V3>, NameToDecimal128V3, UnknownMonotonicity>;
-using FunctionToDecimal256 =
-        FunctionConvert<DataTypeDecimal<Decimal256>, NameToDecimal256, UnknownMonotonicity>;
-using FunctionToIPv4 = FunctionConvert<DataTypeIPv4, NameToIPv4, UnknownMonotonicity>;
-using FunctionToIPv6 = FunctionConvert<DataTypeIPv6, NameToIPv6, UnknownMonotonicity>;
-using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
-using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime, UnknownMonotonicity>;
-using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate, UnknownMonotonicity>;
-using FunctionToDateTimeV2 =
-        FunctionConvert<DataTypeDateTimeV2, NameToDateTime, UnknownMonotonicity>;
+using FunctionToTimeV2 = FunctionConvert<DataTypeTimeV2, NameToFloat64>;
+using FunctionToString = FunctionConvert<DataTypeString, NameToString>;
+using FunctionToDecimal32 = FunctionConvert<DataTypeDecimal<Decimal32>, NameToDecimal32>;
+using FunctionToDecimal64 = FunctionConvert<DataTypeDecimal<Decimal64>, NameToDecimal64>;
+using FunctionToDecimal128 = FunctionConvert<DataTypeDecimal<Decimal128V2>, NameToDecimal128>;
+using FunctionToDecimal128V3 = FunctionConvert<DataTypeDecimal<Decimal128V3>, NameToDecimal128V3>;
+using FunctionToDecimal256 = FunctionConvert<DataTypeDecimal<Decimal256>, NameToDecimal256>;
+using FunctionToIPv4 = FunctionConvert<DataTypeIPv4, NameToIPv4>;
+using FunctionToIPv6 = FunctionConvert<DataTypeIPv6, NameToIPv6>;
+using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate>;
+using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime>;
+using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate>;
+using FunctionToDateTimeV2 = FunctionConvert<DataTypeDateTimeV2, NameToDateTime>;
 
 template <typename DataType>
 struct FunctionTo;
@@ -1436,7 +1332,7 @@ public:
 
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return wrapper_function(context, block, arguments, result, input_rows_count);
     }
 
@@ -1449,69 +1345,61 @@ private:
     const char* name;
 };
 
-struct NameCast {
-    static constexpr auto name = "CAST";
-};
-
-template <typename FromDataType, typename ToDataType, typename Name>
-struct ConvertThroughParsing {
-    static_assert(std::is_same_v<FromDataType, DataTypeString>,
-                  "ConvertThroughParsing is only applicable for String or FixedString data types");
-
+// always from DataTypeString
+template <typename ToDataType, typename Name>
+struct StringParsing {
     using ToFieldType = typename ToDataType::FieldType;
 
     static bool is_all_read(ReadBuffer& in) { return in.eof(); }
 
     template <typename Additions = void*>
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count,
+                          uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
         using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
 
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
-        const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
+        const auto* col_from_string = check_and_get_column<ColumnString>(col_from);
 
-        if (std::is_same_v<FromDataType, DataTypeString> && !col_from_string) {
+        if (!col_from_string) {
             return Status::RuntimeError("Illegal column {} of first argument of function {}",
                                         col_from->get_name(), Name::name);
         }
 
-        size_t size = input_rows_count;
+        size_t row = input_rows_count;
         typename ColVecTo::MutablePtr col_to = nullptr;
 
         if constexpr (IsDataTypeDecimal<ToDataType>) {
             UInt32 scale = ((PrecisionScaleArg)additions).scale;
             ToDataType::check_type_scale(scale);
-            col_to = ColVecTo::create(size, scale);
+            col_to = ColVecTo::create(row, scale);
         } else {
-            col_to = ColVecTo::create(size);
+            col_to = ColVecTo::create(row);
         }
 
         typename ColVecTo::Container& vec_to = col_to->get_data();
 
         ColumnUInt8::MutablePtr col_null_map_to;
         ColumnUInt8::Container* vec_null_map_to [[maybe_unused]] = nullptr;
-        col_null_map_to = ColumnUInt8::create(size);
+        col_null_map_to = ColumnUInt8::create(row);
         vec_null_map_to = &col_null_map_to->get_data();
 
-        const ColumnString::Chars* chars = nullptr;
-        const IColumn::Offsets* offsets = nullptr;
-        size_t fixed_string_size = 0;
+        const ColumnString::Chars* chars = &col_from_string->get_chars();
+        const IColumn::Offsets* offsets = &col_from_string->get_offsets();
 
-        if constexpr (std::is_same_v<FromDataType, DataTypeString>) {
-            chars = &col_from_string->get_chars();
-            offsets = &col_from_string->get_offsets();
+        [[maybe_unused]] UInt32 scale = 0;
+        if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
+            const auto* type = assert_cast<const DataTypeDateTimeV2*>(
+                    block.get_by_position(result).type.get());
+            scale = type->get_scale();
         }
 
         size_t current_offset = 0;
-        for (size_t i = 0; i < size; ++i) {
-            size_t next_offset = std::is_same_v<FromDataType, DataTypeString>
-                                         ? (*offsets)[i]
-                                         : (current_offset + fixed_string_size);
-            size_t string_size = std::is_same_v<FromDataType, DataTypeString>
-                                         ? next_offset - current_offset
-                                         : fixed_string_size;
+
+        for (size_t i = 0; i < row; ++i) {
+            size_t next_offset = (*offsets)[i];
+            size_t string_size = next_offset - current_offset;
 
             ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
@@ -1519,19 +1407,15 @@ struct ConvertThroughParsing {
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 ToDataType::check_type_precision((PrecisionScaleArg(additions).precision));
                 StringParser::ParseResult res = try_parse_decimal_impl<ToDataType>(
-                        vec_to[i], read_buffer, context->state()->timezone_obj(),
-                        PrecisionScaleArg(additions));
+                        vec_to[i], read_buffer, PrecisionScaleArg(additions));
                 parsed = (res == StringParser::PARSE_SUCCESS ||
                           res == StringParser::PARSE_OVERFLOW ||
                           res == StringParser::PARSE_UNDERFLOW);
             } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                const auto* type = assert_cast<const DataTypeDateTimeV2*>(
-                        block.get_by_position(result).type.get());
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context,
-                                                    type->get_scale());
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context, scale);
             } else {
-                parsed = try_parse_impl<ToDataType, void*, FromDataType>(vec_to[i], read_buffer,
-                                                                         context);
+                parsed =
+                        try_parse_impl<ToDataType, DataTypeString>(vec_to[i], read_buffer, context);
             }
             (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
             current_offset = next_offset;
@@ -1545,25 +1429,27 @@ struct ConvertThroughParsing {
 
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal32>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal32>, Name> {};
+        : StringParsing<DataTypeDecimal<Decimal32>, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal64>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal64>, Name> {};
+        : StringParsing<DataTypeDecimal<Decimal64>, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V2>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128V2>, Name> {};
+        : StringParsing<DataTypeDecimal<Decimal128V2>, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V3>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128V3>, Name> {};
+        : StringParsing<DataTypeDecimal<Decimal128V3>, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal256>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal256>, Name> {};
+        : StringParsing<DataTypeDecimal<Decimal256>, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeIPv4, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeIPv4, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeIPv4, Name> : StringParsing<DataTypeIPv4, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeIPv6, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeIPv6, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeIPv6, Name> : StringParsing<DataTypeIPv6, Name> {};
+
+struct NameCast {
+    static constexpr auto name = "CAST";
+};
 
 template <typename ToDataType, typename Name>
 class FunctionConvertFromString : public IFunction {
@@ -1582,8 +1468,10 @@ public:
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         DataTypePtr res;
         if constexpr (IsDataTypeDecimal<ToDataType>) {
-            LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
-
+            auto error_type = std::make_shared<ToDataType>();
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "something wrong type in function {}.", get_name(),
+                                   error_type->get_name());
         } else {
             res = std::make_shared<ToDataType>();
         }
@@ -1592,12 +1480,12 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
         if (check_and_get_data_type<DataTypeString>(from_type)) {
-            return ConvertThroughParsing<DataTypeString, ToDataType, Name>::execute(
-                    context, block, arguments, result, input_rows_count);
+            return StringParsing<ToDataType, Name>::execute(context, block, arguments, result,
+                                                            input_rows_count);
         }
 
         return Status::RuntimeError(
@@ -1628,7 +1516,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         Status ret_status = Status::OK();
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
         auto call = [&](const auto& types) -> bool {
@@ -1657,22 +1545,17 @@ public:
     using WrapperType =
             std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>;
     using ElementWrappers = std::vector<WrapperType>;
-    using MonotonicityForRange =
-            std::function<Monotonicity(const IDataType&, const Field&, const Field&)>;
 
-    FunctionCast(const char* name_, MonotonicityForRange&& monotonicity_for_range_,
-                 const DataTypes& argument_types_, const DataTypePtr& return_type_)
-            : name(name_),
-              monotonicity_for_range(monotonicity_for_range_),
-              argument_types(argument_types_),
-              return_type(return_type_) {}
+    FunctionCast(const char* name_, const DataTypes& argument_types_,
+                 const DataTypePtr& return_type_)
+            : name(name_), argument_types(argument_types_), return_type(return_type_) {}
 
     const DataTypes& get_argument_types() const override { return argument_types; }
     const DataTypePtr& get_return_type() const override { return return_type; }
 
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
                                 const ColumnNumbers& /*arguments*/,
-                                size_t /*result*/) const override {
+                                uint32_t /*result*/) const override {
         return std::make_shared<PreparedFunctionCast>(
                 prepare_unpack_dictionaries(context, get_argument_types()[0], get_return_type()),
                 name);
@@ -1680,16 +1563,10 @@ public:
 
     String get_name() const override { return name; }
 
-    Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
-                                            const Field& right) const override {
-        return monotonicity_for_range(type, left, right);
-    }
-
     bool is_use_default_implementation_for_constants() const override { return true; }
 
 private:
     const char* name = nullptr;
-    MonotonicityForRange monotonicity_for_range;
 
     DataTypes argument_types;
     DataTypePtr return_type;
@@ -1719,7 +1596,7 @@ private:
         { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
 
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
             return function->execute(context, block, arguments, result, input_rows_count);
         };
     }
@@ -1731,7 +1608,7 @@ private:
         { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
 
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
             return function->execute(context, block, arguments, result, input_rows_count);
         };
     }
@@ -1754,7 +1631,7 @@ private:
         }
 
         return [type_index, precision, scale](FunctionContext* context, Block& block,
-                                              const ColumnNumbers& arguments, const size_t result,
+                                              const ColumnNumbers& arguments, const uint32_t result,
                                               size_t input_rows_count) {
             auto res = call_on_index_and_data_type<ToDataType>(
                     type_index, [&](const auto& types) -> bool {
@@ -1783,7 +1660,7 @@ private:
 
     WrapperType create_identity_wrapper(const DataTypePtr&) const {
         return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                  const size_t result, size_t /*input_rows_count*/) {
+                  const uint32_t result, size_t /*input_rows_count*/) {
             block.get_by_position(result).column = block.get_by_position(arguments.front()).column;
             return Status::OK();
         };
@@ -1792,7 +1669,7 @@ private:
     WrapperType create_nothing_wrapper(const IDataType* to_type) const {
         ColumnPtr res = to_type->create_column_const_with_default_value(1);
         return [res](FunctionContext* context, Block& block, const ColumnNumbers&,
-                     const size_t result, size_t input_rows_count) {
+                     const uint32_t result, size_t input_rows_count) {
             /// Column of Nothing type is trivially convertible to any other column
             block.get_by_position(result).column =
                     res->clone_resized(input_rows_count)->convert_to_full_column_if_const();
@@ -1888,7 +1765,7 @@ private:
 
         return [nested_function, from_nested_type, to_nested_type](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       const size_t result, size_t /*input_rows_count*/) -> Status {
+                       const uint32_t result, size_t /*input_rows_count*/) -> Status {
             ColumnPtr from_column = block.get_by_position(arguments.front()).column;
 
             const ColumnArray* from_col_array =
@@ -1977,6 +1854,8 @@ private:
             } else {
                 return &ConvertImplGenericFromString::execute;
             }
+        case TypeIndex::Nothing:
+            return &ConvertNothingToJsonb::execute;
         default:
             return &ConvertImplGenericToJsonb::execute;
         }
@@ -1984,7 +1863,7 @@ private:
 
     struct ConvertImplGenericFromVariant {
         static Status execute(const FunctionCast* fn, FunctionContext* context, Block& block,
-                              const ColumnNumbers& arguments, const size_t result,
+                              const ColumnNumbers& arguments, const uint32_t result,
                               size_t input_rows_count) {
             auto& data_type_to = block.get_by_position(result).type;
             const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
@@ -2058,7 +1937,7 @@ private:
 
     struct ConvertImplGenericToVariant {
         static Status execute(FunctionContext* context, Block& block,
-                              const ColumnNumbers& arguments, const size_t result,
+                              const ColumnNumbers& arguments, const uint32_t result,
                               size_t input_rows_count) {
             // auto& data_type_to = block.get_by_position(result).type;
             const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
@@ -2082,7 +1961,7 @@ private:
     WrapperType create_variant_wrapper(const DataTypeObject& from_type,
                                        const DataTypePtr& to_type) const {
         return [this](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                      const size_t result, size_t input_rows_count) -> Status {
+                      const uint32_t result, size_t input_rows_count) -> Status {
             return ConvertImplGenericFromVariant::execute(this, context, block, arguments, result,
                                                           input_rows_count);
         };
@@ -2113,7 +1992,7 @@ private:
         auto kv_wrappers = get_element_wrappers(context, from_kv_types, to_kv_types);
         return [kv_wrappers, from_kv_types, to_kv_types](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       const size_t result, size_t /*input_rows_count*/) -> Status {
+                       const uint32_t result, size_t /*input_rows_count*/) -> Status {
             auto& from_column = block.get_by_position(arguments.front()).column;
             auto from_col_map = check_and_get_column<ColumnMap>(from_column.get());
             if (!from_col_map) {
@@ -2188,7 +2067,7 @@ private:
         auto element_wrappers = get_element_wrappers(context, from_element_types, to_element_types);
         return [element_wrappers, from_element_types, to_element_types](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       const size_t result, size_t /*input_rows_count*/) -> Status {
+                       const uint32_t result, size_t /*input_rows_count*/) -> Status {
             auto& from_column = block.get_by_position(arguments.front()).column;
             auto from_col_struct = check_and_get_column<ColumnStruct>(from_column.get());
             if (!from_col_struct) {
@@ -2229,7 +2108,7 @@ private:
             }
 
             return [](FunctionContext* context, Block& block, const ColumnNumbers&,
-                      const size_t result, size_t input_rows_count) {
+                      const uint32_t result, size_t input_rows_count) {
                 auto& res = block.get_by_position(result);
                 res.column = res.type->create_column_const_with_default_value(input_rows_count)
                                      ->convert_to_full_column_if_const();
@@ -2257,8 +2136,7 @@ private:
 
             if constexpr (!(IsDataTypeDecimalOrNumber<ToDataType> || IsTimeType<ToDataType> ||
                             IsTimeV2Type<ToDataType> ||
-                            std::is_same_v<ToDataType, DataTypeTimeV2> ||
-                            std::is_same_v<ToDataType, DataTypeTime>)) {
+                            std::is_same_v<ToDataType, DataTypeTimeV2>)) {
                 return false;
             }
             return call_on_index_and_data_type<
@@ -2267,8 +2145,7 @@ private:
                 using FromDataType = typename Types2::LeftType;
                 if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> ||
                                 IsTimeType<FromDataType> || IsTimeV2Type<FromDataType> ||
-                                std::is_same_v<FromDataType, DataTypeTimeV2> ||
-                                std::is_same_v<FromDataType, DataTypeTime>)) {
+                                std::is_same_v<FromDataType, DataTypeTimeV2>)) {
                     return false;
                 }
                 if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
@@ -2340,7 +2217,7 @@ private:
 
         if (result_is_nullable) {
             return [this, from_type, to_type](FunctionContext* context, Block& block,
-                                              const ColumnNumbers& arguments, const size_t result,
+                                              const ColumnNumbers& arguments, const uint32_t result,
                                               size_t input_rows_count) {
                 auto from_type_not_nullable = remove_nullable(from_type);
                 auto to_type_not_nullable = remove_nullable(to_type);
@@ -2419,7 +2296,6 @@ private:
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
                           std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
                           std::is_same_v<ToDataType, DataTypeTimeV2> ||
-                          std::is_same_v<ToDataType, DataTypeTime> ||
                           std::is_same_v<ToDataType, DataTypeIPv4> ||
                           std::is_same_v<ToDataType, DataTypeIPv6>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
@@ -2475,8 +2351,6 @@ private:
 
 class FunctionBuilderCast : public FunctionBuilderImpl {
 public:
-    using MonotonicityForRange = FunctionCast::MonotonicityForRange;
-
     static constexpr auto name = "CAST";
     static FunctionBuilderPtr create() { return std::make_shared<FunctionBuilderCast>(); }
 
@@ -2495,9 +2369,7 @@ protected:
 
         for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
 
-        auto monotonicity = get_monotonicity_information(arguments.front().type, return_type.get());
-        return std::make_shared<FunctionCast>(name, std::move(monotonicity), data_types,
-                                              return_type);
+        return std::make_shared<FunctionCast>(name, data_types, return_type);
     }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
@@ -2528,38 +2400,6 @@ protected:
 
     bool use_default_implementation_for_nulls() const override { return false; }
     bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
-
-private:
-    template <typename DataType>
-    static auto monotonicity_for_type(const DataType* const) {
-        return FunctionTo<DataType>::Type::Monotonic::get;
-    }
-
-    MonotonicityForRange get_monotonicity_information(const DataTypePtr& from_type,
-                                                      const IDataType* to_type) const {
-        if (const auto type = check_and_get_data_type<DataTypeUInt8>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeUInt16>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeUInt32>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeUInt64>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeInt8>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeInt16>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeInt32>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeInt64>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeFloat32>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeFloat64>(to_type))
-            return monotonicity_for_type(type);
-        /// other types like Null, FixedString, Array and Tuple have no monotonicity defined
-        return {};
-    }
 };
 
 } // namespace doris::vectorized

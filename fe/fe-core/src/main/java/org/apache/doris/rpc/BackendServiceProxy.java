@@ -60,8 +60,10 @@ public class BackendServiceProxy {
     // use concurrent map to allow access serviceMap in multi thread.
     private ReentrantLock lock = new ReentrantLock();
 
-    private Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(Config.grpc_threadmgr_threads_nums,
+    private static Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
+            Config.grpc_threadmgr_threads_nums,
             "grpc_thread_pool", true);
+
     private final Map<TNetworkAddress, BackendServiceClientExtIp> serviceMap;
 
     public BackendServiceProxy() {
@@ -235,7 +237,7 @@ public class BackendServiceProxy {
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(TNetworkAddress address,
-            PExecPlanFragmentStartRequest request) throws TException, RpcException {
+            PExecPlanFragmentStartRequest request) throws RpcException {
         try {
             final BackendServiceClient client = getProxy(address);
             return client.execPlanFragmentStartAsync(request);
@@ -555,5 +557,16 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PGetBeResourceResponse> getBeResourceAsync(TNetworkAddress address, int timeoutSec,
+            InternalService.PGetBeResourceRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.getBeResource(request, timeoutSec);
+        } catch (Throwable e) {
+            LOG.warn("get be resource failed, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
 
 }

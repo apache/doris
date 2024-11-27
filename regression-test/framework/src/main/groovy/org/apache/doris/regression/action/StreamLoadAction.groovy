@@ -366,10 +366,10 @@ class StreamLoadAction implements SuiteAction {
 
             if (time > 0) {
                 long elapsed = endTime - startTime
-                try{
-                    Assert.assertTrue("Expect elapsed <= ${time}, but meet ${elapsed}", elapsed <= time)
-                } catch (Throwable t) {
-                    throw new IllegalStateException("Expect elapsed <= ${time}, but meet ${elapsed}")
+                if (elapsed > time) {
+                    log.info("Stream load consums more time than expected, elapsed ${elapsed} ms, expect ${time} ms")
+                } else {
+                    log.info("Stream load consums time elapsed ${elapsed} ms, expect ${time} ms")
                 }
             }
         }

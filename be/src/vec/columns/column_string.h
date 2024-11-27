@@ -62,9 +62,11 @@ public:
 
     void static check_chars_length(size_t total_length, size_t element_number) {
         if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                            "string column length is too large: total_length={}, element_number={}",
-                            total_length, element_number);
+            throw Exception(
+                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                    "string column length is too large: total_length={}, element_number={}, "
+                    "you can set batch_size a number smaller than {} to avoid this error",
+                    total_length, element_number, element_number);
         }
     }
 
@@ -83,6 +85,7 @@ private:
     /// For convenience, every string ends with terminating zero byte. Note that strings could contain zero bytes in the middle.
     Chars chars;
 
+    // Start position of i-th element.
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return offsets[i - 1]; }
 
     /// Size of i-th element, including terminating zero.
@@ -100,9 +103,10 @@ private:
               chars(src.chars.begin(), src.chars.end()) {}
 
 public:
-    void sanity_check() const;
     bool is_variable_length() const override { return true; }
-    const char* get_family_name() const override { return "String"; }
+    // used in string ut testd
+    void sanity_check() const;
+    std::string get_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
 
@@ -114,12 +118,11 @@ public:
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override { return true; }
+    void shrink_padding_chars() override;
 
     Field operator[](size_t n) const override {
         assert(n < size());
-        return Field(&chars[offset_at(n)], size_at(n));
+        return Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
     }
 
     void get(size_t n, Field& res) const override {
@@ -129,7 +132,7 @@ public:
             res = JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n));
             return;
         }
-        res.assign_string(&chars[offset_at(n)], size_at(n));
+        res = Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
     }
 
     StringRef get_data_at(size_t n) const override {
@@ -157,6 +160,8 @@ public:
         memcpy(chars.data() + old_size, s.data, size_to_append);
         offsets.push_back(new_size);
     }
+
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     bool is_column_string64() const override { return sizeof(T) == sizeof(uint64_t); }
 
@@ -264,29 +269,6 @@ public:
         DCHECK(chars.size() == offsets.back());
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
-        size_t new_size = 0;
-        for (size_t i = 0; i < num; i++) {
-            new_size += len_array[i];
-        }
-
-        const size_t old_size = chars.size();
-        check_chars_length(old_size + new_size, offsets.size() + num);
-        chars.resize(old_size + new_size);
-
-        Char* data = chars.data();
-        size_t offset = old_size;
-        for (size_t i = 0; i < num; i++) {
-            uint32_t len = len_array[i];
-            uint32_t start_offset = start_offset_array[i];
-            // memcpy will deal len == 0, not do it here
-            memcpy(data + offset, data_array + start_offset, len);
-            offset += len;
-            offsets.push_back(offset);
-        }
-    }
-
     void insert_many_strings(const StringRef* strings, size_t num) override {
         size_t new_size = 0;
         for (size_t i = 0; i < num; i++) {
@@ -308,10 +290,6 @@ public:
             offsets.push_back(offset);
         }
     }
-
-    //    template <typename T, size_t copy_length>
-    //    void insert_many_strings_fixed_length(const StringRef* strings, size_t num)
-    //            __attribute__((noinline));
 
     template <size_t copy_length>
     void insert_many_strings_fixed_length(const StringRef* strings, size_t num) {
@@ -510,16 +488,6 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<ColumnStr<T>>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<ColumnStr<T>>(res, selector, begin, end);
-    }
-
     void reserve(size_t n) override;
 
     void resize(size_t n) override;
@@ -542,23 +510,14 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for ColumnString";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method replace_column_data is not supported for ColumnString");
         __builtin_unreachable();
     }
 
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
-
-    MutableColumnPtr get_shinked_column() const {
-        auto shrinked_column = ColumnStr<T>::create();
-        for (int i = 0; i < size(); i++) {
-            StringRef str = get_data_at(i);
-            reinterpret_cast<ColumnStr<T>*>(shrinked_column.get())
-                    ->insert_data(str.data, strnlen(str.data, str.size));
-        }
-        return shrinked_column;
-    }
 
     ColumnPtr convert_column_if_overflow() override;
 };

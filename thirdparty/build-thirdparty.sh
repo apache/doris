@@ -73,6 +73,8 @@ else
     PARALLEL="$(($(nproc) / 4 + 1))"
 fi
 
+BUILD_AZURE="ON"
+
 while true; do
     case "$1" in
     -j)
@@ -117,6 +119,10 @@ read -r -a packages <<<"${@}"
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
+fi
+
+if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+    BUILD_AZURE='OFF'
 fi
 
 echo "Get params:
@@ -627,7 +633,7 @@ build_bzip() {
     check_if_source_exist "${BZIP_SOURCE}"
     cd "${TP_SOURCE_DIR}/${BZIP_SOURCE}"
 
-    make -j "${PARALLEL}" install PREFIX="${TP_INSTALL_DIR}"
+    make -j "${PARALLEL}" install PREFIX="${TP_INSTALL_DIR}" CFLAGS="-fPIC"
 }
 
 # lzo2
@@ -642,6 +648,13 @@ build_lzo2() {
     make -j "${PARALLEL}"
     make install
     strip_lib liblzo2.a
+}
+
+# brotli
+build_brotli() {
+    check_if_source_exist "${BROTLI_SOURCE}"
+    # brotli has been builded in build_arrow, so just copy headers
+    cp -r "${TP_SOURCE_DIR}/${BROTLI_SOURCE}/c/include/brotli" "${TP_INCLUDE_DIR}/"
 }
 
 # curl
@@ -1006,7 +1019,6 @@ build_arrow() {
     export ARROW_LZ4_URL="${TP_SOURCE_DIR}/${LZ4_NAME}"
     export ARROW_FLATBUFFERS_URL="${TP_SOURCE_DIR}/${FLATBUFFERS_NAME}"
     export ARROW_ZSTD_URL="${TP_SOURCE_DIR}/${ZSTD_NAME}"
-    export ARROW_JEMALLOC_URL="${TP_SOURCE_DIR}/${JEMALLOC_ARROW_NAME}"
     export ARROW_Thrift_URL="${TP_SOURCE_DIR}/${THRIFT_NAME}"
     export ARROW_SNAPPY_URL="${TP_SOURCE_DIR}/${SNAPPY_NAME}"
     export ARROW_ZLIB_URL="${TP_SOURCE_DIR}/${ZLIB_NAME}"
@@ -1058,7 +1070,8 @@ build_arrow() {
         -DSnappy_LIB="${TP_INSTALL_DIR}/lib/libsnappy.a" -DSnappy_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DSnappy_SOURCE=SYSTEM \
         -DBOOST_ROOT="${TP_INSTALL_DIR}" --no-warn-unused-cli \
-        -Djemalloc_SOURCE=BUNDLED \
+        -DARROW_JEMALLOC=OFF -DARROW_MIMALLOC=OFF \
+        -DJEMALLOC_HOME="${TP_INSTALL_DIR}" \
         -DARROW_THRIFT_USE_SHARED=OFF \
         -DThrift_SOURCE=SYSTEM \
         -DThrift_ROOT="${TP_INSTALL_DIR}" ..
@@ -1067,12 +1080,10 @@ build_arrow() {
     "${BUILD_SYSTEM}" install
 
     #copy dep libs
-    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a "${TP_INSTALL_DIR}/lib64/libjemalloc_arrow.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
-    strip_lib libjemalloc_arrow.a
     strip_lib libparquet.a
 }
 
@@ -1122,6 +1133,7 @@ build_bitshuffle() {
     check_if_source_exist "${BITSHUFFLE_SOURCE}"
     local ld="${DORIS_BIN_UTILS}/ld"
     local ar="${DORIS_BIN_UTILS}/ar"
+    MACHINE_OS=$(uname -s)
 
     if [[ ! -f "${ld}" ]]; then ld="$(command -v ld)"; fi
     if [[ ! -f "${ar}" ]]; then ar="$(command -v ar)"; fi
@@ -1137,7 +1149,7 @@ build_bitshuffle() {
     MACHINE_TYPE="$(uname -m)"
     # Becuase aarch64 don't support avx2, disable it.
     if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
-        arches=('default')
+        arches=('default' 'neon')
     fi
 
     to_link=""
@@ -1149,6 +1161,9 @@ build_bitshuffle() {
         if [[ "${arch}" == "avx512" ]]; then
             arch_flag="-mavx512bw -mavx512f"
         fi
+        if [[ "${MACHINE_OS}" != "Darwin" ]] && [[ "${arch}" == "neon" ]]; then
+            arch_flag="-march=armv8-a+crc"
+        fi
         tmp_obj="bitshuffle_${arch}_tmp.o"
         dst_obj="bitshuffle_${arch}.o"
         "${CC}" ${EXTRA_CFLAGS:+${EXTRA_CFLAGS}} ${arch_flag:+${arch_flag}} -std=c99 "-I${PREFIX}/include/lz4" -O3 -DNDEBUG -c \
@@ -1158,7 +1173,7 @@ build_bitshuffle() {
         # Merge the object files together to produce a combined .o file.
         "${ld}" -r -o "${tmp_obj}" bitshuffle_core.o bitshuffle.o iochain.o
         # For the AVX2 symbols, suffix them.
-        if [[ "${arch}" == "avx2" ]] || [[ "${arch}" == "avx512" ]]; then
+        if [[ "${MACHINE_OS}" != "Darwin" ]] && { [[ "${arch}" == "avx2" ]] || [[ "${arch}" == "avx512" ]] || [[ "${arch}" == "neon" ]]; }; then
             local nm="${DORIS_BIN_UTILS}/nm"
             local objcopy="${DORIS_BIN_UTILS}/objcopy"
 
@@ -1673,6 +1688,8 @@ build_hadoop_libs() {
     echo "THIRDPARTY_INSTALLED=${TP_INSTALL_DIR}" >env.sh
     ./build.sh
 
+    rm -rf "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
     cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
@@ -1735,7 +1752,7 @@ build_libuuid() {
     check_if_source_exist "${LIBUUID_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LIBUUID_SOURCE}"
     CC=gcc ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
-    make -j "${PARALLEL}"
+    make -j "${PARALLEL}" CFLAGS="-fPIC"
     make install
 }
 
@@ -1780,21 +1797,25 @@ build_base64() {
 
 # azure blob storage
 build_azure() {
-    check_if_source_exist "${AZURE_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
-    azure_dir=$(pwd)
+    if [[ "${BUILD_AZURE}" == "OFF" ]]; then
+        echo "Skip build azure"
+    else
+        check_if_source_exist "${AZURE_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
+        azure_dir=$(pwd)
 
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
+        rm -rf "${BUILD_DIR}"
+        mkdir -p "${BUILD_DIR}"
+        cd "${BUILD_DIR}"
 
-    # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
-    AZURE_PORTS="vcpkg-custom-ports"
-    AZURE_MANIFEST_DIR="."
+        # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
+        AZURE_PORTS="vcpkg-custom-ports"
+        AZURE_MANIFEST_DIR="."
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+        "${BUILD_SYSTEM}" -j "${PARALLEL}"
+        "${BUILD_SYSTEM}" install
+    fi
 }
 
 # dragonbox
@@ -1880,6 +1901,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         base64
         azure
         dragonbox
+        brotli
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

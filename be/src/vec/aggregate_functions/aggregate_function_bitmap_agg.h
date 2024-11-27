@@ -27,6 +27,7 @@
 
 #include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_bitmap.h"
 
 namespace doris {
@@ -71,23 +72,25 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeBitMap>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena*) const override {
         DCHECK_LT(row_num, columns[0]->size());
         if constexpr (arg_nullable) {
-            auto& nullable_col = assert_cast<const ColumnNullable&>(*columns[0]);
+            auto& nullable_col =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             auto& nullable_map = nullable_col.get_null_map_data();
             if (!nullable_map[row_num]) {
-                auto& col = assert_cast<const ColVecType&>(nullable_col.get_nested_column());
+                auto& col = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                        nullable_col.get_nested_column());
                 this->data(place).add(col.get_data()[row_num]);
             }
         } else {
-            auto& col = assert_cast<const ColVecType&>(*columns[0]);
+            auto& col = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             this->data(place).add(col.get_data()[row_num]);
         }
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         if constexpr (arg_nullable) {
             auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
             const auto& column =
@@ -108,7 +111,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena*) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -127,7 +130,7 @@ public:
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           const size_t num_rows, Arena* arena) const override {
+                                           const size_t num_rows, Arena*) const override {
         auto& col = assert_cast<ColumnBitmap&>(*dst);
         char place[sizeof(Data)];
         col.resize(num_rows);
@@ -135,12 +138,12 @@ public:
         for (size_t i = 0; i != num_rows; ++i) {
             this->create(place);
             DEFER({ this->destroy(place); });
-            this->add(place, columns, i, arena);
+            this->add(place, columns, i, nullptr);
             data[i] = std::move(this->data(place).value);
         }
     }
 
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
+    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena*,
                                  size_t num_rows) const override {
         auto& col = assert_cast<const ColumnBitmap&>(column);
         DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
@@ -162,7 +165,7 @@ public:
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena* arena) const override {
+                                           Arena*) const override {
         auto& col = assert_cast<const ColumnBitmap&>(column);
         const size_t num_rows = column.size();
         auto* data = col.get_data().data();
@@ -174,7 +177,7 @@ public:
 
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
-                                                 Arena* arena) const override {
+                                                 Arena*) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         auto& col = assert_cast<const ColumnBitmap&>(column);
@@ -185,7 +188,7 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena*,
                                    const size_t num_rows) const override {
         const auto& col = assert_cast<const ColumnBitmap&>(*column);
         const auto* data = col.get_data().data();
@@ -195,8 +198,8 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const IColumn* column,
-                                            Arena* arena, const size_t num_rows) const override {
+                                            AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                            const size_t num_rows) const override {
         const auto& col = assert_cast<const ColumnBitmap&>(*column);
         const auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {

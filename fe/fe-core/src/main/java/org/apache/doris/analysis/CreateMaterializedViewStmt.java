@@ -67,7 +67,7 @@ import java.util.Set;
  * ORDER BY column_name[, column_name ...])
  * [PROPERTIES ("key" = "value")]
  */
-public class CreateMaterializedViewStmt extends DdlStmt {
+public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(CreateMaterializedViewStmt.class);
 
     public static final String MATERIALIZED_VIEW_NAME_PREFIX = "mv_";
@@ -273,8 +273,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
             Expr selectListItemExpr = selectListItem.getExpr();
             selectListItemExpr.setDisableTableName(true);
-            if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)
-                    && !(selectListItemExpr instanceof ArithmeticExpr)) {
+            Expr realItem = selectListItemExpr.unwrapExpr(false);
+            if (!(realItem instanceof SlotRef) && !(realItem instanceof FunctionCallExpr)
+                    && !(realItem instanceof ArithmeticExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
                         + "Error column: " + selectListItemExpr.toSql());
             }
@@ -343,9 +344,16 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     }
 
     private void analyzeGroupByClause() throws AnalysisException {
-        if (isReplay || selectStmt.getGroupByClause() == null) {
+        if (isReplay) {
             return;
         }
+        if (selectStmt.getGroupByClause() == null && mvKeysType == KeysType.AGG_KEYS) {
+            throw new AnalysisException("agg mv must has group by clause");
+        }
+        if (selectStmt.getGroupByClause() == null) {
+            return;
+        }
+
         List<Expr> groupingExprs = selectStmt.getGroupByClause().getGroupingExprs();
         List<FunctionCallExpr> aggregateExprs = selectStmt.getAggInfo().getAggregateExprs();
         List<Expr> selectExprs = selectStmt.getSelectList().getExprs();
@@ -721,5 +729,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     @Override
     public String toSql() {
         return null;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

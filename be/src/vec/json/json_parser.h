@@ -120,23 +120,24 @@ enum class ExtractType {
     ToString = 0,
     // ...
 };
-template <typename ParserImpl, bool parse_nested = false>
+
+struct ParseConfig {
+    bool enable_flatten_nested = false;
+};
+template <typename ParserImpl>
 class JSONDataParser {
 public:
     using Element = typename ParserImpl::Element;
     using JSONObject = typename ParserImpl::Object;
     using JSONArray = typename ParserImpl::Array;
-    std::optional<ParseResult> parse(const char* begin, size_t length);
-
-    // extract keys's element into columns
-    bool extract_key(MutableColumns& columns, StringRef json, const std::vector<StringRef>& keys,
-                     const std::vector<ExtractType>& types);
+    std::optional<ParseResult> parse(const char* begin, size_t length, const ParseConfig& config);
 
 private:
     struct ParseContext {
         PathInDataBuilder builder;
         std::vector<PathInData::Parts> paths;
         std::vector<Field> values;
+        bool enable_flatten_nested = false;
     };
     using PathPartsWithArray = std::pair<PathInData::Parts, Array>;
     using PathToArray = phmap::flat_hash_map<UInt128, PathPartsWithArray, UInt128TrivialHash>;
@@ -157,7 +158,7 @@ private:
     static StringRef getNameOfNested(const PathInData::Parts& path, const Field& value);
 
     bool has_nested = false;
-    void checkHasNested(const Element& element);
+    void check_has_nested_object(const Element& element);
     void traverseAsJsonb(const Element& element, JsonbWriter& writer);
     void traverseObjectAsJsonb(const JSONObject& object, JsonbWriter& writer);
     void traverseArrayAsJsonb(const JSONArray& array, JsonbWriter& writer);

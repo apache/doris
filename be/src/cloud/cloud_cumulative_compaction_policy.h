@@ -59,8 +59,7 @@ public:
             int64_t promotion_size = config::compaction_promotion_size_mbytes * 1024 * 1024,
             double promotion_ratio = config::compaction_promotion_ratio,
             int64_t promotion_min_size = config::compaction_promotion_min_size_mbytes * 1024 * 1024,
-            int64_t compaction_min_size = config::compaction_min_size_mbytes * 1024 * 1024,
-            int64_t promotion_version_count = config::compaction_promotion_version_count);
+            int64_t compaction_min_size = config::compaction_min_size_mbytes * 1024 * 1024);
 
     ~CloudSizeBasedCumulativeCompactionPolicy() override = default;
 
@@ -94,8 +93,6 @@ private:
     int64_t _promotion_min_size;
     /// lower bound size to do compaction compaction.
     int64_t _compaction_min_size;
-    // cumulative compaction promotion version count, only works for unique key MoW table
-    int64_t _promotion_version_count;
 };
 
 class CloudTimeSeriesCumulativeCompactionPolicy : public CloudCumulativeCompactionPolicy {

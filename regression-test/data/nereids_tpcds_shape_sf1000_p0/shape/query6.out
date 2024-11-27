@@ -14,7 +14,7 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[customer_address] apply RFs: RF5
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((c.c_customer_sk = s.ss_customer_sk)) otherCondition=() build RFs:RF4 ss_customer_sk->[c_customer_sk]
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((c.c_customer_sk = s.ss_customer_sk)) otherCondition=() build RFs:RF4 ss_customer_sk->[c_customer_sk]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[customer] apply RFs: RF4
 --------------------------PhysicalProject

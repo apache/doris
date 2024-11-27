@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 
@@ -216,10 +217,16 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation relation, PushDownContext ctx) {
-        if (supportPhysicalRelations(relation)
-                && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
-            topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr);
-            return true;
+        if (supportPhysicalRelations(relation) && relation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            // in ut, relation.getStats() may return null
+            if (relation.getStats() == null || ConnectContext.get() == null
+                    || ConnectContext.get().getSessionVariable() == null
+                    || relation.getStats().getRowCount()
+                            * ConnectContext.get().getSessionVariable().topnFilterRatio > ctx.topn.getLimit()
+                                    + ctx.topn.getOffset()) {
+                topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr);
+                return true;
+            }
         }
         return false;
     }

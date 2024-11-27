@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -31,7 +33,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Rules to push {@link org.apache.doris.nereids.trees.plans.logical.LogicalLimit} down.
@@ -72,11 +73,17 @@ public class PushDownLimit implements RewriteRuleFactory {
                         .then(limit -> {
                             LogicalWindow<Plan> window = limit.child();
                             long partitionLimit = limit.getLimit() + limit.getOffset();
-                            Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, true);
-                            if (!newWindow.isPresent()) {
+                            if (partitionLimit <= 0) {
                                 return limit;
                             }
-                            return limit.withChildren(newWindow.get());
+                            Pair<WindowExpression, Long> windowFuncLongPair = window
+                                    .getPushDownWindowFuncAndLimit(null, partitionLimit);
+                            if (windowFuncLongPair == null) {
+                                return limit;
+                            }
+                            Plan newWindow = window.pushPartitionLimitThroughWindow(windowFuncLongPair.first,
+                                    windowFuncLongPair.second, true);
+                            return limit.withChildren(newWindow);
                         }).toRule(RuleType.PUSH_LIMIT_THROUGH_WINDOW),
 
                 // limit -> project -> window
@@ -85,11 +92,17 @@ public class PushDownLimit implements RewriteRuleFactory {
                             LogicalProject<LogicalWindow<Plan>> project = limit.child();
                             LogicalWindow<Plan> window = project.child();
                             long partitionLimit = limit.getLimit() + limit.getOffset();
-                            Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, true);
-                            if (!newWindow.isPresent()) {
+                            if (partitionLimit <= 0) {
                                 return limit;
                             }
-                            return limit.withChildren(project.withChildren(newWindow.get()));
+                            Pair<WindowExpression, Long> windowFuncLongPair = window
+                                    .getPushDownWindowFuncAndLimit(null, partitionLimit);
+                            if (windowFuncLongPair == null) {
+                                return limit;
+                            }
+                            Plan newWindow = window.pushPartitionLimitThroughWindow(windowFuncLongPair.first,
+                                    windowFuncLongPair.second, true);
+                            return limit.withChildren(project.withChildren(newWindow));
                         }).toRule(RuleType.PUSH_LIMIT_THROUGH_PROJECT_WINDOW),
 
                 // limit -> union

@@ -155,6 +155,45 @@ TEST(FunctionLikeTest, regexp_extract) {
     }
 }
 
+TEST(FunctionLikeTest, regexp_extract_or_null) {
+    std::string func_name = "regexp_extract_or_null";
+
+    DataSet data_set = {{{std::string("x=a3&x=18abc&x=2&y=3&x=4"),
+                          std::string("x=([0-9]+)([a-z]+)"), (int64_t)0},
+                         std::string("x=18abc")},
+                        {{std::string("x=a3&x=18abc&x=2&y=3&x=4"),
+                          std::string("^x=([a-z]+)([0-9]+)"), (int64_t)0},
+                         std::string("x=a3")},
+                        {{std::string("x=a3&x=18abc&x=2&y=3&x=4"),
+                          std::string("^x=([a-z]+)([0-9]+)"), (int64_t)1},
+                         std::string("a")},
+                        {{std::string("http://a.m.baidu.com/i41915173660.htm"),
+                          std::string("i([0-9]+)"), (int64_t)0},
+                         std::string("i41915173660")},
+                        {{std::string("http://a.m.baidu.com/i41915173660.htm"),
+                          std::string("i([0-9]+)"), (int64_t)1},
+                         std::string("41915173660")},
+
+                        {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)"), (int64_t)0},
+                         std::string("itde")},
+                        {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)"), (int64_t)1},
+                         std::string("i")},
+                        {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)"), (int64_t)2},
+                         std::string("td")},
+                        // null
+                        {{std::string("abc"), Null(), (int64_t)0}, Null()},
+                        {{Null(), std::string("i([0-9]+)"), (int64_t)0}, Null()}};
+
+    // pattern is constant value
+    InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String},
+                                              TypeIndex::Int64};
+    for (const auto& line : data_set) {
+        DataSet const_pattern_dataset = {line};
+        static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
+                                                               const_pattern_dataset));
+    }
+}
+
 TEST(FunctionLikeTest, regexp_extract_all) {
     std::string func_name = "regexp_extract_all";
 

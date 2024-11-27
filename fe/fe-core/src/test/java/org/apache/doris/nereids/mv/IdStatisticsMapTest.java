@@ -54,7 +54,7 @@ public class IdStatisticsMapTest extends SqlTestBase {
         };
         new MockUp<MTMVRelationManager>() {
             @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx) {
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid) {
                 return true;
             }
         };
@@ -75,7 +75,8 @@ public class IdStatisticsMapTest extends SqlTestBase {
                 .analyze()
                 .rewrite();
         // scan plan output will be refreshed after mv rewrite successfully, so need tmp store
-        Set<Slot> materializationScanOutput = c1.getMaterializationContexts().get(0).getScanPlan().getOutputSet();
+        Set<Slot> materializationScanOutput = c1.getMaterializationContexts().get(0)
+                .getScanPlan(null, c1).getOutputSet();
         tmpPlanChecker
                 .optimize()
                 .printlnBestPlanTree();

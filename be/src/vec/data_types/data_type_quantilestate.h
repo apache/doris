@@ -24,6 +24,7 @@
 #include <string>
 #include <typeinfo>
 
+#include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "serde/data_type_quantilestate_serde.h"
 #include "util/quantile_state.h"
@@ -63,11 +64,10 @@ public:
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
-
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
 
-    bool get_is_parametric() const override { return false; }
     bool have_subtypes() const override { return false; }
     bool should_align_right_in_pretty_formats() const override { return false; }
     bool text_can_contain_only_valid_utf8() const override { return true; }
@@ -79,7 +79,6 @@ public:
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }
-    bool have_maximum_size_of_value() const override { return false; }
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
@@ -93,7 +92,8 @@ public:
     Field get_default() const override { return QuantileState(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        LOG(FATAL) << "Unimplemented get_field for quantilestate";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Unimplemented get_field for quantile state");
         __builtin_unreachable();
     }
 

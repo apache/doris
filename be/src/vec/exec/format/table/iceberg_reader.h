@@ -76,11 +76,11 @@ public:
 
     IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                        RuntimeState* state, const TFileScanRangeParams& params,
-                       const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx,
-                       int64_t push_down_count);
+                       const TFileRangeDesc& range, ShardedKVCache* kv_cache,
+                       io::IOContext* io_ctx);
     ~IcebergTableReader() override = default;
 
-    Status init_row_filters(const TFileRangeDesc& range) final;
+    Status init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) final;
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) final;
 
@@ -197,9 +197,9 @@ public:
     IcebergParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                          RuntimeState* state, const TFileScanRangeParams& params,
                          const TFileRangeDesc& range, ShardedKVCache* kv_cache,
-                         io::IOContext* io_ctx, int64_t push_down_count)
+                         io::IOContext* io_ctx)
             : IcebergTableReader(std::move(file_format_reader), profile, state, params, range,
-                                 kv_cache, io_ctx, push_down_count) {}
+                                 kv_cache, io_ctx) {}
     Status init_reader(
             const std::vector<std::string>& file_col_names,
             const std::unordered_map<int, std::string>& col_id_name_map,
@@ -218,7 +218,7 @@ public:
         parquet_reader->set_delete_rows(&_iceberg_delete_rows);
     }
 
-    Status _gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv);
+    Status _gen_col_name_maps(const FieldDescriptor& field_desc);
 
 protected:
     std::unique_ptr<GenericReader> _create_equality_reader(
@@ -237,10 +237,9 @@ public:
 
     IcebergOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                      RuntimeState* state, const TFileScanRangeParams& params,
-                     const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx,
-                     int64_t push_down_count)
+                     const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx)
             : IcebergTableReader(std::move(file_format_reader), profile, state, params, range,
-                                 kv_cache, io_ctx, push_down_count) {}
+                                 kv_cache, io_ctx) {}
 
     void set_delete_rows() override {
         auto* orc_reader = (OrcReader*)_file_format_reader.get();

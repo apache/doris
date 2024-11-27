@@ -153,7 +153,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     template <typename ColumnType, bool when_null, bool then_null>
-    Status execute_short_circuit(const DataTypePtr& data_type, Block& block, size_t result,
+    Status execute_short_circuit(const DataTypePtr& data_type, Block& block, uint32_t result,
                                  CaseWhenColumnHolder column_holder) const {
         auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
         int rows_count = column_holder.rows_count;
@@ -196,7 +196,7 @@ public:
     }
 
     template <typename ColumnType, bool when_null, bool then_null>
-    Status execute_impl(const DataTypePtr& data_type, Block& block, size_t result,
+    Status execute_impl(const DataTypePtr& data_type, Block& block, uint32_t result,
                         CaseWhenColumnHolder column_holder) const {
         if (column_holder.pair_count > UINT8_MAX) {
             return execute_short_circuit<ColumnType, when_null, then_null>(data_type, block, result,
@@ -250,7 +250,7 @@ public:
     }
 
     template <typename ColumnType, bool then_null>
-    Status execute_update_result(const DataTypePtr& data_type, size_t result, Block& block,
+    Status execute_update_result(const DataTypePtr& data_type, uint32_t result, Block& block,
                                  const uint8* then_idx, CaseWhenColumnHolder& column_holder) const {
         auto result_column_ptr = data_type->create_column();
 
@@ -302,11 +302,11 @@ public:
             }
             size_t target = is_consts[then_idx[row_idx]] ? 0 : row_idx;
             if constexpr (then_null) {
-                assert_cast<ColumnNullable*>(result_column_ptr.get())
+                assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
                         ->insert_from_with_type<ColumnType>(*raw_columns[then_idx[row_idx]],
                                                             target);
             } else {
-                assert_cast<ColumnType*>(result_column_ptr.get())
+                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
                         ->insert_from(*raw_columns[then_idx[row_idx]], target);
             }
         }
@@ -323,7 +323,9 @@ public:
         size_t rows_count = column_holder.rows_count;
         result_column_ptr->resize(rows_count);
         auto* __restrict result_raw_data =
-                assert_cast<ColumnType*>(result_column_ptr.get())->get_data().data();
+                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
+                        ->get_data()
+                        .data();
 
         // set default value
         for (int i = 0; i < rows_count; i++) {
@@ -346,7 +348,7 @@ public:
 
     template <typename ColumnType, bool when_null>
     Status execute_get_then_null(const DataTypePtr& data_type, Block& block,
-                                 const ColumnNumbers& arguments, size_t result,
+                                 const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) const {
         bool then_null = false;
         for (int i = 1 + has_case; i < arguments.size() - has_else; i += 2) {
@@ -376,7 +378,7 @@ public:
 
     template <typename ColumnType>
     Status execute_get_when_null(const DataTypePtr& data_type, Block& block,
-                                 const ColumnNumbers& arguments, size_t result,
+                                 const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) const {
         bool when_null = false;
         if constexpr (has_case) {
@@ -402,7 +404,7 @@ public:
     }
 
     Status execute_get_type(const DataTypePtr& data_type, Block& block,
-                            const ColumnNumbers& arguments, size_t result,
+                            const ColumnNumbers& arguments, uint32_t result,
                             size_t input_rows_count) const {
         WhichDataType which(
                 data_type->is_nullable()
@@ -418,7 +420,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return execute_get_type(block.get_by_position(result).type, block, arguments, result,
                                 input_rows_count);
     }

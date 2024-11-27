@@ -128,8 +128,9 @@ suite("test_add_drop_index_on_table_with_mv") {
     assertEquals(show_result[0][2], "idx1")
 
     // build index
-    sql """ BUILD INDEX idx1 ON ${tableName}; """
-
-    // wait for index build finish
-    wait_for_build_index_on_partition_finish(tableName, timeout)
+    if (!isCloudMode()) {
+        sql """ BUILD INDEX idx1 ON ${tableName}; """
+        // wait for index build finish
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+    }
 }

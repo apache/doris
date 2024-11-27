@@ -35,7 +35,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/hash_table/hash_set.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
@@ -62,14 +61,15 @@ struct AggregateFunctionCollectSetData {
     using ColVecType = ColumnVectorOrDecimal<ElementType>;
     using ElementNativeType = typename NativeType<T>::Type;
     using SelfType = AggregateFunctionCollectSetData;
-    using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>, 4>;
+    using Set = phmap::flat_hash_set<ElementNativeType>;
     Set data_set;
     Int64 max_size = -1;
 
     size_t size() const { return data_set.size(); }
 
     void add(const IColumn& column, size_t row_num) {
-        data_set.insert(assert_cast<const ColVecType&>(column).get_data()[row_num]);
+        data_set.insert(assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(column)
+                                .get_data()[row_num]);
     }
 
     void merge(const SelfType& rhs) {
@@ -82,20 +82,29 @@ struct AggregateFunctionCollectSetData {
                 if (size() >= max_size) {
                     return;
                 }
-                data_set.insert(rhs_elem.get_value());
+                data_set.insert(rhs_elem);
             }
         } else {
-            data_set.merge(rhs.data_set);
+            data_set.merge(Set(rhs.data_set));
         }
     }
 
     void write(BufferWritable& buf) const {
-        data_set.write(buf);
+        write_var_uint(data_set.size(), buf);
+        for (const auto& value : data_set) {
+            write_binary(value, buf);
+        }
         write_var_int(max_size, buf);
     }
 
     void read(BufferReadable& buf) {
-        data_set.read(buf);
+        uint64_t new_size = 0;
+        read_var_uint(new_size, buf);
+        ElementNativeType x;
+        for (size_t i = 0; i < new_size; ++i) {
+            read_binary(x, buf);
+            data_set.insert(x);
+        }
         read_var_int(max_size, buf);
     }
 
@@ -103,7 +112,7 @@ struct AggregateFunctionCollectSetData {
         auto& vec = assert_cast<ColVecType&>(to).get_data();
         vec.reserve(size());
         for (const auto& item : data_set) {
-            vec.push_back(item.key);
+            vec.push_back(item);
         }
     }
 
@@ -115,23 +124,19 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     using SelfType = AggregateFunctionCollectSetData<ElementType, HasLimit>;
-    using Set = HashSetWithStackMemory<ElementType, DefaultHash<ElementType>, 4>;
+    using Set = phmap::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
     size_t size() const { return data_set.size(); }
 
     void add(const IColumn& column, size_t row_num, Arena* arena) {
-        Set::LookupResult it;
-        bool inserted;
         auto key = column.get_data_at(row_num);
         key.data = arena->insert(key.data, key.size);
-        data_set.emplace(key, it, inserted);
+        data_set.insert(key);
     }
 
     void merge(const SelfType& rhs, Arena* arena) {
-        bool inserted;
-        Set::LookupResult it;
         if (max_size == -1) {
             max_size = rhs.max_size;
         }
@@ -144,16 +149,16 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
                 }
             }
             assert(arena != nullptr);
-            StringRef key = rhs_elem.get_value();
+            StringRef key = rhs_elem;
             key.data = arena->insert(key.data, key.size);
-            data_set.emplace(key, it, inserted);
+            data_set.insert(key);
         }
     }
 
     void write(BufferWritable& buf) const {
         write_var_uint(size(), buf);
         for (const auto& elem : data_set) {
-            write_string_binary(elem.get_value(), buf);
+            write_string_binary(elem, buf);
         }
         write_var_int(max_size, buf);
     }
@@ -173,7 +178,7 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
         auto& vec = assert_cast<ColVecType&>(to);
         vec.reserve(size());
         for (const auto& item : data_set) {
-            vec.insert_data(item.key.data, item.key.size);
+            vec.insert_data(item.data, item.size);
         }
     }
 
@@ -191,7 +196,8 @@ struct AggregateFunctionCollectListData {
     size_t size() const { return data.size(); }
 
     void add(const IColumn& column, size_t row_num) {
-        const auto& vec = assert_cast<const ColVecType&>(column).get_data();
+        const auto& vec =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(column).get_data();
         data.push_back(vec[row_num]);
     }
 
@@ -256,8 +262,10 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
             }
             max_size = rhs.max_size;
 
-            data->insert_range_from(*rhs.data, 0,
-                                    std::min(assert_cast<size_t>(max_size - size()), rhs.size()));
+            data->insert_range_from(
+                    *rhs.data, 0,
+                    std::min(assert_cast<size_t, TypeCheckOnRelease::DISABLE>(max_size - size()),
+                             rhs.size()));
         } else {
             data->insert_range_from(*rhs.data, 0, rhs.size());
         }
@@ -326,8 +334,10 @@ struct AggregateFunctionArrayAggData {
     }
 
     void add(const IColumn& column, size_t row_num) {
-        const auto& col = assert_cast<const ColumnNullable&>(column);
-        const auto& vec = assert_cast<const ColVecType&>(col.get_nested_column()).get_data();
+        const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+        const auto& vec =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(col.get_nested_column())
+                        .get_data();
         null_map->push_back(col.get_null_map_data()[row_num]);
         nested_column->get_data().push_back(vec[row_num]);
         DCHECK(null_map->size() == nested_column->size());
@@ -426,8 +436,9 @@ struct AggregateFunctionArrayAggData<StringRef> {
     }
 
     void add(const IColumn& column, size_t row_num) {
-        const auto& col = assert_cast<const ColumnNullable&>(column);
-        const auto& vec = assert_cast<const ColVecType&>(col.get_nested_column());
+        const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+        const auto& vec = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                col.get_nested_column());
         null_map->push_back(col.get_null_map_data()[row_num]);
         nested_column->insert_from(vec, row_num);
         DCHECK(null_map->size() == nested_column->size());
@@ -505,6 +516,71 @@ struct AggregateFunctionArrayAggData<StringRef> {
     }
 };
 
+template <>
+struct AggregateFunctionArrayAggData<void> {
+    using ElementType = StringRef;
+    using Self = AggregateFunctionArrayAggData<void>;
+    MutableColumnPtr column_data;
+
+    AggregateFunctionArrayAggData() {}
+
+    AggregateFunctionArrayAggData(const DataTypes& argument_types) {
+        DataTypePtr column_type = argument_types[0];
+        column_data = column_type->create_column();
+    }
+
+    void add(const IColumn& column, size_t row_num) { column_data->insert_from(column, row_num); }
+
+    void deserialize_and_merge(const IColumn& column, size_t row_num) {
+        auto& to_arr = assert_cast<const ColumnArray&>(column);
+        auto& to_nested_col = to_arr.get_data();
+        auto start = to_arr.get_offsets()[row_num - 1];
+        auto end = start + to_arr.get_offsets()[row_num] - to_arr.get_offsets()[row_num - 1];
+        for (auto i = start; i < end; ++i) {
+            column_data->insert_from(to_nested_col, i);
+        }
+    }
+
+    void reset() { column_data->clear(); }
+
+    void insert_result_into(IColumn& to) const {
+        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_nested_col = to_arr.get_data();
+        size_t num_rows = column_data->size();
+        for (size_t i = 0; i < num_rows; ++i) {
+            to_nested_col.insert_from(*column_data, i);
+        }
+        to_arr.get_offsets().push_back(to_nested_col.size());
+    }
+
+    void write(BufferWritable& buf) const {
+        const size_t size = column_data->size();
+        write_binary(size, buf);
+        for (size_t i = 0; i < size; i++) {
+            write_string_binary(column_data->get_data_at(i), buf);
+        }
+    }
+
+    void read(BufferReadable& buf) {
+        size_t size = 0;
+        read_binary(size, buf);
+        column_data->reserve(size);
+
+        StringRef s;
+        for (size_t i = 0; i < size; i++) {
+            read_string_binary(s, buf);
+            column_data->insert_data(s.data, s.size);
+        }
+    }
+
+    void merge(const Self& rhs) {
+        const auto size = rhs.column_data->size();
+        for (size_t i = 0; i < size; i++) {
+            column_data->insert_from(*rhs.column_data, i);
+        }
+    }
+};
+
 //ShowNull is just used to support array_agg because array_agg needs to display NULL
 //todo: Supports order by sorting for array_agg
 template <typename Data, typename HasLimit, typename ShowNull>
@@ -539,7 +615,8 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         if constexpr (ShowNull::value) {
-            if constexpr (IsDecimalNumber<typename Data::ElementType>) {
+            if constexpr (IsDecimalNumber<typename Data::ElementType> ||
+                          std::is_same_v<Data, AggregateFunctionArrayAggData<void>>) {
                 new (place) Data(argument_types);
             } else {
                 new (place) Data();
@@ -553,15 +630,15 @@ public:
         return std::make_shared<DataTypeArray>(make_nullable(return_type));
     }
 
-    bool allocates_memory_in_arena() const override { return ENABLE_ARENA; }
-
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         auto& data = this->data(place);
         if constexpr (HasLimit::value) {
             if (data.max_size == -1) {
                 data.max_size =
-                        (UInt64)assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
+                        (UInt64)assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(
+                                columns[1])
+                                ->get_element(row_num);
             }
             if (data.size() >= data.max_size) {
                 return;
@@ -710,16 +787,23 @@ public:
 
             for (size_t i = 0; i < num_rows; ++i) {
                 col_null->get_null_map_data().push_back(col_src.get_null_map_data()[i]);
-                if constexpr (std::is_same_v<StringRef, typename Data::ElementType>) {
-                    auto& vec = assert_cast<ColumnString&>(col_null->get_nested_column());
+                if constexpr (std::is_same_v<Data, AggregateFunctionArrayAggData<StringRef>>) {
+                    auto& vec = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(
+                            col_null->get_nested_column());
                     const auto& vec_src =
-                            assert_cast<const ColumnString&>(col_src.get_nested_column());
+                            assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
+                                    col_src.get_nested_column());
                     vec.insert_from(vec_src, i);
+                } else if constexpr (std::is_same_v<Data, AggregateFunctionArrayAggData<void>>) {
+                    to_nested_col.insert_from(col_src.get_nested_column(), i);
                 } else {
                     using ColVecType = ColumnVectorOrDecimal<typename Data::ElementType>;
-                    auto& vec = assert_cast<ColVecType&>(col_null->get_nested_column()).get_data();
-                    auto& vec_src =
-                            assert_cast<const ColVecType&>(col_src.get_nested_column()).get_data();
+                    auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(
+                                        col_null->get_nested_column())
+                                        .get_data();
+                    auto& vec_src = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                                            col_src.get_nested_column())
+                                            .get_data();
                     vec.push_back(vec_src[i]);
                 }
                 to_arr.get_offsets().push_back(to_nested_col.size());

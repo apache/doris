@@ -26,7 +26,18 @@
 
 namespace doris {
 
-TEST(ThreadMemTrackerMgrTest, ConsumeMemory) {
+class ThreadMemTrackerMgrTest : public testing::Test {
+public:
+    ThreadMemTrackerMgrTest() = default;
+    ~ThreadMemTrackerMgrTest() override = default;
+
+    void SetUp() override {}
+
+protected:
+    std::shared_ptr<WorkloadGroup> workload_group;
+};
+
+TEST_F(ThreadMemTrackerMgrTest, ConsumeMemory) {
     std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
     std::shared_ptr<MemTrackerLimiter> t =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-ConsumeMemory");
@@ -34,7 +45,7 @@ TEST(ThreadMemTrackerMgrTest, ConsumeMemory) {
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
 
-    thread_context->attach_task(TUniqueId(), t);
+    thread_context->attach_task(TUniqueId(), t, workload_group);
     thread_context->consume_memory(size1);
     // size1 < config::mem_tracker_consume_min_size_bytes, not consume mem tracker.
     EXPECT_EQ(t->consumption(), 0);
@@ -76,11 +87,11 @@ TEST(ThreadMemTrackerMgrTest, ConsumeMemory) {
     EXPECT_EQ(t->consumption(), 0); // detach automatic call flush_untracked_mem.
 }
 
-TEST(ThreadMemTrackerMgrTest, Boundary) {
+TEST_F(ThreadMemTrackerMgrTest, Boundary) {
     // TODO, Boundary check may not be necessary, add some `IF` maybe increase cost time.
 }
 
-TEST(ThreadMemTrackerMgrTest, NestedSwitchMemTracker) {
+TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTracker) {
     std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
     std::shared_ptr<MemTrackerLimiter> t1 = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::OTHER, "UT-NestedSwitchMemTracker1");
@@ -92,7 +103,7 @@ TEST(ThreadMemTrackerMgrTest, NestedSwitchMemTracker) {
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
 
-    thread_context->attach_task(TUniqueId(), t1);
+    thread_context->attach_task(TUniqueId(), t1, workload_group);
     thread_context->consume_memory(size1);
     thread_context->consume_memory(size2);
     EXPECT_EQ(t1->consumption(), size1 + size2);
@@ -152,17 +163,17 @@ TEST(ThreadMemTrackerMgrTest, NestedSwitchMemTracker) {
     EXPECT_EQ(t1->consumption(), 0);
 }
 
-TEST(ThreadMemTrackerMgrTest, MultiMemTracker) {
+TEST_F(ThreadMemTrackerMgrTest, MultiMemTracker) {
     std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
     std::shared_ptr<MemTrackerLimiter> t1 =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-MultiMemTracker1");
-    std::shared_ptr<MemTracker> t2 = std::make_shared<MemTracker>("UT-MultiMemTracker2", t1.get());
-    std::shared_ptr<MemTracker> t3 = std::make_shared<MemTracker>("UT-MultiMemTracker3", t1.get());
+    std::shared_ptr<MemTracker> t2 = std::make_shared<MemTracker>("UT-MultiMemTracker2");
+    std::shared_ptr<MemTracker> t3 = std::make_shared<MemTracker>("UT-MultiMemTracker3");
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
 
-    thread_context->attach_task(TUniqueId(), t1);
+    thread_context->attach_task(TUniqueId(), t1, workload_group);
     thread_context->consume_memory(size1);
     thread_context->consume_memory(size2);
     thread_context->consume_memory(size1);
@@ -170,8 +181,8 @@ TEST(ThreadMemTrackerMgrTest, MultiMemTracker) {
 
     bool rt = thread_context->thread_mem_tracker_mgr->push_consumer_tracker(t2.get());
     EXPECT_EQ(rt, true);
-    EXPECT_EQ(t1->consumption(), size1 + size2);
-    EXPECT_EQ(t2->consumption(), -size1); // _untracked_mem = size1
+    EXPECT_EQ(t1->consumption(), size1 + size2); // _untracked_mem = size1
+    EXPECT_EQ(t2->consumption(), 0);
 
     thread_context->consume_memory(size2);
     EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2);
@@ -189,13 +200,13 @@ TEST(ThreadMemTrackerMgrTest, MultiMemTracker) {
     thread_context->consume_memory(size2);
     thread_context->consume_memory(-size1); // _untracked_mem = -size1
     EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2 + size2 + size1 + size2);
-    EXPECT_EQ(t2->consumption(), size2 + size2 + size1 + size2);
-    EXPECT_EQ(t3->consumption(), size1 + size2);
+    EXPECT_EQ(t2->consumption(), size2 + size2 + size2);
+    EXPECT_EQ(t3->consumption(), size2);
 
     thread_context->thread_mem_tracker_mgr->pop_consumer_tracker();
-    EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2 + size2 + size1 + size2 - size1);
-    EXPECT_EQ(t2->consumption(), size2 + size2 + size1 + size2 - size1);
-    EXPECT_EQ(t3->consumption(), size1 + size2 - size1);
+    EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2 + size2 + size1 + size2);
+    EXPECT_EQ(t2->consumption(), size2 + size2 + size2);
+    EXPECT_EQ(t3->consumption(), size2);
 
     thread_context->consume_memory(-size2);
     thread_context->consume_memory(size2);
@@ -203,57 +214,32 @@ TEST(ThreadMemTrackerMgrTest, MultiMemTracker) {
     thread_context->thread_mem_tracker_mgr->pop_consumer_tracker();
     EXPECT_EQ(t1->consumption(),
               size1 + size2 + size1 + size2 + size2 + size1 + size2 - size1 - size2);
-    EXPECT_EQ(t2->consumption(), size2 + size2 + size1 + size2 - size1 - size2);
-    EXPECT_EQ(t3->consumption(), size1 + size2 - size1);
+    EXPECT_EQ(t2->consumption(), size2 + size2);
+    EXPECT_EQ(t3->consumption(), size2);
 
     thread_context->consume_memory(-t1->consumption());
     thread_context->detach_task(); // detach t1
     EXPECT_EQ(t1->consumption(), 0);
-    EXPECT_EQ(t2->consumption(), size2 + size2 + size1 + size2 - size1 - size2);
-    EXPECT_EQ(t3->consumption(), size1 + size2 - size1);
+    EXPECT_EQ(t2->consumption(), size2 + size2);
+    EXPECT_EQ(t3->consumption(), size2);
 }
 
-TEST(ThreadMemTrackerMgrTest, ScopedCount) {
-    std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
-    std::shared_ptr<MemTrackerLimiter> t1 =
-            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-ScopedCount");
-
-    int64_t size1 = 4 * 1024;
-    int64_t size2 = 4 * 1024 * 1024;
-
-    thread_context->attach_task(TUniqueId(), t1);
-    thread_context->thread_mem_tracker_mgr->start_count_scope_mem();
-    thread_context->consume_memory(size1);
-    thread_context->consume_memory(size2);
-    thread_context->consume_memory(size1);
-    thread_context->consume_memory(size2);
-    thread_context->consume_memory(size1);
-    int64_t scope_mem = thread_context->thread_mem_tracker_mgr->stop_count_scope_mem();
-    EXPECT_EQ(t1->consumption(), size1 + size2 + size1 + size2 + size1);
-    EXPECT_EQ(t1->consumption(), scope_mem);
-
-    thread_context->consume_memory(-size2);
-    thread_context->consume_memory(-size1);
-    thread_context->consume_memory(-size2);
-    EXPECT_EQ(t1->consumption(), size1 + size1);
-    EXPECT_EQ(scope_mem, size1 + size2 + size1 + size2 + size1);
-}
-
-TEST(ThreadMemTrackerMgrTest, ReserveMemory) {
+TEST_F(ThreadMemTrackerMgrTest, ReserveMemory) {
     std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
     std::shared_ptr<MemTrackerLimiter> t =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-ReserveMemory");
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
-    int64_t size3 = size2 * 1024;
+    int64_t size3 = size2 * 2;
 
-    thread_context->attach_task(TUniqueId(), t);
+    thread_context->attach_task(TUniqueId(), t, workload_group);
     thread_context->consume_memory(size1);
     thread_context->consume_memory(size2);
     EXPECT_EQ(t->consumption(), size1 + size2);
 
-    thread_context->try_reserve_memory(size3);
+    auto st = thread_context->try_reserve_memory(size3);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t->consumption(), size1 + size2 + size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3);
 
@@ -269,18 +255,12 @@ TEST(ThreadMemTrackerMgrTest, ReserveMemory) {
     // std::abs(-size1 - size1) < SYNC_PROC_RESERVED_INTERVAL_BYTES, not update process_reserved_memory.
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2);
 
-    thread_context->consume_memory(size2 * 1023);
+    thread_context->consume_memory(size2);
     EXPECT_EQ(t->consumption(), size1 + size2 + size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size1 + size1);
 
-    std::cout << "11111 " << thread_context->thread_mem_tracker_mgr->untracked_mem() << ", "
-              << thread_context->thread_mem_tracker_mgr->reserved_mem() << std::endl;
     thread_context->consume_memory(size1);
     thread_context->consume_memory(size1);
-    std::cout << "2222 " << thread_context->thread_mem_tracker_mgr->untracked_mem() << ", "
-              << thread_context->thread_mem_tracker_mgr->reserved_mem() << std::endl;
-    std::cout << "3333 " << thread_context->thread_mem_tracker_mgr->untracked_mem() << ", "
-              << thread_context->thread_mem_tracker_mgr->reserved_mem() << std::endl;
     // reserved memory used done
     EXPECT_EQ(t->consumption(), size1 + size2 + size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
@@ -297,7 +277,8 @@ TEST(ThreadMemTrackerMgrTest, ReserveMemory) {
     EXPECT_EQ(t->consumption(), size1 + size2);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
 
-    thread_context->try_reserve_memory(size3);
+    st = thread_context->try_reserve_memory(size3);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t->consumption(), size1 + size2 + size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3);
 
@@ -338,16 +319,17 @@ TEST(ThreadMemTrackerMgrTest, ReserveMemory) {
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
 }
 
-TEST(ThreadMemTrackerMgrTest, NestedReserveMemory) {
+TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
     std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
     std::shared_ptr<MemTrackerLimiter> t = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::OTHER, "UT-NestedReserveMemory");
 
     int64_t size2 = 4 * 1024 * 1024;
-    int64_t size3 = size2 * 1024;
+    int64_t size3 = size2 * 2;
 
-    thread_context->attach_task(TUniqueId(), t);
-    thread_context->try_reserve_memory(size3);
+    thread_context->attach_task(TUniqueId(), t, workload_group);
+    auto st = thread_context->try_reserve_memory(size3);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t->consumption(), size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3);
 
@@ -358,15 +340,18 @@ TEST(ThreadMemTrackerMgrTest, NestedReserveMemory) {
     EXPECT_EQ(t->consumption(), size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2);
 
-    thread_context->try_reserve_memory(size2);
+    st = thread_context->try_reserve_memory(size2);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     // ThreadMemTrackerMgr _reserved_mem = size3 - size2 + size2
     // ThreadMemTrackerMgr _untracked_mem = 0
     EXPECT_EQ(t->consumption(), size3 + size2);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(),
               size3); // size3 - size2 + size2
 
-    thread_context->try_reserve_memory(size3);
-    thread_context->try_reserve_memory(size3);
+    st = thread_context->try_reserve_memory(size3);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    st = thread_context->try_reserve_memory(size3);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     thread_context->consume_memory(size3);
     thread_context->consume_memory(size2);
     thread_context->consume_memory(size3);
@@ -386,7 +371,7 @@ TEST(ThreadMemTrackerMgrTest, NestedReserveMemory) {
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), 0);
 }
 
-TEST(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
+TEST_F(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
     std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
     std::shared_ptr<MemTrackerLimiter> t1 = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::OTHER, "UT-NestedSwitchMemTrackerReserveMemory1");
@@ -397,16 +382,18 @@ TEST(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
-    int64_t size3 = size2 * 1024;
+    int64_t size3 = size2 * 2;
 
-    thread_context->attach_task(TUniqueId(), t1);
-    thread_context->try_reserve_memory(size3);
+    thread_context->attach_task(TUniqueId(), t1, workload_group);
+    auto st = thread_context->try_reserve_memory(size3);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     thread_context->consume_memory(size2);
     EXPECT_EQ(t1->consumption(), size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2);
 
     thread_context->thread_mem_tracker_mgr->attach_limiter_tracker(t2);
-    thread_context->try_reserve_memory(size3);
+    st = thread_context->try_reserve_memory(size3);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t1->consumption(), size3);
     EXPECT_EQ(t2->consumption(), size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2 + size3);
@@ -417,7 +404,8 @@ TEST(ThreadMemTrackerMgrTest, NestedSwitchMemTrackerReserveMemory) {
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3 - size2);
 
     thread_context->thread_mem_tracker_mgr->attach_limiter_tracker(t3);
-    thread_context->try_reserve_memory(size3);
+    st = thread_context->try_reserve_memory(size3);
+    EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t1->consumption(), size3);
     EXPECT_EQ(t2->consumption(), size3 + size2);
     EXPECT_EQ(t3->consumption(), size3);

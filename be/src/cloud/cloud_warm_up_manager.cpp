@@ -49,18 +49,28 @@ CloudWarmUpManager::~CloudWarmUpManager() {
     }
 }
 
+std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTablet* tablet) {
+    std::unordered_map<std::string, RowsetMetaSharedPtr> id_to_rowset_meta_map;
+    auto visitor = [&id_to_rowset_meta_map](const RowsetSharedPtr& r) {
+        id_to_rowset_meta_map.emplace(r->rowset_meta()->rowset_id().to_string(), r->rowset_meta());
+    };
+    constexpr bool include_stale = false;
+    tablet->traverse_rowsets(visitor, include_stale);
+    return id_to_rowset_meta_map;
+}
+
 void CloudWarmUpManager::handle_jobs() {
 #ifndef BE_TEST
     constexpr int WAIT_TIME_SECONDS = 600;
     while (true) {
-        JobMeta cur_job;
+        std::shared_ptr<JobMeta> cur_job = nullptr;
         {
             std::unique_lock lock(_mtx);
             _cond.wait(lock, [this]() { return _closed || !_pending_job_metas.empty(); });
             if (_closed) break;
-            cur_job = std::move(_pending_job_metas.front());
+            cur_job = _pending_job_metas.front();
         }
-        for (int64_t tablet_id : cur_job.tablet_ids) {
+        for (int64_t tablet_id : cur_job->tablet_ids) {
             if (_cur_job_id == 0) { // The job is canceled
                 break;
             }
@@ -78,7 +88,7 @@ void CloudWarmUpManager::handle_jobs() {
             std::shared_ptr<bthread::CountdownEvent> wait =
                     std::make_shared<bthread::CountdownEvent>(0);
             auto tablet_meta = tablet->tablet_meta();
-            auto rs_metas = tablet_meta->snapshot_rs_metas();
+            auto rs_metas = snapshot_rs_metas(tablet.get());
             for (auto& [_, rs] : rs_metas) {
                 for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
                     auto storage_resource = rs->remote_storage_resource();
@@ -114,6 +124,43 @@ void CloudWarmUpManager::handle_jobs() {
                                                 wait->signal();
                                             },
                             });
+
+                    auto download_idx_file = [&](const io::Path& idx_path) {
+                        io::DownloadFileMeta meta {
+                                .path = idx_path,
+                                .file_size = -1,
+                                .file_system = storage_resource.value()->fs,
+                                .ctx =
+                                        {
+                                                .expiration_time = expiration_time,
+                                        },
+                                .download_done =
+                                        [wait](Status st) {
+                                            if (!st) {
+                                                LOG_WARNING("Warm up error ").error(st);
+                                            }
+                                            wait->signal();
+                                        },
+                        };
+                        _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
+                    };
+                    auto schema_ptr = rs->tablet_schema();
+                    auto idx_version = schema_ptr->get_inverted_index_storage_format();
+                    if (idx_version == InvertedIndexStorageFormatPB::V1) {
+                        for (const auto& index : schema_ptr->inverted_indexes()) {
+                            wait->add_count();
+                            auto idx_path = storage_resource.value()->remote_idx_v1_path(
+                                    *rs, seg_id, index->index_id(), index->get_index_suffix());
+                            download_idx_file(idx_path);
+                        }
+                    } else {
+                        if (schema_ptr->has_inverted_index()) {
+                            wait->add_count();
+                            auto idx_path =
+                                    storage_resource.value()->remote_idx_v2_path(*rs, seg_id);
+                            download_idx_file(idx_path);
+                        }
+                    }
                 }
             }
             timespec time;
@@ -124,7 +171,7 @@ void CloudWarmUpManager::handle_jobs() {
         }
         {
             std::unique_lock lock(_mtx);
-            _finish_job.push_back(std::move(cur_job));
+            _finish_job.push_back(cur_job);
             _pending_job_metas.pop_front();
         }
     }
@@ -181,8 +228,9 @@ Status CloudWarmUpManager::check_and_set_batch_id(int64_t job_id, int64_t batch_
 void CloudWarmUpManager::add_job(const std::vector<TJobMeta>& job_metas) {
     {
         std::lock_guard lock(_mtx);
-        std::for_each(job_metas.begin(), job_metas.end(),
-                      [this](const TJobMeta& meta) { _pending_job_metas.emplace_back(meta); });
+        std::for_each(job_metas.begin(), job_metas.end(), [this](const TJobMeta& meta) {
+            _pending_job_metas.emplace_back(std::make_shared<JobMeta>(meta));
+        });
     }
     _cond.notify_all();
 }

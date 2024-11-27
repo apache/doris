@@ -39,6 +39,7 @@ VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_stat
           _output_tuple_desc(_local_state->output_tuple_desc()),
           _output_row_descriptor(_local_state->_parent->output_row_descriptor()) {
     _total_rf_num = _local_state->runtime_filter_num();
+    DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
 Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
@@ -112,11 +113,12 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             // 1. Get input block from scanner
             {
                 // get block time
-                auto* timer = _local_state->_scan_timer;
-                SCOPED_TIMER(timer);
+                SCOPED_TIMER(_local_state->_scan_timer);
                 RETURN_IF_ERROR(_get_block_impl(state, block, eof));
                 if (*eof) {
                     DCHECK(block->rows() == 0);
+                    // clear TEMP columns to avoid column align problem
+                    block->erase_tmp_columns();
                     break;
                 }
                 _num_rows_read += block->rows();
@@ -125,8 +127,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
             // 2. Filter the output block finally.
             {
-                auto* timer = _local_state->_filter_timer;
-                SCOPED_TIMER(timer);
+                SCOPED_TIMER(_local_state->_filter_timer);
                 RETURN_IF_ERROR(_filter_output_block(block));
             }
             // record rows return (after filter) for _limit check
@@ -141,6 +142,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     }
 
     if (state->is_cancelled()) {
+        // TODO: Should return the specific ErrorStatus instead of just Cancelled.
         return Status::Cancelled("cancelled");
     }
     *eof = *eof || _should_stop;
@@ -152,14 +154,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 }
 
 Status VScanner::_filter_output_block(Block* block) {
-    Defer clear_tmp_block([&]() {
-        auto all_column_names = block->get_names();
-        for (auto& name : all_column_names) {
-            if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
-                block->erase(name);
-            }
-        }
-    });
+    Defer clear_tmp_block([&]() { block->erase_tmp_columns(); });
     if (block->has(BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED)) {
         // scanner filter_block is already done (only by _topn_next currently), just skip it
         return Status::OK();
@@ -260,6 +255,15 @@ void VScanner::_collect_profile_before_close() {
     // Update stats for load
     _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
     _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
+}
+
+void VScanner::update_scan_cpu_timer() {
+    int64_t cpu_time = _cpu_watch.elapsed_time();
+    _scan_cpu_timer += cpu_time;
+    _query_statistics->add_cpu_nanos(cpu_time);
+    if (_state && _state->get_query_ctx()) {
+        _state->get_query_ctx()->update_wg_cpu_adder(cpu_time);
+    }
 }
 
 } // namespace doris::vectorized

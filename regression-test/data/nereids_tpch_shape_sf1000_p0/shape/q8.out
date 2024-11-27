@@ -15,30 +15,30 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[supplier] apply RFs: RF5 RF6
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=() build RFs:RF4 c_custkey->[o_custkey]
+--------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=() build RFs:RF4 o_custkey->[c_custkey]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF3 l_orderkey->[o_orderkey]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = n1.n_nationkey)) otherCondition=() build RFs:RF3 n_nationkey->[c_nationkey]
 --------------------------------PhysicalProject
-----------------------------------filter((orders.o_orderdate <= '1996-12-31') and (orders.o_orderdate >= '1995-01-01'))
-------------------------------------PhysicalOlapScan[orders] apply RFs: RF3 RF4
+----------------------------------PhysicalOlapScan[customer] apply RFs: RF3 RF4
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF2 p_partkey->[l_partkey]
+----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((n1.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF2 r_regionkey->[n_regionkey]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF2
-------------------------------------PhysicalProject
---------------------------------------filter((part.p_type = 'ECONOMY ANODIZED STEEL'))
-----------------------------------------PhysicalOlapScan[part]
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = n1.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[c_nationkey]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[customer] apply RFs: RF1
---------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((n1.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF0 r_regionkey->[n_regionkey]
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[nation] apply RFs: RF0
+--------------------------------------PhysicalOlapScan[nation] apply RFs: RF2
 ------------------------------------PhysicalProject
 --------------------------------------filter((region.r_name = 'AMERICA'))
 ----------------------------------------PhysicalOlapScan[region]
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF1 l_orderkey->[o_orderkey]
+--------------------------------PhysicalProject
+----------------------------------filter((orders.o_orderdate <= '1996-12-31') and (orders.o_orderdate >= '1995-01-01'))
+------------------------------------PhysicalOlapScan[orders] apply RFs: RF1
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF0
+------------------------------------PhysicalProject
+--------------------------------------filter((part.p_type = 'ECONOMY ANODIZED STEEL'))
+----------------------------------------PhysicalOlapScan[part]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[nation]
 

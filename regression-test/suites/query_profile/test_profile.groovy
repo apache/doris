@@ -51,5 +51,50 @@ suite('test_profile') {
     def notExistingProfileString = getProfile("-100")
     logger.info("notExistingProfileString:{}", notExistingProfileString)
     def json2 = new JsonSlurper().parseText(notExistingProfileString)
-    assertEquals("ID -100 does not exist", json2.data)
+    assertEquals("Profile -100 not found", json2.data)
+
+    sql """
+        CREATE TABLE if not exists `test_profile` (
+          `id` INT,
+          `name` varchar(32)
+        )ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql "set enable_profile=true"
+    def simpleSql = "select count(*) from test_profile"
+    sql "${simpleSql}"
+    def isRecorded = false
+    def wholeString = getProfileList()
+    List profileData = new JsonSlurper().parseText(wholeString).data.rows
+    for (final def profileItem in profileData) {
+        if (profileItem["Sql Statement"].toString() == simpleSql) {
+            isRecorded = true
+            assertEquals("internal", profileItem["Default Catalog"].toString())
+        }
+    }
+    assertTrue(isRecorded)
+
+    sql "set enable_nereids_planner=true"
+    sql "set enable_fallback_to_original_planner=false"
+
+    int randomInt = Math.random() * 2000000000
+    profile("test_profile_time_${randomInt}") {
+        run {
+            sql "/* test_profile_time_${randomInt} */ select ${randomInt} from test_profile"
+        }
+
+        check { profileString, exception ->
+            log.info(profileString)
+            assertTrue(profileString.contains("Nereids  GarbageCollect  Time"))
+            assertTrue(profileString.contains("Nereids  BeFoldConst  Time"))
+        }
+    }
+
+    sql """ SET enable_profile = false """
+    sql """ DROP TABLE IF EXISTS test_profile """
 }

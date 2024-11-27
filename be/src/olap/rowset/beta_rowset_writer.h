@@ -18,6 +18,7 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <algorithm>
@@ -41,6 +42,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_creator.h"
+#include "segment_v2/inverted_index_file_writer.h"
 #include "segment_v2/segment.h"
 #include "util/spinlock.h"
 
@@ -83,6 +85,35 @@ private:
     bool _closed {false};
 };
 
+class InvertedIndexFileCollection {
+public:
+    ~InvertedIndexFileCollection();
+
+    // `seg_id` -> inverted index file writer
+    Status add(int seg_id, InvertedIndexFileWriterPtr&& writer);
+
+    // Close all file writers
+    // If the inverted index file writer is not closed, an error will be thrown during destruction
+    Status close();
+
+    // Get inverted index file info in segment id order.
+    // `seg_id_offset` is the offset of the segment id relative to the subscript of `_inverted_index_file_writers`,
+    // for more details, see `Tablet::create_transient_rowset_writer`.
+    Result<std::vector<const InvertedIndexFileInfo*>> inverted_index_file_info(int seg_id_offset);
+
+    // return all inverted index file writers
+    std::unordered_map<int, InvertedIndexFileWriterPtr>& get_file_writers() {
+        return _inverted_index_file_writers;
+    }
+
+    int64_t get_total_index_size() const { return _total_size; }
+
+private:
+    mutable SpinLock _lock;
+    std::unordered_map<int /* seg_id */, InvertedIndexFileWriterPtr> _inverted_index_file_writers;
+    int64_t _total_size = 0;
+};
+
 class BaseBetaRowsetWriter : public RowsetWriter {
 public:
     BaseBetaRowsetWriter();
@@ -100,6 +131,9 @@ public:
 
     Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
                               FileType file_type = FileType::SEGMENT_FILE) override;
+
+    Status create_inverted_index_file_writer(uint32_t segment_id,
+                                             InvertedIndexFileWriterPtr* writer) override;
 
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;
@@ -153,11 +187,15 @@ public:
     }
 
     bool is_partial_update() override {
-        return _context.partial_update_info && _context.partial_update_info->is_partial_update;
+        return _context.partial_update_info && _context.partial_update_info->is_partial_update();
     }
 
     const std::unordered_map<int, io::FileWriterPtr>& get_file_writers() const {
         return _seg_files.get_file_writers();
+    }
+
+    std::unordered_map<int, InvertedIndexFileWriterPtr>& inverted_index_file_writers() {
+        return this->_idx_files.get_file_writers();
     }
 
 private:
@@ -169,10 +207,24 @@ protected:
     Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false);
     Status _create_file_writer(const std::string& path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
-    virtual Status _check_segment_number_limit();
+    virtual Status _check_segment_number_limit(size_t segnum);
     virtual int64_t _num_seg() const;
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
     Status _build_tmp(RowsetSharedPtr& rowset_ptr);
+
+    uint64_t get_rowset_num_rows() {
+        std::lock_guard l(_segid_statistics_map_mutex);
+        return std::accumulate(_segment_num_rows.begin(), _segment_num_rows.end(), uint64_t(0));
+    }
+    // Only during vertical compaction is this method called
+    // Some index files are written during normal compaction and some files are written during index compaction.
+    // After all index writes are completed, call this method to write the final compound index file.
+    Status _close_inverted_index_file_writers() {
+        RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.close(),
+                                       "failed to close index file when build new rowset");
+        this->_total_index_size += _idx_files.get_total_index_size();
+        return Status::OK();
+    }
 
     std::atomic<int32_t> _num_segment; // number of consecutive flushed segments
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id
@@ -180,6 +232,7 @@ protected:
     int32_t _segment_start_id;         // basic write start from 0, partial update may be different
 
     SegmentFileCollection _seg_files;
+    InvertedIndexFileCollection _idx_files;
 
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model
@@ -220,28 +273,30 @@ public:
 
     Status build(RowsetSharedPtr& rowset) override;
 
+    Status init(const RowsetWriterContext& rowset_writer_context) override;
+
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;
 
     Status flush_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
             KeyBoundsPB& key_bounds);
+    Status create_segment_writer_for_segcompaction(
+            std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
+
+    bool is_segcompacted() const { return _num_segcompacted > 0; }
 
 private:
     // segment compaction
     friend class SegcompactionWorker;
     Status _close_file_writers() override;
-    Status _check_segment_number_limit() override;
+    Status _check_segment_number_limit(size_t segnum) override;
     int64_t _num_seg() const override;
     Status _wait_flying_segcompaction();
-    Status _create_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
     Status _segcompaction_if_necessary();
     Status _segcompaction_rename_last_segments();
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments);
-    bool _is_segcompacted() const { return _num_segcompacted > 0; }
-    bool _check_and_set_is_doing_segcompaction();
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
@@ -253,7 +308,7 @@ private:
                                                   // already been segment compacted
     std::atomic<int32_t> _num_segcompacted {0};   // index for segment compaction
 
-    std::shared_ptr<SegcompactionWorker> _segcompaction_worker;
+    std::shared_ptr<SegcompactionWorker> _segcompaction_worker = nullptr;
 
     // ensure only one inflight segcompaction task for each rowset
     std::atomic<bool> _is_doing_segcompaction {false};

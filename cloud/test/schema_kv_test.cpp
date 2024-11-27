@@ -24,7 +24,7 @@
 #include <random>
 
 #include "common/config.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/txn_kv.h"
@@ -107,8 +107,11 @@ TEST(DetachSchemaKVTest, TabletTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     // new MS write with write_schema_kv=false, old MS read
@@ -290,6 +293,8 @@ static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
     rowset.set_num_rows(100);
     rowset.set_num_segments(1);
     rowset.set_data_disk_size(10000);
+    rowset.set_index_disk_size(1000);
+    rowset.set_total_disk_size(11000);
     if (version > 0) {
         rowset.set_start_version(version);
         rowset.set_end_version(version);
@@ -379,8 +384,11 @@ TEST(DetachSchemaKVTest, RowsetTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     constexpr int64_t db_id = 10000;
@@ -472,7 +480,7 @@ TEST(DetachSchemaKVTest, RowsetTest) {
         EXPECT_EQ(get_rowset_res.stats().num_rows(), 100);
         EXPECT_EQ(get_rowset_res.stats().num_rowsets(), 2);
         EXPECT_EQ(get_rowset_res.stats().num_segments(), 1);
-        EXPECT_EQ(get_rowset_res.stats().data_size(), 10000);
+        EXPECT_EQ(get_rowset_res.stats().data_size(), 11000);
     }
 
     // new MS read rowsets committed by both old and new MS
@@ -521,7 +529,7 @@ TEST(DetachSchemaKVTest, RowsetTest) {
         EXPECT_EQ(get_rowset_res->stats().num_rows(), 2500);
         EXPECT_EQ(get_rowset_res->stats().num_rowsets(), 26);
         EXPECT_EQ(get_rowset_res->stats().num_segments(), 25);
-        EXPECT_EQ(get_rowset_res->stats().data_size(), 250000);
+        EXPECT_EQ(get_rowset_res->stats().data_size(), 275000);
         if (schema != nullptr) {
             auto schema_version = get_rowset_res->rowset_meta(10).schema_version();
             get_rowset_res->mutable_rowset_meta(10)->mutable_tablet_schema()->set_schema_version(3);
@@ -546,8 +554,11 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     // old MS commit rowset, new MS commit rowset again
@@ -636,8 +647,11 @@ TEST(SchemaKVTest, InsertExistedRowsetTest) {
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("get_instance_id::pred", [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("get_instance_id", [&](void* p) { *((std::string*)p) = instance_id; });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
     sp->enable_processing();
 
     config::write_schema_kv = true;

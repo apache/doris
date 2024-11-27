@@ -24,6 +24,7 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.PartitionType;
@@ -32,10 +33,14 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.info.SimpleTableInfo;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
+import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -60,11 +65,14 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     private static final int MIN_CLIENT_POOL_SIZE = 8;
     private final HMSCachedClient client;
     private final HMSExternalCatalog catalog;
+    private HadoopAuthenticator hadoopAuthenticator;
 
     public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
         this(catalog, createCachedClient(hiveConf,
                 Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
                 jdbcClientConfig));
+        hadoopAuthenticator = catalog.getAuthenticator();
+        client.setHadoopAuthenticator(hadoopAuthenticator);
     }
 
     @VisibleForTesting
@@ -84,7 +92,8 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
             JdbcClientConfig jdbcClientConfig) {
         if (hiveConf != null) {
-            return new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
+            ThriftHMSCachedClient client = new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
+            return client;
         }
         Preconditions.checkNotNull(jdbcClientConfig, "hiveConf and jdbcClientConfig are both null");
         String dbType = JdbcClient.parseDbType(jdbcClientConfig.getJdbcUrl());
@@ -120,7 +129,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             catalogDatabase.setProperties(properties);
             catalogDatabase.setComment(properties.getOrDefault("comment", ""));
             client.createDatabase(catalogDatabase);
-            catalog.onRefresh(true);
+            catalog.onRefreshCache(true);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -140,7 +149,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             client.dropDatabase(dbName);
-            catalog.onRefresh(true);
+            catalog.onRefreshCache(true);
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -164,6 +173,12 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             Map<String, String> props = stmt.getProperties();
+            // set default owner
+            if (!props.containsKey("owner")) {
+                if (ConnectContext.get() != null) {
+                    props.put("owner", ConnectContext.get().getUserIdentity().getUser());
+                }
+            }
             String fileFormat = props.getOrDefault(FILE_FORMAT_KEY, Config.hive_default_file_format);
             Map<String, String> ddlProps = new HashMap<>();
             for (Map.Entry<String, String> entry : props.entrySet()) {
@@ -185,6 +200,15 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                     throw new UserException("Partition values expressions is not supported in hive catalog.");
                 }
 
+            }
+            Map<String, String> properties = catalog.getProperties();
+            if (properties.containsKey(HMSProperties.HIVE_METASTORE_TYPE)
+                    && properties.get(HMSProperties.HIVE_METASTORE_TYPE).equals(HMSProperties.DLF_TYPE)) {
+                for (Column column : stmt.getColumns()) {
+                    if (column.hasDefaultValue()) {
+                        throw new UserException("Default values are not supported with `DLF` catalog.");
+                    }
+                }
             }
             String comment = stmt.getComment();
             Optional<String> location = Optional.ofNullable(props.getOrDefault(LOCATION_URI_KEY, null));
@@ -231,20 +255,26 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
+        String tblName = stmt.getTableName();
         ExternalDatabase<?> db = catalog.getDbNullable(stmt.getDbName());
         if (db == null) {
-            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
+            if (stmt.isSetIfExists()) {
+                LOG.info("database [{}] does not exist when drop table[{}]", dbName, tblName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+            }
         }
-        if (!tableExist(dbName, stmt.getTableName())) {
+        if (!tableExist(dbName, tblName)) {
             if (stmt.isSetIfExists()) {
                 LOG.info("drop table[{}] which does not exist", dbName);
                 return;
             } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, stmt.getTableName(), dbName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tblName, dbName);
             }
         }
         try {
-            client.dropTable(dbName, stmt.getTableName());
+            client.dropTable(dbName, tblName);
             db.setUnInitialized(true);
         } catch (Exception e) {
             throw new DdlException(e.getMessage(), e);
@@ -279,7 +309,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean databaseExist(String dbName) {
-        return listDatabaseNames().contains(dbName);
+        return listDatabaseNames().contains(dbName.toLowerCase());
     }
 
     @Override
@@ -292,25 +322,23 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     public void updateTableStatistics(
-            String dbName,
-            String tableName,
+            SimpleTableInfo tableInfo,
             Function<HivePartitionStatistics, HivePartitionStatistics> update) {
-        client.updateTableStatistics(dbName, tableName, update);
+        client.updateTableStatistics(tableInfo.getDbName(), tableInfo.getTbName(), update);
     }
 
     void updatePartitionStatistics(
-            String dbName,
-            String tableName,
+            SimpleTableInfo tableInfo,
             String partitionName,
             Function<HivePartitionStatistics, HivePartitionStatistics> update) {
-        client.updatePartitionStatistics(dbName, tableName, partitionName, update);
+        client.updatePartitionStatistics(tableInfo.getDbName(), tableInfo.getTbName(), partitionName, update);
     }
 
-    public void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions) {
-        client.addPartitions(dbName, tableName, partitions);
+    public void addPartitions(SimpleTableInfo tableInfo, List<HivePartitionWithStatistics> partitions) {
+        client.addPartitions(tableInfo.getDbName(), tableInfo.getTbName(), partitions);
     }
 
-    public void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData) {
-        client.dropPartition(dbName, tableName, partitionValues, deleteData);
+    public void dropPartition(SimpleTableInfo tableInfo, List<String> partitionValues, boolean deleteData) {
+        client.dropPartition(tableInfo.getDbName(), tableInfo.getTbName(), partitionValues, deleteData);
     }
 }

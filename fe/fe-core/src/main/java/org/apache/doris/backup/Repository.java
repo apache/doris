@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
@@ -155,7 +154,7 @@ public class Repository implements Writable, GsonPostProcessable {
             return PREFIX_JOB_INFO;
         } else {
             return PREFIX_JOB_INFO
-                    + TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+                    + TimeUtils.longToTimeString(createTime, TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         }
     }
 
@@ -249,26 +248,6 @@ public class Repository implements Writable, GsonPostProcessable {
     public Status initRepository() {
         if (FeConstants.runningUnitTest) {
             return Status.OK;
-        }
-
-        // A temporary solution is to delete all stale snapshots before creating an S3 repository
-        // so that we can add regression tests about backup/restore.
-        //
-        // TODO: support hdfs/brokers
-        if (fileSystem instanceof S3FileSystem || fileSystem instanceof AzureFileSystem) {
-            String deleteStaledSnapshots = fileSystem.getProperties()
-                    .getOrDefault(CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, "false");
-            if (deleteStaledSnapshots.equalsIgnoreCase("true")) {
-                // delete with prefix:
-                // eg. __palo_repository_repo_name/
-                String snapshotPrefix = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name));
-                LOG.info("property {} is set, delete snapshots with prefix: {}",
-                        CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, snapshotPrefix);
-                Status st = fileSystem.deleteDirectory(snapshotPrefix);
-                if (!st.ok()) {
-                    return st;
-                }
-            }
         }
 
         String repoInfoFilePath = assembleRepoInfoFilePath();
@@ -418,6 +397,9 @@ public class Repository implements Writable, GsonPostProcessable {
     // Check if this repo is available.
     // If failed to connect this repo, set errMsg and return false.
     public boolean ping() {
+        if (FeConstants.runningUnitTest) {
+            return true;
+        }
         // for s3 sdk, the headObject() method does not support list "dir",
         // so we check FILE_REPO_INFO instead.
         String path = location + "/" + joinPrefix(PREFIX_REPO, name) + "/" + FILE_REPO_INFO;

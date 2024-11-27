@@ -101,6 +101,18 @@ public class InvertedIndexUtil {
         return charFilterMap;
     }
 
+    public static boolean getInvertedIndexParserLowercase(Map<String, String> properties) {
+        String lowercase = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
+        // default is true if not set
+        return lowercase != null ? Boolean.parseBoolean(lowercase) : true;
+    }
+
+    public static String getInvertedIndexParserStopwords(Map<String, String> properties) {
+        String stopwrods = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
+        // default is "" if not set
+        return stopwrods != null ? stopwrods : "";
+    }
+
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,
             Map<String, String> properties) throws AnalysisException {
         String parser = null;
@@ -112,6 +124,12 @@ public class InvertedIndexUtil {
         // default is "none" if not set
         if (parser == null) {
             parser = INVERTED_INDEX_PARSER_NONE;
+        }
+
+        // array type is not supported parser except "none"
+        if (colType.isArrayType() && !parser.equals(INVERTED_INDEX_PARSER_NONE)) {
+            throw new AnalysisException("INVERTED index with parser: " + parser
+                + " is not supported for array column: " + indexColName);
         }
 
         if (colType.isStringType() || colType.isVariantType()) {

@@ -84,7 +84,10 @@ public:
 
     [[nodiscard]] virtual Status add_to_binlog() override;
 
-    Status calc_local_file_crc(uint32_t* crc_value, int64_t* file_count);
+    Status calc_file_crc(uint32_t* crc_value, int64_t* file_count);
+
+    Status show_nested_index_file(rapidjson::Value* rowset_value,
+                                  rapidjson::Document::AllocatorType& allocator);
 
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta,

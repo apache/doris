@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -33,14 +35,13 @@ import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
@@ -99,52 +100,39 @@ public abstract class MaterializationContext {
     // The key is the query belonged group expression objectId, the value is the fail reasons because
     // for one materialization query may be multi when nested materialized view.
     protected final Multimap<ObjectId, Pair<String, String>> failReason = HashMultimap.create();
+    protected List<String> identifier;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by materialization
      */
-    public MaterializationContext(Plan plan, Plan originalPlan, Plan scanPlan,
+    public MaterializationContext(Plan plan, Plan originalPlan,
             CascadesContext cascadesContext, StructInfo structInfo) {
         this.plan = plan;
         this.originalPlan = originalPlan;
-        this.scanPlan = scanPlan;
-
         StatementBase parsedStatement = cascadesContext.getStatementContext().getParsedStatement();
         this.enableRecordFailureDetail = parsedStatement != null && parsedStatement.isExplain()
                 && ExplainLevel.MEMO_PLAN == parsedStatement.getExplainOptions().getExplainLevel();
-        List<Slot> originalPlanOutput = originalPlan.getOutput();
-        List<Slot> scanPlanOutput = this.scanPlan.getOutput();
-        if (originalPlanOutput.size() == scanPlanOutput.size()) {
-            for (int slotIndex = 0; slotIndex < originalPlanOutput.size(); slotIndex++) {
-                this.exprToScanExprMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
-            }
-        }
-        this.planOutputShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(originalPlanOutput,
-                originalPlan, new BitSet());
-        // materialization output expression shuttle, this will be used to expression rewrite
-        this.shuttledExprToScanExprMapping = ExpressionMapping.generate(
-                this.planOutputShuttledExpressions,
-                scanPlanOutput);
         // Construct materialization struct info, catch exception which may cause planner roll back
-        if (structInfo == null) {
-            Optional<StructInfo> structInfoOptional = constructStructInfo(plan, cascadesContext, new BitSet());
-            if (!structInfoOptional.isPresent()) {
-                this.available = false;
-            }
-            this.structInfo = structInfoOptional.orElseGet(() -> null);
-        } else {
-            this.structInfo = structInfo;
+        this.structInfo = structInfo == null
+                ? constructStructInfo(plan, originalPlan, cascadesContext, new BitSet()).orElseGet(() -> null)
+                : structInfo;
+        this.available = this.structInfo != null;
+        if (available) {
+            this.planOutputShuttledExpressions = this.structInfo.getPlanOutputShuttledExpressions();
         }
     }
 
     /**
      * Construct materialized view Struct info
+     * @param plan maybe remove unnecessary plan node, and the logical output maybe wrong
+     * @param originalPlan original plan, the output is right
      */
-    public static Optional<StructInfo> constructStructInfo(Plan plan, CascadesContext cascadesContext,
-            BitSet expectedTableBitSet) {
+    public static Optional<StructInfo> constructStructInfo(Plan plan, Plan originalPlan,
+            CascadesContext cascadesContext, BitSet expectedTableBitSet) {
         List<StructInfo> viewStructInfos;
         try {
-            viewStructInfos = MaterializedViewUtils.extractStructInfo(plan, cascadesContext, expectedTableBitSet);
+            viewStructInfos = MaterializedViewUtils.extractStructInfo(plan, originalPlan,
+                    cascadesContext, expectedTableBitSet);
             if (viewStructInfos.size() > 1) {
                 // view struct info should only have one, log error and use the first struct info
                 LOG.warn(String.format("view strut info is more than one, materialization plan is %s",
@@ -175,23 +163,36 @@ public abstract class MaterializationContext {
      * if MaterializationContext is already rewritten successfully, then should generate new scan plan in later
      * query rewrite, because one plan may hit the materialized view repeatedly and the materialization scan output
      * should be different.
-     * This method should be called when query rewrite successfully
      */
-    public void tryReGenerateScanPlan(CascadesContext cascadesContext) {
+    public void tryGenerateScanPlan(CascadesContext cascadesContext) {
+        if (!this.isAvailable()) {
+            return;
+        }
         this.scanPlan = doGenerateScanPlan(cascadesContext);
-        // materialization output expression shuttle, this will be used to expression rewrite
-        this.shuttledExprToScanExprMapping = ExpressionMapping.generate(
-                this.planOutputShuttledExpressions,
-                this.scanPlan.getOutput());
+        // Materialization output expression shuttle, this will be used to expression rewrite
+        List<Slot> scanPlanOutput = this.scanPlan.getOutput();
+        this.shuttledExprToScanExprMapping = ExpressionMapping.generate(this.planOutputShuttledExpressions,
+                scanPlanOutput);
+        // This is used by normalize statistics column expression
         Map<Expression, Expression> regeneratedMapping = new HashMap<>();
         List<Slot> originalPlanOutput = originalPlan.getOutput();
-        List<Slot> scanPlanOutput = this.scanPlan.getOutput();
         if (originalPlanOutput.size() == scanPlanOutput.size()) {
             for (int slotIndex = 0; slotIndex < originalPlanOutput.size(); slotIndex++) {
                 regeneratedMapping.put(originalPlanOutput.get(slotIndex), scanPlanOutput.get(slotIndex));
             }
         }
         this.exprToScanExprMapping = regeneratedMapping;
+    }
+
+    /**
+     * Should clear scan plan after materializationContext is already rewritten successfully,
+     * Because one plan may hit the materialized view repeatedly and the materialization scan output
+     * should be different.
+     */
+    public void clearScanPlan(CascadesContext cascadesContext) {
+        this.scanPlan = null;
+        this.shuttledExprToScanExprMapping = null;
+        this.exprToScanExprMapping = null;
     }
 
     public void addSlotMappingToCache(RelationMapping relationMapping, SlotMapping slotMapping) {
@@ -211,9 +212,22 @@ public abstract class MaterializationContext {
     abstract Plan doGenerateScanPlan(CascadesContext cascadesContext);
 
     /**
-     * Get materialization unique qualifier which identify it
+     * Get materialization unique identifier which identify it
      */
-    abstract List<String> getMaterializationQualifier();
+    abstract List<String> generateMaterializationIdentifier();
+
+    /**
+     * Common method for generating materialization identifier
+     */
+    public static List<String> generateMaterializationIdentifier(OlapTable olapTable, String indexName) {
+        return indexName == null
+                ? ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
+                        ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                        olapTable.getName())
+                : ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
+                        ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                        olapTable.getName(), indexName);
+    }
 
     /**
      * Get String info which is used for to string
@@ -261,7 +275,11 @@ public abstract class MaterializationContext {
         return originalPlan;
     }
 
-    public Plan getScanPlan() {
+    public Plan getScanPlan(StructInfo queryStructInfo, CascadesContext cascadesContext) {
+        if (this.scanPlan == null || this.shuttledExprToScanExprMapping == null
+                || this.exprToScanExprMapping == null) {
+            tryGenerateScanPlan(cascadesContext);
+        }
         return scanPlan;
     }
 
@@ -333,7 +351,7 @@ public abstract class MaterializationContext {
      * ToSummaryString, this contains only summary info.
      */
     public static String toSummaryString(List<MaterializationContext> materializationContexts,
-            PhysicalPlan physicalPlan) {
+            Plan physicalPlan) {
         if (materializationContexts.isEmpty()) {
             return "";
         }
@@ -346,7 +364,7 @@ public abstract class MaterializationContext {
             public Void visitPhysicalRelation(PhysicalRelation physicalRelation, Void context) {
                 for (MaterializationContext rewrittenContext : rewrittenSuccessMaterializationSet) {
                     if (rewrittenContext.isFinalChosen(physicalRelation)) {
-                        chosenMaterializationQualifiers.add(rewrittenContext.getMaterializationQualifier());
+                        chosenMaterializationQualifiers.add(rewrittenContext.generateMaterializationIdentifier());
                     }
                 }
                 return null;
@@ -359,18 +377,23 @@ public abstract class MaterializationContext {
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
         if (!chosenMaterializationQualifiers.isEmpty()) {
             chosenMaterializationQualifiers.forEach(materializationQualifier ->
-                    builder.append(generateQualifierName(materializationQualifier)).append(", \n"));
+                    builder.append("  ")
+                            .append(generateIdentifierName(materializationQualifier)).append(" chose, \n"));
+        } else {
+            builder.append("  chose: none, \n");
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
         Set<List<String>> rewriteSuccessButNotChoseQualifiers = rewrittenSuccessMaterializationSet.stream()
-                .map(MaterializationContext::getMaterializationQualifier)
+                .map(MaterializationContext::generateMaterializationIdentifier)
                 .filter(materializationQualifier -> !chosenMaterializationQualifiers.contains(materializationQualifier))
                 .collect(Collectors.toSet());
         if (!rewriteSuccessButNotChoseQualifiers.isEmpty()) {
-            builder.append("  Names: ");
             rewriteSuccessButNotChoseQualifiers.forEach(materializationQualifier ->
-                    builder.append(generateQualifierName(materializationQualifier)).append(", "));
+                    builder.append("  ")
+                            .append(generateIdentifierName(materializationQualifier)).append(" not chose, \n"));
+        } else {
+            builder.append("  not chose: none, \n");
         }
         // rewrite fail
         builder.append("\nMaterializedViewRewriteFail:");
@@ -379,16 +402,16 @@ public abstract class MaterializationContext {
                 Set<String> failReasonSet =
                         ctx.getFailReason().values().stream().map(Pair::key).collect(ImmutableSet.toImmutableSet());
                 builder.append("\n")
-                        .append("  Name: ").append(generateQualifierName(ctx.getMaterializationQualifier()))
-                        .append("\n")
+                        .append("  ")
+                        .append(generateIdentifierName(ctx.generateMaterializationIdentifier())).append(" fail, \n")
                         .append("  FailSummary: ").append(String.join(", ", failReasonSet));
             }
         }
         return builder.toString();
     }
 
-    private static String generateQualifierName(List<String> qualifiers) {
-        return String.join("#", qualifiers);
+    private static String generateIdentifierName(List<String> qualifiers) {
+        return String.join(".", qualifiers);
     }
 
     @Override
@@ -400,11 +423,11 @@ public abstract class MaterializationContext {
             return false;
         }
         MaterializationContext context = (MaterializationContext) o;
-        return getMaterializationQualifier().equals(context.getMaterializationQualifier());
+        return generateMaterializationIdentifier().equals(context.generateMaterializationIdentifier());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(getMaterializationQualifier());
+        return Objects.hash(generateMaterializationIdentifier());
     }
 }

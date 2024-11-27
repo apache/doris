@@ -34,14 +34,14 @@ suite("test_stale_rowset") {
         }
     }
     String backendId = backendId_to_backendIP.keySet()[0]
-    def url = backendId_to_backendIP.get(backendId) + ":" + backendId_to_backendHttpPort.get(backendId) + """/api/clear_file_cache"""
+    def url = backendId_to_backendIP.get(backendId) + ":" + backendId_to_backendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=true"""
     logger.info(url)
     def clearFileCache = { check_func ->
         httpTest {
             endpoint ""
             uri url
-            op "post"
-            body "{\"sync\"=\"true\"}"
+            op "get"
+            body ""
             check check_func
         }
     }

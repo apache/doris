@@ -19,6 +19,7 @@
 
 #include <cctz/time_zone.h>
 
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_nullable.h"
 namespace doris::vectorized::parquet {
 const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
@@ -27,7 +28,8 @@ const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
     M(TYPE_DECIMALV2)                \
     M(TYPE_DECIMAL32)                \
     M(TYPE_DECIMAL64)                \
-    M(TYPE_DECIMAL128I)
+    M(TYPE_DECIMAL128I)              \
+    M(TYPE_DECIMAL256)
 
 bool PhysicalToLogicalConverter::is_parquet_native_type(PrimitiveType type) {
     switch (type) {
@@ -50,6 +52,7 @@ bool PhysicalToLogicalConverter::is_decimal_type(doris::PrimitiveType type) {
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256:
     case TYPE_DECIMALV2:
         return true;
     default:
@@ -66,7 +69,9 @@ ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type s
         src_physical_type = tparquet::Type::INT32;
         src_logical_type = TypeDescriptor(PrimitiveType::TYPE_INT);
     }
-    if (is_consistent() && _logical_converter->is_consistent()) {
+
+    if (!_convert_params->is_type_compatibility && is_consistent() &&
+        _logical_converter->is_consistent()) {
         if (_cached_src_physical_type == nullptr) {
             _cached_src_physical_type = DataTypeFactory::instance().create_data_type(
                     src_logical_type, dst_logical_type->is_nullable());
@@ -246,7 +251,19 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
     }
     PrimitiveType src_logical_primitive = src_logical_type.type;
 
-    if (is_parquet_native_type(src_logical_primitive)) {
+    if (field_schema->is_type_compatibility) {
+        if (src_logical_type == TYPE_SMALLINT) {
+            physical_converter.reset(new UnsignedIntegerConverter<TYPE_SMALLINT>());
+        } else if (src_logical_type == TYPE_INT) {
+            physical_converter.reset(new UnsignedIntegerConverter<TYPE_INT>());
+        } else if (src_logical_type == TYPE_BIGINT) {
+            physical_converter.reset(new UnsignedIntegerConverter<TYPE_BIGINT>());
+        } else if (src_logical_type == TYPE_LARGEINT) {
+            physical_converter.reset(new UnsignedIntegerConverter<TYPE_LARGEINT>());
+        } else {
+            physical_converter.reset(new UnsupportedConverter(src_physical_type, src_logical_type));
+        }
+    } else if (is_parquet_native_type(src_logical_primitive)) {
         if (is_string_type(src_logical_primitive) &&
             src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
             // for FixedSizeBinary

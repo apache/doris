@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
@@ -182,18 +185,51 @@ public class Utils {
     }
 
     /**
-     * Get the correlated columns that belong to the subquery,
-     * that is, the correlated columns that can be resolved within the subquery.
+     * Get the unCorrelated exprs that belong to the subquery,
+     * that is, the unCorrelated exprs that can be resolved within the subquery.
      * eg:
-     * select * from t1 where t1.a = (select sum(t2.b) from t2 where t1.c = t2.d));
-     * correlatedPredicates : t1.c = t2.d
-     * correlatedSlots : t1.c
-     * return t2.d
+     * select * from t1 where t1.a = (select sum(t2.b) from t2 where t1.c = abs(t2.d));
+     * correlatedPredicates : t1.c = abs(t2.d)
+     * unCorrelatedExprs : abs(t2.d)
+     * return abs(t2.d)
      */
-    public static List<Expression> getCorrelatedSlots(List<Expression> correlatedPredicates,
-            List<Expression> correlatedSlots) {
-        return ExpressionUtils.getInputSlotSet(correlatedPredicates).stream()
-                .filter(slot -> !correlatedSlots.contains(slot)).collect(Collectors.toList());
+    public static List<Expression> getUnCorrelatedExprs(List<Expression> correlatedPredicates,
+                                                        List<Expression> correlatedSlots) {
+        List<Expression> unCorrelatedExprs = new ArrayList<>();
+        correlatedPredicates.forEach(predicate -> {
+            if (!(predicate instanceof BinaryExpression) && (!(predicate instanceof Not)
+                    || !(predicate.child(0) instanceof BinaryExpression))) {
+                throw new AnalysisException(
+                        "Unsupported correlated subquery with correlated predicate "
+                                + predicate.toString());
+            }
+
+            BinaryExpression binaryExpression;
+            if (predicate instanceof Not) {
+                binaryExpression = (BinaryExpression) ((Not) predicate).child();
+            } else {
+                binaryExpression = (BinaryExpression) predicate;
+            }
+            Expression left = binaryExpression.left();
+            Expression right = binaryExpression.right();
+            Set<Slot> leftInputSlots = left.getInputSlots();
+            Set<Slot> rightInputSlots = right.getInputSlots();
+            boolean correlatedToLeft = !leftInputSlots.isEmpty()
+                    && leftInputSlots.stream().allMatch(correlatedSlots::contains)
+                    && rightInputSlots.stream().noneMatch(correlatedSlots::contains);
+            boolean correlatedToRight = !rightInputSlots.isEmpty()
+                    && rightInputSlots.stream().allMatch(correlatedSlots::contains)
+                    && leftInputSlots.stream().noneMatch(correlatedSlots::contains);
+            if (!correlatedToLeft && !correlatedToRight) {
+                throw new AnalysisException(
+                        "Unsupported correlated subquery with correlated predicate " + predicate);
+            } else if (correlatedToLeft && !rightInputSlots.isEmpty()) {
+                unCorrelatedExprs.add(right);
+            } else if (correlatedToRight && !leftInputSlots.isEmpty()) {
+                unCorrelatedExprs.add(left);
+            }
+        });
+        return unCorrelatedExprs;
     }
 
     private static List<Expression> collectCorrelatedSlotsFromChildren(
@@ -289,6 +325,71 @@ public class Utils {
                                         .collect(ImmutableList.toImmutableList())
                         )
                 ).collect(ImmutableList.toImmutableList());
+    }
+
+    /** getAllCombinations */
+    public static <T> List<List<T>> getAllCombinations(List<T> list, int itemNum) {
+        List<List<T>> result = Lists.newArrayList();
+        generateCombinations(list, itemNum, 0, Lists.newArrayList(), result);
+        return result;
+    }
+
+    private static <T> void generateCombinations(
+            List<T> list, int n, int start, List<T> current, List<List<T>> result) {
+        if (current.size() == n) {
+            result.add(new ArrayList<>(current));
+            return;
+        }
+
+        for (int i = start; i < list.size(); i++) {
+            current.add(list.get(i));
+            generateCombinations(list, n, i + 1, current, result);
+            current.remove(current.size() - 1);
+        }
+    }
+
+    public static <T> List<List<T>> allPermutations(List<T> list) {
+        List<List<T>> result = new ArrayList<>();
+        generatePermutations(new ArrayList<>(list), new ArrayList<>(), result);
+        return result;
+    }
+
+    private static <T> void generatePermutations(List<T> list, List<T> current, List<List<T>> result) {
+        if (!current.isEmpty()) {
+            result.add(new ArrayList<>(current));
+        }
+
+        for (int i = 0; i < list.size(); i++) {
+            T element = list.remove(i);
+            current.add(element);
+            generatePermutations(list, current, result);
+            current.remove(current.size() - 1);
+            list.add(i, element);
+        }
+    }
+
+    /** permutations */
+    public static <T> List<List<T>> permutations(List<T> list) {
+        list = new ArrayList<>(list);
+        List<List<T>> result = new ArrayList<>();
+        if (list.isEmpty()) {
+            result.add(new ArrayList<>());
+            return result;
+        }
+
+        T firstElement = list.get(0);
+        List<T> rest = list.subList(1, list.size());
+        List<List<T>> recursivePermutations = permutations(rest);
+
+        for (List<T> smallerPermutated : recursivePermutations) {
+            for (int index = 0; index <= smallerPermutated.size(); index++) {
+                List<T> temp = new ArrayList<>(smallerPermutated);
+                temp.add(index, firstElement);
+                result.add(temp);
+            }
+        }
+
+        return result;
     }
 
     public static <T> List<T> copyRequiredList(List<T> list) {

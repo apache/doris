@@ -20,10 +20,10 @@
 
 #include <hs/hs_common.h>
 #include <hs/hs_runtime.h>
-#include <stddef.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -76,46 +76,34 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto haystack_column = block.get_by_position(arguments[0]).column;
         auto needles_column = block.get_by_position(arguments[1]).column;
-
-        bool haystack_nullable = false;
-        bool needles_nullable = false;
-
-        if (haystack_column->is_nullable()) {
-            haystack_nullable = true;
-        }
-
-        if (needles_column->is_nullable()) {
-            needles_nullable = true;
-        }
 
         auto haystack_ptr = remove_nullable(haystack_column);
         auto needles_ptr = remove_nullable(needles_column);
 
-        const ColumnString* col_haystack_vector =
-                check_and_get_column<ColumnString>(&*haystack_ptr);
+        const auto* col_haystack_vector = check_and_get_column<ColumnString>(&*haystack_ptr);
         const ColumnConst* col_haystack_const =
                 check_and_get_column_const<ColumnString>(&*haystack_ptr);
 
-        const ColumnArray* col_needles_vector =
-                check_and_get_column<ColumnArray>(needles_ptr.get());
+        const auto* col_needles_vector = check_and_get_column<ColumnArray>(needles_ptr.get());
         const ColumnConst* col_needles_const =
                 check_and_get_column_const<ColumnArray>(needles_ptr.get());
 
-        if (!col_needles_const && !col_needles_vector)
+        if (!col_needles_const && !col_needles_vector) {
             return Status::InvalidArgument(
                     "function '{}' encountered unsupported needles column, found {}", name,
                     needles_column->get_name());
+        }
 
-        if (col_haystack_const && col_needles_vector)
+        if (col_haystack_const && col_needles_vector) {
             return Status::InvalidArgument(
                     "function '{}' doesn't support search with non-constant needles "
                     "in constant haystack",
                     name);
+        }
 
-        using ResultType = typename Impl::ResultType;
         auto col_res = ColumnVector<ResultType>::create();
         auto col_offsets = ColumnArray::ColumnOffsets::create();
 
@@ -140,25 +128,8 @@ public:
             return status;
         }
 
-        if (haystack_nullable) {
-            auto column_nullable = check_and_get_column<ColumnNullable>(haystack_column.get());
-            auto& null_map = column_nullable->get_null_map_data();
-            for (size_t i = 0; i != input_rows_count; ++i) {
-                if (null_map[i] == 1) {
-                    vec_res[i] = 0;
-                }
-            }
-        }
-
-        if (needles_nullable) {
-            auto column_nullable = check_and_get_column<ColumnNullable>(needles_column.get());
-            auto& null_map = column_nullable->get_null_map_data();
-            for (size_t i = 0; i != input_rows_count; ++i) {
-                if (null_map[i] == 1) {
-                    vec_res[i] = 0;
-                }
-            }
-        }
+        handle_nullable_column(haystack_column, vec_res, input_rows_count);
+        handle_nullable_column(needles_column, vec_res, input_rows_count);
 
         block.replace_by_position(result, std::move(col_res));
 
@@ -166,9 +137,25 @@ public:
     }
 
 private:
+    using ResultType = typename Impl::ResultType;
+
     const bool allow_hyperscan_ = true;
     const size_t max_hyperscan_regexp_length_ = 0;       // not limited
     const size_t max_hyperscan_regexp_total_length_ = 0; // not limited
+
+    /// Handles nullable column by setting result to 0 if the input is null
+    void handle_nullable_column(const ColumnPtr& column, PaddedPODArray<ResultType>& vec_res,
+                                size_t input_rows_count) const {
+        if (column->is_nullable()) {
+            const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
+            const auto& null_map = column_nullable->get_null_map_data();
+            for (size_t i = 0; i != input_rows_count; ++i) {
+                if (null_map[i] == 1) {
+                    vec_res[i] = 0;
+                }
+            }
+        }
+    }
 };
 
 /// For more readable instantiations of MultiMatchAnyImpl<>
@@ -187,17 +174,67 @@ struct FunctionMultiMatchAnyImpl {
 
     static auto get_return_type() { return std::make_shared<DataTypeNumber<ResultType>>(); }
 
+    /**
+     * Prepares the regular expressions and scratch space for Hyperscan.
+     *
+     * This function takes a vector of needles (substrings to search for) and initializes
+     * the regular expressions and scratch space required for Hyperscan, a high-performance
+     * regular expression matching library.
+     *
+     */
+    static Status prepare_regexps_and_scratch(const std::vector<StringRef>& needles,
+                                              multiregexps::Regexps*& regexps,
+                                              multiregexps::ScratchPtr& smart_scratch) {
+        multiregexps::DeferredConstructedRegexpsPtr deferred_constructed_regexps =
+                multiregexps::getOrSet</*SaveIndices*/
+                                       FindAnyIndex, WithEditDistance>(needles, std::nullopt);
+        regexps = deferred_constructed_regexps->get();
+
+        hs_scratch_t* scratch = nullptr;
+        hs_error_t err = hs_clone_scratch(regexps->getScratch(), &scratch);
+
+        if (err != HS_SUCCESS) {
+            return Status::InternalError("could not clone scratch space for vectorscan");
+        }
+
+        smart_scratch.reset(scratch);
+        return Status::OK();
+    }
+
+    /**
+     * Static callback function to handle the match results of the hs_scan function.
+     *
+     * This function is called when a matching substring is found while scanning with
+     * Hyperscan. It updates the result based on the match information.
+     *
+     */
+    static int on_match([[maybe_unused]] unsigned int id, unsigned long long /* from */, // NOLINT
+                        unsigned long long /* to */,                                     // NOLINT
+                        unsigned int /* flags */, void* context) {
+        if constexpr (FindAnyIndex) {
+            *reinterpret_cast<ResultType*>(context) = id;
+        } else if constexpr (FindAny) {
+            *reinterpret_cast<ResultType*>(context) = 1;
+        }
+        /// Once we hit the callback, there is no need to search for others.
+        return 1;
+    }
+
     static Status vector_constant(const ColumnString::Chars& haystack_data,
                                   const ColumnString::Offsets& haystack_offsets,
                                   const Array& needles_arr, PaddedPODArray<ResultType>& res,
                                   PaddedPODArray<UInt64>& offsets, bool allow_hyperscan,
                                   size_t max_hyperscan_regexp_length,
                                   size_t max_hyperscan_regexp_total_length) {
-        if (!allow_hyperscan) return Status::InvalidArgument("Hyperscan functions are disabled");
+        if (!allow_hyperscan) {
+            return Status::InvalidArgument("Hyperscan functions are disabled");
+        }
 
         std::vector<StringRef> needles;
         needles.reserve(needles_arr.size());
-        for (const auto& needle : needles_arr) needles.emplace_back(needle.get<StringRef>());
+        for (const auto& needle : needles_arr) {
+            needles.emplace_back(needle.get<StringRef>());
+        }
 
         res.resize(haystack_offsets.size());
 
@@ -206,44 +243,26 @@ struct FunctionMultiMatchAnyImpl {
             return Status::OK();
         }
 
-        multiregexps::DeferredConstructedRegexpsPtr deferred_constructed_regexps =
-                multiregexps::getOrSet</*SaveIndices*/ FindAnyIndex, WithEditDistance>(
-                        needles, std::nullopt);
-        multiregexps::Regexps* regexps = deferred_constructed_regexps->get();
+        multiregexps::Regexps* regexps = nullptr;
+        multiregexps::ScratchPtr smart_scratch;
+        RETURN_IF_ERROR(prepare_regexps_and_scratch(needles, regexps, smart_scratch));
 
-        hs_scratch_t* scratch = nullptr;
-        hs_error_t err = hs_clone_scratch(regexps->getScratch(), &scratch);
-
-        if (err != HS_SUCCESS)
-            return Status::InternalError("could not clone scratch space for vectorscan");
-
-        multiregexps::ScratchPtr smart_scratch(scratch);
-
-        auto on_match = []([[maybe_unused]] unsigned int id,
-                           unsigned long long /* from */, // NOLINT
-                           unsigned long long /* to */,   // NOLINT
-                           unsigned int /* flags */, void* context) -> int {
-            if constexpr (FindAnyIndex)
-                *reinterpret_cast<ResultType*>(context) = id;
-            else if constexpr (FindAny)
-                *reinterpret_cast<ResultType*>(context) = 1;
-            /// Once we hit the callback, there is no need to search for others.
-            return 1;
-        };
         const size_t haystack_offsets_size = haystack_offsets.size();
         UInt64 offset = 0;
         for (size_t i = 0; i < haystack_offsets_size; ++i) {
             UInt64 length = haystack_offsets[i] - offset;
             /// vectorscan restriction.
-            if (length > std::numeric_limits<UInt32>::max())
+            if (length > std::numeric_limits<UInt32>::max()) {
                 return Status::InternalError("too long string to search");
+            }
             /// zero the result, scan, check, update the offset.
             res[i] = 0;
-            err = hs_scan(regexps->getDB(),
-                          reinterpret_cast<const char*>(haystack_data.data()) + offset,
-                          static_cast<unsigned>(length), 0, smart_scratch.get(), on_match, &res[i]);
-            if (err != HS_SUCCESS && err != HS_SCAN_TERMINATED)
+            hs_error_t err = hs_scan(
+                    regexps->getDB(), reinterpret_cast<const char*>(haystack_data.data()) + offset,
+                    static_cast<unsigned>(length), 0, smart_scratch.get(), on_match, &res[i]);
+            if (err != HS_SUCCESS && err != HS_SCAN_TERMINATED) {
                 return Status::InternalError("failed to scan with vectorscan");
+            }
             offset = haystack_offsets[i];
         }
 
@@ -257,20 +276,22 @@ struct FunctionMultiMatchAnyImpl {
                                 PaddedPODArray<ResultType>& res, PaddedPODArray<UInt64>& offsets,
                                 bool allow_hyperscan, size_t max_hyperscan_regexp_length,
                                 size_t max_hyperscan_regexp_total_length) {
-        if (!allow_hyperscan) return Status::InvalidArgument("Hyperscan functions are disabled");
+        if (!allow_hyperscan) {
+            return Status::InvalidArgument("Hyperscan functions are disabled");
+        }
 
         res.resize(haystack_offsets.size());
 
         size_t prev_haystack_offset = 0;
         size_t prev_needles_offset = 0;
 
-        auto& nested_column =
+        const auto& nested_column =
                 vectorized::check_and_get_column<vectorized::ColumnNullable>(needles_data)
                         ->get_nested_column();
-        const ColumnString* needles_data_string = check_and_get_column<ColumnString>(nested_column);
+        const auto* needles_data_string = check_and_get_column<ColumnString>(nested_column);
 
         if (!needles_data_string) {
-            return Status::InvalidArgument("needles should be string");
+            return Status::InvalidArgument("needles should be string column");
         }
 
         std::vector<StringRef> needles;
@@ -287,46 +308,27 @@ struct FunctionMultiMatchAnyImpl {
                 continue;
             }
 
-            multiregexps::DeferredConstructedRegexpsPtr deferred_constructed_regexps =
-                    multiregexps::getOrSet</*SaveIndices*/ FindAnyIndex, WithEditDistance>(
-                            needles, std::nullopt);
-            multiregexps::Regexps* regexps = deferred_constructed_regexps->get();
-
-            hs_scratch_t* scratch = nullptr;
-            hs_error_t err = hs_clone_scratch(regexps->getScratch(), &scratch);
-
-            if (err != HS_SUCCESS)
-                return Status::InternalError("could not clone scratch space for vectorscan");
-
-            multiregexps::ScratchPtr smart_scratch(scratch);
-
-            auto on_match = []([[maybe_unused]] unsigned int id,
-                               unsigned long long /* from */, // NOLINT
-                               unsigned long long /* to */,   // NOLINT
-                               unsigned int /* flags */, void* context) -> int {
-                if constexpr (FindAnyIndex)
-                    *reinterpret_cast<ResultType*>(context) = id;
-                else if constexpr (FindAny)
-                    *reinterpret_cast<ResultType*>(context) = 1;
-                /// Once we hit the callback, there is no need to search for others.
-                return 1;
-            };
+            multiregexps::Regexps* regexps = nullptr;
+            multiregexps::ScratchPtr smart_scratch;
+            RETURN_IF_ERROR(prepare_regexps_and_scratch(needles, regexps, smart_scratch));
 
             const size_t cur_haystack_length = haystack_offsets[i] - prev_haystack_offset;
 
             /// vectorscan restriction.
-            if (cur_haystack_length > std::numeric_limits<UInt32>::max())
+            if (cur_haystack_length > std::numeric_limits<UInt32>::max()) {
                 return Status::InternalError("too long string to search");
+            }
 
             /// zero the result, scan, check, update the offset.
             res[i] = 0;
-            err = hs_scan(
+            hs_error_t err = hs_scan(
                     regexps->getDB(),
                     reinterpret_cast<const char*>(haystack_data.data()) + prev_haystack_offset,
                     static_cast<unsigned>(cur_haystack_length), 0, smart_scratch.get(), on_match,
                     &res[i]);
-            if (err != HS_SUCCESS && err != HS_SCAN_TERMINATED)
+            if (err != HS_SUCCESS && err != HS_SCAN_TERMINATED) {
                 return Status::InternalError("failed to scan with vectorscan");
+            }
 
             prev_haystack_offset = haystack_offsets[i];
             prev_needles_offset = needles_offsets[i];

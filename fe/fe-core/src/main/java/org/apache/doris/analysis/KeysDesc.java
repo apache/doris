@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -33,7 +34,6 @@ public class KeysDesc implements Writable {
     private KeysType type;
     private List<String> keysColumnNames;
     private List<String> clusterKeysColumnNames;
-    private List<Integer> clusterKeysColumnIds = null;
 
     public KeysDesc() {
         this.type = KeysType.AGG_KEYS;
@@ -50,12 +50,6 @@ public class KeysDesc implements Writable {
         this.clusterKeysColumnNames = clusterKeyColumnNames;
     }
 
-    public KeysDesc(KeysType type, List<String> keysColumnNames, List<String> clusterKeyColumnNames,
-                    List<Integer> clusterKeysColumnIds) {
-        this(type, keysColumnNames, clusterKeyColumnNames);
-        this.clusterKeysColumnIds = clusterKeysColumnIds;
-    }
-
     public KeysType getKeysType() {
         return type;
     }
@@ -66,10 +60,6 @@ public class KeysDesc implements Writable {
 
     public List<String> getClusterKeysColumnNames() {
         return clusterKeysColumnNames;
-    }
-
-    public List<Integer> getClusterKeysColumnIds() {
-        return clusterKeysColumnIds;
     }
 
     public boolean containsCol(String colName) {
@@ -87,14 +77,6 @@ public class KeysDesc implements Writable {
 
         if (keysColumnNames.size() > cols.size()) {
             throw new AnalysisException("The number of key columns should be less than the number of columns.");
-        }
-
-        if (clusterKeysColumnNames != null) {
-            if (type != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("Cluster keys only support unique keys table.");
-            }
-            clusterKeysColumnIds = Lists.newArrayList();
-            analyzeClusterKeys(cols);
         }
 
         for (int i = 0; i < keysColumnNames.size(); ++i) {
@@ -131,39 +113,45 @@ public class KeysDesc implements Writable {
         }
 
         if (clusterKeysColumnNames != null) {
-            int minKeySize = keysColumnNames.size() < clusterKeysColumnNames.size() ? keysColumnNames.size()
-                    : clusterKeysColumnNames.size();
-            boolean sameKey = true;
-            for (int i = 0; i < minKeySize; ++i) {
-                if (!keysColumnNames.get(i).equalsIgnoreCase(clusterKeysColumnNames.get(i))) {
-                    sameKey = false;
-                    break;
-                }
-            }
-            if (sameKey) {
-                throw new AnalysisException("Unique keys and cluster keys should be different.");
-            }
+            analyzeClusterKeys(cols);
         }
     }
 
     private void analyzeClusterKeys(List<ColumnDef> cols) throws AnalysisException {
-        for (int i = 0; i < clusterKeysColumnNames.size(); ++i) {
+        if (type != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException("Cluster keys only support unique keys table");
+        }
+        // check that cluster keys is not duplicated
+        for (int i = 0; i < clusterKeysColumnNames.size(); i++) {
             String name = clusterKeysColumnNames.get(i);
-            // check if key is duplicate
             for (int j = 0; j < i; j++) {
                 if (clusterKeysColumnNames.get(j).equalsIgnoreCase(name)) {
                     throw new AnalysisException("Duplicate cluster key column[" + name + "].");
                 }
             }
-            // check if key exists and generate key column ids
+        }
+        // check that cluster keys is not equal to primary keys
+        int minKeySize = Math.min(keysColumnNames.size(), clusterKeysColumnNames.size());
+        boolean sameKey = true;
+        for (int i = 0; i < minKeySize; i++) {
+            if (!keysColumnNames.get(i).equalsIgnoreCase(clusterKeysColumnNames.get(i))) {
+                sameKey = false;
+                break;
+            }
+        }
+        if (sameKey && !Config.random_add_cluster_keys_for_mow) {
+            throw new AnalysisException("Unique keys and cluster keys should be different.");
+        }
+        // check that cluster key column exists
+        for (int i = 0; i < clusterKeysColumnNames.size(); i++) {
+            String name = clusterKeysColumnNames.get(i);
             for (int j = 0; j < cols.size(); j++) {
                 if (cols.get(j).getName().equalsIgnoreCase(name)) {
-                    cols.get(j).setClusterKeyId(clusterKeysColumnIds.size());
-                    clusterKeysColumnIds.add(j);
+                    cols.get(j).setClusterKeyId(i);
                     break;
                 }
                 if (j == cols.size() - 1) {
-                    throw new AnalysisException("Key cluster column[" + name + "] doesn't exist.");
+                    throw new AnalysisException("Cluster key column[" + name + "] doesn't exist.");
                 }
             }
         }

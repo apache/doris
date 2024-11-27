@@ -40,6 +40,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -47,6 +48,8 @@
 #include "cloud/cloud_delete_task.h"
 #include "cloud/cloud_engine_calc_delete_bitmap_task.h"
 #include "cloud/cloud_schema_change_job.h"
+#include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -101,7 +104,11 @@ namespace {
 std::mutex s_task_signatures_mtx;
 std::unordered_map<TTaskType::type, std::unordered_set<int64_t>> s_task_signatures;
 
-std::atomic_ulong s_report_version(time(nullptr) * 10000);
+std::atomic_ulong s_report_version(time(nullptr) * 100000);
+
+void increase_report_version() {
+    s_report_version.fetch_add(1, std::memory_order_relaxed);
+}
 
 // FIXME(plat1ko): Paired register and remove task info
 bool register_task_info(const TTaskType::type task_type, int64_t signature) {
@@ -109,6 +116,10 @@ bool register_task_info(const TTaskType::type task_type, int64_t signature) {
         task_type == TTaskType::type::PUSH_COOLDOWN_CONF ||
         task_type == TTaskType::type::COMPACTION) {
         // no need to report task of these types
+        return true;
+    }
+    if (task_type == TTaskType::type::DROP && config::is_cloud_mode()) {
+        // cloud no need to report drop task status
         return true;
     }
 
@@ -184,7 +195,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
         auto mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::OTHER,
+                MemTrackerLimiter::Type::SCHEMA_CHANGE,
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
@@ -213,7 +224,7 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
     }
 
     if (status.ok()) {
-        s_report_version.fetch_add(1, std::memory_order_relaxed);
+        increase_report_version();
     }
 
     // Return result to fe
@@ -260,7 +271,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
     if (status.ok()) {
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         auto mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::OTHER,
+                MemTrackerLimiter::Type::SCHEMA_CHANGE,
                 fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                             std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
                             std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
@@ -289,7 +300,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
     }
 
     if (status.ok()) {
-        s_report_version.fetch_add(1, std::memory_order_relaxed);
+        increase_report_version();
     }
 
     // Return result to fe
@@ -367,22 +378,22 @@ Status check_migrate_request(StorageEngine& engine, const TStorageMediumMigrateR
 }
 
 // Return `true` if report success
-bool handle_report(const TReportRequest& request, const TMasterInfo& master_info,
+bool handle_report(const TReportRequest& request, const ClusterInfo* cluster_info,
                    std::string_view name) {
     TMasterResult result;
     Status status = MasterServerClient::instance()->report(request, &result);
     if (!status.ok()) [[unlikely]] {
         LOG_WARNING("failed to report {}", name)
-                .tag("host", master_info.network_address.hostname)
-                .tag("port", master_info.network_address.port)
+                .tag("host", cluster_info->master_fe_addr.hostname)
+                .tag("port", cluster_info->master_fe_addr.port)
                 .error(status);
         return false;
     }
 
     else if (result.status.status_code != TStatusCode::OK) [[unlikely]] {
         LOG_WARNING("failed to report {}", name)
-                .tag("host", master_info.network_address.hostname)
-                .tag("port", master_info.network_address.port)
+                .tag("host", cluster_info->master_fe_addr.hostname)
+                .tag("port", cluster_info->master_fe_addr.port)
                 .error(result.status);
         return false;
     }
@@ -540,26 +551,20 @@ Status TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 }
 
 PriorTaskWorkerPool::PriorTaskWorkerPool(
-        std::string_view name, int normal_worker_count, int high_prior_worker_count,
+        const std::string& name, int normal_worker_count, int high_prior_worker_count,
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
-    auto st = ThreadPoolBuilder(fmt::format("TaskWP_.{}", name))
-                      .set_min_threads(normal_worker_count)
-                      .set_max_threads(normal_worker_count)
-                      .build(&_normal_pool);
-    CHECK(st.ok()) << name << ": " << st;
+    for (int i = 0; i < normal_worker_count; ++i) {
+        auto st = Thread::create(
+                "Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
+        CHECK(st.ok()) << name << ": " << st;
+    }
 
-    st = _normal_pool->submit_func([this] { normal_loop(); });
-    CHECK(st.ok()) << name << ": " << st;
-
-    st = ThreadPoolBuilder(fmt::format("HighPriorPool.{}", name))
-                 .set_min_threads(high_prior_worker_count)
-                 .set_max_threads(high_prior_worker_count)
-                 .build(&_high_prior_pool);
-    CHECK(st.ok()) << name << ": " << st;
-
-    st = _high_prior_pool->submit_func([this] { high_prior_loop(); });
-    CHECK(st.ok()) << name << ": " << st;
+    for (int i = 0; i < high_prior_worker_count; ++i) {
+        auto st = Thread::create(
+                "HighPrior", name, [this] { high_prior_loop(); }, &_workers.emplace_back());
+        CHECK(st.ok()) << name << ": " << st;
+    }
 }
 
 PriorTaskWorkerPool::~PriorTaskWorkerPool() {
@@ -578,12 +583,10 @@ void PriorTaskWorkerPool::stop() {
     _normal_condv.notify_all();
     _high_prior_condv.notify_all();
 
-    if (_normal_pool) {
-        _normal_pool->shutdown();
-    }
-
-    if (_high_prior_pool) {
-        _high_prior_pool->shutdown();
+    for (auto&& w : _workers) {
+        if (w) {
+            w->join();
+        }
     }
 }
 
@@ -660,10 +663,10 @@ void PriorTaskWorkerPool::high_prior_loop() {
     }
 }
 
-ReportWorker::ReportWorker(std::string name, const TMasterInfo& master_info, int report_interval_s,
+ReportWorker::ReportWorker(std::string name, const ClusterInfo* cluster_info, int report_interval_s,
                            std::function<void()> callback)
         : _name(std::move(name)) {
-    auto report_loop = [this, &master_info, report_interval_s, callback = std::move(callback)] {
+    auto report_loop = [this, cluster_info, report_interval_s, callback = std::move(callback)] {
         auto& engine = ExecEnv::GetInstance()->storage_engine();
         engine.register_report_listener(this);
         while (true) {
@@ -682,7 +685,7 @@ ReportWorker::ReportWorker(std::string name, const TMasterInfo& master_info, int
                 }
             }
 
-            if (master_info.network_address.port == 0) {
+            if (cluster_info->master_fe_addr.port == 0) {
                 // port == 0 means not received heartbeat yet
                 LOG(INFO) << "waiting to receive first heartbeat from frontend before doing report";
                 continue;
@@ -987,7 +990,7 @@ void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& 
     remove_task_info(req.task_type, req.signature);
 }
 
-void report_task_callback(const TMasterInfo& master_info) {
+void report_task_callback(const ClusterInfo* cluster_info) {
     TReportRequest request;
     if (config::report_random_wait) {
         random_sleep(5);
@@ -1004,21 +1007,14 @@ void report_task_callback(const TMasterInfo& master_info) {
         }
     }
     request.__set_backend(BackendOptions::get_local_backend());
-    bool succ = handle_report(request, master_info, "task");
+    bool succ = handle_report(request, cluster_info, "task");
     report_task_total << 1;
     if (!succ) [[unlikely]] {
         report_task_failed << 1;
     }
 }
 
-void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info) {
-    // Random sleep 1~5 seconds before doing report.
-    // In order to avoid the problem that the FE receives many report requests at the same time
-    // and can not be processed.
-    if (config::report_random_wait) {
-        random_sleep(5);
-    }
-
+void report_disk_callback(StorageEngine& engine, const ClusterInfo* cluster_info) {
     TReportRequest request;
     request.__set_backend(BackendOptions::get_local_backend());
     request.__isset.disks = true;
@@ -1043,14 +1039,14 @@ void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info)
     request.__set_pipeline_executor_size(config::pipeline_executor_size > 0
                                                  ? config::pipeline_executor_size
                                                  : CpuInfo::num_cores());
-    bool succ = handle_report(request, master_info, "disk");
+    bool succ = handle_report(request, cluster_info, "disk");
     report_disk_total << 1;
     if (!succ) [[unlikely]] {
         report_disk_failed << 1;
     }
 }
 
-void report_disk_callback(CloudStorageEngine& engine, const TMasterInfo& master_info) {
+void report_disk_callback(CloudStorageEngine& engine, const ClusterInfo* cluster_info) {
     // Random sleep 1~5 seconds before doing report.
     // In order to avoid the problem that the FE receives many report requests at the same time
     // and can not be processed.
@@ -1070,12 +1066,12 @@ void report_disk_callback(CloudStorageEngine& engine, const TMasterInfo& master_
     request.__set_pipeline_executor_size(config::pipeline_executor_size > 0
                                                  ? config::pipeline_executor_size
                                                  : CpuInfo::num_cores());
-    bool succ = handle_report(request, master_info, "disk");
+    bool succ = handle_report(request, cluster_info, "disk");
     report_disk_total << 1;
     report_disk_failed << !succ;
 }
 
-void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info) {
+void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_info) {
     if (config::report_random_wait) {
         random_sleep(5);
     }
@@ -1084,8 +1080,17 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     request.__set_backend(BackendOptions::get_local_backend());
     request.__isset.tablets = true;
 
-    uint64_t report_version = s_report_version;
-    engine.tablet_manager()->build_all_report_tablets_info(&request.tablets);
+    increase_report_version();
+    uint64_t report_version;
+    for (int i = 0; i < 5; i++) {
+        request.tablets.clear();
+        report_version = s_report_version;
+        engine.tablet_manager()->build_all_report_tablets_info(&request.tablets);
+        if (report_version == s_report_version) {
+            break;
+        }
+    }
+
     if (report_version < s_report_version) {
         // TODO llj This can only reduce the possibility for report error, but can't avoid it.
         // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
@@ -1128,7 +1133,47 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     }
     request.__isset.resource = true;
 
-    bool succ = handle_report(request, master_info, "tablet");
+    bool succ = handle_report(request, cluster_info, "tablet");
+    report_tablet_total << 1;
+    if (!succ) [[unlikely]] {
+        report_tablet_failed << 1;
+    }
+}
+
+void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* cluster_info) {
+    // Random sleep 1~5 seconds before doing report.
+    // In order to avoid the problem that the FE receives many report requests at the same time
+    // and can not be processed.
+    if (config::report_random_wait) {
+        random_sleep(5);
+    }
+
+    TReportRequest request;
+    request.__set_backend(BackendOptions::get_local_backend());
+    request.__isset.tablets = true;
+
+    increase_report_version();
+    uint64_t report_version;
+    uint64_t total_num_tablets = 0;
+    for (int i = 0; i < 5; i++) {
+        request.tablets.clear();
+        report_version = s_report_version;
+        engine.tablet_mgr().build_all_report_tablets_info(&request.tablets, &total_num_tablets);
+        if (report_version == s_report_version) {
+            break;
+        }
+    }
+
+    if (report_version < s_report_version) {
+        LOG(WARNING) << "report version " << report_version << " change to " << s_report_version;
+        DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
+        return;
+    }
+
+    request.__set_report_version(report_version);
+    request.__set_num_tablets(total_num_tablets);
+
+    bool succ = handle_report(request, cluster_info, "tablet");
     report_tablet_total << 1;
     if (!succ) [[unlikely]] {
         report_tablet_failed << 1;
@@ -1391,12 +1436,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
         auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
         auto new_s3_conf = S3Conf::get_s3_conf(param.s3_storage_param);
-        S3ClientConf conf {
-                .ak = std::move(new_s3_conf.client_conf.ak),
-                .sk = std::move(new_s3_conf.client_conf.sk),
-                .token = std::move(new_s3_conf.client_conf.token),
-                .provider = new_s3_conf.client_conf.provider,
-        };
+        S3ClientConf conf = std::move(new_s3_conf.client_conf);
         st = client->reset(conf);
         fs = std::move(existed_fs);
     }
@@ -1404,7 +1444,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
     if (!st.ok()) {
         LOG(WARNING) << "update s3 resource failed: " << st;
     } else {
-        LOG_INFO("successfully update hdfs resource")
+        LOG_INFO("successfully update s3 resource")
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name);
         put_storage_resource(param.id, {std::move(fs)}, param.version);
@@ -1538,7 +1578,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
                 .tag("tablet_id", create_tablet_req.tablet_id)
                 .error(status);
     } else {
-        s_report_version.fetch_add(1, std::memory_order_relaxed);
+        increase_report_version();
         // get path hash of the created tablet
         TabletSharedPtr tablet;
         {
@@ -1608,6 +1648,21 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     remove_task_info(req.task_type, req.signature);
 }
 
+void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    const auto& drop_tablet_req = req.drop_tablet_req;
+    DBUG_EXECUTE_IF("WorkPoolCloudDropTablet.drop_tablet_callback.failed", {
+        LOG_WARNING("WorkPoolCloudDropTablet.drop_tablet_callback.failed")
+                .tag("tablet_id", drop_tablet_req.tablet_id);
+        return;
+    });
+    // 1. erase lru from tablet mgr
+    // TODO(dx) clean tablet file cache
+    // get tablet's info(such as cachekey, tablet id, rsid)
+    engine.tablet_mgr().erase_tablet(drop_tablet_req.tablet_id);
+    // 2. gen clean file cache task
+    return;
+}
+
 void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& push_req = req.push_req;
 
@@ -1633,7 +1688,7 @@ void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
                 .tag("signature", req.signature)
                 .tag("tablet_id", push_req.tablet_id)
                 .tag("push_type", push_req.push_type);
-        ++s_report_version;
+        increase_report_version();
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
     } else {
         LOG_WARNING("failed to execute push task")
@@ -1679,7 +1734,7 @@ void cloud_push_callback(CloudStorageEngine& engine, const TAgentTaskRequest& re
                 .tag("signature", req.signature)
                 .tag("tablet_id", push_req.tablet_id)
                 .tag("push_type", push_req.push_type);
-        ++s_report_version;
+        increase_report_version();
         auto& tablet_info = finish_task_request.finish_tablet_infos.emplace_back();
         // Just need tablet_id
         tablet_info.tablet_id = push_req.tablet_id;
@@ -1797,7 +1852,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                         if (tablet->exceed_version_limit(config::max_tablet_version_num * 2 / 3) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
-                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true, false);
                             if (!st.ok()) [[unlikely]] {
                                 LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
                                              << ", published=" << published_count << " : " << st;
@@ -1948,7 +2003,7 @@ void visible_version_callback(StorageEngine& engine, const TAgentTaskRequest& re
             visible_version_req.partition_version);
 }
 
-void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
+void clone_callback(StorageEngine& engine, const ClusterInfo* cluster_info,
                     const TAgentTaskRequest& req) {
     const auto& clone_req = req.clone_req;
 
@@ -1956,7 +2011,7 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
     LOG(INFO) << "get clone task. signature=" << req.signature;
 
     std::vector<TTabletInfo> tablet_infos;
-    EngineCloneTask engine_task(engine, clone_req, master_info, req.signature, &tablet_infos);
+    EngineCloneTask engine_task(engine, clone_req, cluster_info, req.signature, &tablet_infos);
     SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();
     // Return result to fe
@@ -1976,6 +2031,10 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
         LOG_INFO("successfully clone tablet")
                 .tag("signature", req.signature)
                 .tag("tablet_id", clone_req.tablet_id);
+        if (engine_task.is_new_tablet()) {
+            increase_report_version();
+            finish_task_request.__set_report_version(s_report_version);
+        }
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
     }
 
@@ -2048,6 +2107,7 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
     finish_task_request.__set_signature(req.signature);
     finish_task_request.__set_report_version(s_report_version);
     finish_task_request.__set_error_tablet_ids(error_tablet_ids);
+    finish_task_request.__set_resp_partitions(calc_delete_bitmap_req.partitions);
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
@@ -2062,10 +2122,12 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 }
 
 void clean_udf_cache_callback(const TAgentTaskRequest& req) {
-    LOG(INFO) << "clean udf cache start: " << req.clean_udf_cache_req.function_signature;
-    static_cast<void>(
-            JniUtil::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
-    LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
+    if (doris::config::enable_java_support) {
+        LOG(INFO) << "clean udf cache start: " << req.clean_udf_cache_req.function_signature;
+        static_cast<void>(
+                JniUtil::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
+        LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
+    }
 }
 
 } // namespace doris

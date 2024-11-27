@@ -226,7 +226,6 @@ suite("test_get_binlog_case_index") {
     """
     sql """CREATE USER IF NOT EXISTS ${noPrivUser} IDENTIFIED BY '123456'"""
     sql """GRANT ALL ON ${context.config.defaultDb}.* TO ${noPrivUser}"""
-    sql """GRANT ALL ON TEST_${context.dbName}.${emptyTable} TO ${noPrivUser}"""
     syncer.context.user = "${noPrivUser}"
     syncer.context.passwd = "123456"
     assertTrue((syncer.getBinlog("${tableName}")) == false)

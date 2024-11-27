@@ -124,7 +124,7 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
 
         // analyze predicate
         if ((fromClause == null && !((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite())
-                || (fromClause == null && ((OlapTable) targetTable).getEnableDeleteOnDeletePredicate())) {
+                || (fromClause == null && ((OlapTable) targetTable).getEnableMowLightDelete())) {
             if (wherePredicate == null) {
                 throw new AnalysisException("Where clause is not set");
             }
@@ -169,6 +169,7 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
         }
 
         FromClause fromUsedInInsert;
+        targetTableRef.setPartitionNames(partitionNames);
         if (fromClause == null) {
             fromUsedInInsert = new FromClause(Lists.newArrayList(targetTableRef));
         } else {
@@ -192,7 +193,8 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
                 LimitElement.NO_LIMIT
         );
         boolean isPartialUpdate = false;
-        if (((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite()
+        OlapTable olapTable = (OlapTable) targetTable;
+        if (olapTable.getEnableUniqueKeyMergeOnWrite() && !olapTable.isUniqKeyMergeOnWriteWithClusterKeys()
                 && cols.size() < targetTable.getColumns().size()) {
             isPartialUpdate = true;
         }
@@ -462,5 +464,10 @@ public class DeleteStmt extends DdlStmt implements NotFallbackInParser {
         }
         sb.append(" WHERE ").append(wherePredicate.toSql());
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DELETE;
     }
 }

@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.trinoconnector.source;
 
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -28,15 +27,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorPluginLoader;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTrinoConnectorFileDesc;
 import org.apache.doris.trinoconnector.TrinoColumnMetadata;
@@ -44,6 +40,7 @@ import org.apache.doris.trinoconnector.TrinoColumnMetadata;
 import com.fasterxml.jackson.databind.Module;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import io.airlift.concurrent.BoundedExecutor;
 import io.airlift.concurrent.MoreFutures;
 import io.airlift.concurrent.Threads;
@@ -69,6 +66,9 @@ import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.DynamicFilter;
 import io.trino.spi.connector.LimitApplicationResult;
+import io.trino.spi.connector.ProjectionApplicationResult;
+import io.trino.spi.expression.ConnectorExpression;
+import io.trino.spi.expression.Variable;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.TypeManager;
 import io.trino.split.BufferingSplitSource;
@@ -105,10 +105,10 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
         source = new TrinoConnectorSource(desc);
-        convertPredicate();
     }
 
-    protected void convertPredicate() throws UserException {
+    @Override
+    protected void convertPredicate() {
         if (conjuncts.isEmpty()) {
             constraint = Constraint.alwaysTrue();
         }
@@ -180,29 +180,22 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
                     + " after pushing down.");
         }
 
-        // TODO(ftw): push down projection
-        // Map<String, ColumnHandle> columnHandleMap = source.getTargetTable().getColumnHandleMap();
-        // Map<String, ColumnHandle> assignments = Maps.newHashMap();
-        // if (source.getTargetTable().getName().equals("customer")) {
-        //     assignments.put("c_custkey", columnHandleMap.get("c_custkey"));
-        //     assignments.put("c_mktsegment", columnHandleMap.get("c_mktsegment"));
-        // } else if (source.getTargetTable().getName().equals("orders")) {
-        //     assignments.put("o_orderkey", columnHandleMap.get("o_orderkey"));
-        //     assignments.put("o_custkey", columnHandleMap.get("o_custkey"));
-        //     assignments.put("o_orderdate", columnHandleMap.get("o_orderdate"));
-        //     assignments.put("o_shippriority", columnHandleMap.get("o_shippriority"));
-        // } else if (source.getTargetTable().getName().equals("lineitem")) {
-        //     assignments.put("l_orderkey", columnHandleMap.get("l_orderkey"));
-        //     assignments.put("l_extendedprice", columnHandleMap.get("l_extendedprice"));
-        //     assignments.put("l_discount", columnHandleMap.get("l_discount"));
-        //     assignments.put("l_shipdate", columnHandleMap.get("l_shipdate"));
-        // }
-        // Optional<ProjectionApplicationResult<ConnectorTableHandle>> projectionResult
-        //         = connectorMetadata.applyProjection(connectorSession, source.getTrinoConnectorTableHandle(),
-        //         Lists.newArrayList(), assignments);
-        // if (projectionResult.isPresent()) {
-        //     source.setTrinoConnectorTableHandle(projectionResult.get().getHandle());
-        // }
+        // push down projection
+        Map<String, ColumnHandle> columnHandleMap = source.getTargetTable().getColumnHandleMap();
+        Map<String, ColumnMetadata> columnMetadataMap = source.getTargetTable().getColumnMetadataMap();
+        Map<String, ColumnHandle> assignments = Maps.newLinkedHashMap();
+        List<ConnectorExpression> projections = Lists.newArrayList();
+        for (SlotDescriptor slotDescriptor : desc.getSlots()) {
+            String colName = slotDescriptor.getColumn().getName();
+            assignments.put(colName, columnHandleMap.get(colName));
+            projections.add(new Variable(colName, columnMetadataMap.get(colName).getType()));
+        }
+        Optional<ProjectionApplicationResult<ConnectorTableHandle>> projectionResult
+                = connectorMetadata.applyProjection(connectorSession, source.getTrinoConnectorTableHandle(),
+                projections, assignments);
+        if (projectionResult.isPresent()) {
+            source.setTrinoConnectorTableHandle(projectionResult.get().getHandle());
+        }
     }
 
     private SplitSource getTrinoSplitSource(Connector connector, Session session, ConnectorTableHandle table,
@@ -239,7 +232,7 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setTrinoConnectorParams(TFileRangeDesc rangeDesc, TrinoConnectorSplit trinoConnectorSplit) {
+    private void setTrinoConnectorParams(TFileRangeDesc rangeDesc, TrinoConnectorSplit trinoConnectorSplit) {
         // mock ObjectMapperProvider
         objectMapperProvider = createObjectMapperProvider();
 
@@ -319,42 +312,6 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-    }
-
-    // When calling 'setTrinoConnectorParams' and 'getSplits', the column trimming has not been performed yet,
-    // Therefore, trino_connector_column_names is temporarily reset here
-    @Override
-    public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
-        super.updateRequiredSlots(planTranslatorContext, requiredByProjectSlotIdSet);
-        Map<String, ColumnMetadata> columnMetadataMap = source.getTargetTable().getColumnMetadataMap();
-        Map<String, ColumnHandle> columnHandleMap = source.getTargetTable().getColumnHandleMap();
-        List<ColumnHandle> columnHandles = new ArrayList<>();
-        for (SlotDescriptor slotDescriptor : desc.getSlots()) {
-            String colName = slotDescriptor.getColumn().getName();
-            if (columnMetadataMap.containsKey(colName)) {
-                columnHandles.add(columnHandleMap.get(colName));
-            }
-        }
-
-        for (TScanRangeLocations tScanRangeLocations : scanRangeLocations) {
-            List<TFileRangeDesc> ranges = tScanRangeLocations.scan_range.ext_scan_range.file_scan_range.ranges;
-            for (TFileRangeDesc tFileRangeDesc : ranges) {
-                tFileRangeDesc.table_format_params.trino_connector_params.setTrinoConnectorColumnHandles(
-                        encodeObjectToString(columnHandles, objectMapperProvider));
-            }
-        }
-    }
-
-    @Override
-    public TFileType getLocationType() throws DdlException, MetaNotFoundException {
-        return getLocationType("");
-    }
-
-    @Override
-    public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
-        // todo: no use
-        return TFileType.FILE_S3;
     }
 
     @Override

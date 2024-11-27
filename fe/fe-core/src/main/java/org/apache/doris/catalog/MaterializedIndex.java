@@ -73,6 +73,8 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     @SerializedName(value = "rollupFinishedVersion")
     private long rollupFinishedVersion;
 
+    private boolean rowCountReported = false;
+
     public MaterializedIndex() {
         this.state = IndexState.NORMAL;
         this.idToTablets = new HashMap<>();
@@ -90,7 +92,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         this.idToTablets = new HashMap<>();
         this.tablets = new ArrayList<>();
 
-        this.rowCount = 0;
+        this.rowCount = -1;
 
         this.rollupIndexId = -1L;
         this.rollupFinishedVersion = -1L;
@@ -204,6 +206,14 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
             idx++;
         }
         return -1;
+    }
+
+    public void setRowCountReported(boolean reported) {
+        this.rowCountReported = reported;
+    }
+
+    public boolean getRowCountReported() {
+        return this.rowCountReported;
     }
 
     @Deprecated

@@ -361,7 +361,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
         TNetworkAddress brpcAddress = null;
         Map<String, Map<String, Expr>> resultMap = new HashMap<>();
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get all partitions. No alive backends");
             }
@@ -370,7 +370,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
             brpcAddress = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             TQueryGlobals queryGlobals = new TQueryGlobals();
-            queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
+            queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
             queryGlobals.setTimestampMs(System.currentTimeMillis());
             queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
             queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);

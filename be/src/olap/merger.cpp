@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <stddef.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <iterator>
@@ -47,6 +48,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_reader.h"
 #include "olap/utils.h"
 #include "util/slice.h"
@@ -56,30 +58,6 @@
 #include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris {
-namespace {
-
-// for mow with cluster key table, the key group also contains cluster key columns.
-// the `key_group_cluster_key_idxes` marks the positions of cluster key columns in key group.
-void _generate_key_group_cluster_key_idxes(const TabletSchema& tablet_schema,
-                                           std::vector<std::vector<uint32_t>>& column_groups,
-                                           std::vector<uint32_t>& key_group_cluster_key_idxes) {
-    if (column_groups.empty() || tablet_schema.cluster_key_idxes().empty()) {
-        return;
-    }
-
-    auto& key_column_group = column_groups[0];
-    for (const auto& index_in_tablet_schema : tablet_schema.cluster_key_idxes()) {
-        for (auto j = 0; j < key_column_group.size(); ++j) {
-            auto cid = key_column_group[j];
-            if (cid == index_in_tablet_schema) {
-                key_group_cluster_key_idxes.emplace_back(j);
-                break;
-            }
-        }
-    }
-}
-
-} // namespace
 
 Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
                               const TabletSchema& cur_tablet_schema,
@@ -114,6 +92,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
 
     if (stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
+        reader_params.rowid_conversion = stats_output->rowid_conversion;
+        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
     }
 
     reader_params.return_columns.resize(cur_tablet_schema.num_columns());
@@ -121,22 +101,12 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_IF_ERROR(reader.init(reader_params));
 
-    if (reader_params.record_rowids) {
-        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
-        // init segment rowid map for rowid conversion
-        std::vector<uint32_t> segment_num_rows;
-        for (auto& rs_split : reader_params.rs_splits) {
-            RETURN_IF_ERROR(rs_split.rs_reader->get_segment_num_rows(&segment_num_rows));
-            stats_output->rowid_conversion->init_segment_map(
-                    rs_split.rs_reader->rowset()->rowset_id(), segment_num_rows);
-        }
-    }
-
     vectorized::Block block = cur_tablet_schema.create_block(reader_params.return_columns);
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
-        if (tablet->tablet_state() == TABLET_SHUTDOWN) {
+        auto tablet_state = tablet->tablet_state();
+        if (tablet_state != TABLET_RUNNING && tablet_state != TABLET_NOTREADY) {
             tablet->clear_cache();
             return Status::Error<INTERNAL_ERROR>("tablet {} is not used any more",
                                                  tablet->tablet_id());
@@ -181,7 +151,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
 // split columns into several groups, make sure all keys in one group
 // unique_key should consider sequence&delete column
 void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
-                                    std::vector<std::vector<uint32_t>>* column_groups) {
+                                    std::vector<std::vector<uint32_t>>* column_groups,
+                                    std::vector<uint32_t>* key_group_cluster_key_idxes) {
     uint32_t num_key_cols = tablet_schema.num_key_columns();
     uint32_t total_cols = tablet_schema.num_columns();
     std::vector<uint32_t> key_columns;
@@ -204,8 +175,24 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
         }
         if (!tablet_schema.cluster_key_idxes().empty()) {
             for (const auto& cid : tablet_schema.cluster_key_idxes()) {
-                if (cid >= num_key_cols) {
-                    key_columns.emplace_back(cid);
+                auto idx = tablet_schema.field_index(cid);
+                DCHECK(idx >= 0) << "could not find cluster key column with unique_id=" << cid
+                                 << " in tablet schema, table_id=" << tablet_schema.table_id();
+                if (idx >= num_key_cols) {
+                    key_columns.emplace_back(idx);
+                }
+            }
+            // tablet schema unique ids: [1, 2, 5, 3, 6, 4], [1 2] is key columns
+            // cluster key unique ids: [3, 1, 4]
+            // the key_columns should be [0, 1, 3, 5]
+            // the key_group_cluster_key_idxes should be [2, 1, 3]
+            for (const auto& cid : tablet_schema.cluster_key_idxes()) {
+                auto idx = tablet_schema.field_index(cid);
+                for (auto i = 0; i < key_columns.size(); ++i) {
+                    if (idx == key_columns[i]) {
+                        key_group_cluster_key_idxes->emplace_back(i);
+                        break;
+                    }
                 }
             }
         }
@@ -216,13 +203,12 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
     if (!key_columns.empty()) {
         column_groups->emplace_back(std::move(key_columns));
     }
-    auto&& cluster_key_idxes = tablet_schema.cluster_key_idxes();
 
     std::vector<uint32_t> value_columns;
+
     for (uint32_t i = num_key_cols; i < total_cols; ++i) {
         if (i == sequence_col_idx || i == delete_sign_idx ||
-            cluster_key_idxes.end() !=
-                    std::find(cluster_key_idxes.begin(), cluster_key_idxes.end(), i)) {
+            key_columns.end() != std::find(key_columns.begin(), key_columns.end(), i)) {
             continue;
         }
 
@@ -274,12 +260,16 @@ Status Merger::vertical_compact_one_group(
     }
 
     reader_params.tablet_schema = merge_tablet_schema;
+    bool has_cluster_key = false;
     if (!tablet->tablet_schema()->cluster_key_idxes().empty()) {
         reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+        has_cluster_key = true;
     }
 
     if (is_key && stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
+        reader_params.rowid_conversion = stats_output->rowid_conversion;
+        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
     }
 
     reader_params.return_columns = column_group;
@@ -287,27 +277,23 @@ Status Merger::vertical_compact_one_group(
     reader_params.batch_size = batch_size;
     RETURN_IF_ERROR(reader.init(reader_params, sample_info));
 
-    if (reader_params.record_rowids) {
-        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
-        // init segment rowid map for rowid conversion
-        std::vector<uint32_t> segment_num_rows;
-        for (auto& rs_split : reader_params.rs_splits) {
-            RETURN_IF_ERROR(rs_split.rs_reader->get_segment_num_rows(&segment_num_rows));
-            stats_output->rowid_conversion->init_segment_map(
-                    rs_split.rs_reader->rowset()->rowset_id(), segment_num_rows);
-        }
-    }
-
     vectorized::Block block = tablet_schema.create_block(reader_params.return_columns);
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
+        auto tablet_state = tablet->tablet_state();
+        if (tablet_state != TABLET_RUNNING && tablet_state != TABLET_NOTREADY) {
+            tablet->clear_cache();
+            return Status::Error<INTERNAL_ERROR>("tablet {} is not used any more",
+                                                 tablet->tablet_id());
+        }
         // Read one block from block reader
         RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
                                        "failed to read next block when merging rowsets of tablet " +
                                                std::to_string(tablet->tablet_id()));
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                dst_rowset_writer->add_columns(&block, column_group, is_key, max_rows_per_segment),
+                dst_rowset_writer->add_columns(&block, column_group, is_key, max_rows_per_segment,
+                                               has_cluster_key),
                 "failed to write block when merging rowsets of tablet " +
                         std::to_string(tablet->tablet_id()));
 
@@ -336,16 +322,12 @@ Status Merger::vertical_compact_one_group(
 }
 
 // for segcompaction
-Status Merger::vertical_compact_one_group(int64_t tablet_id, ReaderType reader_type,
-                                          const TabletSchema& tablet_schema, bool is_key,
-                                          const std::vector<uint32_t>& column_group,
-                                          vectorized::RowSourcesBuffer* row_source_buf,
-                                          vectorized::VerticalBlockReader& src_block_reader,
-                                          segment_v2::SegmentWriter& dst_segment_writer,
-                                          int64_t max_rows_per_segment, Statistics* stats_output,
-                                          uint64_t* index_size, KeyBoundsPB& key_bounds) {
-    // build tablet reader
-    VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
+Status Merger::vertical_compact_one_group(
+        int64_t tablet_id, ReaderType reader_type, const TabletSchema& tablet_schema, bool is_key,
+        const std::vector<uint32_t>& column_group, vectorized::RowSourcesBuffer* row_source_buf,
+        vectorized::VerticalBlockReader& src_block_reader,
+        segment_v2::SegmentWriter& dst_segment_writer, Statistics* stats_output,
+        uint64_t* index_size, KeyBoundsPB& key_bounds, SimpleRowIdConversion* rowid_conversion) {
     // TODO: record_rowids
     vectorized::Block block = tablet_schema.create_block(column_group);
     size_t output_rows = 0;
@@ -362,6 +344,9 @@ Status Merger::vertical_compact_one_group(int64_t tablet_id, ReaderType reader_t
                                        "failed to write block when merging rowsets of tablet " +
                                                std::to_string(tablet_id));
 
+        if (is_key && rowid_conversion != nullptr) {
+            rowid_conversion->add(src_block_reader.current_block_row_locations());
+        }
         output_rows += block.rows();
         block.clear_column_data();
     }
@@ -452,15 +437,15 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                                       int64_t merge_way_num, Statistics* stats_output) {
     LOG(INFO) << "Start to do vertical compaction, tablet_id: " << tablet->tablet_id();
     std::vector<std::vector<uint32_t>> column_groups;
-    vertical_split_columns(tablet_schema, &column_groups);
-
     std::vector<uint32_t> key_group_cluster_key_idxes;
-    _generate_key_group_cluster_key_idxes(tablet_schema, column_groups,
-                                          key_group_cluster_key_idxes);
+    vertical_split_columns(tablet_schema, &column_groups, &key_group_cluster_key_idxes);
 
     vectorized::RowSourcesBuffer row_sources_buf(
             tablet->tablet_id(), dst_rowset_writer->context().tablet_path, reader_type);
-    tablet->sample_infos.resize(column_groups.size(), {0, 0, 0});
+    {
+        std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
+        tablet->sample_infos.resize(column_groups.size(), {0, 0, 0});
+    }
     // compact group one by one
     for (auto i = 0; i < column_groups.size(); ++i) {
         VLOG_NOTICE << "row source size: " << row_sources_buf.total_size();
@@ -468,10 +453,16 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
         int64_t batch_size = config::compaction_batch_size != -1
                                      ? config::compaction_batch_size
                                      : estimate_batch_size(i, tablet, merge_way_num);
-        RETURN_IF_ERROR(vertical_compact_one_group(
+        CompactionSampleInfo sample_info;
+        Status st = vertical_compact_one_group(
                 tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
                 src_rowset_readers, dst_rowset_writer, max_rows_per_segment, stats_output,
-                key_group_cluster_key_idxes, batch_size, &(tablet->sample_infos[i])));
+                key_group_cluster_key_idxes, batch_size, &sample_info);
+        {
+            std::unique_lock<std::mutex> lock(tablet->sample_info_lock);
+            tablet->sample_infos[i] = sample_info;
+        }
+        RETURN_IF_ERROR(st);
         if (is_key) {
             RETURN_IF_ERROR(row_sources_buf.flush());
         }

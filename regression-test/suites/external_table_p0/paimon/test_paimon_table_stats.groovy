@@ -36,7 +36,7 @@ suite("test_paimon_table_stats", "p0,external,doris,external_docker,external_doc
                 while (retry < 10) {
                     def result = sql """ show table stats ${table_name} """
                     act = result[0][2]
-                    if (act != "0") {
+                    if (act != "-1") {
                         break;
                     }
                     Thread.sleep(2000)

@@ -28,7 +28,9 @@ class JoinBuildSinkLocalState : public PipelineXSinkLocalState<SharedStateType> 
 public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    const std::vector<IRuntimeFilter*>& runtime_filters() const { return _runtime_filters; }
+    const std::vector<std::shared_ptr<IRuntimeFilter>>& runtime_filters() const {
+        return _runtime_filters;
+    }
 
 protected:
     JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -37,11 +39,9 @@ protected:
     template <typename LocalStateType>
     friend class JoinBuildSinkOperatorX;
 
-    RuntimeProfile::Counter* _build_rows_counter = nullptr;
     RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
     RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
-    RuntimeProfile::Counter* _runtime_filter_init_timer = nullptr;
-    std::vector<IRuntimeFilter*> _runtime_filters;
+    std::vector<std::shared_ptr<IRuntimeFilter>> _runtime_filters;
 };
 
 template <typename LocalStateType>

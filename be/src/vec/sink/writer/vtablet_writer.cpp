@@ -45,7 +45,7 @@
 #include <vector>
 
 #include "cloud/config.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -64,6 +64,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/memory_reclamation.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
@@ -383,6 +384,16 @@ Status VNodeChannel::init(RuntimeState* state) {
     // a relatively large value to improve the import performance.
     _batch_size = std::max(_batch_size, 8192);
 
+    if (_state) {
+        QueryContext* query_ctx = _state->get_query_ctx();
+        if (query_ctx) {
+            auto wg_ptr = query_ctx->workload_group();
+            if (wg_ptr) {
+                _wg_id = wg_ptr->id();
+            }
+        }
+    }
+
     _inited = true;
     return Status::OK();
 }
@@ -416,7 +427,6 @@ void VNodeChannel::_open_internal(bool is_incremental) {
 
     request->set_num_senders(_parent->_num_senders);
     request->set_need_gen_rollup(false); // Useless but it is a required field in pb
-    request->set_load_mem_limit(_parent->_load_mem_limit);
     request->set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
     request->set_is_high_priority(_parent->_is_high_priority);
     request->set_sender_ip(BackendOptions::get_localhost());
@@ -426,6 +436,10 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_is_incremental(is_incremental);
     request->set_txn_expiration(_parent->_txn_expiration);
     request->set_write_file_cache(_parent->_write_file_cache);
+
+    if (_wg_id > 0) {
+        request->set_workload_group_id(_wg_id);
+    }
 
     auto open_callback = DummyBrpcCallback<PTabletWriterOpenResult>::create_shared();
     auto open_closure = AutoReleaseClosure<
@@ -528,8 +542,11 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     }
 
     SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
-    RETURN_IF_ERROR(
-            block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first)));
+    st = block->append_to_block_by_selector(_cur_mutable_block.get(), *(payload->first));
+    if (!st.ok()) {
+        _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
+        return st;
+    }
     for (auto tablet_id : payload->second) {
         _cur_add_block_request->add_tablet_ids(tablet_id);
     }
@@ -560,10 +577,16 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     return Status::OK();
 }
 
+static void injection_full_gc_fn() {
+    MemoryReclamation::process_full_gc();
+}
+
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
                                             std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
-    DBUG_EXECUTE_IF("VNodeChannel.try_send_and_fetch_status_full_gc",
-                    { MemoryReclamation::process_full_gc(); });
+    DBUG_EXECUTE_IF("VNodeChannel.try_send_and_fetch_status_full_gc", {
+        std::thread t(injection_full_gc_fn);
+        t.join();
+    });
 
     if (_cancelled || _send_finished) { // not run
         return 0;
@@ -709,11 +732,30 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             return;
         }
 
+        std::string host = _node_info.host;
+        auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+        if (dns_cache == nullptr) {
+            LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+        } else if (!is_valid_ip(_node_info.host)) {
+            Status status = dns_cache->get(_node_info.host, &host);
+            if (!status.ok()) {
+                LOG(WARNING) << "failed to get ip from host " << _node_info.host << ": "
+                             << status.to_string();
+                _send_block_callback->clear_in_flight();
+                return;
+            }
+        }
         //format an ipv6 address
-        std::string brpc_url = get_brpc_http_url(_node_info.host, _node_info.brpc_port);
+        std::string brpc_url = get_brpc_http_url(host, _node_info.brpc_port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                           "http");
+        if (_brpc_http_stub == nullptr) {
+            cancel(fmt::format("{}, failed to open brpc http client to {}", channel_info(),
+                               brpc_url));
+            _send_block_callback->clear_in_flight();
+            return;
+        }
         _send_block_callback->cntl_->http_request().uri() =
                 brpc_url + "/PInternalServiceImpl/tablet_writer_add_block_by_http";
         _send_block_callback->cntl_->http_request().set_method(brpc::HTTP_METHOD_POST);
@@ -890,13 +932,11 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
 }
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
-    DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", { MemoryReclamation::process_full_gc(); });
+    DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", {
+        std::thread t(injection_full_gc_fn);
+        t.join();
+    });
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
-    // set _is_closed to true finally
-    Defer set_closed {[&]() {
-        std::lock_guard<std::mutex> l(_closed_lock);
-        _is_closed = true;
-    }};
 
     auto st = none_of({_cancelled, !_eos_is_produced});
     if (!st.ok()) {
@@ -920,8 +960,8 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     VLOG_CRITICAL << _parent->_sender_id << " close wait finished";
     _close_time_ms = UnixMillis() - _close_time_ms;
 
-    if (_cancelled || state->is_cancelled()) {
-        cancel(state->cancel_reason().to_string());
+    if (state->is_cancelled()) {
+        _cancel_with_msg(state->cancel_reason().to_string());
     }
 
     if (_add_batches_finished) {
@@ -933,6 +973,11 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         _index_channel->set_error_tablet_in_state(state);
         _index_channel->set_tablets_received_rows(_tablets_received_rows, _node_id);
         _index_channel->set_tablets_filtered_rows(_tablets_filtered_rows, _node_id);
+
+        std::lock_guard<std::mutex> l(_closed_lock);
+        // only when normal close, we set _is_closed to true.
+        // otherwise, we will set it to true in cancel().
+        _is_closed = true;
         return Status::OK();
     }
 
@@ -973,8 +1018,10 @@ void VNodeChannel::mark_close(bool hang_wait) {
     _eos_is_produced = true;
 }
 
-VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
-        : AsyncResultWriter(output_exprs), _t_sink(t_sink) {
+VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                             std::shared_ptr<pipeline::Dependency> dep,
+                             std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_exprs, dep, fin_dep), _t_sink(t_sink) {
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
 
@@ -1072,10 +1119,8 @@ Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* pr
 
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
     }
-    int32_t send_batch_parallelism =
-            MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
-            ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
+            ThreadPool::ExecutionMode::CONCURRENT, _send_batch_parallelism);
 
     // start to send batch continually. this must be called after _init
     if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
@@ -1135,6 +1180,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _schema->set_timestamp_ms(state->timestamp_ms());
+    _schema->set_nano_seconds(state->nano_seconds());
     _schema->set_timezone(state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
@@ -1211,7 +1257,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     // on exchange node rather than on TabletWriter
     _block_convertor->init_autoinc_info(
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
-            _schema->is_partial_update() && !_schema->auto_increment_coulumn().empty(),
+            _schema->is_fixed_partial_update() && !_schema->auto_increment_coulumn().empty(),
             _schema->auto_increment_column_unique_id());
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
@@ -1241,7 +1287,6 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _max_wait_exec_timer = ADD_TIMER(profile, "MaxWaitExecTime");
     _add_batch_number = ADD_COUNTER(profile, "NumberBatchAdded", TUnit::UNIT);
     _num_node_channels = ADD_COUNTER(profile, "NumberNodeChannels", TUnit::UNIT);
-    _load_mem_limit = state->get_load_mem_limit();
 
 #ifdef DEBUG
     // check: tablet ids should be unique
@@ -1377,7 +1422,7 @@ Status VTabletWriter::_send_new_partition_batch() {
 
         Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
 
-        // these order is only.
+        // these order is unique.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.

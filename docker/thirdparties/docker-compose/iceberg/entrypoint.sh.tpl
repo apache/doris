@@ -23,12 +23,25 @@ start-worker.sh spark://doris--spark-iceberg:7077
 start-history-server.sh
 start-thriftserver.sh --driver-java-options "-Dderby.system.home=/tmp/derby"
 
-# Entrypoint, for example notebook, pyspark or spark-sql
-if [[ $# -gt 0 ]]; then
-    eval "$1"
-fi
 
-# Avoid container exit
-while true; do
-    sleep 1
-done
+
+ls /mnt/scripts/create_preinstalled_scripts/iceberg/*.sql | xargs -n 1 -I {} bash -c '
+    START_TIME=$(date +%s)
+    spark-sql --master spark://doris--spark-iceberg:7077 --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -f {} 
+    END_TIME=$(date +%s)
+    EXECUTION_TIME=$((END_TIME - START_TIME))
+    echo "Script: {} executed in $EXECUTION_TIME seconds"
+'
+
+ls /mnt/scripts/create_preinstalled_scripts/paimon/*.sql | xargs -n 1 -I {} bash -c '
+    START_TIME=$(date +%s)
+    spark-sql --master  spark://doris--spark-iceberg:7077 --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions -f {} 
+    END_TIME=$(date +%s)
+    EXECUTION_TIME=$((END_TIME - START_TIME))
+    echo "Script: {} executed in $EXECUTION_TIME seconds"
+'
+
+
+touch /mnt/SUCCESS;
+
+tail -f /dev/null

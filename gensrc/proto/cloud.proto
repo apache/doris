@@ -140,8 +140,10 @@ message ClusterPB {
 message NodeInfoPB {
     enum NodeType {
         UNKNOWN = 0;
+         // lagacy logic for one-master-multi-observer mode
         FE_MASTER = 1;
         FE_OBSERVER = 2;
+        FE_FOLLOWER = 3;
     }
     optional string cloud_unique_id = 1;
     optional string name = 2;
@@ -195,6 +197,7 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
+    optional bool use_path_style = 16;
 }
 
 // The legacy ObjectStoreInfoPB is stored in InstanceInfoPB
@@ -210,6 +213,8 @@ message StorageVaultPB {
     }
 
     optional PathFormat path_format = 5;
+    // Set this filed when the user tries to alter name to alter_name
+    optional string alter_name = 6;
 }
 
 message HdfsBuildConf {
@@ -404,6 +409,8 @@ message TxnRunningPB {
 message VersionPB {
     optional int64 version = 1;
     optional int64 update_time_ms = 2;
+    // now only allow one element
+    repeated int64 pending_txn_ids = 3;
 }
 
 message RecycleTxnPB {
@@ -497,6 +504,7 @@ message TabletMetaInfoPB { // For update tablet meta
     optional int64 time_series_compaction_empty_rowsets_threshold = 11;
     optional int64 time_series_compaction_level_threshold = 12;
     optional bool disable_auto_compaction = 13;
+    optional bool enable_mow_light_delete = 14;
 }
 
 message TabletCompactionJobPB {
@@ -535,6 +543,7 @@ message TabletCompactionJobPB {
     optional int64 lease = 23; // prepare
     optional int64 delete_bitmap_lock_initiator = 24;
     optional int64 full_compaction_cnt = 25;  // prepare
+    optional bool check_input_versions_range = 26;
 }
 
 message TabletSchemaChangeJobPB {
@@ -634,6 +643,7 @@ message BeginTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional int64 txn_id = 2;
     optional int64 dup_txn_id = 3;
+    optional TxnStatusPB txn_status = 4;
     // TODO: There may be more fields TBD
 }
 
@@ -663,6 +673,7 @@ message CommitTxnRequest {
     // for transaction load
     optional bool is_txn_load = 9;
     repeated SubTxnInfo sub_txn_infos = 10;
+    optional bool enable_txn_lazy_commit = 11;
 }
 
 message SubTxnInfo {
@@ -771,6 +782,17 @@ message GetCurrentMaxTxnResponse {
     optional int64 current_max_txn_id = 2;
 }
 
+message AbortTxnWithCoordinatorRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string ip = 2;
+    optional int64 id = 3;
+    optional int64 start_time = 4;
+}
+
+message AbortTxnWithCoordinatorResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message CheckTxnConflictRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
@@ -782,6 +804,7 @@ message CheckTxnConflictRequest {
 message CheckTxnConflictResponse {
     optional MetaServiceResponseStatus status = 1;
     optional bool finished = 2;
+    repeated TxnInfoPB conflict_txns = 3; 
 }
 
 message CleanTxnLabelRequest {
@@ -839,6 +862,8 @@ message AlterObjStoreInfoRequest {
         ADD_BUILT_IN_VAULT = 102;
         ADD_S3_VAULT = 103;
         DROP_S3_VAULT = 104;
+        ALTER_S3_VAULT = 105;
+        ALTER_HDFS_VAULT = 106;
 
         SET_DEFAULT_VAULT = 200;
         UNSET_DEFAULT_VAULT = 201;
@@ -872,12 +897,14 @@ message GetObjStoreInfoResponse {
     repeated StorageVaultPB storage_vault = 3;
     optional string default_storage_vault_id = 4;
     optional string default_storage_vault_name = 5;
+    optional bool enable_storage_vault = 6;
 };
 
 message CreateTabletsRequest {
     optional string cloud_unique_id = 1; // For auth
     repeated doris.TabletMetaCloudPB tablet_metas = 2;
     optional string storage_vault_name = 3;
+    optional int64 db_id = 4;
 }
 
 message CreateTabletsResponse {
@@ -935,6 +962,11 @@ message CreateRowsetResponse {
 }
 
 message GetRowsetRequest {
+    enum SchemaOp {
+        FILL_WITH_DICT = 0; // fill rowset schema with SchemaCloudDictionary value
+        RETURN_DICT = 1;    // not use dict value in MS, return SchemaCloudDictionary directly
+        NO_DICT = 2;        // not read dict info, use local cached SchemaCloudDictionary instead
+    }
     optional string cloud_unique_id = 1; // For auth
     optional TabletIndexPB idx = 2;
     optional int64 start_version = 3;
@@ -942,13 +974,17 @@ message GetRowsetRequest {
     optional int64 base_compaction_cnt = 5;
     optional int64 cumulative_compaction_cnt = 6;
     optional int64 cumulative_point = 7;
-    // TODO: There may be more fields TBD
+    // returned schema format on rowset schema, used in variant type directly.
+    // for compability reason we use FILL_WITH_DICT as default
+    optional SchemaOp schema_op = 8  [default = FILL_WITH_DICT];
 }
 
 message GetRowsetResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated doris.RowsetMetaCloudPB rowset_meta = 2;
     optional TabletStatsPB stats = 3;
+    // Return dict value if SchemaOp is RETURN_DICT
+    optional SchemaCloudDictionary schema_dict = 4; 
 }
 
 message IndexRequest {
@@ -1168,6 +1204,7 @@ message StartTabletJobRequest {
 message StartTabletJobResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated int64 version_in_compaction = 2;
+    optional int64 alter_version = 3;
 }
 
 message FinishTabletJobRequest {
@@ -1185,6 +1222,7 @@ message FinishTabletJobRequest {
 message FinishTabletJobResponse {
     optional MetaServiceResponseStatus status = 1;
     optional TabletStatsPB stats = 2;
+    optional int64 alter_version = 3;
 }
 
 message BeginCopyRequest {
@@ -1323,6 +1361,7 @@ enum MetaServiceCode {
     JOB_ALREADY_SUCCESS = 5002;
     ROUTINE_LOAD_DATA_INCONSISTENT = 5003;
     ROUTINE_LOAD_PROGRESS_NOT_FOUND = 5004;
+    JOB_CHECK_ALTER_VERSION = 5005;
 
     // Rate limit
     MAX_QPS_LIMIT = 6001;
@@ -1356,6 +1395,7 @@ message UpdateDeleteBitmapRequest {
     repeated int64 versions = 9;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 10;
+    optional bool unlock = 11;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1381,6 +1421,19 @@ message GetDeleteBitmapResponse {
     repeated int64 versions = 4;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 5;
+    optional int64 tablet_id = 6;
+}
+
+message RemoveDeleteBitmapRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 tablet_id = 2;
+    repeated string rowset_ids = 3;
+    repeated int64 begin_versions = 4;
+    repeated int64 end_versions = 5;
+}
+
+message RemoveDeleteBitmapResponse {
+    optional MetaServiceResponseStatus status = 1;
 }
 
 message PendingDeleteBitmapPB {
@@ -1400,9 +1453,26 @@ message GetDeleteBitmapUpdateLockRequest {
     optional int64 lock_id = 4;
     optional int64 initiator = 5;
     optional int64 expiration = 6;
+    optional bool require_compaction_stats = 7 [default = false];
+    repeated TabletIndexPB tablet_indexes = 8;
 }
 
 message GetDeleteBitmapUpdateLockResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated int64 base_compaction_cnts = 2;
+    repeated int64 cumulative_compaction_cnts = 3;
+    repeated int64 cumulative_points = 4;
+}
+
+message RemoveDeleteBitmapUpdateLockRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 table_id = 2;
+    optional int64 tablet_id = 3;
+    optional int64 lock_id = 4;
+    optional int64 initiator = 5;
+}
+
+message RemoveDeleteBitmapUpdateLockResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
@@ -1417,6 +1487,39 @@ message GetRLTaskCommitAttachResponse {
     optional RLTaskTxnCommitAttachmentPB commit_attach = 2;
 }
 
+message ResetRLProgressRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 job_id = 3;
+    map<int32, int64> partition_to_offset = 4;
+}
+
+message ResetRLProgressResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
+message CheckKeyInfos {
+    repeated int64 db_ids = 1;
+    repeated int64 table_ids = 2;
+    repeated int64 index_ids = 3;
+    repeated int64 partition_ids = 4;
+}
+
+message CheckKVRequest {
+    enum Operation {
+        CREATE_INDEX_AFTER_FE_COMMIT        = 1;
+        CREATE_PARTITION_AFTER_FE_COMMIT    = 2;
+    }
+    optional string cloud_unique_id = 1; // For auth
+    optional CheckKeyInfos check_keys = 2;
+    optional Operation op = 3; 
+}
+
+message CheckKVResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional CheckKeyInfos bad_keys = 2;
+}
+
 service MetaService {
     rpc begin_txn(BeginTxnRequest) returns (BeginTxnResponse);
     rpc precommit_txn(PrecommitTxnRequest) returns (PrecommitTxnResponse);
@@ -1429,6 +1532,7 @@ service MetaService {
     rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);
     rpc begin_sub_txn(BeginSubTxnRequest) returns (BeginSubTxnResponse);
     rpc abort_sub_txn(AbortSubTxnRequest) returns (AbortSubTxnResponse);
+    rpc abort_txn_with_coordinator(AbortTxnWithCoordinatorRequest) returns (AbortTxnWithCoordinatorResponse);
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
@@ -1454,6 +1558,7 @@ service MetaService {
 
     rpc get_obj_store_info(GetObjStoreInfoRequest) returns (GetObjStoreInfoResponse);
     rpc alter_obj_store_info(AlterObjStoreInfoRequest) returns (AlterObjStoreInfoResponse);
+    rpc alter_storage_vault(AlterObjStoreInfoRequest) returns (AlterObjStoreInfoResponse);
     rpc update_ak_sk(UpdateAkSkRequest) returns (UpdateAkSkResponse);
     rpc create_instance(CreateInstanceRequest) returns (CreateInstanceResponse);
     rpc alter_instance(AlterInstanceRequest) returns (AlterInstanceResponse);
@@ -1482,9 +1587,15 @@ service MetaService {
     rpc update_delete_bitmap(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
     rpc get_delete_bitmap(GetDeleteBitmapRequest) returns(GetDeleteBitmapResponse);
     rpc get_delete_bitmap_update_lock(GetDeleteBitmapUpdateLockRequest) returns(GetDeleteBitmapUpdateLockResponse);
+    rpc remove_delete_bitmap_update_lock(RemoveDeleteBitmapUpdateLockRequest) returns(RemoveDeleteBitmapUpdateLockResponse);
+    rpc remove_delete_bitmap(RemoveDeleteBitmapRequest) returns(RemoveDeleteBitmapResponse);
 
     // routine load progress
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
+    rpc reset_rl_progress(ResetRLProgressRequest) returns (ResetRLProgressResponse);
+
+    // check KV
+    rpc check_kv(CheckKVRequest) returns (CheckKVResponse);
 };
 
 service RecyclerService {

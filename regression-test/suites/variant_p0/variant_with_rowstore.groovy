@@ -39,7 +39,6 @@ suite("regression_test_variant_rowstore", "variant_type"){
             DISTRIBUTED BY HASH(k) BUCKETS 1
             properties("replication_num" = "1", "disable_auto_compaction" = "false", "store_row_column" = "true");
         """
-    sql "set experimental_enable_nereids_planner = false"
     sql "sync"
     sql """insert into ${table_name} values (-3, '{"a" : 1, "b" : 1.5, "c" : [1, 2, 3]}')"""
     sql """insert into  ${table_name} select -2, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}'  as json_str
@@ -107,5 +106,27 @@ suite("regression_test_variant_rowstore", "variant_type"){
         // assertEquals(stmt1.class, com.mysql.cj.jdbc.ServerPreparedStatement);
         // stmt.setInt(1, -3)
         // qe_point_select stmt
+    }
+
+    sql "DROP TABLE IF EXISTS table_rs_invalid_json"
+    sql """
+        CREATE TABLE table_rs_invalid_json
+        (
+            col0 BIGINT  NOT NULL,
+            coljson VARIANT NOT NULL, INDEX colvariant_idx(coljson) USING INVERTED
+        )
+        UNIQUE KEY(col0)
+        DISTRIBUTED BY HASH(col0) BUCKETS 4
+        PROPERTIES (
+            "enable_unique_key_merge_on_write" = "true",
+            "store_row_column"="true",
+            "replication_num" = "1"
+        );
+    """
+    sql """insert into table_rs_invalid_json values (1, '1|[""]')"""
+    def result2 = connect(user=user, password=password, url=prepare_url) {
+        def stmt = prepareStatement "select * from table_rs_invalid_json where col0 = ?"
+        stmt.setInt(1, 1)
+        qe_point_select stmt
     }
 }

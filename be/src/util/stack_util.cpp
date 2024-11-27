@@ -36,11 +36,19 @@ void DumpStackTraceToString(std::string* stacktrace);
 namespace doris {
 
 std::string get_stack_trace(int start_pointers_index, std::string dwarf_location_info_mode) {
-#ifdef ENABLE_STACKTRACE
+#ifndef BE_TEST
+    if (!config::enable_stacktrace) {
+        return "no enable stacktrace";
+    }
+#endif
     if (dwarf_location_info_mode.empty()) {
         dwarf_location_info_mode = config::dwarf_location_info_mode;
     }
+#ifdef BE_TEST
+    auto tool = std::string {"libunwind"};
+#else
     auto tool = config::get_stack_trace_tool;
+#endif
     if (tool == "glog") {
         return get_stack_trace_by_glog();
     } else if (tool == "boost") {
@@ -55,8 +63,6 @@ std::string get_stack_trace(int start_pointers_index, std::string dwarf_location
     } else {
         return "no stack";
     }
-#endif
-    return "no enable stack";
 }
 
 std::string get_stack_trace_by_glog() {

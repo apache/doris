@@ -23,7 +23,8 @@ import org.apache.doris.regression.suite.client.BackendClientImpl
 import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.thrift.TTabletCommitInfo
 import org.apache.doris.thrift.TGetSnapshotResult
-import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TNetworkAddress
+import org.apache.doris.thrift.TSubTxnInfo
 import com.google.gson.annotations.SerializedName
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -31,10 +32,22 @@ import groovy.util.logging.Slf4j
 
 import java.sql.Connection
 
+class TabletMeta {
+    public TreeMap<Long, Long> replicas
+
+    TabletMeta() {
+        this.replicas = new TreeMap<Long, Long>()
+    }
+
+    String toString() {
+        return "TabletMeta: { replicas: " + replicas.toString() + " }"
+    }
+}
+
 class PartitionMeta {
     public long version
     public long indexId
-    public TreeMap<Long, Long> tabletMeta
+    public TreeMap<Long, TabletMeta> tabletMeta
 
     PartitionMeta(long indexId, long version) {
         this.indexId = indexId
@@ -128,6 +141,12 @@ class SyncerContext {
     public long txnId
     public long seq
 
+    public boolean txnInsert = false
+    public List<Long> sourceSubTxnIds = new ArrayList<Long>()
+    public List<Long> targetSubTxnIds = new ArrayList<Long>()
+    public Map<Long, Long> sourceToTargetSubTxnId = new HashMap<Long, Long>()
+    public List<TSubTxnInfo> subTxnInfos = new ArrayList<TSubTxnInfo>()
+
     SyncerContext(Suite suite, String dbName, Config config) {
         this.suite = suite
         this.sourceDbId = -1
@@ -211,6 +230,19 @@ class SyncerContext {
                     return false
                 } else if (srcTabletMeta.size() != tarTabletMeta.size()) {
                     return false
+                }
+
+                Iterator srcTabletIter = srcTabletMeta.iterator()
+                Iterator tarTabletIter = tarTabletMeta.iterator()
+                while (srcTabletIter.hasNext()) {
+                    Map srcReplicaMap = srcTabletIter.next().value.replicas
+                    Map tarReplicaMap = tarTabletIter.next().value.replicas
+
+                    if (srcReplicaMap.isEmpty() || tarReplicaMap.isEmpty()) {
+                        return false
+                    } else if (srcReplicaMap.size() != tarReplicaMap.size()) {
+                        return false
+                    }
                 }
             }
         })

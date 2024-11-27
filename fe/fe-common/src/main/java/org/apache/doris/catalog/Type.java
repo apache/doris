@@ -322,8 +322,6 @@ public abstract class Type {
                     .put(PrimitiveType.DOUBLE, Sets.newHashSet(Double.class, double.class))
                     .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
                     .put(PrimitiveType.IPV4, Sets.newHashSet(Integer.class, int.class))
-                    .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
                     .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
                     .put(PrimitiveType.DATE, DATE_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)
@@ -452,32 +450,34 @@ public abstract class Type {
     }
 
     public String hideVersionForVersionColumn(Boolean isToSql) {
-        if (isDatetimeV2()) {
-            StringBuilder typeStr = new StringBuilder("DATETIME");
+        if (isDatetime() || isDatetimeV2()) {
+            StringBuilder typeStr = new StringBuilder("datetime");
             if (((ScalarType) this).getScalarScale() > 0) {
                 typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
             }
             return typeStr.toString();
-        } else if (isDateV2()) {
-            return "DATE";
-        } else if (isDecimalV3()) {
-            StringBuilder typeStr = new StringBuilder("DECIMAL");
+        } else if (isDate() || isDateV2()) {
+            return "date";
+        } else if (isDecimalV2() || isDecimalV3()) {
+            StringBuilder typeStr = new StringBuilder("decimal");
             ScalarType sType = (ScalarType) this;
             int scale = sType.getScalarScale();
             int precision = sType.getScalarPrecision();
-            // not default
-            if (!sType.isDefaultDecimal()) {
-                typeStr.append("(").append(precision).append(", ").append(scale)
-                        .append(")");
+            typeStr.append("(").append(precision).append(",").append(scale).append(")");
+            return typeStr.toString();
+        } else if (isTime() || isTimeV2()) {
+            StringBuilder typeStr = new StringBuilder("time");
+            if (((ScalarType) this).getScalarScale() > 0) {
+                typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
             }
             return typeStr.toString();
         } else if (isArrayType()) {
             String nestedDesc = ((ArrayType) this).getItemType().hideVersionForVersionColumn(isToSql);
-            return "ARRAY<" + nestedDesc + ">";
+            return "array<" + nestedDesc + ">";
         } else if (isMapType()) {
             String keyDesc = ((MapType) this).getKeyType().hideVersionForVersionColumn(isToSql);
             String valueDesc = ((MapType) this).getValueType().hideVersionForVersionColumn(isToSql);
-            return "MAP<" + keyDesc + "," + valueDesc + ">";
+            return "map<" + keyDesc + "," + valueDesc + ">";
         } else if (isStructType()) {
             List<String> fieldDesc = new ArrayList<>();
             StructType structType = (StructType) this;
@@ -485,7 +485,7 @@ public abstract class Type {
                 StructField field = structType.getFields().get(i);
                 fieldDesc.add(field.getName() + ":" + field.getType().hideVersionForVersionColumn(isToSql));
             }
-            return "STRUCT<" + StringUtils.join(fieldDesc, ",") + ">";
+            return "struct<" + StringUtils.join(fieldDesc, ",") + ">";
         } else if (isToSql) {
             return this.toSql();
         }
@@ -866,10 +866,6 @@ public abstract class Type {
                 return false;
             }
             for (int i = 0; i < sourceAggState.getSubTypes().size(); i++) {
-                // target subtype is not null but source subtype is nullable
-                if (!targetAggState.getSubTypeNullables().get(i) && sourceAggState.getSubTypeNullables().get(i)) {
-                    return false;
-                }
                 if (!canCastTo(sourceAggState.getSubTypes().get(i), targetAggState.getSubTypes().get(i))) {
                     return false;
                 }

@@ -21,6 +21,7 @@
 #pragma once
 
 #include <glog/logging.h>
+#include <pdqsort.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/types.h>
@@ -101,12 +102,10 @@ private:
     ColumnDecimal(const ColumnDecimal& src) : data(src.data), scale(src.scale) {}
 
 public:
-    const char* get_family_name() const override { return TypeName<T>::get(); }
+    std::string get_name() const override { return TypeName<T>::get(); }
 
     bool is_numeric() const override { return false; }
     bool is_column_decimal() const override { return true; }
-    bool is_fixed_and_contiguous() const override { return true; }
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
     size_t size() const override { return data.size(); }
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
@@ -115,7 +114,7 @@ public:
     void resize(size_t n) override { data.resize(n); }
 
     void insert_from(const IColumn& src, size_t n) override {
-        data.push_back(assert_cast<const Self&>(src).get_data()[n]);
+        data.push_back(assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(src).get_data()[n]);
     }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
@@ -156,6 +155,8 @@ public:
         data.resize(old_size + length);
         memset(data.data() + old_size, 0, length * sizeof(data[0]));
     }
+
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void pop_back(size_t n) override { data.resize_assume_reserved(data.size() - n); }
 
@@ -215,15 +216,6 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
-    }
-
     //    void gather(ColumnGathererStream & gatherer_stream) override;
 
     bool structure_equals(const IColumn& rhs) const override {
@@ -240,7 +232,7 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        data[self_row] = assert_cast<const Self&>(rhs).data[row];
+        data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
     }
 
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
@@ -269,14 +261,22 @@ protected:
         for (U i = 0; i < s; ++i) res[i] = i;
 
         auto sort_end = res.end();
-        if (limit && limit < s) sort_end = res.begin() + limit;
-
-        if (reverse)
-            std::partial_sort(res.begin(), sort_end, res.end(),
-                              [this](size_t a, size_t b) { return data[a] > data[b]; });
-        else
-            std::partial_sort(res.begin(), sort_end, res.end(),
-                              [this](size_t a, size_t b) { return data[a] < data[b]; });
+        if (limit && limit < s / 8.0) {
+            sort_end = res.begin() + limit;
+            if (reverse)
+                std::partial_sort(res.begin(), sort_end, res.end(),
+                                  [this](size_t a, size_t b) { return data[a] > data[b]; });
+            else
+                std::partial_sort(res.begin(), sort_end, res.end(),
+                                  [this](size_t a, size_t b) { return data[a] < data[b]; });
+        } else {
+            if (reverse)
+                pdqsort(res.begin(), res.end(),
+                        [this](size_t a, size_t b) { return data[a] > data[b]; });
+            else
+                pdqsort(res.begin(), res.end(),
+                        [this](size_t a, size_t b) { return data[a] < data[b]; });
+        }
     }
 
     void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint32_t& hash) const {

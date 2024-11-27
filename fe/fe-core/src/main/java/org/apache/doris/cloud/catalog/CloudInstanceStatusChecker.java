@@ -27,6 +27,9 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public class CloudInstanceStatusChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudInstanceStatusChecker.class);
     private CloudSystemInfoService cloudSystemInfoService;
@@ -49,6 +52,14 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                         + "cloud_unique_id={}, response={}", Config.cloud_unique_id, response);
             } else {
                 cloudSystemInfoService.setInstanceStatus(response.getInstance().getStatus());
+                Map<String, String> vaultMap = new HashMap<>();
+                int cnt = response.getInstance().getResourceIdsCount();
+                for (int i = 0; i < cnt; i++) {
+                    String name = response.getInstance().getStorageVaultNames(i);
+                    String id = response.getInstance().getResourceIds(i);
+                    vaultMap.put(name, id);
+                }
+                Env.getCurrentEnv().getStorageVaultMgr().refreshVaultMap(vaultMap);
                 Env.getCurrentEnv().getStorageVaultMgr().setDefaultStorageVault(
                         Pair.of(response.getInstance().getDefaultStorageVaultName(),
                                 response.getInstance().getDefaultStorageVaultId()));

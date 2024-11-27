@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 
 // DROP TABLE
-public class DropTableStmt extends DdlStmt {
+public class DropTableStmt extends DdlStmt implements NotFallbackInParser {
     private boolean ifExists;
     private final TableName tableName;
     private final boolean isView;
@@ -100,11 +100,19 @@ public class DropTableStmt extends DdlStmt {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DROP TABLE ").append(tableName.toSql());
+        if (forceDrop) {
+            stringBuilder.append(" FORCE");
+        }
         return stringBuilder.toString();
     }
 
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
     }
 }

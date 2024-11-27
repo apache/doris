@@ -24,6 +24,7 @@
 #include <exception>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "orc/Int128.hh"
@@ -31,6 +32,7 @@
 #include "orc/OrcFile.hh"
 #include "orc/Vector.hh"
 #include "runtime/define_primitive_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
@@ -58,6 +60,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0), _name("VOrcOutputStream") {}
 
@@ -151,6 +154,7 @@ Status VOrcTransformer::open() {
 
     _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);
     try {
+        _write_options->setMemoryPool(ExecEnv::GetInstance()->orc_memory_pool());
         _writer = orc::createWriter(*_schema, _output_stream.get(), *_write_options);
     } catch (const std::exception& e) {
         return Status::InternalError("failed to create writer: {}", e.what());
@@ -314,15 +318,15 @@ int64_t VOrcTransformer::written_len() {
 }
 
 Status VOrcTransformer::close() {
-    if (_writer != nullptr) {
-        try {
+    try {
+        if (_writer != nullptr) {
             _writer->close();
-        } catch (const std::exception& e) {
-            return Status::IOError(e.what());
         }
-    }
-    if (_output_stream) {
-        _output_stream->close();
+        if (_output_stream) {
+            _output_stream->close();
+        }
+    } catch (const std::exception& e) {
+        return Status::IOError(e.what());
     }
     return Status::OK();
 }
@@ -342,7 +346,7 @@ Status VOrcTransformer::write(const Block& block) {
         }
     }};
 
-    size_t sz = block.rows();
+    int sz = cast_set<int>(block.rows());
     auto row_batch = _create_row_batch(sz);
     auto* root = dynamic_cast<orc::StructVectorBatch*>(row_batch.get());
     try {
@@ -353,13 +357,13 @@ Status VOrcTransformer::write(const Block& block) {
             RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(
                     _state->timezone(), *raw_column, nullptr, root->fields[i], 0, sz, buffer_list));
         }
+        root->numElements = sz;
+        _writer->add(*row_batch);
+        _cur_written_rows += sz;
     } catch (const std::exception& e) {
         LOG(WARNING) << "Orc write error: " << e.what();
         return Status::InternalError(e.what());
     }
-    root->numElements = sz;
-    _writer->add(*row_batch);
-    _cur_written_rows += sz;
 
     return Status::OK();
 }

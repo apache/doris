@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hudi.source;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.spi.Split;
 
@@ -78,7 +79,7 @@ public class COWIncrementalRelation implements IncrementalRelation {
         if (!metaClient.getTableConfig().populateMetaFields()) {
             throw new HoodieException("Incremental queries are not supported when meta fields are disabled");
         }
-        HoodieInstant lastInstant = commitTimeline.lastInstant().get();
+
         String startInstantTime = optParams.get("hoodie.datasource.read.begin.instanttime");
         if (startInstantTime == null) {
             throw new HoodieException("Specify the begin instant time to pull from using "
@@ -88,16 +89,18 @@ public class COWIncrementalRelation implements IncrementalRelation {
             startInstantTime = "000";
         }
         String endInstantTime = optParams.getOrDefault("hoodie.datasource.read.end.instanttime",
-                lastInstant.getTimestamp());
+                hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME
+                        ? commitTimeline.lastInstant().get().getStateTransitionTime()
+                        : commitTimeline.lastInstant().get().getTimestamp());
         startInstantArchived = commitTimeline.isBeforeTimelineStarts(startInstantTime);
         endInstantArchived = commitTimeline.isBeforeTimelineStarts(endInstantTime);
 
         HoodieTimeline commitsTimelineToReturn;
         if (hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME) {
             commitsTimelineToReturn = commitTimeline.findInstantsInRangeByStateTransitionTime(startInstantTime,
-                    lastInstant.getStateTransitionTime());
+                    endInstantTime);
         } else {
-            commitsTimelineToReturn = commitTimeline.findInstantsInRange(startInstantTime, lastInstant.getTimestamp());
+            commitsTimelineToReturn = commitTimeline.findInstantsInRange(startInstantTime, endInstantTime);
         }
         List<HoodieInstant> commitsToReturn = commitsTimelineToReturn.getInstants();
 
@@ -210,14 +213,16 @@ public class COWIncrementalRelation implements IncrementalRelation {
                 : Collections.emptyList();
         for (String baseFile : filteredMetaBootstrapFullPaths) {
             HoodieWriteStat stat = fileToWriteStat.get(baseFile);
-            splits.add(new FileSplit(new Path(baseFile), 0, stat.getFileSizeInBytes(), stat.getFileSizeInBytes(),
-                    new String[0],
+            splits.add(new FileSplit(new LocationPath(baseFile, optParams), 0,
+                    stat.getFileSizeInBytes(), stat.getFileSizeInBytes(),
+                    0, new String[0],
                     HudiPartitionProcessor.parsePartitionValues(partitionNames, stat.getPartitionPath())));
         }
         for (String baseFile : filteredRegularFullPaths) {
             HoodieWriteStat stat = fileToWriteStat.get(baseFile);
-            splits.add(new FileSplit(new Path(baseFile), 0, stat.getFileSizeInBytes(), stat.getFileSizeInBytes(),
-                    new String[0],
+            splits.add(new FileSplit(new LocationPath(baseFile, optParams), 0,
+                    stat.getFileSizeInBytes(), stat.getFileSizeInBytes(),
+                    0, new String[0],
                     HudiPartitionProcessor.parsePartitionValues(partitionNames, stat.getPartitionPath())));
         }
         return splits;

@@ -248,6 +248,9 @@ suite("test_date_function") {
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2009-10-04 22:23:00") """
     qt_sql """ select date_format(test_datetime, 'yyyy-MM-dd') from ${tableName}; """
+    qt_sql_date_format_long """ select date_format(test_datetime, '%f %V %f %l %V %I %S %p %w %r %j %f %l %I %D %w %j %D %e %s %V %f %D %M %s %X %U %v %c %u %x %r %j %a %h %s %m %a %v %u %b') from ${tableName};"""
+    qt_sql_date_format_long """ select date_format(non_nullable(test_datetime), '%f %V %f %l %V %I %S %p %w %r %j %f %l %I %D %w %j %D %e %s %V %f %D %M %s %X %U %v %c %u %x %r %j %a %h %s %m %a %v %u %b') from ${tableName};"""
+  
     sql """ truncate table ${tableName} """
 
     sql """ insert into ${tableName} values ("2010-11-30 23:59:59") """
@@ -465,7 +468,9 @@ suite("test_date_function") {
     qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") <= '2022-08-01 00:00:00' ORDER BY id; """
     qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") LIKE '2022-08-01 00:00:00' ORDER BY id; """
     qt_sql """ SELECT id,FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") = '2022-08-01 17:00:31' ORDER BY id; """
-
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,null) FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") = '2022-08-01 17:00:31' ORDER BY id; """
+    qt_sql """ SELECT id,FROM_UNIXTIME(update_time,'%f %V %f %l %V %I %S %p %w %r %j %f %l %I %D %w %j %D %e %s %V %f %D %M %s %X %U %v %c %u %x %r %j %a %h %s %m %a %v %u %b') FROM ${tableName} WHERE FROM_UNIXTIME(update_time,"%Y-%m-%d %H:%i:%s") = '2022-08-01 17:00:31' ORDER BY id; """
+    
     qt_sql """SELECT CURDATE() = CURRENT_DATE();"""
     qt_sql """SELECT unix_timestamp(CURDATE()) = unix_timestamp(CURRENT_DATE());"""
 
@@ -475,6 +480,8 @@ suite("test_date_function") {
     qt_sql """ select date_format('2025-01-01', '%X %V'); """
     qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
     qt_sql_date_format_long """ select date_format(cast('2011-06-24' as DATETIMEV2(0)), '%f %V %f %l %V %I %S %p %w %r %j %f %l %I %D %w %j %D %e %s %V %f %D %M %s %X %U %v %c %u %x %r %j %a %h %s %m %a %v %u %b') """
+    qt_sql_date_format_long """ select date_format(null, '%f %V %f %l %V %I %S %p %w %r %j %f %l %I %D %w %j %D %e %s %V %f %D %M %s %X %U %v %c %u %x %r %j %a %h %s %m %a %v %u %b') """
+    
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
     qt_sql """ select STR_TO_DATE('2018-4-2 15:3:28','%Y-%m-%d %H:%i:%s'); """
@@ -695,4 +702,22 @@ suite("test_date_function") {
             ('5', '2020-12-12 12:12:12.666666', '2020-12-12 12:12:12.666666', '2020-12-12 12:12:12.666666', '2020-12-12 12:12:12.666666', '2020-12-12 12:12:12.666666'); """
 
     qt_sql_dt_null_1 """ select unix_timestamp(dtv24), unix_timestamp(dtv20n), unix_timestamp(dv2), unix_timestamp(dv2n), unix_timestamp(str) from dt_null order by k1; """
+
+    sql """ DROP TABLE IF EXISTS dt_timenull; """
+
+    sql """
+     CREATE TABLE IF NOT EXISTS dt_timenull(
+            `k1` INT NOT NULL,
+            `k2` BIGINT NOT NULL
+            )
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+            properties("replication_num" = "1");
+    """
+    
+    sql """ insert into dt_timenull values (1, 0),(2, 100),(3, 123),(4, 219837),(5, -8923),(6, -29313),(7, 2131321231),(8, -21312313),(9,1112345);"""
+
+    qt_sql_time_value """ select k1 , cast(k2 as time) , hour(cast(k2 as time)) , minute(cast(k2 as time)), second(cast(k2 as time)) from dt_timenull order by k1;"""
+
+
+    qt_sql_time_value """ select  cast(4562632 as time),  hour(cast(4562632 as time)) ,  minute(cast(4562632 as time)) , second(cast(4562632 as time)); """
 }

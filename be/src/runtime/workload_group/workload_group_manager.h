@@ -27,15 +27,26 @@ namespace doris {
 
 class CgroupCpuCtl;
 
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 namespace pipeline {
 class TaskScheduler;
 class MultiCoreTaskQueue;
 } // namespace pipeline
 
+// internal_group is used for doris internal workload, currently is mainly compaction
+const static uint64_t INTERNAL_WORKLOAD_GROUP_ID =
+        static_cast<uint64_t>(TWorkloadType::type::INTERNAL);
+const static std::string INTERNAL_WORKLOAD_GROUP_NAME = "_internal";
+
 class WorkloadGroupMgr {
 public:
     WorkloadGroupMgr() = default;
     ~WorkloadGroupMgr() = default;
+
+    void init_internal_workload_group();
 
     WorkloadGroupPtr get_or_create_workload_group(const WorkloadGroupInfo& workload_group_info);
 
@@ -46,6 +57,8 @@ public:
 
     WorkloadGroupPtr get_task_group_by_id(uint64_t tg_id);
 
+    void do_sweep();
+
     void stop();
 
     std::atomic<bool> _enable_cpu_hard_limit = false;
@@ -54,15 +67,20 @@ public:
 
     bool enable_cpu_hard_limit() { return _enable_cpu_hard_limit.load(); }
 
-    void refresh_wg_memory_info();
+    void refresh_wg_weighted_memory_limit();
+
+    void get_wg_resource_usage(vectorized::Block* block);
+
+    WorkloadGroupPtr get_internal_wg() {
+        std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+        return _workload_groups[INTERNAL_WORKLOAD_GROUP_ID];
+    }
 
 private:
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, WorkloadGroupPtr> _workload_groups;
 
-    std::shared_mutex _init_cg_ctl_lock;
-    std::unique_ptr<CgroupCpuCtl> _cg_cpu_ctl;
-    bool _is_init_succ = false;
+    std::shared_mutex _clear_cgroup_lock;
 };
 
 } // namespace doris

@@ -29,6 +29,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class RuntimeState;
 class MinMaxFuncBase;
@@ -46,9 +47,10 @@ struct RuntimeFilterContext {
     std::shared_ptr<BloomFilterFuncBase> bloom_filter_func;
     std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func;
     bool ignored = false;
+    std::string err_msg;
 };
 
-using SharedRuntimeFilterContext = std::shared_ptr<RuntimeFilterContext>;
+using RuntimeFilterContextSPtr = std::shared_ptr<RuntimeFilterContext>;
 
 namespace vectorized {
 
@@ -63,9 +65,10 @@ struct SharedHashTableContext {
     std::shared_ptr<void> hash_table_variants;
     std::shared_ptr<Block> block;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
-    std::map<int, SharedRuntimeFilterContext> runtime_filters;
+    std::map<int, RuntimeFilterContextSPtr> runtime_filters;
     std::atomic<bool> signaled = false;
     bool short_circuit_for_null_in_probe_side = false;
+    std::atomic<bool> complete_build_stage = false;
 };
 
 using SharedHashTableContextPtr = std::shared_ptr<SharedHashTableContext>;
@@ -76,7 +79,6 @@ public:
     void set_builder_and_consumers(TUniqueId builder, int node_id);
     TUniqueId get_builder_fragment_instance_id(int my_node_id);
     SharedHashTableContextPtr get_context(int my_node_id);
-    void signal(int my_node_id);
     void signal_finish(int my_node_id);
     void append_dependency(int node_id, std::shared_ptr<pipeline::Dependency> dep,
                            std::shared_ptr<pipeline::Dependency> finish_dep) {
@@ -95,10 +97,11 @@ private:
     std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::Dependency>>> _dependencies;
     std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::Dependency>>>
             _finish_dependencies;
-    std::condition_variable _cv;
     std::map<int /*node id*/, TUniqueId /*fragment instance id*/> _builder_fragment_ids;
     std::map<int /*node id*/, SharedHashTableContextPtr> _shared_contexts;
 };
 
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

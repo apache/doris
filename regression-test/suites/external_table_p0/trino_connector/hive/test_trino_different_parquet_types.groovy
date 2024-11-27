@@ -16,16 +16,6 @@
 // under the License.
 
 suite("test_trino_different_parquet_types", "p0,external,hive,external_docker,external_docker_hive") {
-    def host_ips = new ArrayList()
-    String[][] backends = sql """ show backends """
-    for (def b in backends) {
-        host_ips.add(b[1])
-    }
-    String [][] frontends = sql """ show frontends """
-    for (def f in frontends) {
-        host_ips.add(f[1])
-    }
-    dispatchTrinoConnectors(host_ips.unique())
 
     String hms_port = context.config.otherConfigs.get("hive2HmsPort")
     String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
@@ -185,6 +175,16 @@ suite("test_trino_different_parquet_types", "p0,external,hive,external_docker,ex
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def host_ips = new ArrayList()
+        String[][] backends = sql """ show backends """
+        for (def b in backends) {
+            host_ips.add(b[1])
+        }
+        String [][] frontends = sql """ show frontends """
+        for (def f in frontends) {
+            host_ips.add(f[1])
+        }
+        dispatchTrinoConnectors(host_ips.unique())
         try {
             String catalog_name = "test_trino_different_parquet_types"
             sql """drop catalog if exists ${catalog_name}"""

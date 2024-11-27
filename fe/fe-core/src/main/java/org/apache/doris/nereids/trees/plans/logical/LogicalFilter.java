@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -145,16 +144,6 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, Plan child) {
         return new LogicalFilter<>(conjuncts, groupExpression, logicalProperties, child);
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-
-        ImmutableSet<FdItem> childItems = child().getLogicalProperties().getTrait().getFdItems();
-        builder.addAll(childItems);
-
-        return builder.build();
     }
 
     @Override

@@ -40,7 +40,7 @@ suite("test_mysql_mtmv", "p0,external,mysql,external_docker,external_docker_hive
             "type"="jdbc",
             "user"="root",
             "password"="123456",
-            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/${mysqlDb}?useSSL=false&zeroDateTimeBehavior=convertToNull",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/${mysqlDb}?useSSL=false&zeroDateTimeBehavior=convertToNull&allowPublicKeyRetrieval=true",
             "driver_url" = "${driver_url}",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
@@ -56,7 +56,7 @@ suite("test_mysql_mtmv", "p0,external,mysql,external_docker,external_docker_hive
                 AS
                 SELECT * FROM ${catalog_name}.${mysqlDb}.${mysqlTable};
             """
-
+        order_qt_desc_random "desc ${mvName}"
         sql """
                 REFRESH MATERIALIZED VIEW ${mvName} AUTO
             """
@@ -64,6 +64,16 @@ suite("test_mysql_mtmv", "p0,external,mysql,external_docker,external_docker_hive
         waitingMTMVTaskFinished(jobName)
         order_qt_mtmv "SELECT * FROM ${mvName} order by id"
 
+        sql """drop materialized view if exists ${mvName};"""
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+                DISTRIBUTED BY hash(count_value) BUCKETS 2
+                PROPERTIES ('replication_num' = '1')
+                AS
+                SELECT * FROM ${catalog_name}.${mysqlDb}.${mysqlTable};
+            """
+        order_qt_desc_hash "desc ${mvName}"
         sql """drop materialized view if exists ${mvName};"""
         sql """ drop catalog if exists ${catalog_name} """
     }

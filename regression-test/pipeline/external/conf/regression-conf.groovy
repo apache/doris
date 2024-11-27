@@ -63,7 +63,6 @@ excludeGroups = ""
 // load_stream_fault_injection may cause bad disk
 
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
-    "test_bitmap_filter," +
     "test_dump_image," +
     "test_index_failure_injection," +
     "test_information_schema_external," +
@@ -72,6 +71,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_spark_load," +
     "test_broker_load_func," +
     "test_stream_stub_fault_injection," +
+    "test_iceberg_overwrite_with_wrong_partition," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this directories will not be executed
@@ -128,6 +128,7 @@ kafka_port=19193
 // iceberg test config
 iceberg_rest_uri_port=18181
 iceberg_minio_port=19001
+enableIcebergTest=true
 
 enableEsTest=true
 es_5_port=59200
@@ -137,10 +138,16 @@ es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
-s3Provider = "COS"
+s3Source="aliyun"
+
+// for multi cloud test case, eg. paimon_base_filesystem
+aliYunAk="***********"
+aliYunSk="***********"
+txYunAk="***********"
+txYunSk="***********"
+
+// max compute catalog test config
+enableMaxComputeTest=true
 
 max_failure_num=50
 
@@ -153,6 +160,7 @@ hdfs_port=8020
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
+oceanbase_port=2881
 db2_11_port=50000
 
 // trino-connector catalog test config
@@ -162,3 +170,7 @@ enableTrinoConnectorTest = true
 enableKerberosTest = true
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
+
+
+// LakeSoul catalog test config
+enableLakesoulTest = true

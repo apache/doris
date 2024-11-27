@@ -37,6 +37,10 @@ suite("test_cast_date_decimal") {
     """
 
     qt_sql6 """
-        select cast('0000-02-29' as date);
+        select cast('0000-02-29' as date), cast('0000-02-29' as datetime), cast('00000229' as date), cast('0000-02-29 12:12:12.123' as datetime);
+    """
+
+    qt_sql7 """
+        select /*+SET_VAR(debug_skip_fold_constant=true)*/ cast('0000-02-29' as date), cast('0000-02-29' as datetime), cast('00000229' as date), cast('0000-02-29 12:12:12.123' as datetime);
     """
 }

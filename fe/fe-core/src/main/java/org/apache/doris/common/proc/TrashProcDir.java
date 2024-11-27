@@ -50,7 +50,13 @@ public class TrashProcDir implements ProcDirInterface {
     private List<Backend> backends = Lists.newArrayList();
 
     public TrashProcDir() {
-        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> backendsInfo;
+        try {
+            backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+        } catch (AnalysisException e) {
+            LOG.warn("Can't get backends info", e);
+            return;
+        }
         for (Backend backend : backendsInfo.values()) {
             this.backends.add(backend);
         }

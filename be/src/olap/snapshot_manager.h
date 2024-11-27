@@ -53,7 +53,7 @@ public:
 
     Result<std::vector<PendingRowsetGuard>> convert_rowset_ids(const std::string& clone_dir,
                                                                int64_t tablet_id,
-                                                               int64_t replica_id,
+                                                               int64_t replica_id, int64_t table_id,
                                                                int64_t partition_id,
                                                                int32_t schema_hash);
 
@@ -72,6 +72,7 @@ private:
                                       const std::vector<RowsetSharedPtr>& consistent_rowsets);
 
     Status _create_snapshot_files(const TabletSharedPtr& ref_tablet,
+                                  const TabletSharedPtr& target_tablet,
                                   const TSnapshotRequest& request, std::string* snapshot_path,
                                   bool* allow_incremental_clone);
 

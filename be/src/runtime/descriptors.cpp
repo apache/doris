@@ -189,7 +189,21 @@ MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tde
           _tunnel_url(tdesc.mcTable.tunnel_url),
           _access_key(tdesc.mcTable.access_key),
           _secret_key(tdesc.mcTable.secret_key),
-          _public_access(tdesc.mcTable.public_access) {}
+          _public_access(tdesc.mcTable.public_access) {
+    if (tdesc.mcTable.__isset.endpoint) {
+        _endpoint = tdesc.mcTable.endpoint;
+    } else {
+        _init_status = Status::InvalidArgument(
+                "fail to init MaxComputeTableDescriptor, missing endpoint.");
+    }
+
+    if (tdesc.mcTable.__isset.quota) {
+        _quota = tdesc.mcTable.quota;
+    } else {
+        _init_status =
+                Status::InvalidArgument("fail to init MaxComputeTableDescriptor, missing quota.");
+    }
+}
 
 MaxComputeTableDescriptor::~MaxComputeTableDescriptor() = default;
 

@@ -34,27 +34,39 @@ suite("test_external_table_lakesoul", "p2,external,lakesoul,external_remote,exte
 
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-            String catalog_name = "lakesoul"
-            String db_name = "default"
+        String catalog_name = "lakesoul"
+        String db_name = "default"
+        String pg_user = context.config.otherConfigs.get("lakesoulPGUser")
+        String pg_pwd = context.config.otherConfigs.get("lakesoulPGPwd")
+        String pg_url = context.config.otherConfigs.get("lakesoulPGUrl")
+        String minio_ak = context.config.otherConfigs.get("lakesoulMinioAK")
+        String minio_sk = context.config.otherConfigs.get("lakesoulMinioSK")
+        String minio_endpoint = context.config.otherConfigs.get("lakesoulMinioEndpoint")
 
-            sql """drop catalog if exists ${catalog_name}"""
-            sql """
-                create catalog lakesoul  properties ('type'='lakesoul','lakesoul.pg.username'='lakesoul','lakesoul.pg.url'='jdbc:postgresql://127.0.0.1:5433/lakesoul_test?stringtype=unspecified');
-                """
+        sql """drop catalog if exists ${catalog_name}"""
+        sql """create catalog lakesoul  properties (
+            'type'='lakesoul',
+            'lakesoul.pg.username'='${pg_user}',
+            'lakesoul.pg.password'='${pg_pwd}',
+            'lakesoul.pg.url'='${pg_url}',
+            'minio.endpoint'='${minio_endpoint}',
+            'minio.access_key'='${minio_ak}',
+            'minio.secret_key'='${minio_sk}'
+            );"""
 
             // analyze
-            sql """use `${catalog_name}`.`${db_name}`""" 
-        
-	   sql q1
-           sql q2
-           sql q3
-           sql q4
-           sql q5
-           sql q6
-           sql q7
-           sql q8
-           sql q9
-           sql q11
+            sql """use `${catalog_name}`.`${db_name}`"""
+
+        sql q1
+        sql q2
+        sql q3
+        sql q4
+        sql q5
+        sql q6
+        sql q7
+        sql q8
+        sql q9
+        sql q11
 
     }
 }

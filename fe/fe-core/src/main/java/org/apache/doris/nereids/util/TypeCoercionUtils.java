@@ -21,7 +21,6 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
-import org.apache.doris.nereids.analyzer.ComplexDataType;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -66,11 +65,15 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
+import org.apache.doris.nereids.trees.expressions.literal.format.FloatChecker;
+import org.apache.doris.nereids.trees.expressions.literal.format.IntegerChecker;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -102,6 +105,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
@@ -534,7 +538,7 @@ public class TypeCoercionUtils {
                 if ("false".equalsIgnoreCase(value)) {
                     ret = BooleanLiteral.FALSE;
                 }
-            } else if (dataType instanceof IntegralType) {
+            } else if (dataType instanceof TinyIntType && IntegerChecker.isValidInteger(value)) {
                 BigInteger bigInt = new BigInteger(value);
                 if (BigInteger.valueOf(bigInt.byteValue()).equals(bigInt)) {
                     ret = new TinyIntLiteral(bigInt.byteValue());
@@ -547,13 +551,43 @@ public class TypeCoercionUtils {
                 } else {
                     ret = new LargeIntLiteral(bigInt);
                 }
-            } else if (dataType instanceof FloatType) {
+            } else if (dataType instanceof SmallIntType && IntegerChecker.isValidInteger(value)) {
+                BigInteger bigInt = new BigInteger(value);
+                if (BigInteger.valueOf(bigInt.shortValue()).equals(bigInt)) {
+                    ret = new SmallIntLiteral(bigInt.shortValue());
+                } else if (BigInteger.valueOf(bigInt.intValue()).equals(bigInt)) {
+                    ret = new IntegerLiteral(bigInt.intValue());
+                } else if (BigInteger.valueOf(bigInt.longValue()).equals(bigInt)) {
+                    ret = new BigIntLiteral(bigInt.longValueExact());
+                } else {
+                    ret = new LargeIntLiteral(bigInt);
+                }
+            } else if (dataType instanceof IntegerType && IntegerChecker.isValidInteger(value)) {
+                BigInteger bigInt = new BigInteger(value);
+                if (BigInteger.valueOf(bigInt.intValue()).equals(bigInt)) {
+                    ret = new IntegerLiteral(bigInt.intValue());
+                } else if (BigInteger.valueOf(bigInt.longValue()).equals(bigInt)) {
+                    ret = new BigIntLiteral(bigInt.longValueExact());
+                } else {
+                    ret = new LargeIntLiteral(bigInt);
+                }
+            } else if (dataType instanceof BigIntType && IntegerChecker.isValidInteger(value)) {
+                BigInteger bigInt = new BigInteger(value);
+                if (BigInteger.valueOf(bigInt.longValue()).equals(bigInt)) {
+                    ret = new BigIntLiteral(bigInt.longValueExact());
+                } else {
+                    ret = new LargeIntLiteral(bigInt);
+                }
+            } else if (dataType instanceof LargeIntType && IntegerChecker.isValidInteger(value)) {
+                BigInteger bigInt = new BigInteger(value);
+                ret = new LargeIntLiteral(bigInt);
+            } else if (dataType instanceof FloatType && FloatChecker.isValidFloat(value)) {
                 ret = new FloatLiteral(Float.parseFloat(value));
-            } else if (dataType instanceof DoubleType) {
+            } else if (dataType instanceof DoubleType && FloatChecker.isValidFloat(value)) {
                 ret = new DoubleLiteral(Double.parseDouble(value));
-            } else if (dataType instanceof DecimalV2Type) {
+            } else if (dataType instanceof DecimalV2Type && FloatChecker.isValidFloat(value)) {
                 ret = new DecimalLiteral(new BigDecimal(value));
-            } else if (dataType instanceof DecimalV3Type) {
+            } else if (dataType instanceof DecimalV3Type && FloatChecker.isValidFloat(value)) {
                 ret = new DecimalV3Literal((DecimalV3Type) dataType, new BigDecimal(value));
             } else if (dataType instanceof CharType) {
                 ret = new VarcharLiteral(value, ((CharType) dataType).getLen());
@@ -561,22 +595,24 @@ public class TypeCoercionUtils {
                 ret = new VarcharLiteral(value, ((VarcharType) dataType).getLen());
             } else if (dataType instanceof StringType) {
                 ret = new StringLiteral(value);
-            } else if (dataType.isDateTimeV2Type()) {
-                ret = new DateTimeV2Literal(value);
-            } else if (dataType.isDateTimeType()) {
-                ret = new DateTimeLiteral(value);
-            } else if (dataType.isDateV2Type()) {
-                try {
-                    ret = new DateV2Literal(value);
-                } catch (AnalysisException e) {
-                    ret = new DateTimeV2Literal(value);
+            } else if (dataType.isDateTimeV2Type() && DateTimeChecker.isValidDateTime(value)) {
+                ret = DateTimeLiteral.parseDateTimeLiteral(value, true).orElse(null);
+            } else if (dataType.isDateTimeType() && DateTimeChecker.isValidDateTime(value)) {
+                ret = DateTimeLiteral.parseDateTimeLiteral(value, false).orElse(null);
+            } else if (dataType.isDateV2Type() && DateTimeChecker.isValidDateTime(value)) {
+                Result<DateLiteral, AnalysisException> parseResult
+                        = DateV2Literal.parseDateLiteral(value);
+                if (parseResult.isOk()) {
+                    ret = parseResult.get();
+                } else {
+                    Result<DateTimeLiteral, AnalysisException> parseResult2
+                            = DateTimeV2Literal.parseDateTimeLiteral(value, true);
+                    if (parseResult2.isOk()) {
+                        ret = parseResult2.get();
+                    }
                 }
-            } else if (dataType.isDateType()) {
-                try {
-                    ret = new DateLiteral(value);
-                } catch (AnalysisException e) {
-                    ret = new DateTimeLiteral(value);
-                }
+            } else if (dataType.isDateType() && DateTimeChecker.isValidDateTime(value)) {
+                ret = DateLiteral.parseDateLiteral(value).orElse(null);
             }
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
@@ -1412,7 +1448,9 @@ public class TypeCoercionUtils {
             return Optional.of(IPv4Type.INSTANCE);
         }
         if ((leftType.isIPv6Type() && rightType.isStringLikeType())
-                || (rightType.isIPv6Type() && leftType.isStringLikeType())) {
+                || (rightType.isIPv6Type() && leftType.isStringLikeType())
+                || (leftType.isIPv4Type() && rightType.isIPv6Type())
+                || (leftType.isIPv6Type() && rightType.isIPv4Type())) {
             return Optional.of(IPv6Type.INSTANCE);
         }
 

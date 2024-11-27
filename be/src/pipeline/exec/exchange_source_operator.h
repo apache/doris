@@ -59,6 +59,9 @@ public:
     std::vector<std::shared_ptr<Dependency>> deps;
 
     std::vector<RuntimeProfile::Counter*> metrics;
+    RuntimeProfile::Counter* get_data_from_recvr_timer = nullptr;
+    RuntimeProfile::Counter* filter_timer = nullptr;
+    RuntimeProfile::Counter* create_merger_timer = nullptr;
 };
 
 class ExchangeSourceOperatorX final : public OperatorX<ExchangeLocalState> {
@@ -66,7 +69,6 @@ public:
     ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                             const DescriptorTbl& descs, int num_senders);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
@@ -82,7 +84,7 @@ public:
     [[nodiscard]] bool is_merging() const { return _is_merging; }
 
     DataDistribution required_data_distribution() const override {
-        if (OperatorX<ExchangeLocalState>::ignore_data_distribution()) {
+        if (OperatorX<ExchangeLocalState>::is_serial_operator()) {
             return {ExchangeType::NOOP};
         }
         return _partition_type == TPartitionType::HASH_PARTITIONED

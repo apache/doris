@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_group_concat", "query,p0,arrow_flight_sql") {
+suite("test_group_concat", "query,p0") {
     qt_select """
                 SELECT group_concat(k6) FROM test_query_db.test where k6='false'
               """
@@ -31,21 +31,10 @@ suite("test_group_concat", "query,p0,arrow_flight_sql") {
     qt_select """
                 SELECT abs(k3), group_concat(cast(abs(k2) as varchar), ":" order by abs(k2), k1) FROM test_query_db.baseall group by abs(k3) order by abs(k3)
               """
-    test {
-        sql"""SELECT abs(k3), group_concat(distinct cast(abs(k2) as char) order by abs(k1), k2) FROM test_query_db.baseall group by abs(k3) order by abs(k3);"""
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
 
-    test {
-        sql"""SELECT abs(k3), group_concat(distinct cast(abs(k2) as char), ":" order by abs(k1), k2) FROM test_query_db.baseall group by abs(k3) order by abs(k3);"""
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
+    sql"""SELECT abs(k3), group_concat(distinct cast(abs(k2) as char) order by abs(k1), k2) FROM test_query_db.baseall group by abs(k3) order by abs(k3);"""
+
+    sql"""SELECT abs(k3), group_concat(distinct cast(abs(k2) as char), ":" order by abs(k1), k2) FROM test_query_db.baseall group by abs(k3) order by abs(k3);"""
 
     qt_select """
                 SELECT count(distinct k7), group_concat(k6 order by k6) FROM test_query_db.baseall;

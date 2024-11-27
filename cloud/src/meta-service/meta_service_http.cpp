@@ -22,6 +22,7 @@
 #include <brpc/uri.h>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
+#include <glog/logging.h>
 #include <google/protobuf/message.h>
 #include <google/protobuf/service.h>
 #include <google/protobuf/util/json_util.h>
@@ -30,13 +31,25 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <type_traits>
+#include <variant>
 #include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "meta-service/keys.h"
+#include "meta-service/txn_kv.h"
+#include "meta-service/txn_kv_error.h"
 #include "meta_service.h"
+#include "rate-limiter/rate_limiter.h"
 
 namespace doris::cloud {
 
@@ -165,6 +178,8 @@ static std::string_view remove_version_prefix(std::string_view path) {
     return path;
 }
 
+HttpResponse process_injection_point(MetaServiceImpl* service, brpc::Controller* ctrl);
+
 static HttpResponse process_alter_cluster(MetaServiceImpl* service, brpc::Controller* ctrl) {
     static std::unordered_map<std::string_view, AlterClusterRequest::Operation> operations {
             {"add_cluster", AlterClusterRequest::ADD_CLUSTER},
@@ -208,11 +223,7 @@ static HttpResponse process_get_obj_store_info(MetaServiceImpl* service, brpc::C
 static HttpResponse process_alter_obj_store_info(MetaServiceImpl* service, brpc::Controller* ctrl) {
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"add_obj_info", AlterObjStoreInfoRequest::ADD_OBJ_INFO},
-            {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK},
-            {"drop_s3_vault", AlterObjStoreInfoRequest::DROP_S3_VAULT},
-            {"add_s3_vault", AlterObjStoreInfoRequest::ADD_S3_VAULT},
-            {"drop_hdfs_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO},
-            {"add_hdfs_vault", AlterObjStoreInfoRequest::ADD_HDFS_INFO}};
+            {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK}};
 
     auto& path = ctrl->http_request().unresolved_path();
     auto it = operations.find(remove_version_prefix(path));
@@ -227,6 +238,29 @@ static HttpResponse process_alter_obj_store_info(MetaServiceImpl* service, brpc:
 
     AlterObjStoreInfoResponse resp;
     service->alter_obj_store_info(ctrl, &req, &resp, nullptr);
+    return http_json_reply(resp.status());
+}
+
+static HttpResponse process_alter_storage_vault(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
+            {"drop_s3_vault", AlterObjStoreInfoRequest::DROP_S3_VAULT},
+            {"add_s3_vault", AlterObjStoreInfoRequest::ADD_S3_VAULT},
+            {"drop_hdfs_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO},
+            {"add_hdfs_vault", AlterObjStoreInfoRequest::ADD_HDFS_INFO}};
+
+    auto& path = ctrl->http_request().unresolved_path();
+    auto it = operations.find(remove_version_prefix(path));
+    if (it == operations.end()) {
+        std::string msg = "not supportted alter storage vault operation: " + path;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
+    }
+
+    AlterObjStoreInfoRequest req;
+    PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    req.set_op(it->second);
+
+    AlterObjStoreInfoResponse resp;
+    service->alter_storage_vault(ctrl, &req, &resp, nullptr);
     return http_json_reply(resp.status());
 }
 
@@ -307,6 +341,113 @@ static HttpResponse process_alter_iam(MetaServiceImpl* service, brpc::Controller
     return http_json_reply(resp.status());
 }
 
+static HttpResponse process_adjust_rate_limit(MetaServiceImpl* service, brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    auto qps_limit_str = std::string {http_query(uri, "qps_limit")};
+    auto rpc_name = std::string {http_query(uri, "rpc_name")};
+    auto instance_id = std::string {http_query(uri, "instance_id")};
+
+    auto process_set_qps_limit = [&](std::function<bool(int64_t)> cb) -> HttpResponse {
+        DCHECK(!qps_limit_str.empty());
+        int64_t qps_limit = -1;
+        try {
+            qps_limit = std::stoll(qps_limit_str);
+        } catch (const std::exception& ex) {
+            return http_json_reply(
+                    MetaServiceCode::INVALID_ARGUMENT,
+                    fmt::format("param `qps_limit` is not a legal int64 type:{}", ex.what()));
+        }
+        if (qps_limit < 0) {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   "`qps_limit` should not be less than 0");
+        }
+        if (cb(qps_limit)) {
+            return http_json_reply(MetaServiceCode::OK, "sucess to adjust rate limit");
+        }
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               fmt::format("failed to adjust rate limit for qps_limit={}, "
+                                           "rpc_name={}, instance_id={}, plz ensure correct "
+                                           "rpc/instance name",
+                                           qps_limit_str, rpc_name, instance_id));
+    };
+
+    auto set_global_qps_limit = [process_set_qps_limit, service]() {
+        return process_set_qps_limit([service](int64_t qps_limit) {
+            return service->rate_limiter()->set_rate_limit(qps_limit);
+        });
+    };
+
+    auto set_rpc_qps_limit = [&]() {
+        return process_set_qps_limit([&](int64_t qps_limit) {
+            return service->rate_limiter()->set_rate_limit(qps_limit, rpc_name);
+        });
+    };
+
+    auto set_instance_qps_limit = [&]() {
+        return process_set_qps_limit([&](int64_t qps_limit) {
+            return service->rate_limiter()->set_instance_rate_limit(qps_limit, instance_id);
+        });
+    };
+
+    auto set_instance_rpc_qps_limit = [&]() {
+        return process_set_qps_limit([&](int64_t qps_limit) {
+            return service->rate_limiter()->set_rate_limit(qps_limit, rpc_name, instance_id);
+        });
+    };
+
+    auto process_invalid_arguments = [&]() -> HttpResponse {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               fmt::format("invalid argument: qps_limit(required)={}, "
+                                           "rpc_name(optional)={}, instance_id(optional)={}",
+                                           qps_limit_str, rpc_name, instance_id));
+    };
+
+    // We have 3 optional params and 2^3 combination, and 4 of them are illegal.
+    // We register callbacks for them in porcessors accordings to the level, represented by 3 bits.
+    std::array<std::function<HttpResponse()>, 8> processors;
+    std::fill_n(processors.begin(), 8, std::move(process_invalid_arguments));
+    processors[0b001] = std::move(set_global_qps_limit);
+    processors[0b011] = std::move(set_rpc_qps_limit);
+    processors[0b101] = std::move(set_instance_qps_limit);
+    processors[0b111] = std::move(set_instance_rpc_qps_limit);
+
+    uint8_t level = (0x01 & !qps_limit_str.empty()) | ((0x01 & !rpc_name.empty()) << 1) |
+                    ((0x01 & !instance_id.empty()) << 2);
+
+    DCHECK_LT(level, 8);
+
+    return processors[level]();
+}
+
+static HttpResponse process_query_rate_limit(MetaServiceImpl* service, brpc::Controller* cntl) {
+    auto rate_limiter = service->rate_limiter();
+    rapidjson::Document d;
+    d.SetObject();
+    auto get_qps_limit = [&d](std::string_view rpc_name,
+                              std::shared_ptr<RpcRateLimiter> rpc_limiter) {
+        rapidjson::Document node;
+        node.SetObject();
+        rapidjson::Document sub;
+        sub.SetObject();
+        auto get_qps_token_limit = [&](std::string_view instance_id,
+                                       std::shared_ptr<RpcRateLimiter::QpsToken> qps_token) {
+            sub.AddMember(rapidjson::StringRef(instance_id.data(), instance_id.size()),
+                          qps_token->max_qps_limit(), d.GetAllocator());
+        };
+        rpc_limiter->for_each_qps_token(std::move(get_qps_token_limit));
+
+        node.AddMember("RPC qps limit", rpc_limiter->max_qps_limit(), d.GetAllocator());
+        node.AddMember("instance specific qps limit", sub, d.GetAllocator());
+        d.AddMember(rapidjson::StringRef(rpc_name.data(), rpc_name.size()), node, d.GetAllocator());
+    };
+    rate_limiter->for_each_rpc_limiter(std::move(get_qps_limit));
+
+    rapidjson::StringBuffer sb;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
+    d.Accept(writer);
+    return http_json_reply(MetaServiceCode::OK, "", sb.GetString());
+}
+
 static HttpResponse process_decode_key(MetaServiceImpl*, brpc::Controller* ctrl) {
     auto& uri = ctrl->http_request().uri();
     std::string_view key = http_query(uri, "key");
@@ -329,6 +470,70 @@ static HttpResponse process_encode_key(MetaServiceImpl*, brpc::Controller* ctrl)
 
 static HttpResponse process_get_value(MetaServiceImpl* service, brpc::Controller* ctrl) {
     return process_http_get_value(service->txn_kv().get(), ctrl->http_request().uri());
+}
+
+// show all key ranges and their count.
+static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto txn_kv = std::dynamic_pointer_cast<FdbTxnKv>(service->txn_kv());
+    if (!txn_kv) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "this method only support fdb txn kv");
+    }
+
+    std::vector<std::string> partition_boundaries;
+    TxnErrorCode code = txn_kv->get_partition_boundaries(&partition_boundaries);
+    if (code != TxnErrorCode::TXN_OK) {
+        auto msg = fmt::format("failed to get boundaries, code={}", code);
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR, msg);
+    }
+
+    std::unordered_map<std::string, size_t> partition_count;
+    size_t prefix_size = FdbTxnKv::fdb_partition_key_prefix().size();
+    for (auto&& boundary : partition_boundaries) {
+        if (boundary.size() < prefix_size + 1 || boundary[prefix_size] != CLOUD_USER_KEY_SPACE01) {
+            continue;
+        }
+
+        std::string_view user_key(boundary);
+        user_key.remove_prefix(prefix_size + 1); // Skip the KEY_SPACE prefix.
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+        decode_key(&user_key, &out); // ignore any error, since the boundary key might be truncated.
+
+        auto visitor = [](auto&& arg) -> std::string {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, std::string>) {
+                return arg;
+            } else {
+                return std::to_string(arg);
+            }
+        };
+
+        if (!out.empty()) {
+            std::string key;
+            for (size_t i = 0; i < 3 && i < out.size(); ++i) {
+                key += std::visit(visitor, std::get<0>(out[i]));
+                key += '|';
+            }
+            key.pop_back(); // omit the last '|'
+            partition_count[key]++;
+        }
+    }
+
+    // sort ranges by count
+    std::vector<std::pair<std::string, size_t>> meta_ranges;
+    meta_ranges.reserve(partition_count.size());
+    for (auto&& [key, count] : partition_count) {
+        meta_ranges.emplace_back(key, count);
+    }
+
+    std::sort(meta_ranges.begin(), meta_ranges.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.second > rhs.second; });
+
+    std::string body = fmt::format("total partitions: {}\n", partition_boundaries.size());
+    for (auto&& [key, count] : meta_ranges) {
+        body += fmt::format("{}: {}\n", key, count);
+    }
+    return http_text_reply(MetaServiceCode::OK, "", body);
 }
 
 static HttpResponse process_get_instance_info(MetaServiceImpl* service, brpc::Controller* ctrl) {
@@ -380,6 +585,16 @@ static HttpResponse process_get_tablet_stats(MetaServiceImpl* service, brpc::Con
     return http_text_reply(resp.status(), body);
 }
 
+static HttpResponse process_fix_tablet_stats(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string_view cloud_unique_id = http_query(uri, "cloud_unique_id");
+    std::string_view table_id = http_query(uri, "table_id");
+
+    MetaServiceResponseStatus st =
+            service->fix_tablet_stats(std::string(cloud_unique_id), std::string(table_id));
+    return http_text_reply(st, st.DebugString());
+}
+
 static HttpResponse process_get_stage(MetaServiceImpl* service, brpc::Controller* ctrl) {
     GetStageRequest req;
     PARSE_MESSAGE_OR_RETURN(ctrl, req);
@@ -394,6 +609,35 @@ static HttpResponse process_get_cluster_status(MetaServiceImpl* service, brpc::C
     GetClusterStatusResponse resp;
     service->get_cluster_status(ctrl, &req, &resp, nullptr);
     return http_json_reply_message(resp.status(), resp);
+}
+
+static HttpResponse process_txn_lazy_commit(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    std::string txn_id_str(http_query(uri, "txn_id"));
+    if (instance_id.empty() || txn_id_str.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id or txn_id is empty");
+    }
+
+    int64_t txn_id = 0;
+    try {
+        txn_id = std::stol(txn_id_str);
+    } catch (const std::exception& e) {
+        auto msg = fmt::format("txn_id {} must be a number, meet error={}", txn_id_str, e.what());
+        LOG(WARNING) << msg;
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR, msg);
+    }
+
+    DCHECK_GT(txn_id, 0);
+
+    auto txn_lazy_committer = service->txn_lazy_committer();
+    if (!txn_lazy_committer) {
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR, "txn lazy committer is nullptr");
+    }
+
+    std::shared_ptr<TxnLazyCommitTask> task = txn_lazy_committer->submit(instance_id, txn_id);
+    auto [code, msg] = task->wait();
+    return http_json_reply(code, msg);
 }
 
 static HttpResponse process_unknown(MetaServiceImpl*, brpc::Controller*) {
@@ -447,17 +691,27 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/legacy_update_ak_sk", process_alter_obj_store_info},
             {"v1/update_ak_sk", process_update_ak_sk},
             {"show_storage_vaults", process_get_obj_store_info},
-            {"add_hdfs_vault", process_alter_obj_store_info},
-            {"add_s3_vault", process_alter_obj_store_info},
-            {"drop_s3_vault", process_alter_obj_store_info},
-            {"drop_hdfs_vault", process_alter_obj_store_info},
+            {"add_hdfs_vault", process_alter_storage_vault},
+            {"add_s3_vault", process_alter_storage_vault},
+            {"alter_s3_vault", process_alter_storage_vault},
+            {"drop_s3_vault", process_alter_storage_vault},
+            {"drop_hdfs_vault", process_alter_storage_vault},
             // for tools
             {"decode_key", process_decode_key},
             {"encode_key", process_encode_key},
             {"get_value", process_get_value},
+            {"show_meta_ranges", process_show_meta_ranges},
+            {"txn_lazy_commit", process_txn_lazy_commit},
+            {"injection_point", process_injection_point},
+            {"fix_tablet_stats", process_fix_tablet_stats},
             {"v1/decode_key", process_decode_key},
             {"v1/encode_key", process_encode_key},
             {"v1/get_value", process_get_value},
+            {"v1/show_meta_ranges", process_show_meta_ranges},
+            {"v1/txn_lazy_commit", process_txn_lazy_commit},
+            {"v1/injection_point", process_injection_point},
+            // for get
+            {"get_instance", process_get_instance_info},
             // for get
             {"get_instance", process_get_instance_info},
             {"get_obj_store_info", process_get_obj_store_info},
@@ -476,13 +730,17 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"abort_tablet_job", process_abort_tablet_job},
             {"alter_ram_user", process_alter_ram_user},
             {"alter_iam", process_alter_iam},
+            {"adjust_rate_limit", process_adjust_rate_limit},
+            {"list_rate_limit", process_query_rate_limit},
             {"v1/abort_txn", process_abort_txn},
             {"v1/abort_tablet_job", process_abort_tablet_job},
             {"v1/alter_ram_user", process_alter_ram_user},
             {"v1/alter_iam", process_alter_iam},
+            {"v1/adjust_rate_limit", process_adjust_rate_limit},
+            {"v1/list_rate_limit", process_query_rate_limit},
     };
 
-    auto cntl = static_cast<brpc::Controller*>(controller);
+    auto* cntl = static_cast<brpc::Controller*>(controller);
     brpc::ClosureGuard closure_guard(done);
 
     // Prepare input request info

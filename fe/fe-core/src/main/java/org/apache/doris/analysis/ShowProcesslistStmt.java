@@ -25,7 +25,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW PROCESSLIST statement.
 // Used to show connection belong to this user.
-public class ShowProcesslistStmt extends ShowStmt {
+public class ShowProcesslistStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
             .addColumn(new Column("CurrentConnected", ScalarType.createVarchar(16)))
             .addColumn(new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)))

@@ -28,14 +28,11 @@ import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.Table;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 public class IcebergExternalTable extends ExternalTable {
 
@@ -86,17 +83,11 @@ public class IcebergExternalTable extends ExternalTable {
     @Override
     public long fetchRowCount() {
         makeSureInitialized();
-        return IcebergUtils.getIcebergRowCount(getCatalog(), getDbName(), getName());
+        long rowCount = IcebergUtils.getIcebergRowCount(getCatalog(), getDbName(), getName());
+        return rowCount > 0 ? rowCount : UNKNOWN_ROW_COUNT;
     }
 
     public Table getIcebergTable() {
         return IcebergUtils.getIcebergTable(getCatalog(), getDbName(), getName());
-    }
-
-    @Override
-    public Set<String> getPartitionNames() {
-        getIcebergTable();
-        return IcebergUtils.getIcebergTable(getCatalog(), getDbName(), getName())
-                .spec().fields().stream().map(PartitionField::name).collect(Collectors.toSet());
     }
 }

@@ -17,11 +17,17 @@
 
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
+import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 public class RangerHivePlugin extends RangerBasePlugin {
     public RangerHivePlugin(String serviceName) {
+        super(serviceName, null);
+    }
+
+    public RangerHivePlugin(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
         super(serviceName, null, null);
         super.init();
+        super.registerAuthContextEventListener(rangerAuthContextListener);
     }
 }

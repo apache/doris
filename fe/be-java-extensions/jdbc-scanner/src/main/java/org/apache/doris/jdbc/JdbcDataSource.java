@@ -59,8 +59,10 @@ public class JdbcDataSource {
     }
 
     public void setCleanupInterval(long interval) {
-        this.cleanupInterval = interval * 1000L;
-        restartCleanupTask();
+        if (this.cleanupInterval != interval * 1000L) {
+            this.cleanupInterval = interval * 1000L;
+            restartCleanupTask();
+        }
     }
 
     private synchronized void restartCleanupTask() {

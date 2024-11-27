@@ -17,7 +17,7 @@
 
 suite("test_backup_restore_overwrite_indexes", "backup_restore") {
     String suiteName = "test_backup_restore_overwrite_indexes"
-    String repoName = "${suiteName}_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"
     String newDbName = "${suiteName}_new_db"
     String tableName = "${suiteName}_table"

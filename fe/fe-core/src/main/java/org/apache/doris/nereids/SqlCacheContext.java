@@ -23,6 +23,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -82,9 +83,12 @@ public class SqlCacheContext {
 
     private volatile List<Expr> resultExprs;
     private volatile List<String> colLabels;
+    private volatile List<FieldInfo> fieldInfos;
 
     private volatile PUniqueId cacheKeyMd5;
     private volatile ResultSet resultSetInFe;
+
+    private volatile CacheKeyType cacheKeyType = CacheKeyType.SQL;
 
     public SqlCacheContext(UserIdentity userIdentity, TUniqueId queryId) {
         this.userIdentity = Objects.requireNonNull(userIdentity, "userIdentity cannot be null");
@@ -318,6 +322,14 @@ public class SqlCacheContext {
         this.colLabels = ImmutableList.copyOf(colLabels);
     }
 
+    public List<FieldInfo> getFieldInfos() {
+        return fieldInfos;
+    }
+
+    public void setFieldInfos(List<FieldInfo> fieldInfos) {
+        this.fieldInfos = fieldInfos;
+    }
+
     public TUniqueId getQueryId() {
         return queryId;
     }
@@ -392,6 +404,14 @@ public class SqlCacheContext {
         this.resultSetInFe = resultSetInFe;
     }
 
+    public CacheKeyType getCacheKeyType() {
+        return cacheKeyType;
+    }
+
+    public void setCacheKeyType(CacheKeyType cacheKeyType) {
+        this.cacheKeyType = cacheKeyType;
+    }
+
     /** FullTableName */
     @lombok.Data
     @lombok.AllArgsConstructor
@@ -432,5 +452,13 @@ public class SqlCacheContext {
         public void addScanPartition(Long partitionId) {
             this.scanPartitions.add(partitionId);
         }
+    }
+
+    /** CacheKeyType */
+    public enum CacheKeyType {
+        // use `userIdentity`:`sql`.trim() as Cache key in FE
+        SQL,
+        // use MD5 as Cache key in FE
+        MD5
     }
 }

@@ -184,9 +184,11 @@ public class FederationBackendPolicy {
     }
 
     public void init(BeSelectionPolicy policy) throws UserException {
-        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getBackendsByCurrentCluster()));
+        backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo()
+                .getBackendsByCurrentCluster().values().asList()));
         if (backends.isEmpty()) {
-            throw new UserException("No available backends");
+            throw new UserException("No available backends, "
+                + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
         }
         for (Backend backend : backends) {
             assignedWeightPerBackend.put(backend, 0L);
@@ -495,7 +497,7 @@ public class FederationBackendPolicy {
     private static class SplitHash implements Funnel<Split> {
         @Override
         public void funnel(Split split, PrimitiveSink primitiveSink) {
-            primitiveSink.putBytes(split.getPathString().getBytes(StandardCharsets.UTF_8));
+            primitiveSink.putBytes(split.getConsistentHashString().getBytes(StandardCharsets.UTF_8));
             primitiveSink.putLong(split.getStart());
             primitiveSink.putLong(split.getLength());
         }

@@ -17,8 +17,9 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.memo.StructInfoMap;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
@@ -58,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -70,6 +73,7 @@ import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionColl
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
@@ -181,8 +185,10 @@ public class MaterializedViewUtils {
 
     /**
      * Extract struct info from plan, support to get struct info from logical plan or plan in group.
+     * @param plan maybe remove unnecessary plan node, and the logical output maybe wrong
+     * @param originalPlan original plan, the output is right
      */
-    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext,
+    public static List<StructInfo> extractStructInfo(Plan plan, Plan originalPlan, CascadesContext cascadesContext,
             BitSet materializedViewTableSet) {
         // If plan belong to some group, construct it with group struct info
         if (plan.getGroupExpression().isPresent()) {
@@ -202,16 +208,16 @@ public class MaterializedViewUtils {
                         continue;
                     }
                     StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext,
-                            queryTableSet, ownerGroup, plan);
+                            queryTableSet, ownerGroup, originalPlan);
                     if (structInfo != null) {
                         structInfosBuilder.add(structInfo);
                     }
                 }
-                return structInfosBuilder.build();
             }
+            return structInfosBuilder.build();
         }
         // if plan doesn't belong to any group, construct it directly
-        return ImmutableList.of(StructInfo.of(plan, cascadesContext));
+        return ImmutableList.of(StructInfo.of(plan, originalPlan, cascadesContext));
     }
 
     /**
@@ -220,42 +226,29 @@ public class MaterializedViewUtils {
      * when query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
      * should be different
      */
-    public static Plan generateMvScanPlan(MTMV materializedView, CascadesContext cascadesContext) {
-        return new LogicalOlapScan(
+    public static Plan generateMvScanPlan(OlapTable table, long indexId,
+            List<Long> partitionIds,
+            PreAggStatus preAggStatus,
+            CascadesContext cascadesContext) {
+        LogicalOlapScan olapScan = new LogicalOlapScan(
                 cascadesContext.getStatementContext().getNextRelationId(),
-                materializedView,
-                materializedView.getFullQualifiers(),
+                table,
+                ImmutableList.of(table.getQualifiedDbName()),
                 ImmutableList.of(),
-                materializedView.getPartitionIds(),
-                materializedView.getBaseIndexId(),
-                PreAggStatus.on(),
-                ImmutableList.of(),
-                // this must be empty, or it will be used to sample
-                ImmutableList.of(),
-                Optional.empty());
-    }
-
-    /**
-     * LIke above but generate scan plan for sync materialized view
-     */
-    public static Plan generateMvScanPlan(OlapTable olapTable, long indexId, CascadesContext cascadesContext) {
-        return new LogicalOlapScan(
-                cascadesContext.getStatementContext().getNextRelationId(),
-                olapTable,
-                ImmutableList.of(olapTable.getQualifiedDbName()),
-                // this must be empty, or it will be used to sample
-                ImmutableList.of(),
-                olapTable.getPartitionIds(),
+                partitionIds,
                 indexId,
-                PreAggStatus.unset(),
+                preAggStatus,
                 ImmutableList.of(),
+                // this must be empty, or it will be used to sample
                 ImmutableList.of(),
                 Optional.empty());
+        return BindRelation.checkAndAddDeleteSignFilter(olapScan, cascadesContext.getConnectContext(),
+                olapScan.getTable());
     }
 
     /**
      * Optimize by rules, this support optimize by custom rules by define different rewriter according to different
-     * rules
+     * rules, this method is only for materialized view rewrite
      */
     public static Plan rewriteByRules(
             CascadesContext cascadesContext,
@@ -275,7 +268,23 @@ public class MaterializedViewUtils {
         CascadesContext rewrittenPlanContext = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), rewrittenPlan,
                 cascadesContext.getCurrentJobContext().getRequiredProperties());
-        rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
+        // Tmp old disable rule variable
+        Set<String> oldDisableRuleNames = rewrittenPlanContext.getStatementContext().getConnectContext()
+                .getSessionVariable()
+                .getDisableNereidsRuleNames();
+        rewrittenPlanContext.getStatementContext().getConnectContext().getSessionVariable()
+                .setDisableNereidsRules(String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
+        rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        try {
+            rewrittenPlanContext.getConnectContext().setSkipAuth(true);
+            rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
+        } finally {
+            rewrittenPlanContext.getConnectContext().setSkipAuth(false);
+            // Recover old disable rules variable
+            rewrittenPlanContext.getStatementContext().getConnectContext().getSessionVariable()
+                    .setDisableNereidsRules(String.join(",", oldDisableRuleNames));
+            rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        }
         Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newLinkedHashMap();
         for (Slot slot : rewrittenPlan.getOutput()) {
             exprIdToNewRewrittenSlot.put(slot.getExprId(), slot);
@@ -316,7 +325,7 @@ public class MaterializedViewUtils {
         }
         // Can not convert to table sink, because use the same column from different table when self join
         // the out slot is wrong
-        planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ALL_PLAN);
+        planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ALL_PLAN);
         Plan originPlan = planner.getRewrittenPlan();
         // Eliminate result sink because sink operator is useless in query rewrite by materialized view
         // and the top sort can also be removed
@@ -417,13 +426,13 @@ public class MaterializedViewUtils {
             if (joinType.isInnerJoin() || joinType.isCrossJoin()) {
                 return visit(join, context);
             } else if ((joinType.isLeftJoin()
-                    || joinType.isLefSemiJoin()
+                    || joinType.isLeftSemiJoin()
                     || joinType.isLeftAntiJoin()) && useLeft) {
-                return visit(join.left(), context);
+                return join.left().accept(this, context);
             } else if ((joinType.isRightJoin()
                     || joinType.isRightAntiJoin()
                     || joinType.isRightSemiJoin()) && !useLeft) {
-                return visit(join.right(), context);
+                return join.right().accept(this, context);
             }
             context.addFailReason(String.format("partition column is in un supported join null generate side, "
                     + "current join type is %s", joinType));
@@ -435,6 +444,20 @@ public class MaterializedViewUtils {
             if (!(relation instanceof LogicalCatalogRelation)) {
                 context.addFailReason(String.format("relation should be LogicalCatalogRelation, "
                         + "but now is %s", relation.getClass().getSimpleName()));
+                return null;
+            }
+            SlotReference contextPartitionColumn = getContextPartitionColumn(context);
+            if (contextPartitionColumn == null) {
+                context.addFailReason(String.format("mv partition column is not from table when relation check, "
+                        + "mv partition column is %s", context.getMvPartitionColumn()));
+                return null;
+            }
+            // Check the table which mv partition column belonged to is same as the current check relation or not
+            if (!((LogicalCatalogRelation) relation).getTable().getFullQualifiers().equals(
+                    contextPartitionColumn.getTable().map(TableIf::getFullQualifiers).orElse(ImmutableList.of()))) {
+                context.addFailReason(String.format("mv partition column name is not belonged to current check , "
+                                + "table, current table is %s",
+                        ((LogicalCatalogRelation) relation).getTable().getFullQualifiers()));
                 return null;
             }
             LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) relation;
@@ -465,11 +488,14 @@ public class MaterializedViewUtils {
                 return null;
             }
             Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
-            SlotReference contextPartitionColumn = getContextPartitionColumn(context);
-            if (contextPartitionColumn == null) {
-                return null;
-            }
             Column mvReferenceColumn = contextPartitionColumn.getColumn().get();
+            Expr definExpr = mvReferenceColumn.getDefineExpr();
+            if (definExpr instanceof SlotRef) {
+                Column referenceRollupColumn = ((SlotRef) definExpr).getColumn();
+                if (referenceRollupColumn != null) {
+                    mvReferenceColumn = referenceRollupColumn;
+                }
+            }
             if (partitionColumnSet.contains(mvReferenceColumn)
                     && (!mvReferenceColumn.isAllowNull() || relatedTable.isPartitionColumnAllowNull())) {
                 context.addTableColumn(table, mvReferenceColumn);
@@ -514,6 +540,7 @@ public class MaterializedViewUtils {
         @Override
         public Void visit(Plan plan, IncrementCheckerContext context) {
             if (plan instanceof LogicalProject
+                    || plan instanceof LogicalLimit
                     || plan instanceof LogicalFilter
                     || plan instanceof LogicalJoin
                     || plan instanceof LogicalAggregate
@@ -578,7 +605,8 @@ public class MaterializedViewUtils {
         private static boolean checkPartition(Collection<? extends Expression> expressionsToCheck, Plan plan,
                 IncrementCheckerContext context) {
             NamedExpression partitionColumn = context.getMvPartitionColumn();
-            for (Expression projectSlot : expressionsToCheck) {
+
+            OUTER_CHECK: for (Expression projectSlot : expressionsToCheck) {
                 if (projectSlot.isColumnFromTable() && projectSlot.equals(partitionColumn.toSlot())) {
                     continue;
                 }
@@ -610,7 +638,7 @@ public class MaterializedViewUtils {
                             String.format("partition expression use more than one slot reference, invalid "
                                             + "expressionToCheckColumns is %s, partitionColumnDateColumns is %s",
                                     expressionToCheckColumns, partitionColumns));
-                    return false;
+                    continue;
                 }
                 List<Expression> expressions = expressionToCheck.collectToList(Expression.class::isInstance);
                 for (Expression expression : expressions) {
@@ -619,7 +647,7 @@ public class MaterializedViewUtils {
                         context.addFailReason(
                                 String.format("column to check use invalid implicit expression, invalid "
                                         + "expression is %s", expression));
-                        return false;
+                        continue OUTER_CHECK;
                     }
                 }
                 List<Expression> partitionExpressions = partitionExpression.collectToList(
@@ -630,7 +658,7 @@ public class MaterializedViewUtils {
                         context.addFailReason(
                                 String.format("partition column use invalid implicit expression, invalid "
                                         + "expression is %s", expression));
-                        return false;
+                        continue OUTER_CHECK;
                     }
                 }
                 List<DateTrunc> expressionToCheckDataTruncList =
@@ -641,7 +669,7 @@ public class MaterializedViewUtils {
                     // mv time unit level is little then query
                     context.addFailReason("partition column time unit level should be "
                             + "greater than sql select column");
-                    return false;
+                    continue;
                 }
                 if (!partitionColumn.isColumnFromTable()) {
                     context.setMvPartitionColumn(partitionColumns.iterator().next());
@@ -649,8 +677,9 @@ public class MaterializedViewUtils {
                 if (!context.getPartitionExpression().isPresent()) {
                     context.setPartitionExpression(partitionExpression);
                 }
+                return true;
             }
-            return true;
+            return context.getMvPartitionColumn().isColumnFromTable();
         }
     }
 

@@ -47,9 +47,6 @@ struct UnaryOperationImpl {
     static void constant(A a, ResultType& c) { c = Op::apply(a); }
 };
 
-template <typename FunctionName>
-struct FunctionUnaryArithmeticMonotonicity;
-
 template <typename>
 struct AbsImpl;
 template <typename>
@@ -99,14 +96,15 @@ public:
             return true;
         });
         if (!valid) {
-            LOG(FATAL) << fmt::format("Illegal type {} of argument of function {}",
-                                      arguments[0]->get_name(), get_name());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type {} of argument of function {}",
+                                   arguments[0]->get_name(), get_name());
         }
         return result;
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         bool valid =
                 cast_type(block.get_by_position(arguments[0]).type.get(), [&](const auto& type) {
                     using DataType = std::decay_t<decltype(type)>;
@@ -145,11 +143,6 @@ public:
         }
         return Status::OK();
     }
-};
-
-struct PositiveMonotonicity {
-    static bool has() { return true; }
-    static IFunction::Monotonicity get(const Field&, const Field&) { return {true}; }
 };
 
 } // namespace doris::vectorized

@@ -566,8 +566,9 @@ void VersionGraph::_add_vertex_to_graph(int64_t vertex_value) {
 Status VersionGraph::capture_consistent_versions(const Version& spec_version,
                                                  std::vector<Version>* version_path) const {
     if (spec_version.first > spec_version.second) {
-        return Status::Error<INVALID_ARGUMENT>("invalid specified version. spec_version={}-{}",
-                                               spec_version.first, spec_version.second);
+        return Status::Error<INVALID_ARGUMENT, false>(
+                "invalid specified version. spec_version={}-{}", spec_version.first,
+                spec_version.second);
     }
 
     int64_t cur_idx = -1;
@@ -579,8 +580,9 @@ Status VersionGraph::capture_consistent_versions(const Version& spec_version,
     }
 
     if (cur_idx < 0) {
-        return Status::InternalError("failed to find path in version_graph. spec_version: {}-{}",
-                                     spec_version.first, spec_version.second);
+        return Status::InternalError<false>(
+                "failed to find path in version_graph. spec_version: {}-{}", spec_version.first,
+                spec_version.second);
     }
 
     int64_t end_value = spec_version.second + 1;
@@ -609,8 +611,9 @@ Status VersionGraph::capture_consistent_versions(const Version& spec_version,
             }
             cur_idx = next_idx;
         } else {
-            return Status::InternalError("fail to find path in version_graph. spec_version: {}-{}",
-                                         spec_version.first, spec_version.second);
+            return Status::InternalError<false>(
+                    "fail to find path in version_graph. spec_version: {}-{}", spec_version.first,
+                    spec_version.second);
         }
     }
 

@@ -23,11 +23,16 @@
 #include "vec/sink/vtablet_block_convertor.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
         _remove_estimated_wal_bytes();
-        _load_block_queue->remove_load_id(_parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
+        [[maybe_unused]] auto st = _load_block_queue->remove_load_id(
+                _parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
+    } else {
+        _state->exec_env()->group_commit_mgr()->remove_load_id(
+                _parent->cast<GroupCommitBlockSinkOperatorX>()._table_id,
+                _parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
     }
 }
 
@@ -41,8 +46,6 @@ Status GroupCommitBlockSinkLocalState::open(RuntimeState* state) {
     _vpartition = std::make_unique<doris::VOlapTablePartitionParam>(p._schema, p._partition);
     RETURN_IF_ERROR(_vpartition->init());
     _state = state;
-    // profile must add to state's object pool
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     _block_convertor = std::make_unique<vectorized::OlapTableBlockConvertor>(p._output_tuple_desc);
     _block_convertor->init_autoinc_info(p._schema->db_id(), p._schema->table_id(),
@@ -56,21 +59,20 @@ Status GroupCommitBlockSinkLocalState::open(RuntimeState* state) {
                                                         "CreateGroupCommitPlanDependency", true);
     _put_block_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                       "GroupCommitPutBlockDependency", true);
-    WARN_IF_ERROR(_initialize_load_queue(), "");
+    [[maybe_unused]] auto st = _initialize_load_queue();
     return Status::OK();
 }
 
 Status GroupCommitBlockSinkLocalState::_initialize_load_queue() {
+    SCOPED_TIMER(_init_load_queue_timer);
     auto& p = _parent->cast<GroupCommitBlockSinkOperatorX>();
     if (_state->exec_env()->wal_mgr()->is_running()) {
-        std::string label;
-        int64_t txn_id;
         RETURN_IF_ERROR(_state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
                 p._db_id, p._table_id, p._base_schema_version, p._load_id, _load_block_queue,
                 _state->be_exec_version(), _state->query_mem_tracker(), _create_plan_dependency,
-                _put_block_dependency, label, txn_id));
-        _state->set_import_label(label);
-        _state->set_wal_id(txn_id); // wal_id is txn_id
+                _put_block_dependency));
+        _state->set_import_label(_load_block_queue->label);
+        _state->set_wal_id(_load_block_queue->txn_id); // wal_id is txn_id
         return Status::OK();
     } else {
         return Status::InternalError("be is stopping");
@@ -221,7 +223,7 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
         if (dp->param<int64_t>("table_id", -1) == _table_id) {
             if (_load_block_queue) {
                 _remove_estimated_wal_bytes();
-                _load_block_queue->remove_load_id(p._load_id);
+                [[maybe_unused]] auto st = _load_block_queue->remove_load_id(p._load_id);
             }
             if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
                         std ::chrono ::seconds(60)) == std ::future_status ::ready) {
@@ -234,6 +236,17 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
             }
         }
     });
+    return Status::OK();
+}
+
+Status GroupCommitBlockSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _init_load_queue_timer = ADD_TIMER(_profile, "InitLoadQueueTime");
+    _valid_and_convert_block_timer = ADD_TIMER(_profile, "ValidAndConvertBlockTime");
+    _find_partition_timer = ADD_TIMER(_profile, "FindPartitionTime");
+    _append_blocks_timer = ADD_TIMER(_profile, "AppendBlocksTime");
     return Status::OK();
 }
 
@@ -256,19 +269,15 @@ Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
     return Status::OK();
 }
 
-Status GroupCommitBlockSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
+Status GroupCommitBlockSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
     // get table's tuple descriptor
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_desc_id);
     if (_output_tuple_desc == nullptr) {
         LOG(WARNING) << "unknown destination tuple descriptor, id=" << _tuple_desc_id;
         return Status::InternalError("unknown destination tuple descriptor");
     }
-    return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-}
-
-Status GroupCommitBlockSinkOperatorX::open(RuntimeState* state) {
-    // Prepare the exprs to run.
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 
@@ -277,7 +286,6 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
-    SCOPED_CONSUME_MEM_TRACKER(local_state._mem_tracker.get());
     if (!local_state._load_block_queue) {
         RETURN_IF_ERROR(local_state._initialize_load_queue());
     }
@@ -297,14 +305,14 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
                 int64_t num_selected_rows =
                         state->num_rows_load_total() - state->num_rows_load_unselected();
                 if (num_selected_rows > 0 &&
-                    (double)state->num_rows_load_filtered() / num_selected_rows >
+                    (double)state->num_rows_load_filtered() / (double)num_selected_rows >
                             _max_filter_ratio) {
                     return Status::DataQualityError("too many filtered rows");
                 }
                 RETURN_IF_ERROR(local_state._add_blocks(state, true));
             }
             local_state._remove_estimated_wal_bytes();
-            local_state._load_block_queue->remove_load_id(_load_id);
+            [[maybe_unused]] auto st = local_state._load_block_queue->remove_load_id(_load_id);
         }
         return Status::OK();
     };
@@ -322,10 +330,15 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
 
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
-    RETURN_IF_ERROR(local_state._block_convertor->validate_and_convert_block(
-            state, input_block, block, local_state._output_vexpr_ctxs, rows, has_filtered_rows));
+    {
+        SCOPED_TIMER(local_state._valid_and_convert_block_timer);
+        RETURN_IF_ERROR(local_state._block_convertor->validate_and_convert_block(
+                state, input_block, block, local_state._output_vexpr_ctxs, rows,
+                has_filtered_rows));
+    }
     local_state._has_filtered_rows = false;
     if (!local_state._vpartition->is_auto_partition()) {
+        SCOPED_TIMER(local_state._find_partition_timer);
         //reuse vars for find_partition
         local_state._partitions.assign(rows, nullptr);
         local_state._filter_bitmap.Reset(rows);
@@ -334,32 +347,47 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
             local_state._vpartition->find_partition(block.get(), index,
                                                     local_state._partitions[index]);
         }
+        bool stop_processing = false;
         for (int row_index = 0; row_index < rows; row_index++) {
             if (local_state._partitions[row_index] == nullptr) [[unlikely]] {
                 local_state._filter_bitmap.Set(row_index, true);
                 LOG(WARNING) << "no partition for this tuple. tuple="
                              << block->dump_data(row_index, 1);
+                RETURN_IF_ERROR(state->append_error_msg_to_file(
+                        []() -> std::string { return ""; },
+                        [&]() -> std::string {
+                            fmt::memory_buffer buf;
+                            fmt::format_to(buf, "no partition for this tuple. tuple=\n{}",
+                                           block->dump_data(row_index, 1));
+                            return fmt::to_string(buf);
+                        },
+                        &stop_processing));
+                local_state._has_filtered_rows = true;
+                state->update_num_rows_load_filtered(1);
+                state->update_num_rows_load_total(-1);
             }
-            local_state._has_filtered_rows = true;
         }
     }
-
-    if (local_state._block_convertor->num_filtered_rows() > 0 || local_state._has_filtered_rows) {
-        auto cloneBlock = block->clone_without_columns();
-        auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
-        for (int i = 0; i < rows; ++i) {
-            if (local_state._block_convertor->filter_map()[i]) {
-                continue;
+    {
+        SCOPED_TIMER(local_state._append_blocks_timer);
+        if (local_state._block_convertor->num_filtered_rows() > 0 ||
+            local_state._has_filtered_rows) {
+            auto cloneBlock = block->clone_without_columns();
+            auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+            for (int i = 0; i < rows; ++i) {
+                if (local_state._block_convertor->filter_map()[i]) {
+                    continue;
+                }
+                if (local_state._filter_bitmap.Get(i)) {
+                    continue;
+                }
+                res_block.add_row(block.get(), i);
             }
-            if (local_state._filter_bitmap.Get(i)) {
-                continue;
-            }
-            res_block.add_row(block.get(), i);
+            block->swap(res_block.to_block());
         }
-        block->swap(res_block.to_block());
+        // add block into block queue
+        RETURN_IF_ERROR(local_state._add_block(state, block));
     }
-    // add block into block queue
-    RETURN_IF_ERROR(local_state._add_block(state, block));
 
     return wind_up();
 }

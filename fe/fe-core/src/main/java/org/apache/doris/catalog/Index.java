@@ -29,6 +29,8 @@ import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TIndexType;
 import org.apache.doris.thrift.TOlapTableIndex;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 
@@ -46,13 +48,13 @@ import java.util.Set;
 
 /**
  * Internal representation of index, including index type, name, columns and comments.
- * This class will used in olaptable
+ * This class will be used in olap table
  */
 public class Index implements Writable {
     public static final int INDEX_ID_INIT_VALUE = -1;
 
     @SerializedName(value = "i", alternate = {"indexId"})
-    private long indexId = -1; // -1 for compatibale
+    private long indexId = -1; // -1 for compatiable
     @SerializedName(value = "in", alternate = {"indexName"})
     private String indexName;
     @SerializedName(value = "c", alternate = {"columns"})
@@ -63,20 +65,31 @@ public class Index implements Writable {
     private Map<String, String> properties;
     @SerializedName(value = "ct", alternate = {"comment"})
     private String comment;
+    @SerializedName(value = "cui", alternate = {"columnUniqueIds"})
+    private List<Integer> columnUniqueIds;
 
     public Index(long indexId, String indexName, List<String> columns,
-            IndexDef.IndexType indexType, Map<String, String> properties, String comment) {
+            IndexDef.IndexType indexType, Map<String, String> properties, String comment,
+            List<Integer> columnUniqueIds) {
         this.indexId = indexId;
         this.indexName = indexName;
-        this.columns = columns;
+        this.columns = columns == null ? Lists.newArrayList() : Lists.newArrayList(columns);
         this.indexType = indexType;
-        this.properties = properties;
+        this.properties = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
         this.comment = comment;
+        this.columnUniqueIds = columnUniqueIds == null ? Lists.newArrayList() : Lists.newArrayList(columnUniqueIds);
         if (indexType == IndexDef.IndexType.INVERTED) {
             if (this.properties != null && !this.properties.isEmpty()) {
-                String key = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
-                if (!properties.containsKey(key)) {
-                    this.properties.put(key, "true");
+                if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
+                    String lowerCaseKey = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
+                    if (!properties.containsKey(lowerCaseKey)) {
+                        this.properties.put(lowerCaseKey, "true");
+                    }
+                    String supportPhraseKey = InvertedIndexUtil
+                            .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
+                    if (!properties.containsKey(supportPhraseKey)) {
+                        this.properties.put(supportPhraseKey, "true");
+                    }
                 }
             }
         }
@@ -88,6 +101,7 @@ public class Index implements Writable {
         this.indexType = null;
         this.properties = null;
         this.comment = null;
+        this.columnUniqueIds = null;
     }
 
     public long getIndexId() {
@@ -150,6 +164,14 @@ public class Index implements Writable {
         return InvertedIndexUtil.getInvertedIndexCharFilter(properties);
     }
 
+    public boolean getInvertedIndexParserLowercase() {
+        return InvertedIndexUtil.getInvertedIndexParserLowercase(properties);
+    }
+
+    public String getInvertedIndexParserStopwords() {
+        return InvertedIndexUtil.getInvertedIndexParserStopwords(properties);
+    }
+
     public boolean isLightIndexChangeSupported() {
         return indexType == IndexDef.IndexType.INVERTED;
     }
@@ -169,6 +191,14 @@ public class Index implements Writable {
         this.comment = comment;
     }
 
+    public List<Integer> getColumnUniqueIds() {
+        return columnUniqueIds;
+    }
+
+    public void setColumnUniqueIds(List<Integer> columnUniqueIds) {
+        this.columnUniqueIds = columnUniqueIds;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
@@ -186,7 +216,7 @@ public class Index implements Writable {
 
     public Index clone() {
         return new Index(indexId, indexName, new ArrayList<>(columns),
-                indexType, new HashMap<>(properties), comment);
+                indexType, new HashMap<>(properties), comment, columnUniqueIds);
     }
 
     @Override
@@ -230,6 +260,7 @@ public class Index implements Writable {
         if (properties != null) {
             tIndex.setProperties(properties);
         }
+        tIndex.setColumnUniqueIds(columnUniqueIds);
         return tIndex;
     }
 

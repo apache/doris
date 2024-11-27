@@ -55,7 +55,11 @@ constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
 io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
                                                       const io::FileDescription& fd) {
-    io::FileReaderOptions opts {.file_size = fd.file_size, .mtime = fd.mtime};
+    io::FileReaderOptions opts {
+            .cache_base_path {},
+            .file_size = fd.file_size,
+            .mtime = fd.mtime,
+    };
     if (config::enable_file_cache && state != nullptr &&
         state->query_options().__isset.enable_file_cache &&
         state->query_options().enable_file_cache) {
@@ -202,12 +206,13 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
     if (need_schema) {
+        RETURN_IF_ERROR(stream_load_ctx->allocate_schema_buffer());
         // Here, a portion of the data is processed to parse column information
         auto pipe = std::make_shared<io::StreamLoadPipe>(
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
-                stream_load_ctx->schema_buffer->pos /* total_length */);
-        stream_load_ctx->schema_buffer->flip();
-        RETURN_IF_ERROR(pipe->append(stream_load_ctx->schema_buffer));
+                stream_load_ctx->schema_buffer()->pos /* total_length */);
+        stream_load_ctx->schema_buffer()->flip();
+        RETURN_IF_ERROR(pipe->append(stream_load_ctx->schema_buffer()));
         RETURN_IF_ERROR(pipe->finish());
         *file_reader = std::move(pipe);
     } else {

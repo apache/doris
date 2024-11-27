@@ -280,7 +280,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                 remoteObjects.add(new RemoteObject(blobItem.getName(), "", blobItem.getProperties().getETag(),
                         blobItem.getProperties().getContentLength()));
             }
-            return new RemoteObjects(remoteObjects, pagedResponse.getContinuationToken() == null,
+            return new RemoteObjects(remoteObjects, pagedResponse.getContinuationToken() != null,
                     pagedResponse.getContinuationToken());
         } catch (BlobStorageException e) {
             LOG.warn(String.format("Failed to list objects for S3: %s", remotePath), e);
@@ -299,47 +299,81 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         return String.format("s3://%s/%s", bucket, fileName);
     }
 
+    public static String getLongestPrefix(String globPattern) {
+        int length = globPattern.length();
+        int earliestSpecialCharIndex = length;
+
+        char[] specialChars = {'*', '?', '[', '{', '\\'};
+
+        for (char specialChar : specialChars) {
+            int index = globPattern.indexOf(specialChar);
+            if (index != -1 && index < earliestSpecialCharIndex) {
+                earliestSpecialCharIndex = index;
+            }
+        }
+
+        return globPattern.substring(0, earliestSpecialCharIndex);
+    }
+
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        long roundCnt = 0;
+        long elementCnt = 0;
+        long matchCnt = 0;
+        long startTime = System.nanoTime();
+        Status st = Status.OK;
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String globPath = uri.getKey();
+            String bucket = uri.getBucket();
             LOG.info("try to glob list for azure, remote path {}, orig {}", globPath, remotePath);
-            BlobContainerClient client = getClient().getBlobContainerClient(uri.getBucket());
+            BlobContainerClient client = getClient().getBlobContainerClient(bucket);
             java.nio.file.Path pathPattern = Paths.get(globPath);
             LOG.info("path pattern {}", pathPattern.toString());
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern.toString());
 
-            ListBlobsOptions options = new ListBlobsOptions().setPrefix(globPath);
+            String listPrefix = getLongestPrefix(globPath);
+            LOG.info("azure glob list prefix is {}", listPrefix);
+            ListBlobsOptions options = new ListBlobsOptions().setPrefix(listPrefix);
             String newContinuationToken = null;
             do {
+                roundCnt++;
                 PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
                 PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
 
                 for (BlobItem blobItem : pagedResponse.getElements()) {
+                    elementCnt++;
                     java.nio.file.Path blobPath = Paths.get(blobItem.getName());
 
-                    if (matcher.matches(blobPath)) {
-                        RemoteFile remoteFile = new RemoteFile(
-                                fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
-                                        uri.getBucket()),
-                                !blobItem.isPrefix(),
-                                blobItem.isPrefix() ? -1 : blobItem.getProperties().getContentLength(),
-                                blobItem.getProperties().getContentLength(),
-                                blobItem.getProperties().getLastModified().getSecond());
-                        result.add(remoteFile);
+                    if (!matcher.matches(blobPath)) {
+                        continue;
                     }
+                    matchCnt++;
+                    RemoteFile remoteFile = new RemoteFile(
+                            fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
+                                    uri.getBucket()),
+                            !blobItem.isPrefix(),
+                            blobItem.isPrefix() ? -1 : blobItem.getProperties().getContentLength(),
+                            blobItem.getProperties().getContentLength(),
+                            blobItem.getProperties().getLastModified().getSecond());
+                    result.add(remoteFile);
                 }
                 newContinuationToken = pagedResponse.getContinuationToken();
             } while (newContinuationToken != null);
 
         } catch (BlobStorageException e) {
             LOG.warn("glob file " + remotePath + " failed because azure error: " + e.getMessage());
-            return new Status(Status.ErrCode.COMMON_ERROR, "glob file " + remotePath
+            st = new Status(Status.ErrCode.COMMON_ERROR, "glob file " + remotePath
                     + " failed because azure error: " + e.getMessage());
         } catch (Exception e) {
             LOG.warn("errors while glob file " + remotePath, e);
-            return new Status(Status.ErrCode.COMMON_ERROR, "errors while glob file " + remotePath + e.getMessage());
+            st = new Status(Status.ErrCode.COMMON_ERROR, "errors while glob file " + remotePath + e.getMessage());
+        } finally {
+            long endTime = System.nanoTime();
+            long duration = endTime - startTime;
+            LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} micro second",
+                    remotePath, elementCnt, matchCnt, roundCnt,
+                    duration / 1000);
         }
-        return Status.OK;
+        return st;
     }
 }

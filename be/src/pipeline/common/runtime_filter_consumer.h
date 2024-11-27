@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "exprs/runtime_filter.h"
 #include "pipeline/dependency.h"
 
@@ -45,7 +47,7 @@ protected:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter(bool need_local_merge);
     // Get all arrived runtime filters at Open phase.
-    Status _acquire_runtime_filter(bool pipeline_x);
+    Status _acquire_runtime_filter();
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs);
 
@@ -55,11 +57,10 @@ protected:
 
     // For runtime filters
     struct RuntimeFilterContext {
-        RuntimeFilterContext(IRuntimeFilter* rf) : runtime_filter(rf) {}
+        RuntimeFilterContext(std::shared_ptr<IRuntimeFilter> rf) : runtime_filter(std::move(rf)) {}
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
         bool apply_mark = false;
-        IRuntimeFilter* runtime_filter = nullptr;
-        pipeline::RuntimeFilterDependency* runtime_filter_dependency = nullptr;
+        std::shared_ptr<IRuntimeFilter> runtime_filter;
     };
 
     std::vector<RuntimeFilterContext> _runtime_filter_ctxs;
@@ -77,7 +78,7 @@ private:
 
     const RowDescriptor& _row_descriptor_ref;
 
-    VExprContextSPtrs& _conjuncts_ref;
+    vectorized::VExprContextSPtrs& _conjuncts_ref;
 
     // True means all runtime filters are applied to scanners
     bool _is_all_rf_applied = true;

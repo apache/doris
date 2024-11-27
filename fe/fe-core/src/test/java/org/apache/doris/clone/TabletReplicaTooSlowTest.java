@@ -92,7 +92,7 @@ public class TabletReplicaTooSlowTest {
         Env.getCurrentEnv().createDb(createDbStmt);
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getAllBackends();
+        backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();

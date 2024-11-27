@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -89,7 +90,7 @@ public class SlotReference extends Slot {
             List<String> qualifier, @Nullable TableIf table, @Nullable Column column,
             Optional<String> internalName, List<String> subColLabels) {
         this(exprId, () -> name, dataType, nullable, qualifier, table, column,
-                buildInternalName(() -> name, subColLabels, internalName), subColLabels);
+                buildInternalName(() -> name, subColLabels, internalName), subColLabels, Optional.empty());
     }
 
     /**
@@ -106,7 +107,9 @@ public class SlotReference extends Slot {
      */
     public SlotReference(ExprId exprId, Supplier<String> name, DataType dataType, boolean nullable,
             List<String> qualifier, @Nullable TableIf table, @Nullable Column column,
-            Supplier<Optional<String>> internalName, List<String> subPath) {
+            Supplier<Optional<String>> internalName, List<String> subPath,
+            Optional<Pair<Integer, Integer>> indexInSql) {
+        super(indexInSql);
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;
@@ -132,7 +135,7 @@ public class SlotReference extends Slot {
         DataType dataType = DataType.fromCatalogType(column.getType());
         return new SlotReference(StatementScopeIdGenerator.newExprId(), column::getName, dataType,
                 column.isAllowNull(), qualifier, table, column,
-                () -> Optional.of(column.getName()), ImmutableList.of());
+                () -> Optional.of(column.getName()), ImmutableList.of(), Optional.empty());
     }
 
     public static SlotReference fromColumn(TableIf table, Column column, String name, List<String> qualifier) {
@@ -235,6 +238,11 @@ public class SlotReference extends Slot {
     }
 
     @Override
+    public int fastChildrenHashCode() {
+        return exprId.asInt();
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSlotReference(this, context);
     }
@@ -246,17 +254,27 @@ public class SlotReference extends Slot {
     }
 
     @Override
-    public SlotReference withNullable(boolean newNullable) {
-        if (this.nullable == newNullable) {
+    public SlotReference withNullable(boolean nullable) {
+        if (this.nullable == nullable) {
             return this;
         }
-        return new SlotReference(exprId, name, dataType, newNullable,
-                qualifier, table, column, internalName, subPath);
+        return new SlotReference(exprId, name, dataType, nullable,
+                qualifier, table, column, internalName, subPath, indexInSqlString);
+    }
+
+    @Override
+    public Slot withNullableAndDataType(boolean nullable, DataType dataType) {
+        if (this.nullable == nullable && this.dataType.equals(dataType)) {
+            return this;
+        }
+        return new SlotReference(exprId, name, dataType, nullable,
+                qualifier, table, column, internalName, subPath, indexInSqlString);
     }
 
     @Override
     public SlotReference withQualifier(List<String> qualifier) {
-        return new SlotReference(exprId, name, dataType, nullable, qualifier, table, column, internalName, subPath);
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, table, column, internalName, subPath,
+                indexInSqlString);
     }
 
     @Override
@@ -265,17 +283,30 @@ public class SlotReference extends Slot {
             return this;
         }
         return new SlotReference(
-                exprId, () -> name, dataType, nullable, qualifier, table, column, internalName, subPath);
+                exprId, () -> name, dataType, nullable, qualifier, table, column, internalName, subPath,
+                indexInSqlString);
     }
 
     @Override
     public SlotReference withExprId(ExprId exprId) {
-        return new SlotReference(exprId, name, dataType, nullable, qualifier, table, column, internalName, subPath);
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, table, column, internalName, subPath,
+                indexInSqlString);
     }
 
     public SlotReference withSubPath(List<String> subPath) {
         return new SlotReference(exprId, name, dataType, !subPath.isEmpty() || nullable,
-                qualifier, table, column, internalName, subPath);
+                qualifier, table, column, internalName, subPath, indexInSqlString);
+    }
+
+    @Override
+    public Slot withIndexInSql(Pair<Integer, Integer> index) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, table, column, internalName, subPath,
+                Optional.ofNullable(index));
+    }
+
+    public SlotReference withColumn(Column column) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, table, column, internalName, subPath,
+                indexInSqlString);
     }
 
     public boolean isVisible() {

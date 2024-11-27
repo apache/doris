@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
-public class CancelBackupStmt extends CancelStmt {
+public class CancelBackupStmt extends CancelStmt implements NotFallbackInParser {
 
     private String dbName;
     private boolean isRestore;
@@ -81,5 +81,10 @@ public class CancelBackupStmt extends CancelStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CANCEL;
     }
 }

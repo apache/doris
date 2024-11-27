@@ -20,10 +20,10 @@ package org.apache.doris.lakesoul.arrow;
 import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.utils.TypeNativeBytes;
 
-import org.apache.arrow.memory.ArrowBuf;
-import org.apache.arrow.util.Preconditions;
-import org.apache.arrow.vector.types.pojo.ArrowType;
-import org.apache.arrow.vector.types.pojo.Field;
+import com.lakesoul.shaded.org.apache.arrow.memory.ArrowBuf;
+import com.lakesoul.shaded.org.apache.arrow.util.Preconditions;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.ArrowType;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;

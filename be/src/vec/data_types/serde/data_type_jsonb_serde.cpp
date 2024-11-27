@@ -21,6 +21,9 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <cstddef>
+#include <cstdint>
+
 #include "arrow/array/builder_binary.h"
 #include "common/exception.h"
 #include "common/status.h"
@@ -34,11 +37,12 @@
 #endif
 namespace doris {
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 template <bool is_binary_format>
 Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<is_binary_format>& result,
-                                                  int row_idx, bool col_const,
+                                                  int64_t row_idx, bool col_const,
                                                   const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnString&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
@@ -58,26 +62,26 @@ Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
 }
 
 Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                 MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
                                                  bool col_const,
                                                  const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
-                                                 MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                 MysqlRowBuffer<false>& row_buffer, int64_t row_idx,
                                                  bool col_const,
                                                  const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
-Status DataTypeJsonbSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                    int end_idx, BufferWritable& bw,
+Status DataTypeJsonbSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                    int64_t end_idx, BufferWritable& bw,
                                                     FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
-Status DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                       BufferWritable& bw,
                                                       FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -114,8 +118,8 @@ Status DataTypeJsonbSerDe::deserialize_one_cell_from_json(IColumn& column, Slice
 }
 
 void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                               arrow::ArrayBuilder* array_builder, int start,
-                                               int end, const cctz::time_zone& ctz) const {
+                                               arrow::ArrayBuilder* array_builder, int64_t start,
+                                               int64_t end, const cctz::time_zone& ctz) const {
     const auto& string_column = assert_cast<const ColumnString&>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
@@ -127,20 +131,22 @@ void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Null
         std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
         std::string json_string =
                 JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size());
-        checkArrowStatus(builder.Append(json_string.data(), json_string.size()), column.get_name(),
-                         array_builder->type()->name());
+        checkArrowStatus(builder.Append(json_string.data(),
+                                        cast_set<int, size_t, false>(json_string.size())),
+                         column.get_name(), array_builder->type()->name());
     }
 }
 
 Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                const NullMap* null_map,
-                                               orc::ColumnVectorBatch* orc_col_batch, int start,
-                                               int end, std::vector<StringRef>& buffer_list) const {
+                                               orc::ColumnVectorBatch* orc_col_batch, int64_t start,
+                                               int64_t end,
+                                               std::vector<StringRef>& buffer_list) const {
     return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
 }
 
-static void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
-                                       rapidjson::Document::AllocatorType& allocator) {
+void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
+                                rapidjson::Document::AllocatorType& allocator) {
     // convert type of jsonb to rapidjson::Value
     switch (val.type()) {
     case JsonbType::T_True:
@@ -208,7 +214,7 @@ static void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& 
 
 Status DataTypeJsonbSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                   rapidjson::Document::AllocatorType& allocator,
-                                                  Arena& mem_pool, int row_num) const {
+                                                  Arena& mem_pool, int64_t row_num) const {
     const auto& data = assert_cast<const ColumnString&>(column);
     const auto jsonb_val = data.get_data_at(row_num);
     if (jsonb_val.empty()) {
@@ -242,10 +248,10 @@ Status DataTypeJsonbSerDe::read_one_cell_from_json(IColumn& column,
                     parser.getWriter().getOutput()->getSize());
     return Status::OK();
 }
-Status DataTypeJsonbSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
-                                              int end) const {
+Status DataTypeJsonbSerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                                              int64_t end) const {
     const auto& string_column = assert_cast<const ColumnString&>(column);
-    result.mutable_string_value()->Reserve(end - start);
+    result.mutable_string_value()->Reserve(cast_set<int>(end - start));
     auto* ptype = result.mutable_type();
     ptype->set_id(PGenericType::JSONB);
     for (size_t row_num = start; row_num < end; ++row_num) {

@@ -98,30 +98,6 @@ constexpr size_t max_decimal_precision<Decimal256>() {
 
 DataTypePtr create_decimal(UInt64 precision, UInt64 scale, bool use_v2);
 
-inline UInt32 least_decimal_precision_for(TypeIndex int_type) {
-    switch (int_type) {
-    case TypeIndex::Int8:
-        [[fallthrough]];
-    case TypeIndex::UInt8:
-        return 3;
-    case TypeIndex::Int16:
-        [[fallthrough]];
-    case TypeIndex::UInt16:
-        return 5;
-    case TypeIndex::Int32:
-        [[fallthrough]];
-    case TypeIndex::UInt32:
-        return 10;
-    case TypeIndex::Int64:
-        return 19;
-    case TypeIndex::UInt64:
-        return 20;
-    default:
-        break;
-    }
-    return 0;
-}
-
 /// Implements Decimal(P, S), where P is precision, S is scale.
 /// Maximum precisions for underlying types are:
 /// Int32    9
@@ -205,8 +181,8 @@ public:
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
-
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     Field get_default() const override;
@@ -239,7 +215,6 @@ public:
     MutableColumnPtr create_column() const override;
     bool equals(const IDataType& rhs) const override;
 
-    bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return false; }
     bool should_align_right_in_pretty_formats() const override { return true; }
     bool text_can_contain_only_valid_utf8() const override { return true; }
@@ -271,28 +246,12 @@ public:
     }
     T get_scale_multiplier() const { return get_scale_multiplier(scale); }
 
-    T whole_part(T x) const {
-        if (scale == 0) {
-            return x;
-        }
-        return x / get_scale_multiplier();
-    }
-
-    T fractional_part(T x) const {
-        if (scale == 0) {
-            return T();
-        }
-        if (x < T()) {
-            x *= -1;
-        }
-        return x % get_scale_multiplier();
-    }
-
     /// @returns multiplier for U to become T with correct scale
     template <typename U>
     T scale_factor_for(const DataTypeDecimal<U>& x, bool) const {
         if (get_scale() < x.get_scale()) {
-            LOG(FATAL) << "Decimal result's scale is less then argiment's one";
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "Decimal result's scale is less then argument's one");
             __builtin_unreachable();
         }
 
@@ -501,15 +460,20 @@ void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 precicion_fr
     MaxFieldType multiplier = DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from);
     FromDataType from_data_type(precicion_from, scale_from);
     for (size_t i = 0; i < size; i++) {
-        auto tmp = static_cast<MaxFieldType>(src[i]).value / multiplier.value;
-        if constexpr (narrow_integral) {
-            if (tmp < min_result.value || tmp > max_result.value) {
-                THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(from_data_type.to_string(src[i]),
-                                                         from_data_type.get_name(),
-                                                         OrigToDataType {}.get_name());
+        // uint8_t now use as boolean in doris
+        if constexpr (std::is_same_v<RealTo, UInt8>) {
+            dst[i] = static_cast<MaxFieldType>(src[i]).value != 0;
+        } else {
+            auto tmp = static_cast<MaxFieldType>(src[i]).value / multiplier.value;
+            if constexpr (narrow_integral) {
+                if (tmp < min_result.value || tmp > max_result.value) {
+                    THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(from_data_type.to_string(src[i]),
+                                                             from_data_type.get_name(),
+                                                             OrigToDataType {}.get_name());
+                }
             }
+            dst[i] = tmp;
         }
-        dst[i] = tmp;
     }
 }
 
@@ -635,10 +599,11 @@ void convert_from_decimal(typename ToDataType::FieldType* dst,
                 dst[i] = static_cast<ToFieldType>(src[i].value) / multiplier.value;
             }
         }
-        FromDataType from_data_type(precision, scale);
         if constexpr (narrow_integral) {
+            FromDataType from_data_type(precision, scale);
             for (size_t i = 0; i < size; i++) {
-                if (dst[i] < min_result || dst[i] > max_result) {
+                if (std::isnan(dst[i]) || std::isinf(dst[i]) || dst[i] < min_result ||
+                    dst[i] > max_result) {
                     THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(from_data_type.to_string(src[i]),
                                                              from_data_type.get_name(),
                                                              ToDataType {}.get_name());

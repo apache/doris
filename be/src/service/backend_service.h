@@ -26,6 +26,7 @@
 #include "agent/agent_server.h"
 #include "agent/topic_subscriber.h"
 #include "common/status.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 
 namespace doris {
 
@@ -89,7 +90,7 @@ public:
                             const TExecPlanFragmentParams& params) override;
 
     void cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
-                              const TCancelPlanFragmentParams& params) override;
+                              const TCancelPlanFragmentParams& params) override {};
 
     void transmit_data(TTransmitDataResult& return_val, const TTransmitDataParams& params) override;
 
@@ -161,6 +162,9 @@ public:
 
 protected:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
+
+    void get_stream_load_record(TStreamLoadRecordResult& result, int64_t last_stream_record_time,
+                                std::shared_ptr<StreamLoadRecorder> stream_load_recorder);
 
     ExecEnv* _exec_env = nullptr;
     std::unique_ptr<AgentServer> _agent_server;

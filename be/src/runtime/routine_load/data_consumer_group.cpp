@@ -164,22 +164,28 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
                         << ", partition: " << msg->partition() << ", offset: " << msg->offset()
                         << ", len: " << msg->len();
 
-            Status st = (kafka_pipe.get()->*append_data)(static_cast<const char*>(msg->payload()),
-                                                         static_cast<size_t>(msg->len()));
-            if (st.ok()) {
-                left_rows--;
-                left_bytes -= msg->len();
-                cmt_offset[msg->partition()] = msg->offset();
-                VLOG_NOTICE << "consume partition[" << msg->partition() << " - " << msg->offset()
-                            << "]";
+            if (msg->err() == RdKafka::ERR__PARTITION_EOF) {
+                if (msg->offset() > 0) {
+                    cmt_offset[msg->partition()] = msg->offset() - 1;
+                }
             } else {
-                // failed to append this msg, we must stop
-                LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id;
-                eos = true;
-                {
-                    std::unique_lock<std::mutex> lock(_mutex);
-                    if (result_st.ok()) {
-                        result_st = st;
+                Status st = (kafka_pipe.get()->*append_data)(
+                        static_cast<const char*>(msg->payload()), static_cast<size_t>(msg->len()));
+                if (st.ok()) {
+                    left_rows--;
+                    left_bytes -= msg->len();
+                    cmt_offset[msg->partition()] = msg->offset();
+                    VLOG_NOTICE << "consume partition[" << msg->partition() << " - "
+                                << msg->offset() << "]";
+                } else {
+                    // failed to append this msg, we must stop
+                    LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id;
+                    eos = true;
+                    {
+                        std::unique_lock<std::mutex> lock(_mutex);
+                        if (result_st.ok()) {
+                            result_st = st;
+                        }
                     }
                 }
             }

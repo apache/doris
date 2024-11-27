@@ -23,9 +23,6 @@ suite("test_jsonb_cast", "p0") {
     def testTable = "tbl_test_array_text_cast_jsonb"
     def dataFile = "test_jsonb_cast.csv"
 
-    sql """ set experimental_enable_nereids_planner = true """
-    sql """ set enable_fallback_to_original_planner = true """
-
     sql "DROP TABLE IF EXISTS ${testTable}"
 
     sql """
@@ -67,8 +64,8 @@ suite("test_jsonb_cast", "p0") {
 
 
     // insert into valid json rows
-    sql """INSERT INTO ${testTable} VALUES(27, ['{"k1":"v1", "k2": 200}'])"""
-    sql """INSERT INTO ${testTable} VALUES(28, ['{"a.b.c":{"k1.a1":"v31", "k2": 300},"a":"niu"}'])"""
+    sql """INSERT INTO ${testTable} VALUES(27, ['{"k1":"v1", "k2":200}'])"""
+    sql """INSERT INTO ${testTable} VALUES(28, ['{"a.b.c":{"k1.a1":"v31", "k2":300},"a":"niu"}'])"""
     sql """INSERT INTO ${testTable} VALUES(29, ['\f\n\r', "\f\n\r"])"""
     sql """INSERT INTO ${testTable} VALUES(30, ["\\f\\b\\r\\n", '\\f\\b\\r\\n"'])"""
 

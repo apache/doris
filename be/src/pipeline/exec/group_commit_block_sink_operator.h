@@ -42,8 +42,8 @@ public:
 
     ~GroupCommitBlockSinkLocalState() override;
 
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-
     Status close(RuntimeState* state, Status exec_status) override;
     Dependency* finishdependency() override { return _finish_dependency.get(); }
     std::vector<Dependency*> dependencies() const override {
@@ -79,6 +79,11 @@ private:
     std::shared_ptr<Dependency> _finish_dependency;
     std::shared_ptr<Dependency> _create_plan_dependency = nullptr;
     std::shared_ptr<Dependency> _put_block_dependency = nullptr;
+
+    RuntimeProfile::Counter* _init_load_queue_timer = nullptr;
+    RuntimeProfile::Counter* _valid_and_convert_block_timer = nullptr;
+    RuntimeProfile::Counter* _find_partition_timer = nullptr;
+    RuntimeProfile::Counter* _append_blocks_timer = nullptr;
 };
 
 class GroupCommitBlockSinkOperatorX final
@@ -93,8 +98,6 @@ public:
     ~GroupCommitBlockSinkOperatorX() override = default;
 
     Status init(const TDataSink& sink) override;
-
-    Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
 

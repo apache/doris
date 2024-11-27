@@ -43,9 +43,25 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_)
     }
 
     if (data->size() != 1) {
-        LOG(FATAL) << fmt::format(
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
                 "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.",
                 data->size());
+    }
+}
+
+ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_empty)
+        : data(data_), s(s_) {
+    /// Squash Const of Const.
+    while (const auto* const_data = typeid_cast<const ColumnConst*>(data.get())) {
+        data = const_data->get_data_column_ptr();
+    }
+
+    if (!(data->empty() && create_with_empty)) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Incorrect size of nested column in constructor of ColumnConst: {}, "
+                               "create_with_empty: {}.",
+                               data->size(), create_with_empty);
     }
 }
 
@@ -86,44 +102,12 @@ ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     }
 
     if (perm.size() < limit) {
-        LOG(FATAL) << fmt::format("Size of permutation ({}) is less than required ({})",
-                                  perm.size(), limit);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
     }
 
     return ColumnConst::create(data, limit);
-}
-
-void ColumnConst::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
-                                         uint32_t rows, uint32_t offset,
-                                         const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    DCHECK(rows == size());
-    auto real_data = data->get_data_at(0);
-    if (real_data.data == nullptr) {
-        for (int i = 0; i < rows; ++i) {
-            hashes[i] = HashUtil::zlib_crc_hash_null(hashes[i]);
-        }
-    } else {
-        for (int i = 0; i < rows; ++i) {
-            hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, type, hashes[i]);
-        }
-    }
-}
-
-void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
-                                           const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    auto real_data = data->get_data_at(0);
-    auto real_size = size();
-    if (real_data.data == nullptr) {
-        for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
-        }
-    } else {
-        for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hashes[i]);
-        }
-    }
 }
 
 void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,

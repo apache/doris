@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.system.Backend;
@@ -177,6 +178,8 @@ public class Replica {
 
     private long userDropTime = -1;
 
+    private long lastReportVersion = 0;
+
     public Replica() {
     }
 
@@ -239,7 +242,16 @@ public class Replica {
         return this.id;
     }
 
-    public long getBackendId() {
+    public long getBackendIdWithoutException() {
+        try {
+            return getBackendId();
+        } catch (UserException e) {
+            LOG.warn("getBackendIdWithoutException: ", e);
+            return -1;
+        }
+    }
+
+    public long getBackendId() throws UserException {
         return this.backendId;
     }
 
@@ -838,5 +850,13 @@ public class Replica {
     public boolean isScheduleAvailable() {
         return Env.getCurrentSystemInfo().checkBackendScheduleAvailable(backendId)
             && !isUserDrop();
+    }
+
+    public void setLastReportVersion(long version) {
+        this.lastReportVersion = version;
+    }
+
+    public long getLastReportVersion() {
+        return lastReportVersion;
     }
 }

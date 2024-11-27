@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -33,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * PushdownTopNThroughWindow push down the TopN through the Window and generate the PartitionTopN.
@@ -54,11 +54,14 @@ public class PushDownTopNThroughWindow implements RewriteRuleFactory {
                     return topn;
                 }
                 long partitionLimit = topn.getLimit() + topn.getOffset();
-                Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, true);
-                if (!newWindow.isPresent()) {
+                Pair<WindowExpression, Long> windowFuncLongPair = window
+                        .getPushDownWindowFuncAndLimit(null, partitionLimit);
+                if (windowFuncLongPair == null) {
                     return topn;
                 }
-                return topn.withChildren(newWindow.get());
+                Plan newWindow = window.pushPartitionLimitThroughWindow(windowFuncLongPair.first,
+                        windowFuncLongPair.second, true);
+                return topn.withChildren(newWindow);
             }).toRule(RuleType.PUSH_DOWN_TOP_N_THROUGH_WINDOW),
 
             // topn -> projection -> window
@@ -74,11 +77,14 @@ public class PushDownTopNThroughWindow implements RewriteRuleFactory {
                     return topn;
                 }
                 long partitionLimit = topn.getLimit() + topn.getOffset();
-                Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, true);
-                if (!newWindow.isPresent()) {
+                Pair<WindowExpression, Long> windowFuncLongPair = window
+                        .getPushDownWindowFuncAndLimit(null, partitionLimit);
+                if (windowFuncLongPair == null) {
                     return topn;
                 }
-                return topn.withChildren(project.withChildren(newWindow.get()));
+                Plan newWindow = window.pushPartitionLimitThroughWindow(windowFuncLongPair.first,
+                        windowFuncLongPair.second, true);
+                return topn.withChildren(project.withChildren(newWindow));
             }).toRule(RuleType.PUSH_DOWN_TOP_N_THROUGH_PROJECT_WINDOW)
         );
     }

@@ -61,6 +61,6 @@ public class AlterMTMVRenameInfo extends AlterMTMVInfo {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
         Table table = db.getTableOrDdlException(mvName.getTbl());
         Env.getCurrentEnv().renameTable(db, table, newName);
-        Env.getCurrentEnv().getMtmvService().alterTable(table);
+        Env.getCurrentEnv().getMtmvService().alterTable(table, mvName.getTbl());
     }
 }

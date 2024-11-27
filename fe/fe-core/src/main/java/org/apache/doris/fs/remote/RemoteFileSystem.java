@@ -30,14 +30,20 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 
+import java.io.Closeable;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
-public abstract class RemoteFileSystem extends PersistentFileSystem {
+public abstract class RemoteFileSystem extends PersistentFileSystem implements Closeable {
     // this field will be visited by multi-threads, better use volatile qualifier
     protected volatile org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
+    private final ReentrantLock fsLock = new ReentrantLock();
+    protected static final AtomicBoolean closed = new AtomicBoolean(false);
 
     public RemoteFileSystem(String name, StorageBackend.StorageType type) {
         super(name, type);
@@ -56,7 +62,7 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
         try {
             org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(remotePath);
             Path locatedPath = new Path(remotePath);
-            RemoteIterator<LocatedFileStatus> locatedFiles = fileSystem.listFiles(locatedPath, recursive);
+            RemoteIterator<LocatedFileStatus> locatedFiles = getLocatedFiles(recursive, fileSystem, locatedPath);
             while (locatedFiles.hasNext()) {
                 LocatedFileStatus fileStatus = locatedFiles.next();
                 RemoteFile location = new RemoteFile(
@@ -72,11 +78,16 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
         return Status.OK;
     }
 
+    protected RemoteIterator<LocatedFileStatus> getLocatedFiles(boolean recursive,
+                FileSystem fileSystem, Path locatedPath) throws IOException {
+        return fileSystem.listFiles(locatedPath, recursive);
+    }
+
     @Override
     public Status listDirectories(String remotePath, Set<String> result) {
         try {
             FileSystem fileSystem = nativeFileSystem(remotePath);
-            FileStatus[] fileStatuses = fileSystem.listStatus(new Path(remotePath));
+            FileStatus[] fileStatuses = getFileStatuses(remotePath, fileSystem);
             result.addAll(
                     Arrays.stream(fileStatuses)
                             .filter(FileStatus::isDirectory)
@@ -86,6 +97,10 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         }
         return Status.OK;
+    }
+
+    protected FileStatus[] getFileStatuses(String remotePath, FileSystem fileSystem) throws IOException {
+        return fileSystem.listStatus(new Path(remotePath));
     }
 
     @Override
@@ -109,5 +124,19 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
         runWhenPathNotExist.run();
 
         return rename(origFilePath, destFilePath);
+    }
+
+    @Override
+    public void close() throws IOException {
+        fsLock.lock();
+        try {
+            if (!closed.getAndSet(true)) {
+                if (dfsFileSystem != null) {
+                    dfsFileSystem.close();
+                }
+            }
+        } finally {
+            fsLock.unlock();
+        }
     }
 }

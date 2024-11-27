@@ -19,7 +19,6 @@ package org.apache.doris.jdbc;
 
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.exception.InternalException;
-import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
@@ -34,11 +33,13 @@ import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
+import org.semver4j.Semver;
 
 import java.io.FileNotFoundException;
 import java.lang.reflect.Array;
 import java.net.MalformedURLException;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -57,8 +58,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private HikariDataSource hikariDataSource = null;
     private final byte[] hikariDataSourceLock = new byte[0];
-    private JdbcDataSourceConfig config;
     private Connection conn = null;
+    protected JdbcDataSourceConfig config;
     protected PreparedStatement preparedStatement = null;
     protected Statement stmt = null;
     protected ResultSet resultSet = null;
@@ -67,8 +68,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     protected VectorTable outputTable = null;
     protected int batchSizeNum = 0;
     protected int curBlockRows = 0;
+    protected String jdbcDriverVersion;
 
     public BaseJdbcExecutor(byte[] thriftParams) throws Exception {
+        setJdbcDriverSystemProperties();
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
         TDeserializer deserializer = new TDeserializer(PROTOCOL_FACTORY);
         try {
@@ -93,29 +96,27 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 .setConnectionPoolKeepAlive(request.connection_pool_keep_alive);
         JdbcDataSource.getDataSource().setCleanupInterval(request.connection_pool_cache_clear_time);
         init(config, request.statement);
+        this.jdbcDriverVersion = getJdbcDriverVersion();
     }
 
     public void close() throws Exception {
+        if (outputTable != null) {
+            outputTable.close();
+        }
         try {
-            if (stmt != null) {
+            if (stmt != null && !stmt.isClosed()) {
                 try {
                     stmt.cancel();
                 } catch (SQLException e) {
-                    LOG.error("Error cancelling statement", e);
+                    LOG.warn("Cannot cancelling statement: ", e);
                 }
             }
 
-            boolean shouldAbort = conn != null && resultSet != null;
-            boolean aborted = false; // Used to record whether the abort operation is performed
-            if (shouldAbort) {
-                aborted = abortReadConnection(conn, resultSet);
-            }
-
-            // If no abort operation is performed, the resource needs to be closed manually
-            if (!aborted) {
-                closeResources(resultSet, stmt, conn);
+            if (conn != null && resultSet != null) {
+                abortReadConnection(conn, resultSet);
             }
         } finally {
+            closeResources(resultSet, stmt, conn);
             if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
                 hikariDataSource.close();
                 JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
@@ -124,27 +125,30 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
     }
 
-    private void closeResources(AutoCloseable... closeables) {
-        for (AutoCloseable closeable : closeables) {
-            if (closeable != null) {
+    private void closeResources(Object... resources) {
+        for (Object resource : resources) {
+            if (resource != null) {
                 try {
-                    if (closeable instanceof Connection) {
-                        if (!((Connection) closeable).isClosed()) {
-                            closeable.close();
-                        }
-                    } else {
-                        closeable.close();
+                    if (resource instanceof ResultSet) {
+                        ((ResultSet) resource).close();
+                    } else if (resource instanceof Statement) {
+                        ((Statement) resource).close();
+                    } else if (resource instanceof Connection) {
+                        ((Connection) resource).close();
                     }
                 } catch (Exception e) {
-                    LOG.error("Cannot close resource: ", e);
+                    LOG.warn("Cannot close resource: ", e);
                 }
             }
         }
     }
 
-    protected boolean abortReadConnection(Connection connection, ResultSet resultSet)
+    protected void abortReadConnection(Connection connection, ResultSet resultSet)
             throws SQLException {
-        return false;
+    }
+
+    protected void setJdbcDriverSystemProperties() {
+        System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");
     }
 
     public void cleanDataSource() {
@@ -155,19 +159,19 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
     }
 
-    public void testConnection() throws UdfRuntimeException {
+    public void testConnection() throws JdbcExecutorException {
         try {
             resultSet = ((PreparedStatement) stmt).executeQuery();
             if (!resultSet.next()) {
-                throw new UdfRuntimeException(
+                throw new JdbcExecutorException(
                         "Failed to test connection in BE: query executed but returned no results.");
             }
         } catch (SQLException e) {
-            throw new UdfRuntimeException("Failed to test connection in BE: ", e);
+            throw new JdbcExecutorException("Failed to test connection in BE: ", e);
         }
     }
 
-    public int read() throws UdfRuntimeException {
+    public int read() throws JdbcExecutorException {
         try {
             resultSet = ((PreparedStatement) stmt).executeQuery();
             resultSetMetaData = resultSet.getMetaData();
@@ -175,11 +179,11 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             block = new ArrayList<>(columnCount);
             return columnCount;
         } catch (SQLException e) {
-            throw new UdfRuntimeException("JDBC executor sql has error: ", e);
+            throw new JdbcExecutorException("JDBC executor sql has error: ", e);
         }
     }
 
-    public long getBlockAddress(int batchSize, Map<String, String> outputParams) throws UdfRuntimeException {
+    public long getBlockAddress(int batchSize, Map<String, String> outputParams) throws JdbcExecutorException {
         try {
             if (outputTable != null) {
                 outputTable.close();
@@ -221,7 +225,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             }
         } catch (Exception e) {
             LOG.warn("jdbc get block address exception: ", e);
-            throw new UdfRuntimeException("jdbc get block address: ", e);
+            throw new JdbcExecutorException("jdbc get block address: ", e);
         } finally {
             block.clear();
         }
@@ -235,44 +239,44 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
     }
 
-    public int write(Map<String, String> params) throws UdfRuntimeException {
+    public int write(Map<String, String> params) throws JdbcExecutorException {
         VectorTable batchTable = VectorTable.createReadableTable(params);
         // Can't release or close batchTable, it's released by c++
         try {
             insert(batchTable);
         } catch (SQLException e) {
-            throw new UdfRuntimeException("JDBC executor sql has error: ", e);
+            throw new JdbcExecutorException("JDBC executor sql has error: ", e);
         }
         return batchTable.getNumRows();
     }
 
-    public void openTrans() throws UdfRuntimeException {
+    public void openTrans() throws JdbcExecutorException {
         try {
             if (conn != null) {
                 conn.setAutoCommit(false);
             }
         } catch (SQLException e) {
-            throw new UdfRuntimeException("JDBC executor open transaction has error: ", e);
+            throw new JdbcExecutorException("JDBC executor open transaction has error: ", e);
         }
     }
 
-    public void commitTrans() throws UdfRuntimeException {
+    public void commitTrans() throws JdbcExecutorException {
         try {
             if (conn != null) {
                 conn.commit();
             }
         } catch (SQLException e) {
-            throw new UdfRuntimeException("JDBC executor commit transaction has error: ", e);
+            throw new JdbcExecutorException("JDBC executor commit transaction has error: ", e);
         }
     }
 
-    public void rollbackTrans() throws UdfRuntimeException {
+    public void rollbackTrans() throws JdbcExecutorException {
         try {
             if (conn != null) {
                 conn.rollback();
             }
         } catch (SQLException e) {
-            throw new UdfRuntimeException("JDBC executor rollback transaction has error: ", e);
+            throw new JdbcExecutorException("JDBC executor rollback transaction has error: ", e);
         }
     }
 
@@ -280,18 +284,18 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return curBlockRows;
     }
 
-    public boolean hasNext() throws UdfRuntimeException {
+    public boolean hasNext() throws JdbcExecutorException {
         try {
             if (resultSet == null) {
                 return false;
             }
             return resultSet.next();
         } catch (SQLException e) {
-            throw new UdfRuntimeException("resultSet to get next error: ", e);
+            throw new JdbcExecutorException("resultSet to get next error: ", e);
         }
     }
 
-    private void init(JdbcDataSourceConfig config, String sql) throws UdfRuntimeException {
+    private void init(JdbcDataSourceConfig config, String sql) throws JdbcExecutorException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         String hikariDataSourceKey = config.createCacheKey();
         try {
@@ -319,7 +323,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                             ds.setKeepaliveTime(config.getConnectionPoolMaxLifeTime() / 5L); // default 6 min
                         }
                         hikariDataSource = ds;
-                        JdbcDataSource.getDataSource().putSource(hikariDataSourceKey, ds);
+                        JdbcDataSource.getDataSource().putSource(hikariDataSourceKey, hikariDataSource);
                         LOG.info("JdbcClient set"
                                 + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
                                 + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
@@ -341,13 +345,14 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             initializeStatement(conn, config, sql);
 
         } catch (MalformedURLException e) {
-            throw new UdfRuntimeException("MalformedURLException to load class about " + config.getJdbcDriverUrl(), e);
+            throw new JdbcExecutorException("MalformedURLException to load class about "
+                    + config.getJdbcDriverUrl(), e);
         } catch (SQLException e) {
-            throw new UdfRuntimeException("Initialize datasource failed: ", e);
+            throw new JdbcExecutorException("Initialize datasource failed: ", e);
         } catch (FileNotFoundException e) {
-            throw new UdfRuntimeException("FileNotFoundException failed: ", e);
+            throw new JdbcExecutorException("FileNotFoundException failed: ", e);
         } catch (Exception e) {
-            throw new UdfRuntimeException("Initialize datasource failed: ", e);
+            throw new JdbcExecutorException("Initialize datasource failed: ", e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -522,6 +527,30 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 break;
             default:
                 throw new RuntimeException("Unknown type value: " + dorisType);
+        }
+    }
+
+    private String getJdbcDriverVersion() {
+        try {
+            if (conn != null) {
+                DatabaseMetaData metaData = conn.getMetaData();
+                return metaData.getDriverVersion();
+            } else {
+                return null;
+            }
+        } catch (SQLException e) {
+            LOG.warn("Failed to retrieve JDBC Driver version", e);
+            return null;
+        }
+    }
+
+    protected boolean isJdbcVersionGreaterThanOrEqualTo(String version) {
+        Semver currentVersion = Semver.coerce(jdbcDriverVersion);
+        Semver targetVersion = Semver.coerce(version);
+        if (currentVersion != null && targetVersion != null) {
+            return currentVersion.isGreaterThanOrEqualTo(targetVersion);
+        } else {
+            return false;
         }
     }
 

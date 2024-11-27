@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
+
+import java.util.Optional;
 
 /**
  * only use for insert into t values(DEFAULT, ...)
@@ -28,7 +31,7 @@ import org.apache.doris.nereids.types.NullType;
 public class DefaultValueSlot extends Slot {
 
     public DefaultValueSlot() {
-        super();
+        super(Optional.empty());
     }
 
     @Override
@@ -59,5 +62,9 @@ public class DefaultValueSlot extends Slot {
     @Override
     public String toString() {
         return "DEFAULT_VALUE";
+    }
+
+    public Slot withIndexInSql(Pair<Integer, Integer> index) {
+        return this;
     }
 }

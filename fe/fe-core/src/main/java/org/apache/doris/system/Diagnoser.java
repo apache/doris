@@ -61,21 +61,26 @@ public class Diagnoser {
         // database
         Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
-            results.add(Lists.newArrayList("Database", "Not exist", ""));
+            boolean inRecycleBin = Env.getCurrentRecycleBin().isRecycleDatabase(tabletMeta.getDbId());
+            results.add(Lists.newArrayList("Database", inRecycleBin ? "In catalog recycle bin" : "Not exist", ""));
             return results;
         }
         results.add(Lists.newArrayList("Database", db.getFullName() + ": " + db.getId(), ""));
         // table
         OlapTable tbl = (OlapTable) db.getTableNullable(tabletMeta.getTableId());
         if (tbl == null) {
-            results.add(Lists.newArrayList("Table", "Not exist", ""));
+            boolean inRecycleBin = Env.getCurrentRecycleBin().isRecycleTable(tabletMeta.getDbId(),
+                    tabletMeta.getTableId());
+            results.add(Lists.newArrayList("Table", inRecycleBin ? "In catalog recycle bin" : "Not exist", ""));
             return results;
         }
         results.add(Lists.newArrayList("Table", tbl.getName() + ": " + tbl.getId(), ""));
         // partition
         Partition partition = tbl.getPartition(tabletMeta.getPartitionId());
         if (partition == null) {
-            results.add(Lists.newArrayList("Partition", "Not exist", ""));
+            boolean inRecycleBin = Env.getCurrentRecycleBin().isRecyclePartition(tabletMeta.getDbId(),
+                    tabletMeta.getTableId(), tabletMeta.getPartitionId());
+            results.add(Lists.newArrayList("Partition", inRecycleBin ? "In catalog recycle bin" : "Not exist", ""));
             return results;
         }
         results.add(Lists.newArrayList("Partition", partition.getName() + ": " + partition.getId(), ""));
@@ -92,7 +97,7 @@ public class Diagnoser {
         List<Replica> replicas = tablet.getReplicas();
         JSONObject jobj = new JSONObject();
         for (Replica replica : replicas) {
-            jobj.put(replica.getId(), replica.getBackendId());
+            jobj.put(replica.getId(), replica.getBackendIdWithoutException());
         }
         results.add(Lists.newArrayList("Replicas(ReplicaId -> BackendId)", jobj.toJSONString(), ""));
         // replica
@@ -113,49 +118,54 @@ public class Diagnoser {
         for (Replica replica : replicas) {
             // backend
             do {
-                Backend be = infoService.getBackend(replica.getBackendId());
+                Backend be = infoService.getBackend(replica.getBackendIdWithoutException());
                 if (be == null) {
-                    backendErr.append("Backend " + replica.getBackendId() + " does not exist. ");
+                    backendErr.append("Backend "
+                            + replica.getBackendIdWithoutException() + " does not exist. ");
                     break;
                 }
                 if (!be.isAlive()) {
-                    backendErr.append("Backend " + replica.getBackendId() + " is not alive. ");
+                    backendErr.append("Backend " + replica.getBackendIdWithoutException() + " is not alive. ");
                     break;
                 }
                 if (be.isDecommissioned()) {
-                    backendErr.append("Backend " + replica.getBackendId() + " is decommission. ");
+                    backendErr.append("Backend " + replica.getBackendIdWithoutException() + " is decommission. ");
                     break;
                 }
                 if (!be.isLoadAvailable()) {
-                    backendErr.append("Backend " + replica.getBackendId() + " is not load available. ");
+                    backendErr.append("Backend " + replica.getBackendIdWithoutException() + " is not load available. ");
                     break;
                 }
                 if (!be.isQueryAvailable()) {
-                    backendErr.append("Backend " + replica.getBackendId() + " is not query available. ");
+                    backendErr.append("Backend "
+                            + replica.getBackendIdWithoutException() + " is not query available. ");
                     break;
                 }
                 if (be.diskExceedLimit()) {
-                    backendErr.append("Backend " + replica.getBackendId() + " has no space left. ");
+                    backendErr.append("Backend " + replica.getBackendIdWithoutException() + " has no space left. ");
                     break;
                 }
             } while (false);
             // version
             if (replica.getVersion() != visibleVersion) {
-                versionErr.append("Replica on backend " + replica.getBackendId() + "'s version ("
+                versionErr.append("Replica on backend " + replica.getBackendIdWithoutException() + "'s version ("
                         + replica.getVersion() + ") does not equal"
                         + " to partition visible version (" + visibleVersion + ")");
             } else if (replica.getLastFailedVersion() != -1) {
-                versionErr.append("Replica on backend " + replica.getBackendId() + "'s last failed version is "
+                versionErr.append("Replica on backend "
+                        + replica.getBackendIdWithoutException() + "'s last failed version is "
                         + replica.getLastFailedVersion());
             }
             // status
             if (!replica.isAlive() || replica.isUserDrop()) {
-                statusErr.append("Replica on backend " + replica.getBackendId() + "'s state is " + replica.getState()
+                statusErr.append("Replica on backend " + replica.getBackendIdWithoutException()
+                        + "'s state is " + replica.getState()
                         + ", and is bad: " + (replica.isBad() ? "Yes" : "No")
                         + ", and is going to drop: " + (replica.isUserDrop() ? "Yes" : "No"));
             }
             if (replica.tooBigVersionCount()) {
-                compactionErr.append("Replica on backend " + replica.getBackendId() + "'s version count is too high: "
+                compactionErr.append("Replica on backend " + replica.getBackendIdWithoutException()
+                        + "'s version count is too high: "
                         + replica.getVisibleVersionCount());
             }
         }

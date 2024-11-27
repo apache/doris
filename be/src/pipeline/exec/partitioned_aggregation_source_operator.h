@@ -82,7 +82,6 @@ public:
     ~PartitionedAggSourceOperatorX() override = default;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
 
@@ -91,6 +90,8 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
+
+    bool is_serial_operator() const override;
 
 private:
     friend class PartitionedAggLocalState;

@@ -29,7 +29,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.ImmutableList;
 
-public class ShowRepositoriesStmt extends ShowStmt {
+public class ShowRepositoriesStmt extends ShowStmt implements NotFallbackInParser {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("RepoId").add("RepoName").add("CreateTime").add("IsReadOnly").add("Location")
             .add("Broker").add("Type").add("ErrMsg")

@@ -72,7 +72,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 // create a user define function
-public class CreateFunctionStmt extends DdlStmt {
+public class CreateFunctionStmt extends DdlStmt implements NotFallbackInParser {
     @Deprecated
     public static final String OBJECT_FILE_KEY = "object_file";
     public static final String FILE_KEY = "file";
@@ -901,5 +901,10 @@ public class CreateFunctionStmt extends DdlStmt {
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

@@ -39,11 +39,6 @@ suite("materialized_view_switch") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -74,10 +69,6 @@ suite("materialized_view_switch") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (
-    PARTITION `day_1` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_2` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-30"))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -129,6 +120,10 @@ suite("materialized_view_switch") {
     (2, 3, 10, 11.01, 'supply2');
     """
 
+    sql """analyze table lineitem with sync;
+      analyze table orders with sync;
+      analyze table partsupp with sync;
+    """
     def mv_name = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
         from lineitem
@@ -143,12 +138,17 @@ suite("materialized_view_switch") {
         where o_orderdate = '2023-12-10' order by 1, 2, 3, 4, 5;
     """
 
-    check_mv_rewrite_success(db, mv_name, query, "mv_name")
+    async_mv_rewrite_success(db, mv_name, query, "mv_name_1")
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_1"""
+
     sql "SET enable_materialized_view_rewrite=false"
-    check_mv_rewrite_fail(db, mv_name, query, "mv_name")
+    create_async_mv(db, "mv_name_2", mv_name)
+    mv_not_part_in(query, "mv_name_2")
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_2"""
+
     sql "SET enable_materialized_view_rewrite=true"
-    check_mv_rewrite_success(db, mv_name, query, "mv_name")
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name"""
+    async_mv_rewrite_success(db, mv_name, query, "mv_name_3")
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_3"""
 
     // test when materialized_view_relation_mapping_max_count is 8
     def mv1_0 = """
@@ -162,7 +162,7 @@ suite("materialized_view_switch") {
         inner join lineitem t2 on t1.L_ORDERKEY = t2.L_ORDERKEY;
     """
     order_qt_query1_0_before "${query1_0}"
-    check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
@@ -181,7 +181,7 @@ suite("materialized_view_switch") {
         inner join lineitem t2 on t1.L_ORDERKEY = t2.L_ORDERKEY;
     """
     order_qt_query1_1_before "${query1_1}"
-    check_mv_rewrite_fail(db, mv1_1, query1_1, "mv1_1")
+    async_mv_rewrite_fail(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 

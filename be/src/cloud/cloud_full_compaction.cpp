@@ -24,7 +24,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/cloud.pb.h"
 #include "olap/compaction.h"
 #include "olap/rowset/beta_rowset.h"
@@ -98,7 +98,9 @@ Status CloudFullCompaction::prepare_compact() {
     for (auto& rs : _input_rowsets) {
         _input_row_num += rs->num_rows();
         _input_segments += rs->num_segments();
-        _input_rowsets_size += rs->data_disk_size();
+        _input_rowsets_data_size += rs->data_disk_size();
+        _input_rowsets_index_size += rs->index_disk_size();
+        _input_rowsets_total_size += rs->total_disk_size();
     }
     LOG_INFO("start CloudFullCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
              _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
@@ -106,7 +108,9 @@ Status CloudFullCompaction::prepare_compact() {
             .tag("input_rowsets", _input_rowsets.size())
             .tag("input_rows", _input_row_num)
             .tag("input_segments", _input_segments)
-            .tag("input_data_size", _input_rowsets_size);
+            .tag("input_rowsets_data_size", _input_rowsets_data_size)
+            .tag("input_rowsets_index_size", _input_rowsets_index_size)
+            .tag("input_rowsets_total_size", _input_rowsets_total_size);
     return st;
 }
 
@@ -149,23 +153,33 @@ Status CloudFullCompaction::execute_compact() {
 
     using namespace std::chrono;
     auto start = steady_clock::now();
-    RETURN_IF_ERROR(CloudCompactionMixin::execute_compact());
+    auto res = CloudCompactionMixin::execute_compact();
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
+                     << ", tablet=" << _tablet->tablet_id()
+                     << ", output_version=" << _output_version;
+        return res;
+    }
     LOG_INFO("finish CloudFullCompaction, tablet_id={}, cost={}ms", _tablet->tablet_id(),
              duration_cast<milliseconds>(steady_clock::now() - start).count())
             .tag("job_id", _uuid)
             .tag("input_rowsets", _input_rowsets.size())
             .tag("input_rows", _input_row_num)
             .tag("input_segments", _input_segments)
-            .tag("input_data_size", _input_rowsets_size)
+            .tag("input_rowsets_data_size", _input_rowsets_data_size)
+            .tag("input_rowsets_index_size", _input_rowsets_index_size)
+            .tag("input_rowsets_total_size", _input_rowsets_total_size)
             .tag("output_rows", _output_rowset->num_rows())
             .tag("output_segments", _output_rowset->num_segments())
-            .tag("output_data_size", _output_rowset->data_disk_size());
+            .tag("output_rowset_data_size", _output_rowset->data_disk_size())
+            .tag("output_rowset_index_size", _output_rowset->index_disk_size())
+            .tag("output_rowset_total_size", _output_rowset->total_disk_size());
 
     _state = CompactionState::SUCCESS;
 
     DorisMetrics::instance()->full_compaction_deltas_total->increment(_input_rowsets.size());
-    DorisMetrics::instance()->full_compaction_bytes_total->increment(_input_rowsets_size);
-    full_output_size << _output_rowset->data_disk_size();
+    DorisMetrics::instance()->full_compaction_bytes_total->increment(_input_rowsets_total_size);
+    full_output_size << _output_rowset->total_disk_size();
 
     return Status::OK();
 }
@@ -187,8 +201,12 @@ Status CloudFullCompaction::modify_rowsets() {
     compaction_job->set_output_cumulative_point(_output_rowset->end_version() + 1);
     compaction_job->set_num_input_rows(_input_row_num);
     compaction_job->set_num_output_rows(_output_rowset->num_rows());
-    compaction_job->set_size_input_rowsets(_input_rowsets_size);
-    compaction_job->set_size_output_rowsets(_output_rowset->data_disk_size());
+    compaction_job->set_size_input_rowsets(_input_rowsets_total_size);
+    compaction_job->set_size_output_rowsets(_output_rowset->total_disk_size());
+    DBUG_EXECUTE_IF("CloudFullCompaction::modify_rowsets.wrong_compaction_data_size", {
+        compaction_job->set_size_input_rowsets(1);
+        compaction_job->set_size_output_rowsets(10000001);
+    })
     compaction_job->set_num_input_segments(_input_segments);
     compaction_job->set_num_output_segments(_output_rowset->num_segments());
     compaction_job->set_num_input_rowsets(_input_rowsets.size());
@@ -327,6 +345,16 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     }
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*cloud_tablet(), -1, initiator,
                                                             delete_bitmap.get()));
+    LOG_INFO("update delete bitmap in CloudFullCompaction, tablet_id={}, range=[{}-{}]",
+             _tablet->tablet_id(), _input_rowsets.front()->start_version(),
+             _input_rowsets.back()->end_version())
+            .tag("job_id", _uuid)
+            .tag("initiator", initiator)
+            .tag("input_rowsets", _input_rowsets.size())
+            .tag("input_rows", _input_row_num)
+            .tag("input_segments", _input_segments)
+            .tag("input_rowsets_total_size", _input_rowsets_total_size)
+            .tag("update_bitmap_size", delete_bitmap->delete_bitmap.size());
     _tablet->tablet_meta()->delete_bitmap().merge(*delete_bitmap);
     return Status::OK();
 }

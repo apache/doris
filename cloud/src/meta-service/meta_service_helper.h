@@ -19,7 +19,9 @@
 
 #include <brpc/controller.h>
 #include <gen_cpp/cloud.pb.h>
+#include <openssl/md5.h>
 
+#include <iomanip>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -29,12 +31,26 @@
 #include "common/logging.h"
 #include "common/stopwatch.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
+inline std::string md5(const std::string& str) {
+    unsigned char digest[MD5_DIGEST_LENGTH];
+    MD5_CTX context;
+    MD5_Init(&context);
+    MD5_Update(&context, str.c_str(), str.length());
+    MD5_Final(digest, &context);
+
+    std::ostringstream ss;
+    for (unsigned char i : digest) {
+        ss << std::setw(2) << std::setfill('0') << std::hex << (int)i;
+    }
+    return ss.str();
+}
 
 template <class Request>
 void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req) {
@@ -58,6 +74,9 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                          std::is_same_v<Request, GetTabletRequest>) {
         VLOG_DEBUG << "begin " << func_name << " from " << ctrl->remote_side()
                    << " request=" << req->ShortDebugString();
+    } else if constexpr (std::is_same_v<Request, RemoveDeleteBitmapRequest>) {
+        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
+                  << " tablet_id=" << req->tablet_id() << " rowset_size=" << req->rowset_ids_size();
     } else {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
                   << " request=" << req->ShortDebugString();
@@ -89,10 +108,44 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
         VLOG_DEBUG << "finish " << func_name << " from " << ctrl->remote_side()
                    << " response=" << res->ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetDeleteBitmapResponse>) {
+        if (res->status().code() != MetaServiceCode::OK) {
+            res->clear_rowset_ids();
+            res->clear_segment_ids();
+            res->clear_versions();
+            res->clear_segment_delete_bitmaps();
+        }
         LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
                   << " status=" << res->status().ShortDebugString()
-                  << " delete_bitmap_size=" << res->segment_delete_bitmaps_size();
+                  << " tablet=" << res->tablet_id()
+                  << " delete_bitmap_count=" << res->segment_delete_bitmaps_size();
+    } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
+                         std::is_same_v<Response, GetStageResponse>) {
+        std::string debug_string = res->DebugString();
+        // Start position for searching "sk" fields
+        size_t pos = 0;
+        // Iterate through the string and find all occurrences of "sk: "
+        while ((pos = debug_string.find("sk: ", pos)) != std::string::npos) {
+            // Find the start and end of the "sk" value (assumed to be within quotes)
+            // Start after the quote
+            size_t sk_value_start = debug_string.find('\"', pos) + 1;
+            // End at the next quote
+            size_t sk_value_end = debug_string.find('\"', sk_value_start);
 
+            // Extract the "sk" value
+            std::string sk_value =
+                    debug_string.substr(sk_value_start, sk_value_end - sk_value_start);
+            // Encrypt the "sk" value with MD5
+            std::string encrypted_sk = "md5: " + md5(sk_value);
+
+            // Replace the original "sk" value with the encrypted MD5 value
+            debug_string.replace(sk_value_start, sk_value_end - sk_value_start, encrypted_sk);
+
+            // Move the position to the end of the current "sk" field and continue searching
+            pos = sk_value_end;
+        }
+        TEST_SYNC_POINT_CALLBACK("sk_finish_rpc", &debug_string);
+        LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
+                  << " response=" << debug_string;
     } else {
         LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
                   << " response=" << res->ShortDebugString();
@@ -124,9 +177,6 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     case TxnErrorCode::TXN_TIMEOUT:
     case TxnErrorCode::TXN_INVALID_ARGUMENT:
     case TxnErrorCode::TXN_UNIDENTIFIED_ERROR:
-    case TxnErrorCode::TXN_KEY_TOO_LARGE:
-    case TxnErrorCode::TXN_VALUE_TOO_LARGE:
-    case TxnErrorCode::TXN_BYTES_TOO_LARGE:
         if constexpr (category == ErrCategory::READ) {
             return MetaServiceCode::KV_TXN_GET_ERR;
         } else if constexpr (category == ErrCategory::CREATE) {
@@ -134,6 +184,11 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
         } else {
             return MetaServiceCode::KV_TXN_COMMIT_ERR;
         }
+        [[fallthrough]];
+    case TxnErrorCode::TXN_KEY_TOO_LARGE:
+    case TxnErrorCode::TXN_VALUE_TOO_LARGE:
+    case TxnErrorCode::TXN_BYTES_TOO_LARGE:
+        return MetaServiceCode::INVALID_ARGUMENT;
     default:
         return MetaServiceCode::UNDEFINED_ERR;
     }

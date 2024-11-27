@@ -81,16 +81,31 @@ suite ("partition_curd_union_rewrite") {
     sql"""
     insert into orders values 
     (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
+    (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
+    (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
     (2, 2, 'ok', 109.2, '2023-10-18', 'c','d',2, 'mm'),
+    (2, 2, 'ok', 109.2, '2023-10-18', 'c','d',2, 'mm'),
+    (2, 2, 'ok', 109.2, '2023-10-18', 'c','d',2, 'mm'),
+    (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy'),
     (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy'); 
     """
 
     sql """
     insert into lineitem values 
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx'),
+    (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx'),
     (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx');
     """
+
+    sql """analyze table orders with sync;"""
+    sql """analyze table lineitem with sync;"""
 
 
     def mv_def_sql = """
@@ -141,7 +156,6 @@ suite ("partition_curd_union_rewrite") {
         ${mv_def_sql}
         """
 
-
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
@@ -163,18 +177,14 @@ suite ("partition_curd_union_rewrite") {
     waitingMTMVTaskFinished(getJobName(db, mv_name))
 
     // All partition is valid, test query and rewrite by materialized view
-    explain {
-        sql("${all_partition_sql}")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(all_partition_sql, mv_name, true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
-    explain {
-        sql("${partition_sql}")
-        contains("${mv_name}(${mv_name})")
-    }
+
+    mv_rewrite_success(partition_sql, mv_name, true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
 
-    /*
     // Part partition is invalid, test can not use partition 2023-10-17 to rewrite
     sql """
     insert into lineitem values 
@@ -182,15 +192,9 @@ suite ("partition_curd_union_rewrite") {
     """
     // wait partition is invalid
     sleep(5000)
-    explain {
-        sql("${all_partition_sql}")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(all_partition_sql, mv_name)
     compare_res(all_partition_sql + order_by_stmt)
-    explain {
-        sql("${partition_sql}")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(partition_sql, mv_name)
     compare_res(partition_sql + order_by_stmt)
 
     sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
@@ -202,15 +206,9 @@ suite ("partition_curd_union_rewrite") {
     """
     // Wait partition is invalid
     sleep(5000)
-    explain {
-        sql("${all_partition_sql}")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(all_partition_sql, mv_name)
     compare_res(all_partition_sql + order_by_stmt)
-    explain {
-        sql("${partition_sql}")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(partition_sql, mv_name)
     compare_res(partition_sql + order_by_stmt)
 
     // Test when base table delete partition test
@@ -220,15 +218,8 @@ suite ("partition_curd_union_rewrite") {
     """
     // Wait partition is invalid
     sleep(3000)
-    explain {
-        sql("${all_partition_sql}")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(all_partition_sql, mv_name)
     compare_res(all_partition_sql + order_by_stmt)
-    explain {
-        sql("${partition_sql}")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(partition_sql, mv_name)
     compare_res(partition_sql + order_by_stmt)
-     */
 }

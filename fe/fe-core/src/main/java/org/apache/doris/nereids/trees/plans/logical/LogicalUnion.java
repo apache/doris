@@ -19,9 +19,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.ExprFdItem;
-import org.apache.doris.nereids.properties.FdFactory;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -282,23 +279,5 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     @Override
     public void computeFd(DataTrait.Builder builder) {
         // don't generate
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-
-        ImmutableSet<SlotReference> exprs = output.stream()
-                .filter(SlotReference.class::isInstance)
-                .map(SlotReference.class::cast)
-                .collect(ImmutableSet.toImmutableSet());
-
-        if (qualifier == Qualifier.DISTINCT) {
-            ExprFdItem fdItem = FdFactory.INSTANCE.createExprFdItem(exprs, true, exprs);
-            builder.add(fdItem);
-        }
-
-        return builder.build();
     }
 }

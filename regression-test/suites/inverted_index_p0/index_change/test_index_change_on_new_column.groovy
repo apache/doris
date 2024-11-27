@@ -84,11 +84,11 @@ suite("test_index_change_on_new_column") {
     sql """ alter table ${tableName} add index idx_s1(s1) USING INVERTED PROPERTIES('parser' = 'english')"""
     wait_for_latest_op_on_table_finish(tableName, timeout)
 
+    sql """ INSERT INTO ${tableName} VALUES
+            (2, 'hello wold', 'welcome to the world')
+        """
     // build inverted index on new column
     if (!isCloudMode()) {
-        sql """ INSERT INTO ${tableName} VALUES
-             (2, 'hello wold', 'welcome to the world')
-            """
         sql """ build index idx_s1 on ${tableName} """
         wait_for_build_index_on_partition_finish(tableName, timeout)
     }

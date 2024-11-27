@@ -102,10 +102,7 @@ xxX	3
 2013-12-12T00:00	2013-12-12T00:00
 2020-12-12T00:00	2020-12-12T12:12:12.123456
 
--- !sql_overwrite1 --
-Yyy
-
--- !sql_overwrite2 --
+-- !sql_overwrite --
 Xxx
 
 -- !sql_non_order1 --

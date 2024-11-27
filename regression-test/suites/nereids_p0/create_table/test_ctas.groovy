@@ -270,6 +270,11 @@ suite("nereids_test_ctas") {
 
     sql """DROP TABLE IF EXISTS test_varchar_length"""
     sql """set use_max_length_of_varchar_in_ctas = false"""
+    sql """set enable_fold_constant_by_be = false"""
+    sql """CREATE TABLE test_varchar_length properties ("replication_num"="1") AS SELECT CAST("1" AS VARCHAR(30))"""
+    qt_desc """desc test_varchar_length"""
+    sql """DROP TABLE IF EXISTS test_varchar_length"""
+    sql """set enable_fold_constant_by_be = true"""
     sql """CREATE TABLE test_varchar_length properties ("replication_num"="1") AS SELECT CAST("1" AS VARCHAR(30))"""
     qt_desc """desc test_varchar_length"""
     sql """DROP TABLE IF EXISTS test_varchar_length"""

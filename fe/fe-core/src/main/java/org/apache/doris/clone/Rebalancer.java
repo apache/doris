@@ -17,9 +17,14 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.CatalogRecycleBin;
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -29,13 +34,14 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-
+import java.util.Set;
 
 /*
  * Rebalancer is responsible for
@@ -60,6 +66,9 @@ public abstract class Rebalancer {
     protected SystemInfoService infoService;
     // be id -> end time of prio
     protected Map<Long, Long> prioBackends = Maps.newConcurrentMap();
+
+    protected boolean canBalanceColocateTable = false;
+    private Set<Long> alterTableIds = Sets.newHashSet();
 
     // tag -> (medium, timestamp)
     private Table<Tag, TStorageMedium, Long> lastPickTimeTable = HashBasedTable.create();
@@ -106,6 +115,21 @@ public abstract class Rebalancer {
         return lastPickTime == null || now - lastPickTime >= Config.be_rebalancer_idle_seconds * 1000L;
     }
 
+    protected boolean canBalanceTablet(TabletMeta tabletMeta) {
+        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
+        // so in clone ut recycleBin need to set to null.
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+        CatalogRecycleBin recycleBin = null;
+        if (!FeConstants.runningUnitTest) {
+            recycleBin = Env.getCurrentRecycleBin();
+        }
+        return tabletMeta != null
+                && !alterTableIds.contains(tabletMeta.getTableId())
+                && (canBalanceColocateTable || !colocateTableIndex.isColocateTable(tabletMeta.getTableId()))
+                && (recycleBin == null || !recycleBin.isRecyclePartition(tabletMeta.getDbId(),
+                        tabletMeta.getTableId(), tabletMeta.getPartitionId()));
+    }
+
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)
             throws SchedException {
         completeSchedCtx(tabletCtx);
@@ -137,6 +161,10 @@ public abstract class Rebalancer {
 
     public void updateLoadStatistic(Map<Tag, LoadStatisticForTag> statisticMap) {
         this.statisticMap = statisticMap;
+    }
+
+    public void updateAlterTableIds(Set<Long> alterTableIds) {
+        this.alterTableIds = alterTableIds;
     }
 
     public void addPrioBackends(List<Backend> backends, long timeoutS) {

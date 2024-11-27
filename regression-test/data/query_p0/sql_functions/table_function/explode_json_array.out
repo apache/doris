@@ -79,7 +79,21 @@
 \N	80	3
 \N	80	b
 
--- !outer_join_explode_json_array11 --
+-- !outer_join_explode_json_array111 --
+\N	\N	{"id":1,"name":"John"}
+\N	\N	{"id":2,"name":"Mary"}
+\N	\N	{"id":3,"name":"Bob"}
+\N	30	{"id":1,"name":"John"}
+\N	30	{"id":2,"name":"Mary"}
+\N	30	{"id":3,"name":"Bob"}
+\N	50	{"id":1,"name":"John"}
+\N	50	{"id":2,"name":"Mary"}
+\N	50	{"id":3,"name":"Bob"}
+\N	80	{"id":1,"name":"John"}
+\N	80	{"id":2,"name":"Mary"}
+\N	80	{"id":3,"name":"Bob"}
+
+-- !outer_join_explode_json_array112 --
 \N	\N	{"id":1,"name":"John"}
 \N	\N	{"id":2,"name":"Mary"}
 \N	\N	{"id":3,"name":"Bob"}

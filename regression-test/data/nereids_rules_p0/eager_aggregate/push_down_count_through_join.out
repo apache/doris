@@ -106,7 +106,7 @@ PhysicalResultSink
 --------PhysicalOlapScan[count_t]
 --------PhysicalOlapScan[count_t]
 
--- !groupby_pushdown_multi_table_join --
+-- !groupby_pushdown_multi_table_join_1 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
@@ -318,7 +318,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[count_t]
 ----------PhysicalOlapScan[count_t]
 
--- !groupby_pushdown_multi_table_join --
+-- !groupby_pushdown_multi_table_join_2 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
@@ -571,7 +571,7 @@ Used:
 UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
--- !with_hint_groupby_pushdown_multi_table_join --
+-- !with_hint_groupby_pushdown_multi_table_join_1 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
@@ -908,7 +908,7 @@ Used:
 UnUsed: use_push_down_agg_through_join
 SyntaxError:
 
--- !with_hint_groupby_pushdown_multi_table_join --
+-- !with_hint_groupby_pushdown_multi_table_join_2 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
