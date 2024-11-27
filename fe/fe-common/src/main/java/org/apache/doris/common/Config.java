@@ -1613,6 +1613,12 @@ public class Config extends ConfigBase {
     public static boolean ignore_backup_not_support_table_type = false;
 
     /**
+     * A internal config, to control the update interval of backup handler. Only used to speed up tests.
+     */
+    @ConfField(mutable = false)
+    public static long backup_handler_update_interval_millis = 3000;
+
+    /**
      * Control the default max num of the instance for a user.
      */
     @ConfField(mutable = true)
