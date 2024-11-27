@@ -598,7 +598,7 @@ void LoadStream::on_idle_timeout(StreamId id) {
 
 void LoadStream::on_closed(StreamId id) {
     auto remaining_streams = _total_streams - _close_rpc_cnt.fetch_add(1) - 1;
-    LOG(INFO) << "stream " << id << " on_closed, remaining streams = " << remaining_streams;
+    LOG(DEBUG) << "stream " << id << " on_closed, remaining streams = " << remaining_streams;
     if (remaining_streams == 0) {
         _load_stream_mgr->clear_load(_load_id);
     }
