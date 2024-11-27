@@ -219,7 +219,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
         /// If `_build_index_for_null_probe_key` is not zero, it means we are in progress of handling probe null key.
         if (_build_index_for_null_probe_key) {
-            DCHECK_EQ(build_index, hash_table_ctx.hash_table->get_bucket_size());
+            DCHECK(null_map && null_map[probe_index]);
             current_offset = _process_probe_null_key(probe_index);
             if (!_build_index_for_null_probe_key) {
                 probe_index++;
@@ -236,7 +236,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
             current_offset = new_current_offset;
             _picking_null_keys = picking_null_keys;
 
-            if (build_index == hash_table_ctx.hash_table->get_bucket_size()) {
+            if (null_map && null_map[probe_index]) {
                 _build_index_for_null_probe_key = 1;
                 if (current_offset == 0) {
                     current_offset = _process_probe_null_key(probe_index);
