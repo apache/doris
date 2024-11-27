@@ -109,10 +109,10 @@ public class InSubquery extends SubqueryExpr {
         return new InSubquery(children.get(0), (ListQuery) children.get(1), correlateSlots, typeCoercionExpr, isNot);
     }
 
-    @Override
-    public List<Expression> children() {
-        return Lists.newArrayList(compareExpr, listQuery);
-    }
+//    @Override
+//    public List<Expression> children() {
+//        return Lists.newArrayList(compareExpr, listQuery);
+//    }
 
     @Override
     public boolean equals(Object o) {
