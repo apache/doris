@@ -31,6 +31,7 @@ suite("nereids_scalar_fn_IP") {
     qt_sql_cidr_ipv4_all """ select id, ipv4_cidr_to_range(ip4, 16) from fn_test_ip_nullable order by id; """
 
     // test nullable param
+    qt_sql_cidr_ipv6_nullable_ "select id, ipv6_cidr_to_range(to_ipv6('::'), 32) from fn_test_ip_nullable order by id;"	
     test {
    	sql "select id, ipv6_cidr_to_range(nullable(''), 32) from fn_test_ip_nullable order by id" 
 	exception "Illegal ipv6 address"
@@ -158,6 +159,7 @@ suite("nereids_scalar_fn_IP") {
     qt_sql_not_null_cidr_ipv4_all """ select id, ipv4_cidr_to_range(ip4, 16) from fn_test_ip_not_nullable order by id; """
 
     // test nullable param
+    qt_sql_not_null_cidr_ipv6_nullable_ "select id, ipv6_cidr_to_range(to_ipv6('::'), 32) from fn_test_ip_nullable order by id;"
     test {
         sql "select id, ipv6_cidr_to_range(nullable(''), 32) from fn_test_ip_not_nullable order by id"
         exception "Illegal ipv6 address"
