@@ -89,7 +89,7 @@ doris::Status VCastExpr::open(doris::RuntimeState* state, VExprContext* context,
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
-    RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }

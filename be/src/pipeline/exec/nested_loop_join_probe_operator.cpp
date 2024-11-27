@@ -398,6 +398,7 @@ void NestedLoopJoinProbeLocalState::_process_left_child_block(
                     .get_data()
                     .resize_fill(origin_sz + max_added_rows, 0);
         } else {
+            // TODO: for cross join, maybe could insert one row, and wrap for a const column
             dst_columns[i]->insert_many_from(*src_column.column, _left_block_pos, max_added_rows);
         }
     }

@@ -210,6 +210,8 @@ public:
 
     virtual bool is_use_default_implementation_for_constants() const = 0;
 
+    virtual bool is_udf_function() const { return false; }
+
     /// The property of monotonicity for a certain range.
     struct Monotonicity {
         bool is_monotonic = false; /// Is the function monotonous (nondecreasing or nonincreasing).
