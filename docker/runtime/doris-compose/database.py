@@ -225,13 +225,23 @@ class DBManager(object):
         self.be_states = be_states
 
     # return rows, and each row is a record map
-    def _exec_query(self, sql):
+    def _exec_query(self, sql, retries=3):
         self._prepare_conn()
-        with self.conn.cursor() as cursor:
-            cursor.execute(sql)
-            fields = [field_md[0] for field_md in cursor.description
-                      ] if cursor.description else []
-            return [dict(zip(fields, row)) for row in cursor.fetchall()]
+        for attempt in range(retries):
+            try:
+                with self.conn.cursor() as cursor:
+                    cursor.execute(sql)
+                    fields = [field_md[0] for field_md in cursor.description
+                              ] if cursor.description else []
+                    return [dict(zip(fields, row)) for row in cursor.fetchall()]
+            except Exception as e:
+                LOG.warn(f"Error occurred: {e}")
+                if "timed out" in str(e).lower() and attempt < retries - 1:
+                    LOG.warn(f"Query timed out. Retrying {attempt + 1}/{retries}...")
+                    self._reset_conn()
+                else:
+                    raise e
+        raise Exception("Max retries exceeded")
 
     def _prepare_conn(self):
         if self.conn:
