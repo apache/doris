@@ -395,7 +395,7 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     /**
-     * use LocalDateTime create Expression 
+     * use LocalDateTime create Expression
      */
     public static Expression fromJavaDateType(LocalDateTime dateTime) {
         if (isDateOutOfRange(dateTime)) {
