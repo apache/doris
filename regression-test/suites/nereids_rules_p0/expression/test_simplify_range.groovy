@@ -22,7 +22,7 @@ suite('test_simplify_range') {
     sql "INSERT INTO ${tbl_1} VALUES(null, 10)"
     test {
         sql "SELECT a BETWEEN 100.02 and 40.123 OR a IN (54.0402) AND b < 10 FROM ${tbl_1}"
-        result([['<null>']])
+        result([['null']])
     }
     sql "DROP TABLE IF EXISTS  ${tbl_1} FORCE"
 }
