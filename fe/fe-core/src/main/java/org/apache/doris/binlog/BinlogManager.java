@@ -30,6 +30,7 @@ import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
+import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
@@ -427,6 +428,22 @@ public class BinlogManager {
         String data = indexChangeJob.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, indexChangeJob);
+    }
+
+    public void addDropRollup(DropInfo info, long commitSeq) {
+        if (StringUtils.isEmpty(info.getIndexName())) {
+            LOG.warn("skip drop rollup binlog, because indexName is empty. info: {}", info);
+            return;
+        }
+
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.DROP_ROLLUP;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
     // get binlog by dbId, return first binlog.version > version
