@@ -561,3 +561,9 @@
 \N
 \N
 
+-- !multi_winf1 --
+1	c
+
+-- !multi_winf2 --
+1	35
+
