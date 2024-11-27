@@ -68,10 +68,10 @@ suite("push_topn_to_agg") {
         contains("sortByGroupKey:true")
     }
 
-    // group key is not output of limit, deny opt
+    // use group key as sort key to enable topn-push opt
     explain {
         sql "select sum(o_shippriority) from orders group by o_clerk limit 14; "
-        contains("sortByGroupKey:false")
+        contains("sortByGroupKey:true")
     }
 
     // group key is part of output of limit, apply opt
