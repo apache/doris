@@ -2309,6 +2309,10 @@ suite('nereids_arith_p0_decimal') {
             `b` DECIMALV3(9, 3) NOT NULL
         ) DISTRIBUTED BY HASH(a) PROPERTIES("replication_num" = "1");
 	"""
+	sql "set experimental_enable_pipeline_x_engine = false"
+	sql """insert into test_arithmetic_expressions values (1.1, 2.2)"""
+	sql "select a + b from test_arithmetic_expressions"
+	sql "set experimental_enable_pipeline_x_engine = true"
 	sql "select a + b from test_arithmetic_expressions"
 	sql """drop table if exists test_arithmetic_expressions"""
 }

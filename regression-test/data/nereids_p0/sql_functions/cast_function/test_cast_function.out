@@ -17,6 +17,12 @@
 -- !sql --
 20
 
+-- !sql --
+10000.00001
+
+-- !sql --
+123.123
+
 -- !sql_null_cast_bitmap --
 true
 
@@ -24,11 +30,11 @@ true
 \N
 
 -- !sql_to_small --
-\N
+1212
 
 -- !sql_to_int --
-\N
+1212
 
 -- !sql_to_big --
-\N
+1212
 

@@ -30,57 +30,51 @@ class PStatus;
 namespace ErrorCode {
 
 // E thrift_error_name, print_stacktrace
-#define APPLY_FOR_THRIFT_ERROR_CODES(TStatusError)       \
-    TStatusError(PUBLISH_TIMEOUT, false);                \
-    TStatusError(MEM_ALLOC_FAILED, true);                \
-    TStatusError(BUFFER_ALLOCATION_FAILED, true);        \
-    TStatusError(INVALID_ARGUMENT, false);               \
-    TStatusError(INVALID_JSON_PATH, false);              \
-    TStatusError(MINIMUM_RESERVATION_UNAVAILABLE, true); \
-    TStatusError(CORRUPTION, true);                      \
-    TStatusError(IO_ERROR, true);                        \
-    TStatusError(NOT_FOUND, true);                       \
-    TStatusError(ALREADY_EXIST, true);                   \
-    TStatusError(NOT_IMPLEMENTED_ERROR, true);           \
-    TStatusError(END_OF_FILE, false);                    \
-    TStatusError(INTERNAL_ERROR, true);                  \
-    TStatusError(RUNTIME_ERROR, true);                   \
-    TStatusError(CANCELLED, false);                      \
-    TStatusError(MEM_LIMIT_EXCEEDED, false);             \
-    TStatusError(THRIFT_RPC_ERROR, true);                \
-    TStatusError(TIMEOUT, true);                         \
-    TStatusError(TOO_MANY_TASKS, true);                  \
-    TStatusError(UNINITIALIZED, false);                  \
-    TStatusError(ABORTED, true);                         \
-    TStatusError(DATA_QUALITY_ERROR, false);             \
-    TStatusError(LABEL_ALREADY_EXISTS, true);            \
-    TStatusError(NOT_AUTHORIZED, true);                  \
-    TStatusError(HTTP_ERROR, true);
+#define APPLY_FOR_THRIFT_ERROR_CODES(TStatusError)        \
+    TStatusError(PUBLISH_TIMEOUT, false);                 \
+    TStatusError(MEM_ALLOC_FAILED, true);                 \
+    TStatusError(BUFFER_ALLOCATION_FAILED, true);         \
+    TStatusError(INVALID_ARGUMENT, false);                \
+    TStatusError(INVALID_JSON_PATH, false);               \
+    TStatusError(MINIMUM_RESERVATION_UNAVAILABLE, true);  \
+    TStatusError(CORRUPTION, true);                       \
+    TStatusError(IO_ERROR, true);                         \
+    TStatusError(NOT_FOUND, true);                        \
+    TStatusError(ALREADY_EXIST, true);                    \
+    TStatusError(NOT_IMPLEMENTED_ERROR, true);            \
+    TStatusError(END_OF_FILE, false);                     \
+    TStatusError(INTERNAL_ERROR, true);                   \
+    TStatusError(RUNTIME_ERROR, true);                    \
+    TStatusError(CANCELLED, false);                       \
+    TStatusError(ANALYSIS_ERROR, false);                  \
+    TStatusError(MEM_LIMIT_EXCEEDED, false);              \
+    TStatusError(THRIFT_RPC_ERROR, true);                 \
+    TStatusError(TIMEOUT, true);                          \
+    TStatusError(TOO_MANY_TASKS, true);                   \
+    TStatusError(UNINITIALIZED, false);                   \
+    TStatusError(INCOMPLETE, false);                      \
+    TStatusError(OLAP_ERR_VERSION_ALREADY_MERGED, false); \
+    TStatusError(ABORTED, true);                          \
+    TStatusError(DATA_QUALITY_ERROR, false);              \
+    TStatusError(LABEL_ALREADY_EXISTS, true);             \
+    TStatusError(NOT_AUTHORIZED, true);                   \
+    TStatusError(BINLOG_DISABLE, false);                  \
+    TStatusError(BINLOG_TOO_OLD_COMMIT_SEQ, false);       \
+    TStatusError(BINLOG_TOO_NEW_COMMIT_SEQ, false);       \
+    TStatusError(BINLOG_NOT_FOUND_DB, false);             \
+    TStatusError(BINLOG_NOT_FOUND_TABLE, false);          \
+    TStatusError(NETWORK_ERROR, false);                   \
+    TStatusError(ILLEGAL_STATE, false);                   \
+    TStatusError(SNAPSHOT_NOT_EXIST, true);               \
+    TStatusError(HTTP_ERROR, true);                       \
+    TStatusError(TABLET_MISSING, true);                   \
+    TStatusError(NOT_MASTER, true);                       \
+    TStatusError(OBTAIN_LOCK_FAILED, false);              \
+    TStatusError(SNAPSHOT_EXPIRED, false);                \
+    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
     E(OK, 0, false);                                         \
-    E(OS_ERROR, -100, true);                                 \
-    E(DIR_NOT_EXIST, -101, true);                            \
-    E(FILE_NOT_EXIST, -102, true);                           \
-    E(CREATE_FILE_ERROR, -103, true);                        \
-    E(STL_ERROR, -105, true);                                \
-    E(MUTEX_ERROR, -107, true);                              \
-    E(PTHREAD_ERROR, -108, true);                            \
-    E(NETWORK_ERROR, -109, true);                            \
-    E(UB_FUNC_ERROR, -110, true);                            \
-    E(COMPRESS_ERROR, -111, true);                           \
-    E(DECOMPRESS_ERROR, -112, true);                         \
-    E(UNKNOWN_COMPRESSION_TYPE, -113, true);                 \
-    E(MMAP_ERROR, -114, true);                               \
-    E(CANNOT_CREATE_DIR, -117, true);                        \
-    E(UB_NETWORK_ERROR, -118, true);                         \
-    E(FILE_FORMAT_ERROR, -119, true);                        \
-    E(EVAL_CONJUNCTS_ERROR, -120, true);                     \
-    E(COPY_FILE_ERROR, -121, true);                          \
-    E(FILE_ALREADY_EXIST, -122, true);                       \
-    E(BAD_CAST, -123, true);                                 \
-    E(ARITHMETIC_OVERFLOW_ERRROR, -124, false);              \
-    E(PERMISSION_DENIED, -125, false);                       \
     E(CALL_SEQUENCE_ERROR, -202, true);                      \
     E(BUFFER_OVERFLOW, -204, true);                          \
     E(CONFIG_ERROR, -205, true);                             \
@@ -117,6 +111,20 @@ namespace ErrorCode {
     E(ALREADY_CLOSED, -239, false);                          \
     E(SERVICE_UNAVAILABLE, -240, true);                      \
     E(NEED_SEND_AGAIN, -241, false);                         \
+    E(OS_ERROR, -242, true);                                 \
+    E(DIR_NOT_EXIST, -243, true);                            \
+    E(FILE_NOT_EXIST, -244, true);                           \
+    E(CREATE_FILE_ERROR, -245, true);                        \
+    E(STL_ERROR, -246, true);                                \
+    E(MUTEX_ERROR, -247, true);                              \
+    E(PTHREAD_ERROR, -248, true);                            \
+    E(UB_FUNC_ERROR, -250, true);                            \
+    E(COMPRESS_ERROR, -251, true);                           \
+    E(DECOMPRESS_ERROR, -252, true);                         \
+    E(FILE_ALREADY_EXIST, -253, true);                       \
+    E(BAD_CAST, -254, true);                                 \
+    E(ARITHMETIC_OVERFLOW_ERRROR, -255, false);              \
+    E(PERMISSION_DENIED, -256, false);                       \
     E(CE_CMD_PARAMS_ERROR, -300, true);                      \
     E(CE_BUFFER_TOO_SMALL, -301, true);                      \
     E(CE_CMD_NOT_VALID, -302, true);                         \
@@ -275,7 +283,8 @@ namespace ErrorCode {
     E(INVERTED_INDEX_ANALYZER_ERROR, -6011, false);          \
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
-    E(ENTRY_NOT_FOUND, -7002, false);
+    E(ENTRY_NOT_FOUND, -7002, false);                        \
+    E(CGROUP_ERROR, -7411, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
@@ -298,15 +307,41 @@ extern ErrorCodeState error_states[MAX_ERROR_CODE_DEFINE_NUM];
 
 class ErrorCodeInitializer {
 public:
-    ErrorCodeInitializer() {
-#define M(NAME, ENABLESTACKTRACE) error_states[TStatusCode::NAME].stacktrace = ENABLESTACKTRACE;
+    ErrorCodeInitializer(int temp) : signal_value(temp) {
+        for (auto& error_state : error_states) {
+            error_state.error_code = 0;
+        }
+#define M(NAME, ENABLESTACKTRACE)                                  \
+    error_states[TStatusCode::NAME].stacktrace = ENABLESTACKTRACE; \
+    error_states[TStatusCode::NAME].description = #NAME;           \
+    error_states[TStatusCode::NAME].error_code = TStatusCode::NAME;
         APPLY_FOR_THRIFT_ERROR_CODES(M)
 #undef M
-#define M(NAME, ERRORCODE, ENABLESTACKTRACE) \
-    error_states[abs(ERRORCODE)].stacktrace = ENABLESTACKTRACE;
+// In status.h, if error code > 0, then it means it will be used in TStatusCode and will
+// also be used in FE.
+// Other error codes that with error code < 0, will only be used in BE.
+// We use abs(error code) as the index in error_states, so that these two kinds of error
+// codes MUST not have overlap.
+// Add an assert here to make sure the code in TStatusCode and other error code are not
+// overlapped.
+#define M(NAME, ERRORCODE, ENABLESTACKTRACE)                    \
+    assert(error_states[abs(ERRORCODE)].error_code == 0);       \
+    error_states[abs(ERRORCODE)].stacktrace = ENABLESTACKTRACE; \
+    error_states[abs(ERRORCODE)].error_code = ERRORCODE;
         APPLY_FOR_OLAP_ERROR_CODES(M)
 #undef M
     }
+
+    void check_init() const {
+        //the signal value is 0, it means the global error states not inited, it's logical error
+        // DO NOT use dcheck here, because dcheck depend on glog, and glog maybe not inited at this time.
+        if (signal_value == 0) {
+            exit(-1);
+        }
+    }
+
+private:
+    int signal_value = 0;
 };
 
 extern ErrorCodeInitializer error_code_init;
@@ -402,10 +437,18 @@ public:
         return status;
     }
 
-    static Status OK() { return Status(); }
+    static Status OK() { return {}; }
 
+// default have stacktrace. could disable manually.
 #define ERROR_CTOR(name, code)                                                       \
     template <bool stacktrace = true, typename... Args>                              \
+    static Status name(std::string_view msg, Args&&... args) {                       \
+        return Error<ErrorCode::code, stacktrace>(msg, std::forward<Args>(args)...); \
+    }
+
+// default have no stacktrace. could enable manually.
+#define ERROR_CTOR_NOSTACK(name, code)                                               \
+    template <bool stacktrace = false, typename... Args>                             \
     static Status name(std::string_view msg, Args&&... args) {                       \
         return Error<ErrorCode::code, stacktrace>(msg, std::forward<Args>(args)...); \
     }
@@ -413,30 +456,32 @@ public:
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
-    ERROR_CTOR(InvalidArgument, INVALID_ARGUMENT)
-    ERROR_CTOR(InvalidJsonPath, INVALID_JSON_PATH)
+    ERROR_CTOR_NOSTACK(InvalidArgument, INVALID_ARGUMENT)
+    ERROR_CTOR_NOSTACK(InvalidJsonPath, INVALID_JSON_PATH)
     ERROR_CTOR(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
     ERROR_CTOR(Corruption, CORRUPTION)
     ERROR_CTOR(IOError, IO_ERROR)
     ERROR_CTOR(NotFound, NOT_FOUND)
-    ERROR_CTOR(AlreadyExist, ALREADY_EXIST)
+    ERROR_CTOR_NOSTACK(AlreadyExist, ALREADY_EXIST)
     ERROR_CTOR(NotSupported, NOT_IMPLEMENTED_ERROR)
-    ERROR_CTOR(EndOfFile, END_OF_FILE)
+    ERROR_CTOR_NOSTACK(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
-    ERROR_CTOR(WaitForRf, PIP_WAIT_FOR_RF)
-    ERROR_CTOR(WaitForScannerContext, PIP_WAIT_FOR_SC)
+    ERROR_CTOR_NOSTACK(WaitForRf, PIP_WAIT_FOR_RF)
+    ERROR_CTOR_NOSTACK(WaitForScannerContext, PIP_WAIT_FOR_SC)
     ERROR_CTOR(RuntimeError, RUNTIME_ERROR)
-    ERROR_CTOR(Cancelled, CANCELLED)
+    ERROR_CTOR_NOSTACK(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)
     ERROR_CTOR(RpcError, THRIFT_RPC_ERROR)
-    ERROR_CTOR(TimedOut, TIMEOUT)
-    ERROR_CTOR(TooManyTasks, TOO_MANY_TASKS)
+    ERROR_CTOR_NOSTACK(TimedOut, TIMEOUT)
+    ERROR_CTOR_NOSTACK(TooManyTasks, TOO_MANY_TASKS)
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)
-    ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
-    ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
+    ERROR_CTOR_NOSTACK(DataQualityError, DATA_QUALITY_ERROR)
+    ERROR_CTOR_NOSTACK(NotAuthorized, NOT_AUTHORIZED)
     ERROR_CTOR(HttpError, HTTP_ERROR)
-    ERROR_CTOR(NeedSendAgain, NEED_SEND_AGAIN)
+    ERROR_CTOR_NOSTACK(NeedSendAgain, NEED_SEND_AGAIN)
+    ERROR_CTOR(CgroupError, CGROUP_ERROR)
+    ERROR_CTOR_NOSTACK(ObtainLockFailed, OBTAIN_LOCK_FAILED)
 #undef ERROR_CTOR
 
     template <int code>
@@ -510,6 +555,48 @@ private:
     }
 };
 
+// There are many thread using status to indicate the cancel state, one thread may update it and
+// the other thread will read it. Status is not thread safe, for example, if one thread is update it
+// and another thread is call to_string method, it may core, because the _err_msg is an unique ptr and
+// it is deconstructed during copy method.
+// And also we could not use lock, because we need get status frequently to check if it is cancelled.
+// The defaule value is ok.
+class AtomicStatus {
+public:
+    AtomicStatus() : error_st_(Status::OK()) {}
+
+    bool ok() const { return error_code_.load(std::memory_order_acquire) == 0; }
+
+    bool update(const Status& new_status) {
+        // If new status is normal, or the old status is abnormal, then not need update
+        if (new_status.ok() || error_code_.load(std::memory_order_acquire) != 0) {
+            return false;
+        }
+        std::lock_guard l(mutex_);
+        if (error_code_.load(std::memory_order_acquire) != 0) {
+            return false;
+        }
+        error_st_ = new_status;
+        error_code_.store(new_status.code(), std::memory_order_release);
+        return true;
+    }
+
+    // will copy a new status object to avoid concurrency
+    // This stauts could only be called when ok==false
+    Status status() const {
+        std::lock_guard l(mutex_);
+        return error_st_;
+    }
+
+    AtomicStatus(const AtomicStatus&) = delete;
+    void operator=(const AtomicStatus&) = delete;
+
+private:
+    std::atomic_int16_t error_code_ = 0;
+    Status error_st_;
+    mutable std::mutex mutex_;
+};
+
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
     ostr << status.msg();
@@ -528,10 +615,7 @@ inline std::string Status::to_string() const {
 }
 
 inline std::string Status::to_string_no_stack() const {
-    std::stringstream ss;
-    ss << '[' << code_as_string() << ']';
-    ss << msg();
-    return ss.str();
+    return fmt::format("[{}]{}", code_as_string(), msg());
 }
 
 // some generally useful macros
@@ -541,6 +625,13 @@ inline std::string Status::to_string_no_stack() const {
         if (UNLIKELY(!_status_.ok())) { \
             return _status_;            \
         }                               \
+    } while (false)
+
+#define PROPAGATE_FALSE(stmt)                     \
+    do {                                          \
+        if (UNLIKELY(!static_cast<bool>(stmt))) { \
+            return false;                         \
+        }                                         \
     } while (false)
 
 #define THROW_IF_ERROR(stmt)            \
@@ -569,6 +660,14 @@ inline std::string Status::to_string_no_stack() const {
             LOG(ERROR) << _status_;     \
             exit(1);                    \
         }                               \
+    } while (false)
+
+#define RETURN_FALSE_IF_ERROR(stmt)   \
+    do {                              \
+        Status status = (stmt);       \
+        if (UNLIKELY(!status.ok())) { \
+            return false;             \
+        }                             \
     } while (false)
 
 /// @brief Emit a warning if @c to_call returns a bad status.

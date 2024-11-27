@@ -32,4 +32,22 @@ public:
     void handle(HttpRequest* req) override;
 };
 
+class LongPipelineTaskAction : public HttpHandler {
+public:
+    LongPipelineTaskAction() = default;
+
+    ~LongPipelineTaskAction() override = default;
+
+    void handle(HttpRequest* req) override;
+};
+
+class QueryPipelineTaskAction : public HttpHandler {
+public:
+    QueryPipelineTaskAction() = default;
+
+    ~QueryPipelineTaskAction() override = default;
+
+    void handle(HttpRequest* req) override;
+};
+
 } // end namespace doris

@@ -124,6 +124,10 @@ public class StatisticRange {
         return Double.isInfinite(low) || Double.isInfinite(high);
     }
 
+    public boolean isOneSideInfinite() {
+        return isInfinite() && !isBothInfinite();
+    }
+
     public boolean isFinite() {
         return Double.isFinite(low) && Double.isFinite(high);
     }
@@ -175,8 +179,7 @@ public class StatisticRange {
     }
 
     public StatisticRange cover(StatisticRange other) {
-        // double newLow = Math.max(low, other.low);
-        // double newHigh = Math.min(high, other.high);
+        StatisticRange resultRange;
         Pair<Double, LiteralExpr> biggerLow = maxPair(low, lowExpr, other.low, other.lowExpr);
         double newLow = biggerLow.first;
         LiteralExpr newLowExpr = biggerLow.second;
@@ -188,9 +191,18 @@ public class StatisticRange {
             double overlapPercentOfLeft = overlapPercentWith(other);
             double overlapDistinctValuesLeft = overlapPercentOfLeft * distinctValues;
             double coveredDistinctValues = minExcludeNaN(distinctValues, overlapDistinctValuesLeft);
-            return new StatisticRange(newLow, newLowExpr, newHigh, newHighExpr, coveredDistinctValues, dataType);
+            if (this.isBothInfinite() && other.isOneSideInfinite()) {
+                resultRange = new StatisticRange(newLow, newLowExpr, newHigh, newHighExpr,
+                        distinctValues * INFINITE_TO_INFINITE_RANGE_INTERSECT_OVERLAP_HEURISTIC_FACTOR,
+                        dataType);
+            } else {
+                resultRange = new StatisticRange(newLow, newLowExpr, newHigh, newHighExpr, coveredDistinctValues,
+                        dataType);
+            }
+        } else {
+            resultRange = empty(dataType);
         }
-        return empty(dataType);
+        return resultRange;
     }
 
     public StatisticRange union(StatisticRange other) {
@@ -241,6 +253,6 @@ public class StatisticRange {
 
     @Override
     public String toString() {
-        return "(" + lowExpr + "," + highExpr + ")";
+        return "range=(" + lowExpr + "," + highExpr + "), ndv=" + distinctValues;
     }
 }

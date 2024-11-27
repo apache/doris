@@ -18,9 +18,9 @@
 #pragma once
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -35,15 +35,11 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
 class DataTypeHLL : public IDataType {
 public:
     DataTypeHLL() = default;
@@ -56,7 +52,7 @@ public:
     const char* get_family_name() const override { return "HLL"; }
 
     TypeIndex get_type_id() const override { return TypeIndex::HLL; }
-    TypeDescriptor get_type_as_type_descriptor() const override { return TypeDescriptor(TYPE_HLL); }
+    TypeDescriptor get_type_as_type_descriptor() const override { return {TYPE_HLL}; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_HLL;
@@ -93,7 +89,7 @@ public:
     Field get_default() const override { return HyperLogLog::empty(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        LOG(FATAL) << "Unimplemented get_field for HLL";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Unimplemented get_field for HLL");
         __builtin_unreachable();
     }
 

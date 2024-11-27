@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 
-suite("test_compaction_uniq_keys_row_store") {
+suite("test_compaction_uniq_keys_row_store", "p0") {
     def realDb = "regression_test_serving_p0"
     def tableName = realDb + ".compaction_uniq_keys_row_store_regression_test"
     sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
@@ -76,7 +76,7 @@ suite("test_compaction_uniq_keys_row_store") {
             // set server side prepared statment url
             def url="jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
             def result1 = connect(user=user, password=password, url=url) {
-                def stmt = prepareStatement """ SELECT * FROM ${tableName} t where user_id = ? and date = ? and datev2 = ? and datetimev2_1 = ? and datetimev2_2 = ? and city = ? and age = ? and sex = ?; """
+                def stmt = prepareStatement """ SELECT  /*+ SET_VAR(enable_nereids_planner=true,enable_fallback_to_original_planner=false) */ * FROM ${tableName} t where user_id = ? and date = ? and datev2 = ? and datetimev2_1 = ? and datetimev2_2 = ? and city = ? and age = ? and sex = ?; """
                 setPrepareStmtArgs stmt, 1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.21', '2017-10-01 11:11:11.11', 'Beijing', 10, 1
                 qe_point_select stmt
                 setPrepareStmtArgs stmt, 1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.22', '2017-10-01 11:11:11.12', 'Beijing', 10, 1

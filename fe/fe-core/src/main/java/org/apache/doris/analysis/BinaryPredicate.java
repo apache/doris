@@ -41,8 +41,6 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -54,7 +52,6 @@ import java.util.Objects;
  * Most predicates with two operands..
  */
 public class BinaryPredicate extends Predicate implements Writable {
-    private static final Logger LOG = LogManager.getLogger(BinaryPredicate.class);
 
     // true if this BinaryPredicate is inferred from slot equivalences, false otherwise.
     private boolean isInferred = false;
@@ -294,30 +291,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.BINARY_PRED;
         msg.setOpcode(opcode);
-        msg.setVectorOpcode(vectorOpcode);
         msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
-    }
-
-    @Override
-    public void vectorizedAnalyze(Analyzer analyzer) {
-        super.vectorizedAnalyze(analyzer);
-        Function match = null;
-
-        //OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
-        //        op.toFilterFunctionOp(), true, true, cmpType, cmpType);
-        try {
-            match = getBuiltinFunction(op.name, collectChildReturnTypes(),
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        } catch (AnalysisException e) {
-            Preconditions.checkState(false);
-        }
-        Preconditions.checkState(match != null);
-        Preconditions.checkState(match.getReturnType().getPrimitiveType() == PrimitiveType.BOOLEAN);
-        //todo(dhc): should add oppCode
-        //this.vectorOpcode = match.opcode;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(debugString() + " opcode: " + vectorOpcode);
-        }
     }
 
     private boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
@@ -492,17 +466,24 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
-        if ((t1.isDecimalV3Type() && !t2.isStringType() && !t2.isFloatingPointType())
-                || (t2.isDecimalV3Type() && !t1.isStringType() && !t1.isFloatingPointType())) {
+        if ((t1.isDecimalV3Type() && !t2.isStringType() && !t2.isFloatingPointType() && !t2.isVariantType())
+                || (t2.isDecimalV3Type() && !t1.isStringType() && !t1.isFloatingPointType() && !t1.isVariantType())) {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false,
                     SessionVariable.getEnableDecimal256());
         }
 
         // Variant can be implicit cast to numeric type and string type at present
         if (t1.isVariantType() && (t2.isNumericType() || t2.isStringType())) {
+            if (t2.isDecimalV2Type() || t2.isDecimalV3Type()) {
+                // TODO support decimal
+                return Type.DOUBLE;
+            }
             return Type.fromPrimitiveType(t2);
         }
         if (t2.isVariantType() && (t1.isNumericType() || t1.isStringType())) {
+            if (t1.isDecimalV2Type() || t1.isDecimalV3Type()) {
+                return Type.DOUBLE;
+            }
             return Type.fromPrimitiveType(t1);
         }
 
@@ -527,11 +508,13 @@ public class BinaryPredicate extends Predicate implements Writable {
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
         this.checkIncludeBitmap();
-        // Ignore placeholder
-        if (getChild(0) instanceof PlaceHolderExpr || getChild(1) instanceof PlaceHolderExpr) {
+        // Ignore placeholder, when it type is invalid.
+        // Invalid type could happen when analyze prepared point query select statement,
+        // since the value is occupied but not assigned
+        if ((getChild(0) instanceof PlaceHolderExpr && getChild(0).type == Type.UNSUPPORTED)
+                || (getChild(1) instanceof PlaceHolderExpr && getChild(1).type == Type.UNSUPPORTED)) {
             return;
         }
-
         for (Expr expr : children) {
             if (expr instanceof Subquery) {
                 Subquery subquery = (Subquery) expr;
@@ -833,7 +816,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         return compareLiteral((LiteralExpr) leftChildValue, (LiteralExpr) rightChildValue);
     }
 
-    private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+    private Expr compareLiteral(LiteralExpr first, LiteralExpr second) {
         final boolean isFirstNull = (first instanceof NullLiteral);
         final boolean isSecondNull = (second instanceof NullLiteral);
         if (op == Operator.EQ_FOR_NULL) {
@@ -854,13 +837,13 @@ public class BinaryPredicate extends Predicate implements Writable {
             case EQ_FOR_NULL:
                 return new BoolLiteral(compareResult == 0);
             case GE:
-                return new BoolLiteral(compareResult == 1 || compareResult == 0);
+                return new BoolLiteral(compareResult >= 0);
             case GT:
-                return new BoolLiteral(compareResult == 1);
+                return new BoolLiteral(compareResult > 0);
             case LE:
-                return new BoolLiteral(compareResult == -1 || compareResult == 0);
+                return new BoolLiteral(compareResult <= 0);
             case LT:
-                return new BoolLiteral(compareResult == -1);
+                return new BoolLiteral(compareResult < 0);
             case NE:
                 return new BoolLiteral(compareResult != 0);
             default:

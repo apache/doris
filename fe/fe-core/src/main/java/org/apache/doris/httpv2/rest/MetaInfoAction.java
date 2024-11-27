@@ -59,6 +59,7 @@ import javax.servlet.http.HttpServletResponse;
  * And meta info like databases, tables and schema
  */
 @RestController
+@Deprecated
 public class MetaInfoAction extends RestBaseController {
 
     private static final String NAMESPACES = "namespaces";
@@ -105,7 +106,8 @@ public class MetaInfoAction extends RestBaseController {
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), fullName, PrivPredicate.SHOW)) {
+                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullName,
+                            PrivPredicate.SHOW)) {
                 continue;
             }
             dbNameSet.add(db);
@@ -152,8 +154,10 @@ public class MetaInfoAction extends RestBaseController {
 
         List<String> tblNames = Lists.newArrayList();
         for (Table tbl : db.getTables()) {
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
-                    PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName,
+                            tbl.getName(),
+                            PrivPredicate.SHOW)) {
                 continue;
             }
             tblNames.add(tbl.getName());

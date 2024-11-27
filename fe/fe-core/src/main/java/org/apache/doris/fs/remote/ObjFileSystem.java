@@ -31,6 +31,7 @@ import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Comparator;
 
 public abstract class ObjFileSystem extends RemoteFileSystem {
@@ -43,9 +44,18 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
         this.objStorage = objStorage;
     }
 
+    public ObjStorage<?> getObjStorage() {
+        return objStorage;
+    }
+
     @Override
     public Status exists(String remotePath) {
         return objStorage.headObject(remotePath);
+    }
+
+    @Override
+    public Status directoryExists(String dir) {
+        return listFiles(dir, false, new ArrayList<>());
     }
 
     /**
@@ -138,5 +148,10 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
     @Override
     public Status delete(String remotePath) {
         return objStorage.deleteObject(remotePath);
+    }
+
+    @Override
+    public Status deleteDirectory(String absolutePath) {
+        return objStorage.deleteObjects(absolutePath);
     }
 }

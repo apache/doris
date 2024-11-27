@@ -235,7 +235,10 @@ template <typename T>
 ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = limit ? std::min(data.size(), limit) : data.size();
     if (perm.size() < size) {
-        LOG(FATAL) << "Size of permutation is less than required.";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
+        __builtin_unreachable();
     }
 
     auto res = this->create(size, scale);
@@ -326,20 +329,18 @@ ColumnPtr ColumnDecimal<T>::filter(const IColumn::Filter& filt, ssize_t result_s
         *  completely pass or do not pass the filter.
         * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
         */
-    static constexpr size_t SIMD_BYTES = 32;
+    static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
     const UInt8* filt_end_sse = filt_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filt_pos < filt_end_sse) {
-        uint32_t mask = simd::bytes32_mask_to_bits32_mask(filt_pos);
-
-        if (0xFFFFFFFF == mask) {
+        auto mask = simd::bytes_mask_to_bits_mask(filt_pos);
+        if (0 == mask) {
+            //pass
+        } else if (simd::bits_mask_all() == mask) {
             res_data.insert(data_pos, data_pos + SIMD_BYTES);
         } else {
-            while (mask) {
-                const size_t idx = __builtin_ctzll(mask);
-                res_data.push_back(data_pos[idx]);
-                mask = mask & (mask - 1);
-            }
+            simd::iterate_through_bits_mask(
+                    [&](const size_t bit_pos) { res_data.push_back(data_pos[bit_pos]); }, mask);
         }
 
         filt_pos += SIMD_BYTES;
@@ -371,22 +372,23 @@ size_t ColumnDecimal<T>::filter(const IColumn::Filter& filter) {
         *  completely pass or do not pass the filter.
         * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
         */
-    static constexpr size_t SIMD_BYTES = 32;
+    static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
     const UInt8* filter_end_sse = filter_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filter_pos < filter_end_sse) {
-        uint32_t mask = simd::bytes32_mask_to_bits32_mask(filter_pos);
-
-        if (0xFFFFFFFF == mask) {
+        auto mask = simd::bytes_mask_to_bits_mask(filter_pos);
+        if (0 == mask) {
+            //pass
+        } else if (simd::bits_mask_all() == mask) {
             memmove(result_data, data_pos, sizeof(T) * SIMD_BYTES);
             result_data += SIMD_BYTES;
         } else {
-            while (mask) {
-                const size_t idx = __builtin_ctzll(mask);
-                *result_data = data_pos[idx];
-                ++result_data;
-                mask = mask & (mask - 1);
-            }
+            simd::iterate_through_bits_mask(
+                    [&](const size_t idx) {
+                        *result_data = data_pos[idx];
+                        ++result_data;
+                    },
+                    mask);
         }
 
         filter_pos += SIMD_BYTES;

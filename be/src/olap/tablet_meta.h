@@ -110,10 +110,18 @@ public:
                int64_t time_series_compaction_goal_size_mbytes = 1024,
                int64_t time_series_compaction_file_count_threshold = 2000,
                int64_t time_series_compaction_time_threshold_seconds = 3600,
-               int64_t time_series_compaction_empty_rowsets_threshold = 5);
+               int64_t time_series_compaction_empty_rowsets_threshold = 5,
+               TInvertedIndexStorageFormat::type inverted_index_storage_format =
+                       TInvertedIndexStorageFormat::V1,
+               int64_t time_series_compaction_level_threshold = 1);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
+
+// UT
+#ifdef BE_TEST
+    TabletMeta(TabletSchemaSPtr tablet_schema) : _schema(tablet_schema) {}
+#endif
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
@@ -125,7 +133,7 @@ public:
                                                   int64_t tablet_id);
     Status save_meta(DataDir* data_dir);
 
-    Status serialize(std::string* meta_binary);
+    void serialize(std::string* meta_binary);
     Status deserialize(const std::string& meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
     // Init `RowsetMeta._fs` if rowset is local.
@@ -163,6 +171,8 @@ public:
     // Remote disk space occupied by tablet.
     size_t tablet_remote_size() const;
     size_t version_count() const;
+    size_t stale_version_count() const;
+    size_t version_count_cross_with_range(const Version& range) const;
     Version max_version() const;
 
     TabletState tablet_state() const;
@@ -258,6 +268,14 @@ public:
     int64_t time_series_compaction_empty_rowsets_threshold() const {
         return _time_series_compaction_empty_rowsets_threshold;
     }
+    void set_time_series_compaction_level_threshold(int64_t level_threshold) {
+        _time_series_compaction_level_threshold = level_threshold;
+    }
+    int64_t time_series_compaction_level_threshold() const {
+        return _time_series_compaction_level_threshold;
+    }
+
+    int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -311,6 +329,9 @@ private:
     int64_t _time_series_compaction_file_count_threshold = 0;
     int64_t _time_series_compaction_time_threshold_seconds = 0;
     int64_t _time_series_compaction_empty_rowsets_threshold = 0;
+    int64_t _time_series_compaction_level_threshold = 0;
+
+    int64_t _avg_rs_meta_serialize_size = 0;
 
     mutable std::shared_mutex _meta_lock;
 };
@@ -368,13 +389,13 @@ public:
     DeleteBitmap& operator=(DeleteBitmap&& r);
 
     /**
-     * Makes a snapshot of delete bimap, read lock will be acquired in this
+     * Makes a snapshot of delete bitmap, read lock will be acquired in this
      * process
      */
     DeleteBitmap snapshot() const;
 
     /**
-     * Makes a snapshot of delete bimap on given version, read lock will be
+     * Makes a snapshot of delete bitmap on given version, read lock will be
      * acquired temporary in this process
      */
     DeleteBitmap snapshot(Version version) const;
@@ -387,7 +408,7 @@ public:
     /**
      * Clears the deletetion mark specific row
      *
-     * @return non-zero if the associated delete bimap does not exist
+     * @return non-zero if the associated delete bitmap does not exist
      */
     int remove(const BitmapKey& bmk, uint32_t row_id);
 
@@ -411,6 +432,11 @@ public:
     bool empty() const;
 
     /**
+     * return the total cardinality of the Delete Bitmap
+     */
+    uint64_t cardinality() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place
@@ -421,7 +447,7 @@ public:
      * Gets a copy of specific delete bmk
      *
      * @param segment_delete_bitmap output param
-     * @return non-zero if the associated delete bimap does not exist
+     * @return non-zero if the associated delete bitmap does not exist
      */
     int get(const BitmapKey& bmk, roaring::Roaring* segment_delete_bitmap) const;
 
@@ -478,17 +504,19 @@ public:
      */
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
 
-    class AggCachePolicy : public LRUCachePolicy {
+    class AggCachePolicy : public LRUCachePolicyTrackingManual {
     public:
         AggCachePolicy(size_t capacity)
-                : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
-                                 LRUCacheType::SIZE,
-                                 config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
+                : LRUCachePolicyTrackingManual(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE,
+                                               capacity, LRUCacheType::SIZE,
+                                               config::delete_bitmap_agg_cache_stale_sweep_time_sec,
+                                               256) {}
     };
 
     class AggCache {
     public:
-        struct Value {
+        class Value : public LRUCacheValueBase {
+        public:
             roaring::Roaring bitmap;
         };
 
@@ -503,7 +531,7 @@ public:
             }
         }
 
-        static Cache* repr() { return s_repr.load(std::memory_order_acquire)->cache(); }
+        static LRUCachePolicy* repr() { return s_repr.load(std::memory_order_acquire); }
         static std::atomic<AggCachePolicy*> s_repr;
     };
 
@@ -599,6 +627,10 @@ inline size_t TabletMeta::tablet_remote_size() const {
 }
 
 inline size_t TabletMeta::version_count() const {
+    return _rs_metas.size();
+}
+
+inline size_t TabletMeta::stale_version_count() const {
     return _rs_metas.size();
 }
 

@@ -28,7 +28,7 @@
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_task.h"
 #include "pipeline/pipeline_x/dependency.h"
-#include "runtime/task_group/task_group.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
@@ -88,7 +88,7 @@ public:
 
     void finalize() override;
 
-    bool is_finished() const { return _finished.load(); }
+    bool is_finished() const override { return _finished.load(); }
 
     std::string debug_string() override;
 
@@ -138,10 +138,25 @@ public:
 
     int task_id() const { return _index; };
 
-    void clear_blocking_state() {
-        if (!_finished && get_state() != PipelineTaskState::PENDING_FINISH && _blocked_dep) {
-            _blocked_dep->set_ready();
-            _blocked_dep = nullptr;
+    void clear_blocking_state(bool wake_up_by_downstream = false) override {
+        _wake_up_by_downstream = _wake_up_by_downstream || wake_up_by_downstream;
+        _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
+        // We use a lock to assure all dependencies are not deconstructed here.
+        std::unique_lock<std::mutex> lc(_dependency_lock);
+        if (!_finished) {
+            _execution_dep->set_always_ready();
+            for (auto* dep : _filter_dependencies) {
+                dep->set_always_ready();
+            }
+            for (auto* dep : _read_dependencies) {
+                dep->set_always_ready();
+            }
+            for (auto* dep : _write_dependencies) {
+                dep->set_always_ready();
+            }
+            for (auto* dep : _finish_dependencies) {
+                dep->set_always_ready();
+            }
         }
     }
 
@@ -154,7 +169,18 @@ public:
         return false;
     }
 
+    void stop_if_finished() {
+        if (_sink->is_finished(_state)) {
+            clear_blocking_state();
+        }
+    }
+
+    static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
+
+    bool wake_up_by_downstream() const { return _wake_up_by_downstream; }
+
 private:
+    friend class RuntimeFilterDependency;
     Dependency* _write_blocked_dependency() {
         for (auto* op_dep : _write_dependencies) {
             _blocked_dep = op_dep->is_blocked_by(this);
@@ -188,6 +214,17 @@ private:
         return nullptr;
     }
 
+    Dependency* _runtime_filter_blocked_dependency() {
+        for (auto* op_dep : _filter_dependencies) {
+            _blocked_dep = op_dep->is_blocked_by(this);
+            if (_blocked_dep != nullptr) {
+                _blocked_dep->start_watcher();
+                return _blocked_dep;
+            }
+        }
+        return nullptr;
+    }
+
     Status _extract_dependencies();
     void set_close_pipeline_time() override {}
     void _init_profile() override;
@@ -202,7 +239,7 @@ private:
     std::vector<Dependency*> _read_dependencies;
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
-    RuntimeFilterDependency* _filter_dependency;
+    std::vector<Dependency*> _filter_dependencies;
 
     // All shared states of this pipeline task.
     std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;
@@ -217,7 +254,8 @@ private:
     Dependency* _execution_dep = nullptr;
 
     std::atomic<bool> _finished {false};
-    std::mutex _release_lock;
+    std::mutex _dependency_lock;
+    std::atomic<bool> _wake_up_by_downstream = false;
 };
 
 } // namespace doris::pipeline

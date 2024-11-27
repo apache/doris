@@ -56,6 +56,14 @@ std::string DataTypeDateTime::to_string(const IColumn& column, size_t row_num) c
     return buf;
 }
 
+std::string DataTypeDateTime::to_string(Int64 int_val) const {
+    doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
+
+    char buf[64];
+    value.to_string(buf);
+    // DateTime to_string the end is /0
+    return buf;
+}
 void DataTypeDateTime::to_string(const IColumn& column, size_t row_num,
                                  BufferWritable& ostr) const {
     auto result = check_column_const_set_readability(column, row_num);

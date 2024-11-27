@@ -29,7 +29,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 
 public class FileSystemFactory {
@@ -51,10 +50,8 @@ public class FileSystemFactory {
         }
     }
 
-    public static RemoteFileSystem getRemoteFileSystem(FileSystemType type, Configuration conf,
+    public static RemoteFileSystem getRemoteFileSystem(FileSystemType type, Map<String, String> properties,
                                                        String bindBrokerName) {
-        Map<String, String> properties = new HashMap<>();
-        conf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
         switch (type) {
             case S3:
                 return new S3FileSystem(properties);

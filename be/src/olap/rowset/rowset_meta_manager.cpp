@@ -357,6 +357,69 @@ Status RowsetMetaManager::_get_rowset_binlog_metas(OlapMeta* meta, const TabletU
     return status;
 }
 
+Status RowsetMetaManager::get_rowset_binlog_metas(OlapMeta* meta, TabletUid tablet_uid,
+                                                  Version version, RowsetBinlogMetasPB* metas_pb) {
+    Status status;
+    auto tablet_uid_str = tablet_uid.to_string();
+    auto prefix_key = make_binlog_meta_key_prefix(tablet_uid);
+    auto begin_key = make_binlog_meta_key_prefix(tablet_uid, version.first);
+    auto end_key = make_binlog_meta_key_prefix(tablet_uid, version.second + 1);
+    auto traverse_func = [meta, metas_pb, &status, &tablet_uid_str, &end_key](
+                                 std::string_view key, std::string_view value) -> bool {
+        VLOG_DEBUG << fmt::format("get rowset binlog metas, key={}, value={}", key, value);
+        if (key.compare(end_key) > 0) { // the binlog meta key is binary comparable.
+            // All binlog meta has been scanned
+            return false;
+        }
+
+        if (!starts_with_binlog_meta(key)) {
+            auto err_msg = fmt::format("invalid binlog meta key:{}", key);
+            status = Status::InternalError(err_msg);
+            LOG(WARNING) << err_msg;
+            return false;
+        }
+
+        BinlogMetaEntryPB binlog_meta_entry_pb;
+        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), value.size())) {
+            auto err_msg = fmt::format("fail to parse binlog meta value:{}", value);
+            status = Status::InternalError(err_msg);
+            LOG(WARNING) << err_msg;
+            return false;
+        }
+
+        const auto& rowset_id = binlog_meta_entry_pb.rowset_id_v2();
+        auto* binlog_meta_pb = metas_pb->add_rowset_binlog_metas();
+        binlog_meta_pb->set_rowset_id(rowset_id);
+        binlog_meta_pb->set_version(binlog_meta_entry_pb.version());
+        binlog_meta_pb->set_num_segments(binlog_meta_entry_pb.num_segments());
+        binlog_meta_pb->set_meta_key(std::string {key});
+        binlog_meta_pb->set_meta(std::string {value});
+
+        auto binlog_data_key =
+                make_binlog_data_key(tablet_uid_str, binlog_meta_entry_pb.version(), rowset_id);
+        std::string binlog_data;
+        status = meta->get(META_COLUMN_FAMILY_INDEX, binlog_data_key, &binlog_data);
+        if (!status.ok()) {
+            LOG(WARNING) << status.to_string();
+            return false;
+        }
+        binlog_meta_pb->set_data_key(binlog_data_key);
+        binlog_meta_pb->set_data(binlog_data);
+
+        return true;
+    };
+
+    Status iterStatus =
+            meta->iterate(META_COLUMN_FAMILY_INDEX, begin_key, prefix_key, traverse_func);
+    if (!iterStatus.ok()) {
+        LOG(WARNING) << fmt::format(
+                "fail to iterate binlog meta. prefix_key:{}, version:{}, status:{}", prefix_key,
+                version.to_string(), iterStatus.to_string());
+        return iterStatus;
+    }
+    return status;
+}
+
 Status RowsetMetaManager::_get_all_rowset_binlog_metas(OlapMeta* meta, const TabletUid tablet_uid,
                                                        RowsetBinlogMetasPB* metas_pb) {
     Status status;
@@ -533,6 +596,100 @@ Status RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta,
     TabletUid tablet_uid = rowset_meta.tablet_uid();
     Status status = save(meta, tablet_uid, rowset_id, rowset_meta.get_rowset_pb(), false);
     return status;
+}
+
+Status RowsetMetaManager::save_partial_update_info(
+        OlapMeta* meta, int64_t tablet_id, int64_t partition_id, int64_t txn_id,
+        const PartialUpdateInfoPB& partial_update_info_pb) {
+    std::string key =
+            fmt::format("{}{}_{}_{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id, partition_id, txn_id);
+    std::string value;
+    if (!partial_update_info_pb.SerializeToString(&value)) {
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>(
+                "serialize partial update info failed. key={}", key);
+    }
+    VLOG_NOTICE << "save partial update info, key=" << key << ", value_size=" << value.size();
+    return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+}
+
+Status RowsetMetaManager::try_get_partial_update_info(OlapMeta* meta, int64_t tablet_id,
+                                                      int64_t partition_id, int64_t txn_id,
+                                                      PartialUpdateInfoPB* partial_update_info_pb) {
+    std::string key =
+            fmt::format("{}{}_{}_{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id, partition_id, txn_id);
+    std::string value;
+    Status status = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
+    if (status.is<META_KEY_NOT_FOUND>()) {
+        return status;
+    }
+    if (!status.ok()) {
+        LOG_WARNING("failed to get partial update info. tablet_id={}, partition_id={}, txn_id={}",
+                    tablet_id, partition_id, txn_id);
+        return status;
+    }
+    if (!partial_update_info_pb->ParseFromString(value)) {
+        return Status::Error<ErrorCode::PARSE_PROTOBUF_ERROR>(
+                "fail to parse partial update info content to protobuf object. tablet_id={}, "
+                "partition_id={}, txn_id={}",
+                tablet_id, partition_id, txn_id);
+    }
+    return Status::OK();
+}
+
+Status RowsetMetaManager::traverse_partial_update_info(
+        OlapMeta* meta,
+        std::function<bool(int64_t, int64_t, int64_t, std::string_view)> const& func) {
+    auto traverse_partial_update_info_func = [&func](const std::string& key,
+                                                     const std::string& value) -> bool {
+        std::vector<std::string> parts;
+        // key format: pui_{tablet_id}_{partition_id}_{txn_id}
+        RETURN_IF_ERROR(split_string(key, '_', &parts));
+        if (parts.size() != 4) {
+            LOG_WARNING("invalid rowset key={}, splitted size={}", key, parts.size());
+            return true;
+        }
+        int64_t tablet_id = std::stoll(parts[1]);
+        int64_t partition_id = std::stoll(parts[2]);
+        int64_t txn_id = std::stoll(parts[3]);
+        return func(tablet_id, partition_id, txn_id, value);
+    };
+    return meta->iterate(META_COLUMN_FAMILY_INDEX, PARTIAL_UPDATE_INFO_PREFIX,
+                         traverse_partial_update_info_func);
+}
+
+Status RowsetMetaManager::remove_partial_update_info(OlapMeta* meta, int64_t tablet_id,
+                                                     int64_t partition_id, int64_t txn_id) {
+    std::string key =
+            fmt::format("{}{}_{}_{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id, partition_id, txn_id);
+    Status res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
+    VLOG_NOTICE << "remove partial update info, key=" << key;
+    return res;
+}
+
+Status RowsetMetaManager::remove_partial_update_infos(
+        OlapMeta* meta, const std::vector<std::tuple<int64_t, int64_t, int64_t>>& keys) {
+    std::vector<std::string> remove_keys;
+    for (auto [tablet_id, partition_id, txn_id] : keys) {
+        remove_keys.push_back(fmt::format("{}{}_{}_{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id,
+                                          partition_id, txn_id));
+    }
+    Status res = meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
+    VLOG_NOTICE << "remove partial update info, remove_keys.size()=" << remove_keys.size();
+    return res;
+}
+
+Status RowsetMetaManager::remove_tablet_related_partial_update_info(OlapMeta* meta,
+                                                                    int64_t tablet_id) {
+    std::string prefix = fmt::format("{}{}", PARTIAL_UPDATE_INFO_PREFIX, tablet_id);
+    std::vector<std::string> remove_keys;
+    auto get_remove_keys_func = [&](const std::string& key, const std::string& value) -> bool {
+        remove_keys.emplace_back(key);
+        return true;
+    };
+    VLOG_NOTICE << "remove tablet related partial update info, tablet_id: " << tablet_id
+                << " removed keys size: " << remove_keys.size();
+    RETURN_IF_ERROR(meta->iterate(META_COLUMN_FAMILY_INDEX, prefix, get_remove_keys_func));
+    return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
 }
 
 } // namespace doris

@@ -73,13 +73,23 @@ public class CreateIndexClause extends AlterTableClause {
         indexDef.analyze();
         this.index = new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(),
                 indexDef.getColumns(), indexDef.getIndexType(),
-                indexDef.getProperties(), indexDef.getComment());
+                indexDef.getProperties(), indexDef.getComment(), indexDef.getColumnUniqueIds());
+    }
+
+    @Override
+    public boolean allowOpMTMV() {
+        return true;
+    }
+
+    @Override
+    public boolean needChangeMTMVState() {
+        return false;
     }
 
     @Override
     public String toSql() {
         if (alter) {
-            return indexDef.toSql();
+            return "ADD " + indexDef.toSql();
         } else {
             return "CREATE " + indexDef.toSql(tableName.toSql());
         }

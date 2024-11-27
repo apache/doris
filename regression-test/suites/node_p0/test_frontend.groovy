@@ -39,4 +39,10 @@ suite("test_frontend") {
         result = sql """SHOW FRONTENDS;"""
         logger.debug("result:${result}")
     }
+
+    def res = sql """SHOW FRONTENDS DISKS"""
+    assertTrue(res.size() != 0)
+
+    def res2 = sql """SHOW FRONTENDS Disks"""
+    assertTrue(res2.size() != 0)
 }

@@ -19,8 +19,10 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet.h"
@@ -46,11 +48,11 @@ public:
     ParallelScannerBuilder(ParentType* parent, const std::vector<TabletWithVersion>& tablets,
                            const std::shared_ptr<RuntimeProfile>& profile,
                            const std::vector<OlapScanRange*>& key_ranges, RuntimeState* state,
-                           int64_t limit_per_scanner, bool is_dup_mow_key, bool is_preaggregation)
+                           int64_t limit, bool is_dup_mow_key, bool is_preaggregation)
             : _parent(parent),
               _scanner_profile(profile),
               _state(state),
-              _limit_per_scanner(limit_per_scanner),
+              _limit(limit),
               _is_dup_mow_key(is_dup_mow_key),
               _is_preaggregation(is_preaggregation),
               _tablets(tablets.cbegin(), tablets.cend()),
@@ -83,16 +85,16 @@ private:
 
     size_t _rows_per_scanner {_min_rows_per_scanner};
 
-    std::map<RowsetId, SegmentCacheHandle> _segment_cache_handles;
+    std::map<RowsetId, std::vector<size_t>> _all_segments_rows;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeState* _state;
-    int64_t _limit_per_scanner;
+    int64_t _limit;
     bool _is_dup_mow_key;
     bool _is_preaggregation;
     std::vector<TabletWithVersion> _tablets;
     std::vector<OlapScanRange*> _key_ranges;
-    std::unordered_map<int64_t, std::vector<RowsetSharedPtr>> _all_rowsets;
+    std::unordered_map<int64_t, TabletReader::ReadSource> _all_read_sources;
 };
 
 } // namespace doris

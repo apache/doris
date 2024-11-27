@@ -167,7 +167,7 @@ public class EditLog {
         short opCode = journal.getOpCode();
         if (opCode != OperationType.OP_SAVE_NEXTID && opCode != OperationType.OP_TIMESTAMP) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("replay journal op code: {}", opCode);
+                LOG.debug("replay journal op code: {}, log id: {}", opCode, logId);
             }
         }
         try {
@@ -302,21 +302,25 @@ public class EditLog {
                 case OperationType.OP_RENAME_TABLE: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenameTable(info);
+                    env.getBinlogManager().addTableRename(info, logId);
                     break;
                 }
                 case OperationType.OP_MODIFY_VIEW_DEF: {
                     AlterViewInfo info = (AlterViewInfo) journal.getData();
                     env.getAlterInstance().replayModifyViewDef(info);
+                    env.getBinlogManager().addModifyViewDef(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_PARTITION: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenamePartition(info);
+                    env.getBinlogManager().addTableRename(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_COLUMN: {
                     TableRenameColumnInfo info = (TableRenameColumnInfo) journal.getData();
                     env.replayRenameColumn(info);
+                    Env.getCurrentEnv().getBinlogManager().addColumnRename(info, logId);
                     break;
                 }
                 case OperationType.OP_BACKUP_JOB: {
@@ -340,7 +344,7 @@ public class EditLog {
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
                         env.getMaterializedViewHandler().replayDropRollup(
                                 new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
-                                        batchDropInfo.getTableName(), indexId, false, 0),
+                                        batchDropInfo.getTableName(), indexId, false, false, 0),
                                 env);
                     }
                     break;
@@ -358,6 +362,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_ROLLUP: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenameRollup(info);
+                    env.getBinlogManager().addTableRename(info, logId);
                     break;
                 }
                 case OperationType.OP_LOAD_START:
@@ -438,8 +443,7 @@ public class EditLog {
                     Frontend fe = (Frontend) journal.getData();
                     env.replayDropFrontend(fe);
                     if (fe.getNodeName().equals(Env.getCurrentEnv().getNodeName())) {
-                        System.out.println("current fe " + fe + " is removed. will exit");
-                        LOG.info("current fe " + fe + " is removed. will exit");
+                        LOG.warn("current fe {} is removed. will exit", fe);
                         System.exit(-1);
                     }
                     break;
@@ -477,6 +481,11 @@ public class EditLog {
                 case OperationType.OP_CREATE_ROLE: {
                     PrivInfo privInfo = (PrivInfo) journal.getData();
                     env.getAuth().replayCreateRole(privInfo);
+                    break;
+                }
+                case OperationType.OP_ALTER_ROLE: {
+                    PrivInfo privInfo = (PrivInfo) journal.getData();
+                    env.getAuth().replayAlterRole(privInfo);
                     break;
                 }
                 case OperationType.OP_DROP_ROLE: {
@@ -859,6 +868,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_COMMENT: {
                     ModifyCommentOperationLog operation = (ModifyCommentOperationLog) journal.getData();
                     env.getAlterInstance().replayModifyComment(operation);
+                    env.getBinlogManager().addModifyComment(operation, logId);
                     break;
                 }
                 case OperationType.OP_SET_PARTITION_VERSION: {
@@ -879,6 +889,7 @@ public class EditLog {
                 case OperationType.OP_REPLACE_TABLE: {
                     ReplaceTableOperationLog log = (ReplaceTableOperationLog) journal.getData();
                     env.getAlterInstance().replayReplaceTable(log);
+                    env.getBinlogManager().addReplaceTable(log, logId);
                     break;
                 }
                 case OperationType.OP_CREATE_SQL_BLOCK_RULE: {
@@ -943,7 +954,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshCatalog(log);
+                    env.getRefreshManager().replayRefreshCatalog(log);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
@@ -966,11 +977,13 @@ public class EditLog {
                     final TableAddOrDropInvertedIndicesInfo info =
                             (TableAddOrDropInvertedIndicesInfo) journal.getData();
                     env.getSchemaChangeHandler().replayModifyTableAddOrDropInvertedIndices(info);
+                    env.getBinlogManager().addModifyTableAddOrDropInvertedIndices(info, logId);
                     break;
                 }
                 case OperationType.OP_INVERTED_INDEX_JOB: {
                     IndexChangeJob indexChangeJob = (IndexChangeJob) journal.getData();
                     env.getSchemaChangeHandler().replayIndexChangeJob(indexChangeJob);
+                    env.getBinlogManager().addIndexChangeJob(indexChangeJob, logId);
                     break;
                 }
                 case OperationType.OP_CLEAN_LABEL: {
@@ -1009,7 +1022,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_DB: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalDb(log);
+                    env.getRefreshManager().replayRefreshDb(log);
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_DB: {
@@ -1019,7 +1032,7 @@ public class EditLog {
                 }
                 case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayRefreshExternalTable(log);
+                    env.getRefreshManager().replayRefreshTable(log);
                     break;
                 }
                 case OperationType.OP_DROP_EXTERNAL_TABLE: {
@@ -1197,7 +1210,7 @@ public class EditLog {
                 }
                 default: {
                     IOException e = new IOException();
-                    LOG.error("UNKNOWN Operation Type {}", opCode, e);
+                    LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
                     throw e;
                 }
             }
@@ -1221,9 +1234,9 @@ public class EditLog {
              * log a warning here to debug when happens. This could happen to other meta
              * like DB.
              */
-            LOG.warn("[INCONSISTENT META] replay failed {}: {}", journal, e.getMessage(), e);
+            LOG.warn("[INCONSISTENT META] replay log {} failed, journal {}: {}", logId, journal, e.getMessage(), e);
         } catch (Exception e) {
-            LOG.error("Operation Type {}", opCode, e);
+            LOG.error("replay Operation Type {}, log id: {}", opCode, logId, e);
             System.exit(-1);
         }
     }
@@ -1504,6 +1517,10 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_ROLE, info);
     }
 
+    public void logAlterRole(PrivInfo info) {
+        logEdit(OperationType.OP_ALTER_ROLE, info);
+    }
+
     public void logDropRole(PrivInfo info) {
         logEdit(OperationType.OP_DROP_ROLE, info);
     }
@@ -1513,11 +1530,17 @@ public class EditLog {
     }
 
     public void logTableRename(TableInfo tableInfo) {
-        logEdit(OperationType.OP_RENAME_TABLE, tableInfo);
+        long logId = logEdit(OperationType.OP_RENAME_TABLE, tableInfo);
+        LOG.info("log table rename, logId : {}, infos: {}", logId, tableInfo);
+        Env.getCurrentEnv().getBinlogManager().addTableRename(tableInfo, logId);
     }
 
     public void logModifyViewDef(AlterViewInfo alterViewInfo) {
-        logEdit(OperationType.OP_MODIFY_VIEW_DEF, alterViewInfo);
+        long logId = logEdit(OperationType.OP_MODIFY_VIEW_DEF, alterViewInfo);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("log modify view, logId : {}, infos: {}", logId, alterViewInfo);
+        }
+        Env.getCurrentEnv().getBinlogManager().addModifyViewDef(alterViewInfo, logId);
     }
 
     public void logRollupRename(TableInfo tableInfo) {
@@ -1529,7 +1552,9 @@ public class EditLog {
     }
 
     public void logColumnRename(TableRenameColumnInfo info) {
-        logEdit(OperationType.OP_RENAME_COLUMN, info);
+        long logId = logEdit(OperationType.OP_RENAME_COLUMN, info);
+        LOG.info("log column rename, logId : {}, infos: {}", logId, info);
+        Env.getCurrentEnv().getBinlogManager().addColumnRename(info, logId);
     }
 
     public void logAddBroker(BrokerMgr.ModifyBrokerInfo info) {
@@ -1548,8 +1573,8 @@ public class EditLog {
         logEdit(OperationType.OP_EXPORT_CREATE, job);
     }
 
-    public void logExportUpdateState(long jobId, ExportJobState newState) {
-        ExportJobStateTransfer transfer = new ExportJobStateTransfer(jobId, newState);
+    public void logExportUpdateState(ExportJob job, ExportJobState newState) {
+        ExportJobStateTransfer transfer = new ExportJobStateTransfer(job, newState);
         logEdit(OperationType.OP_EXPORT_UPDATE_STATE, transfer);
     }
 
@@ -1867,7 +1892,9 @@ public class EditLog {
     }
 
     public void logReplaceTable(ReplaceTableOperationLog log) {
-        logEdit(OperationType.OP_REPLACE_TABLE, log);
+        long logId = logEdit(OperationType.OP_REPLACE_TABLE, log);
+        LOG.info("add replace table binlog, logId: {}, infos: {}", logId, log);
+        Env.getCurrentEnv().getBinlogManager().addReplaceTable(log, logId);
     }
 
     public void logBatchRemoveTransactions(BatchRemoveTransactionsOperationV2 op) {
@@ -1879,7 +1906,9 @@ public class EditLog {
     }
 
     public void logModifyComment(ModifyCommentOperationLog op) {
-        logEdit(OperationType.OP_MODIFY_COMMENT, op);
+        long logId = logEdit(OperationType.OP_MODIFY_COMMENT, op);
+        LOG.info("log modify comment, logId : {}, infos: {}", logId, op);
+        Env.getCurrentEnv().getBinlogManager().addModifyComment(op, logId);
     }
 
     public void logCreateSqlBlockRule(SqlBlockRule rule) {
@@ -1970,11 +1999,17 @@ public class EditLog {
     }
 
     public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {
-        logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES, info);
+        long logId = logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES, info);
+        LOG.info("walter log modify table add or drop inverted indices, infos: {}, json: {}",
+                info, info.toJson(), new RuntimeException("test"));
+        Env.getCurrentEnv().getBinlogManager().addModifyTableAddOrDropInvertedIndices(info, logId);
     }
 
     public void logIndexChangeJob(IndexChangeJob indexChangeJob) {
-        logEdit(OperationType.OP_INVERTED_INDEX_JOB, indexChangeJob);
+        long logId = logEdit(OperationType.OP_INVERTED_INDEX_JOB, indexChangeJob);
+        LOG.info("walter log inverted index job, infos: {}, json: {}",
+                indexChangeJob, indexChangeJob.toJson(), new RuntimeException("test"));
+        Env.getCurrentEnv().getBinlogManager().addIndexChangeJob(indexChangeJob, logId);
     }
 
     public void logCleanLabel(CleanLabelOperationLog log) {
@@ -2071,5 +2106,18 @@ public class EditLog {
             return ((BDBJEJournal) journal).getNotReadyReason();
         }
         return "";
+    }
+
+    public boolean exceedMaxJournalSize(BackupJob job) {
+        try {
+            return exceedMaxJournalSize(OperationType.OP_BACKUP_JOB, job);
+        } catch (Exception e) {
+            LOG.warn("exceedMaxJournalSize exception:", e);
+        }
+        return true;
+    }
+
+    private boolean exceedMaxJournalSize(short op, Writable writable) throws IOException {
+        return journal.exceedMaxJournalSize(op, writable);
     }
 }

@@ -24,6 +24,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.InternalErrorCode;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
@@ -46,6 +48,7 @@ import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -274,8 +277,19 @@ public class RoutineLoadJobTest {
             }
         };
 
+        new MockUp<KafkaUtil>() {
+            @Mock
+            public List<Pair<Integer, Long>> getRealOffsets(String brokerList, String topic,
+                                                             Map<String, String> convertedCustomProperties,
+                                                             List<Pair<Integer, Long>> offsetFlags)
+                                                             throws LoadException {
+                List<Pair<Integer, Long>> pairList = new ArrayList<>();
+                pairList.add(Pair.of(1, 0L));
+                return pairList;
+            }
+        };
+
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
-        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
         routineLoadJob.update();
 
@@ -340,7 +354,6 @@ public class RoutineLoadJobTest {
                 11, "localhost:9092", "test_topic", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
-        Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
         String showCreateInfo = routineLoadJob.getShowCreateInfo();
         String expect = "CREATE ROUTINE LOAD test_load ON 11\n"
                 + "WITH APPEND\n"
@@ -349,9 +362,9 @@ public class RoutineLoadJobTest {
                 + "\"desired_concurrent_number\" = \"0\",\n"
                 + "\"max_error_number\" = \"10\",\n"
                 + "\"max_filter_ratio\" = \"1.0\",\n"
-                + "\"max_batch_interval\" = \"10\",\n"
+                + "\"max_batch_interval\" = \"60\",\n"
                 + "\"max_batch_rows\" = \"10\",\n"
-                + "\"max_batch_size\" = \"104857600\",\n"
+                + "\"max_batch_size\" = \"1073741824\",\n"
                 + "\"format\" = \"csv\",\n"
                 + "\"strip_outer_array\" = \"false\",\n"
                 + "\"num_as_string\" = \"false\",\n"

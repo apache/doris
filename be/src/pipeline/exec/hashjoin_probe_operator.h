@@ -94,6 +94,7 @@ public:
     const std::shared_ptr<vectorized::Block>& build_block() const {
         return _shared_state->build_block;
     }
+    std::string debug_string(int indentation_level) const override;
 
 private:
     void _prepare_probe_block();
@@ -123,6 +124,8 @@ private:
     vectorized::VExprContextSPtrs _other_join_conjuncts;
 
     vectorized::VExprContextSPtrs _mark_join_conjuncts;
+
+    std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
@@ -172,8 +175,15 @@ public:
                                   : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
     }
 
-    bool is_shuffled_hash_join() const override {
+    bool require_shuffled_data_distribution() const override {
+        return _join_op != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !_is_broadcast_join;
+    }
+    bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
+    }
+    bool require_data_distribution() const override {
+        return _join_distribution == TJoinDistributionType::COLOCATE ||
+               _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE;
     }
 
 private:
@@ -193,6 +203,8 @@ private:
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     bool _probe_ignore_null = false;
+
+    std::vector<bool> _should_convert_to_nullable;
 
     vectorized::DataTypes _right_table_data_types;
     vectorized::DataTypes _left_table_data_types;

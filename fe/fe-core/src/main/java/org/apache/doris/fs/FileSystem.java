@@ -18,11 +18,11 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.backup.Status;
-import org.apache.doris.common.UserException;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * File system interface.
@@ -38,6 +38,10 @@ public interface FileSystem {
 
     Status exists(String remotePath);
 
+    default Status directoryExists(String dir) {
+        return exists(dir);
+    }
+
     Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize);
 
     Status upload(String localPath, String remotePath);
@@ -46,17 +50,48 @@ public interface FileSystem {
 
     Status rename(String origFilePath, String destFilePath);
 
+    default Status renameDir(String origFilePath, String destFilePath) {
+        return renameDir(origFilePath, destFilePath, () -> {});
+    }
+
+    default Status renameDir(String origFilePath,
+                             String destFilePath,
+                             Runnable runWhenPathNotExist) {
+        throw new UnsupportedOperationException("Unsupported operation rename dir on current file system.");
+    }
+
     Status delete(String remotePath);
+
+    default Status deleteDirectory(String dir) {
+        return delete(dir);
+    }
 
     Status makeDir(String remotePath);
 
-    RemoteFiles listLocatedFiles(String remotePath, boolean onlyFiles, boolean recursive) throws UserException;
+    Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result);
 
-    // List files in remotePath
-    // The remote file name will only contain file name only(Not full path)
-    default Status list(String remotePath, List<RemoteFile> result) {
-        return list(remotePath, result, true);
+    /**
+     * List files in remotePath by wildcard <br/>
+     * The {@link RemoteFile}'name will only contain file name (Not full path)
+     * @param remotePath remote path
+     * @param result All eligible files under the path
+     * @return
+     */
+    default Status globList(String remotePath, List<RemoteFile> result) {
+        return globList(remotePath, result, true);
     }
 
-    Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
+    /**
+     * List files in remotePath by wildcard <br/>
+     * @param remotePath remote path
+     * @param result All eligible files under the path
+     * @param fileNameOnly for {@link RemoteFile}'name: whether the full path is included.<br/>
+     *                     true: only contains file name, false: contains full path<br/>
+     * @return
+     */
+    Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
+
+    default Status listDirectories(String remotePath, Set<String> result) {
+        throw new UnsupportedOperationException("Unsupported operation list directories on current file system.");
+    }
 }

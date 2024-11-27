@@ -21,14 +21,20 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
+import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
+import org.apache.doris.datasource.infoschema.ExternalMysqlTable;
+import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -47,12 +53,13 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 /**
  * Base class of external database.
@@ -60,10 +67,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * @param <T> External table type is ExternalTable or its subclass.
  */
 public abstract class ExternalDatabase<T extends ExternalTable>
-            implements DatabaseIf<T>, Writable, GsonPostProcessable {
+        implements DatabaseIf<T>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
-    protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
+    protected MonitoredReentrantReadWriteLock rwLock = new MonitoredReentrantReadWriteLock(true);
 
     @SerializedName(value = "id")
     protected long id;
@@ -77,11 +84,15 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     protected Map<String, Long> tableNameToId = Maps.newConcurrentMap();
     @SerializedName(value = "idToTbl")
     protected Map<Long, T> idToTbl = Maps.newConcurrentMap();
+    // table name lower case -> table name
+    private Map<String, String> lowerCaseToTableName = Maps.newConcurrentMap();
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
     protected final InitDatabaseLog.Type dbLogType;
     protected ExternalCatalog extCatalog;
     protected boolean invalidCacheInInit = true;
+
+    private MetaCache<T> metaCache;
 
     /**
      * Create external database.
@@ -110,6 +121,15 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public void setUnInitialized(boolean invalidCache) {
         this.initialized = false;
         this.invalidCacheInInit = invalidCache;
+        if (extCatalog.getUseMetaCache().isPresent()) {
+            if (extCatalog.getUseMetaCache().get() && metaCache != null) {
+                metaCache.invalidateAll();
+            } else if (!extCatalog.getUseMetaCache().get()) {
+                for (T table : idToTbl.values()) {
+                    table.unsetObjectCreated();
+                }
+            }
+        }
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(extCatalog.getId(), name);
         }
@@ -122,19 +142,36 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public final synchronized void makeSureInitialized() {
         extCatalog.makeSureInitialized();
         if (!initialized) {
-            if (!Env.getCurrentEnv().isMaster()) {
-                // Forward to master and wait the journal to replay.
-                int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
-                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
-                try {
-                    remoteExecutor.forward(extCatalog.getId(), id);
-                } catch (Exception e) {
-                    Util.logAndThrowRuntimeException(LOG,
-                            String.format("failed to forward init external db %s operation to master", name), e);
+            if (extCatalog.getUseMetaCache().get()) {
+                if (metaCache == null) {
+                    metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+                            name,
+                            OptionalLong.of(86400L),
+                            OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
+                            Config.max_meta_object_cache_num,
+                            ignored -> listTableNames(),
+                            tableName -> Optional.ofNullable(
+                                    buildTableForInit(tableName,
+                                            Util.genIdByName(extCatalog.getName(), name, tableName), extCatalog)),
+                            (key, value, cause) -> value.ifPresent(ExternalTable::unsetObjectCreated));
                 }
-                return;
+                setLastUpdateTime(System.currentTimeMillis());
+            } else {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    // Forward to master and wait the journal to replay.
+                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+                    MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
+                    try {
+                        remoteExecutor.forward(extCatalog.getId(), id);
+                    } catch (Exception e) {
+                        Util.logAndThrowRuntimeException(LOG,
+                                String.format("failed to forward init external db %s operation to master", name), e);
+                    }
+                    return;
+                }
+                init();
             }
-            init();
+            initialized = true;
         }
     }
 
@@ -142,19 +179,19 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
         Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
         for (int i = 0; i < log.getRefreshCount(); i++) {
-            T table = getTableForReplay(log.getRefreshTableIds().get(i));
+            Optional<T> table = getTableForReplay(log.getRefreshTableIds().get(i));
             // When upgrade cluster with this pr: https://github.com/apache/doris/pull/27666
             // Maybe there are some create table events will be skipped
             // if the cluster has any hms catalog(s) with hms event listener enabled.
             // So we need add a validation here to avoid table(s) not found, this is just a temporary solution
             // because later we will remove all the logics about InitCatalogLog/InitDatabaseLog.
-            if (table != null) {
-                tmpTableNameToId.put(table.getName(), table.getId());
-                tmpIdToTbl.put(table.getId(), table);
+            if (table.isPresent()) {
+                tmpTableNameToId.put(table.get().getName(), table.get().getId());
+                tmpIdToTbl.put(table.get().getId(), table.get());
             }
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
-            T table = newExternalTable(log.getCreateTableNames().get(i), log.getCreateTableIds().get(i), catalog);
+            T table = buildTableForInit(log.getCreateTableNames().get(i), log.getCreateTableIds().get(i), catalog);
             tmpTableNameToId.put(table.getName(), table.getId());
             tmpIdToTbl.put(table.getId(), table);
         }
@@ -164,17 +201,12 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         initialized = true;
     }
 
-    protected void init() {
+    private void init() {
         InitDatabaseLog initDatabaseLog = new InitDatabaseLog();
         initDatabaseLog.setType(dbLogType);
         initDatabaseLog.setCatalogId(extCatalog.getId());
         initDatabaseLog.setDbId(id);
-        List<String> tableNames;
-        if (name.equals(InfoSchemaDb.DATABASE_NAME)) {
-            tableNames = ExternalInfoSchemaDatabase.listTableNames();
-        } else {
-            tableNames = extCatalog.listTableNames(null, name);
-        }
+        List<String> tableNames = listTableNames();
         if (tableNames != null) {
             Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
             Map<Long, T> tmpIdToTbl = Maps.newHashMap();
@@ -184,13 +216,12 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     tblId = tableNameToId.get(tableName);
                     tmpTableNameToId.put(tableName, tblId);
                     T table = idToTbl.get(tblId);
-                    table.unsetObjectCreated();
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addRefreshTable(tblId);
                 } else {
                     tblId = Env.getCurrentEnv().getNextId();
                     tmpTableNameToId.put(tableName, tblId);
-                    T table = newExternalTable(tableName, tblId, extCatalog);
+                    T table = buildTableForInit(tableName, tblId, extCatalog);
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addCreateTable(tblId, tableName);
                 }
@@ -201,14 +232,39 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
         lastUpdateTime = System.currentTimeMillis();
         initDatabaseLog.setLastUpdateTime(lastUpdateTime);
-        initialized = true;
         Env.getCurrentEnv().getEditLog().logInitExternalDb(initDatabaseLog);
     }
 
-    protected abstract T newExternalTable(String tableName, long tblId, ExternalCatalog catalog);
+    private List<String> listTableNames() {
+        List<String> tableNames;
+        if (name.equals(InfoSchemaDb.DATABASE_NAME)) {
+            tableNames = ExternalInfoSchemaDatabase.listTableNames();
+        } else if (name.equals(MysqlDb.DATABASE_NAME)) {
+            tableNames = ExternalMysqlDatabase.listTableNames();
+        } else {
+            tableNames = extCatalog.listTableNames(null, name).stream().map(tableName -> {
+                lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+                if (Env.isStoredTableNamesLowerCase()) {
+                    return tableName.toLowerCase();
+                } else {
+                    return tableName;
+                }
+            }).collect(Collectors.toList());
+        }
+        return tableNames;
+    }
 
-    public T getTableForReplay(long tableId) {
-        return idToTbl.get(tableId);
+    protected abstract T buildTableForInit(String tableName, long tblId, ExternalCatalog catalog);
+
+    public Optional<T> getTableForReplay(long tableId) {
+        if (extCatalog.getUseMetaCache().get()) {
+            if (!isInitialized()) {
+                return Optional.empty();
+            }
+            return metaCache.getMetaObjById(tableId);
+        } else {
+            return Optional.ofNullable(idToTbl.get(tableId));
+        }
     }
 
     @Override
@@ -279,13 +335,32 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     @Override
     public boolean isTableExist(String tableName) {
+        if (Env.isTableNamesCaseInsensitive()) {
+            tableName = lowerCaseToTableName.get(tableName.toLowerCase());
+            if (tableName == null) {
+                return false;
+            }
+        }
         return extCatalog.tableExist(ConnectContext.get().getSessionContext(), name, tableName);
     }
 
+    // ATTN: this method only returned cached tables.
     @Override
     public List<T> getTables() {
         makeSureInitialized();
-        return Lists.newArrayList(idToTbl.values());
+        if (extCatalog.getUseMetaCache().get()) {
+            List<T> tables = Lists.newArrayList();
+            Set<String> tblNames = getTableNamesWithLock();
+            for (String tblName : tblNames) {
+                T tbl = getTableNullable(tblName);
+                if (tbl != null) {
+                    tables.add(tbl);
+                }
+            }
+            return tables;
+        } else {
+            return Lists.newArrayList(idToTbl.values());
+        }
     }
 
     @Override
@@ -306,22 +381,45 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public Set<String> getTableNamesWithLock() {
         makeSureInitialized();
-        return Sets.newHashSet(tableNameToId.keySet());
+        if (extCatalog.getUseMetaCache().get()) {
+            return Sets.newHashSet(metaCache.listNames());
+        } else {
+            return Sets.newHashSet(tableNameToId.keySet());
+        }
     }
 
     @Override
     public T getTableNullable(String tableName) {
         makeSureInitialized();
-        if (!tableNameToId.containsKey(tableName)) {
-            return null;
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
         }
-        return idToTbl.get(tableNameToId.get(tableName));
+        if (Env.isTableNamesCaseInsensitive()) {
+            tableName = lowerCaseToTableName.get(tableName.toLowerCase());
+            if (tableName == null) {
+                return null;
+            }
+        }
+        if (extCatalog.getUseMetaCache().get()) {
+            // must use full qualified name to generate id.
+            // otherwise, if 2 databases have the same table name, the id will be the same.
+            return metaCache.getMetaObj(tableName, Util.genIdByName(getQualifiedName(tableName))).orElse(null);
+        } else {
+            if (!tableNameToId.containsKey(tableName)) {
+                return null;
+            }
+            return idToTbl.get(tableNameToId.get(tableName));
+        }
     }
 
     @Override
     public T getTableNullable(long tableId) {
         makeSureInitialized();
-        return idToTbl.get(tableId);
+        if (extCatalog.getUseMetaCache().get()) {
+            return metaCache.getMetaObjById(tableId).orElse(null);
+        } else {
+            return idToTbl.get(tableId);
+        }
     }
 
     public long getLastUpdateTime() {
@@ -346,34 +444,63 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public void gsonPostProcess() throws IOException {
         tableNameToId = Maps.newConcurrentMap();
+        lowerCaseToTableName = Maps.newConcurrentMap();
         Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
         for (Object obj : idToTbl.values()) {
             if (obj instanceof LinkedTreeMap) {
-                ExternalInfoSchemaTable table = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
-                        ExternalInfoSchemaTable.class);
-                tmpIdToTbl.put(table.getId(), (T) table);
-                tableNameToId.put(table.getName(), table.getId());
+                String clazzType = ((LinkedTreeMap<?, ?>) obj).get("clazz").toString();
+                switch (clazzType) {
+                    case "ExternalInfoSchemaTable":
+                        ExternalInfoSchemaTable infoSchemaTable = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
+                                ExternalInfoSchemaTable.class);
+                        tmpIdToTbl.put(infoSchemaTable.getId(), (T) infoSchemaTable);
+                        tableNameToId.put(infoSchemaTable.getName(), infoSchemaTable.getId());
+                        break;
+                    case "ExternalMysqlTable":
+                        ExternalMysqlTable mysqlTable = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
+                                ExternalMysqlTable.class);
+                        tmpIdToTbl.put(mysqlTable.getId(), (T) mysqlTable);
+                        tableNameToId.put(mysqlTable.getName(), mysqlTable.getId());
+                        break;
+                    default:
+                        break;
+                }
             } else {
                 Preconditions.checkState(obj instanceof ExternalTable);
                 tmpIdToTbl.put(((ExternalTable) obj).getId(), (T) obj);
                 tableNameToId.put(((ExternalTable) obj).getName(), ((ExternalTable) obj).getId());
+                lowerCaseToTableName.put(((ExternalTable) obj).getName().toLowerCase(),
+                        ((ExternalTable) obj).getName());
             }
         }
         idToTbl = tmpIdToTbl;
-        rwLock = new ReentrantReadWriteLock(true);
+        rwLock = new MonitoredReentrantReadWriteLock(true);
     }
 
     @Override
     public void unregisterTable(String tableName) {
+        makeSureInitialized();
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("create table [{}]", tableName);
         }
-        Long tableId = tableNameToId.remove(tableName);
-        if (tableId == null) {
-            LOG.warn("table [{}] does not exist when drop", tableName);
-            return;
+
+        if (extCatalog.getUseMetaCache().get()) {
+            if (isInitialized()) {
+                metaCache.invalidate(tableName, Util.genIdByName(getQualifiedName(tableName)));
+                lowerCaseToTableName.remove(tableName.toLowerCase());
+            }
+        } else {
+            Long tableId = tableNameToId.remove(tableName);
+            if (tableId == null) {
+                LOG.warn("table [{}] does not exist when drop", tableName);
+                return;
+            }
+            idToTbl.remove(tableId);
+            lowerCaseToTableName.remove(tableName.toLowerCase());
         }
-        idToTbl.remove(tableId);
         setLastUpdateTime(System.currentTimeMillis());
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(
                 extCatalog.getId(), getFullName(), tableName);
@@ -385,20 +512,31 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     // Only used for sync hive metastore event
+    @Override
     public boolean registerTable(TableIf tableIf) {
+        makeSureInitialized();
         long tableId = tableIf.getId();
         String tableName = tableIf.getName();
         if (LOG.isDebugEnabled()) {
             LOG.debug("create table [{}]", tableName);
         }
-        tableNameToId.put(tableName, tableId);
-        idToTbl.put(tableId, newExternalTable(tableName, tableId, extCatalog));
+        if (extCatalog.getUseMetaCache().get()) {
+            if (isInitialized()) {
+                metaCache.updateCache(tableName, (T) tableIf, Util.genIdByName(getQualifiedName(tableName)));
+                lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+            }
+        } else {
+            if (!tableNameToId.containsKey(tableName)) {
+                tableNameToId.put(tableName, tableId);
+                idToTbl.put(tableId, buildTableForInit(tableName, tableId, extCatalog));
+                lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+            }
+        }
         setLastUpdateTime(System.currentTimeMillis());
         return true;
     }
 
-    @Override
-    public Map<Long, TableIf> getIdToTable() {
-        return new HashMap<>(idToTbl);
+    public String getQualifiedName(String tblName) {
+        return String.join(".", extCatalog.getName(), name, tblName);
     }
 }

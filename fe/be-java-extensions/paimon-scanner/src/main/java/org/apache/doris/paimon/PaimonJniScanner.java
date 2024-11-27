@@ -19,7 +19,6 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.paimon.PaimonTableCache.PaimonTableCacheKey;
 import org.apache.doris.paimon.PaimonTableCache.TableExt;
@@ -43,10 +42,19 @@ import java.util.stream.Collectors;
 
 public class PaimonJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniScanner.class);
-    private static final String PAIMON_OPTION_PREFIX = "paimon_option_prefix.";
+    @Deprecated
+    private static final String PAIMON_OPTION_PREFIX = "paimon.";
+    @Deprecated
+    private static final String HADOOP_OPTION_PREFIX = "hadoop.";
+
     private final Map<String, String> params;
+    @Deprecated
     private final Map<String, String> paimonOptionParams;
+    @Deprecated
+    private final Map<String, String> hadoopOptionParams;
+    @Deprecated
     private final String dbName;
+    @Deprecated
     private final String tblName;
     private final String paimonSplit;
     private final String paimonPredicate;
@@ -54,10 +62,15 @@ public class PaimonJniScanner extends JniScanner {
     private RecordReader<InternalRow> reader;
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
     private List<String> paimonAllFieldNames;
+    private List<DataType> paimonDataTypeList;
 
+    @Deprecated
     private long ctlId;
+    @Deprecated
     private long dbId;
+    @Deprecated
     private long tblId;
+    @Deprecated
     private long lastUpdateTime;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
     private final ClassLoader classLoader;
@@ -82,11 +95,15 @@ public class PaimonJniScanner extends JniScanner {
         dbId = Long.parseLong(params.get("db_id"));
         tblId = Long.parseLong(params.get("tbl_id"));
         lastUpdateTime = Long.parseLong(params.get("last_update_time"));
-        initTableInfo(columnTypes, requiredFields, new ScanPredicate[0], batchSize);
+        initTableInfo(columnTypes, requiredFields, batchSize);
         paimonOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(PAIMON_OPTION_PREFIX))
                 .collect(Collectors
                         .toMap(kv1 -> kv1.getKey().substring(PAIMON_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
+        hadoopOptionParams = params.entrySet().stream()
+                .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
+                .collect(Collectors
+                        .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
     }
 
     @Override
@@ -100,7 +117,7 @@ public class PaimonJniScanner extends JniScanner {
             initTable();
             initReader();
             resetDatetimeV2Precision();
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.warn("Failed to open paimon_scanner: " + e.getMessage(), e);
             throw e;
         }
@@ -108,9 +125,19 @@ public class PaimonJniScanner extends JniScanner {
 
     private void initReader() throws IOException {
         ReadBuilder readBuilder = table.newReadBuilder();
-        readBuilder.withProjection(getProjected());
+        if (this.fields.length > this.paimonAllFieldNames.size()) {
+            throw new IOException(
+                    String.format(
+                            "The jni reader fields' size {%s} is not matched with paimon fields' size {%s}."
+                                    + " Please refresh table and try again",
+                            fields.length, paimonAllFieldNames.size()));
+        }
+        int[] projected = getProjected();
+        readBuilder.withProjection(projected);
         readBuilder.withFilter(getPredicates());
-        reader = readBuilder.newRead().createReader(getSplit());
+        reader = readBuilder.newRead().executeFilter().createReader(getSplit());
+        paimonDataTypeList =
+            Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
     }
 
     private int[] getProjected() {
@@ -118,7 +145,7 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private List<Predicate> getPredicates() {
-        List<Predicate> predicates = PaimonScannerUtils.decodeStringToObject(paimonPredicate);
+        List<Predicate> predicates = PaimonUtils.deserialize(paimonPredicate);
         if (LOG.isDebugEnabled()) {
             LOG.debug("predicates:{}", predicates);
         }
@@ -126,7 +153,7 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private Split getSplit() {
-        Split split = PaimonScannerUtils.decodeStringToObject(paimonSplit);
+        Split split = PaimonUtils.deserialize(paimonSplit);
         if (LOG.isDebugEnabled()) {
             LOG.debug("split:{}", split);
         }
@@ -169,7 +196,7 @@ public class PaimonJniScanner extends JniScanner {
                 while ((record = recordIterator.next()) != null) {
                     columnValue.setOffsetRow(record);
                     for (int i = 0; i < fields.length; i++) {
-                        columnValue.setIdx(i, types[i]);
+                        columnValue.setIdx(i, types[i], paimonDataTypeList.get(i));
                         appendData(i, columnValue);
                     }
                     rows++;
@@ -183,8 +210,8 @@ public class PaimonJniScanner extends JniScanner {
         } catch (Exception e) {
             close();
             LOG.warn("Failed to get the next batch of paimon. "
-                            + "split: {}, requiredFieldNames: {}, paimonAllFieldNames: {}",
-                    getSplit(), params.get("required_fields"), paimonAllFieldNames, e);
+                    + "split: {}, requiredFieldNames: {}, paimonAllFieldNames: {}, dataType: {}",
+                    getSplit(), params.get("required_fields"), paimonAllFieldNames, paimonDataTypeList, e);
             throw new IOException(e);
         }
         return rows;
@@ -197,19 +224,25 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private void initTable() {
-        PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId, paimonOptionParams, dbName, tblName);
-        TableExt tableExt = PaimonTableCache.getTable(key);
-        if (tableExt.getCreateTime() < lastUpdateTime) {
-            LOG.warn("invalidate cache table:{}, localTime:{}, remoteTime:{}", key, tableExt.getCreateTime(),
-                    lastUpdateTime);
-            PaimonTableCache.invalidateTableCache(key);
-            tableExt = PaimonTableCache.getTable(key);
+        if (params.containsKey("paimon_table")) {
+            table = PaimonUtils.deserialize(params.get("paimon_table"));
+        } else {
+            PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId,
+                    paimonOptionParams, hadoopOptionParams, dbName, tblName);
+            TableExt tableExt = PaimonTableCache.getTable(key);
+            if (tableExt.getCreateTime() < lastUpdateTime) {
+                LOG.warn("invalidate cache table:{}, localTime:{}, remoteTime:{}", key, tableExt.getCreateTime(),
+                        lastUpdateTime);
+                PaimonTableCache.invalidateTableCache(key);
+                tableExt = PaimonTableCache.getTable(key);
+            }
+            this.table = tableExt.getTable();
         }
-        this.table = tableExt.getTable();
-        paimonAllFieldNames = PaimonScannerUtils.fieldNames(this.table.rowType());
+        paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
         }
     }
 
 }
+

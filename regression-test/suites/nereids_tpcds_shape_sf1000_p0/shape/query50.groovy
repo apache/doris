@@ -31,6 +31,8 @@ suite("query50") {
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
     sql 'set dump_nereids_memo=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     def ds = """select  
    s_store_name
   ,s_company_id

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -28,7 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.Set;
 
@@ -49,7 +50,6 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                         || topJoin.left().child().getJoinType().isRightOuterJoin())))
                 .when(join -> join.left().isAllSlots())
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .whenNot(topJoin -> topJoin.isLeadingJoin() || topJoin.left().child().isLeadingJoin())
                 .when(join -> join.left().getProjects().stream().allMatch(expr -> expr instanceof Slot))
                 .then(topSemiJoin -> {
@@ -62,10 +62,11 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                     Set<ExprId> conjunctsIds = topSemiJoin.getConditionExprId();
                     ContainsType containsType = containsChildren(conjunctsIds, a.getOutputExprIdSet(),
                             b.getOutputExprIdSet());
-                    if (containsType == ContainsType.ALL) {
+                    if (containsType == ContainsType.ALL || containsType == ContainsType.NONE) {
                         return null;
                     }
-
+                    ImmutableList<NamedExpression> topProjects = topSemiJoin.getOutput().stream()
+                            .map(slot -> (NamedExpression) slot).collect(ImmutableList.toImmutableList());
                     if (containsType == ContainsType.LEFT) {
                         /*-
                          *     topSemiJoin                    project
@@ -85,7 +86,7 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
 
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(a, c);
                         Plan newTopJoin = bottomJoin.withChildren(newBottomSemiJoin, b);
-                        return project.withChildren(newTopJoin);
+                        return project.withProjectsAndChild(topProjects, newTopJoin);
                     } else {
                         /*-
                          *     topSemiJoin                  project
@@ -105,13 +106,13 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
 
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(b, c);
                         Plan newTopJoin = bottomJoin.withChildren(a, newBottomSemiJoin);
-                        return project.withChildren(newTopJoin);
+                        return project.withProjectsAndChild(topProjects, newTopJoin);
                     }
                 }).toRule(RuleType.TRANSPOSE_LOGICAL_SEMI_JOIN_LOGICAL_JOIN_PROJECT);
     }
 
     enum ContainsType {
-        LEFT, RIGHT, ALL
+        LEFT, RIGHT, ALL, NONE
     }
 
     /**
@@ -120,13 +121,14 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
     public static ContainsType containsChildren(Set<ExprId> conjunctsExprIdSet, Set<ExprId> left, Set<ExprId> right) {
         boolean containsLeft = Utils.isIntersecting(conjunctsExprIdSet, left);
         boolean containsRight = Utils.isIntersecting(conjunctsExprIdSet, right);
-        Preconditions.checkState(containsLeft || containsRight, "join output must contain child");
         if (containsLeft && containsRight) {
             return ContainsType.ALL;
         } else if (containsLeft) {
             return ContainsType.LEFT;
-        } else {
+        } else if (containsRight) {
             return ContainsType.RIGHT;
+        } else {
+            return ContainsType.NONE;
         }
     }
 }

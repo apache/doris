@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_agg_state_nereids") {
-    sql "set global enable_agg_state=true"
+    sql "set enable_agg_state=true"
     sql "set enable_nereids_planner=true;"
     sql "set enable_fallback_to_original_planner=false;"
 
@@ -48,14 +48,17 @@ suite("test_agg_state_nereids") {
     sql """
             create table a_table(
                 k1 int null,
-                k2 agg_state max_by(int not null,int)
+                k2 agg_state<max_by(int not null, int)> generic
             )
             aggregate key (k1)
             distributed BY hash(k1) buckets 3
             properties("replication_num" = "1");
         """
 
-    sql 'set enable_fallback_to_original_planner=true'
+    qt_desc "desc a_table;"
+
+    sql "explain insert into a_table select 1,max_by_state(1,3);"
+
     sql "insert into a_table select 1,max_by_state(1,3);"
     sql "insert into a_table select 1,max_by_state(2,2);"
     sql "insert into a_table select 1,max_by_state(3,1);"

@@ -22,7 +22,6 @@
 #include <gen_cpp/Types_types.h>
 
 #include <ostream>
-#include <string_view>
 #include <utility>
 
 #include "common/config.h"
@@ -30,11 +29,8 @@
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/exprs/vexpr_context.h"
@@ -102,17 +98,16 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     } else {
         // get the function. won't prepare function.
         _function = SimpleFunctionFactory::instance().get_function(
-                _fn.name.function_name, argument_template, _data_type, state->be_exec_version());
+                _fn.name.function_name, argument_template, _data_type,
+                {.enable_decimal256 = state->enable_decimal256()}, state->be_exec_version());
     }
     if (_function == nullptr) {
-        return Status::InternalError(
-                "Function {} get failed, expr is {} "
-                "and return type is {}.",
-                _fn.name.function_name, _expr_name, _data_type->get_name());
+        return Status::InternalError("Could not find function {}, arg {} return {} ",
+                                     _fn.name.function_name, get_child_names(),
+                                     _data_type->get_name());
     }
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
-    _can_fast_execute = _function->can_fast_execute();
     _prepare_finished = true;
     return Status::OK();
 }
@@ -136,67 +131,68 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
     VExpr::close(context, scope);
 }
 
-Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
-                                 int* result_column_id) {
-    if (is_const_and_have_executed()) { // const have execute in open function
+Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+    DCHECK_GE(get_num_children(), 1);
+    return _evaluate_inverted_index(context, _function, segment_num_rows);
+}
+
+Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
+                                     doris::vectorized::Block* block, int* result_column_id,
+                                     std::vector<size_t>& args) {
+    if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
+    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+        return Status::OK();
+    }
+    DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {
+        if (get_child(0)->is_slot_ref()) {
+            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "VectorizedFnCall.must_in_slow_path", "column_name", "");
 
+            std::vector<std::string> column_names;
+            boost::split(column_names, debug_col_name, boost::algorithm::is_any_of(","));
+
+            auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+            std::string column_name = column_slot_ref->expr_name();
+            auto it = std::find(column_names.begin(), column_names.end(), column_name);
+            if (it == column_names.end()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "column {} should in slow path while VectorizedFnCall::execute.",
+                        column_name);
+            }
+        }
+    })
     DCHECK(_open_finished || _getting_const_col) << debug_string();
     // TODO: not execute const expr again, but use the const column in function context
-    vectorized::ColumnNumbers arguments(_children.size());
+    args.resize(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;
         RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
-        arguments[i] = column_id;
+        args[i] = column_id;
     }
-    RETURN_IF_ERROR(check_constant(*block, arguments));
 
+    RETURN_IF_ERROR(check_constant(*block, args));
     // call function
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
-    if (_can_fast_execute) {
-        // if not find fast execute result column, means do not need check fast execute again
-        _can_fast_execute = fast_execute(context->fn_context(_fn_context_index), *block, arguments,
-                                         num_columns_without_result, block->rows());
-        if (_can_fast_execute) {
-            *result_column_id = num_columns_without_result;
-            return Status::OK();
-        }
-    }
-
-    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
+    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, args,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
-
     return Status::OK();
 }
 
-// fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-bool VectorizedFnCall::fast_execute(FunctionContext* context, Block& block,
-                                    const ColumnNumbers& arguments, size_t result,
-                                    size_t input_rows_count) {
-    auto query_value = block.get_by_position(arguments[1]).to_string(0);
-    std::string column_name = block.get_by_position(arguments[0]).name;
-    auto result_column_name = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_name + "_" +
-                              _function->get_name() + "_" + query_value;
-    if (!block.has(result_column_name)) {
-        return false;
-    }
+Status VectorizedFnCall::execute_runtime_fitler(doris::vectorized::VExprContext* context,
+                                                doris::vectorized::Block* block,
+                                                int* result_column_id, std::vector<size_t>& args) {
+    return _do_execute(context, block, result_column_id, args);
+}
 
-    auto result_column =
-            block.get_by_name(result_column_name).column->convert_to_full_column_if_const();
-    auto& result_info = block.get_by_position(result);
-    if (result_info.type->is_nullable()) {
-        block.replace_by_position(
-                result,
-                ColumnNullable::create(result_column, ColumnUInt8::create(input_rows_count, 0)));
-    } else {
-        block.replace_by_position(result, std::move(result_column));
-    }
-
-    return true;
+Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
+                                 int* result_column_id) {
+    std::vector<size_t> arguments;
+    return _do_execute(context, block, result_column_id, arguments);
 }
 
 const std::string& VectorizedFnCall::expr_name() const {
@@ -230,4 +226,28 @@ std::string VectorizedFnCall::debug_string(const std::vector<VectorizedFnCall*>&
     out << "]";
     return out.str();
 }
+
+bool VectorizedFnCall::can_push_down_to_index() const {
+    return _function->can_push_down_to_index();
+}
+
+bool VectorizedFnCall::equals(const VExpr& other) {
+    const auto* other_ptr = dynamic_cast<const VectorizedFnCall*>(&other);
+    if (!other_ptr) {
+        return false;
+    }
+    if (this->_function_name != other_ptr->_function_name) {
+        return false;
+    }
+    if (this->children().size() != other_ptr->children().size()) {
+        return false;
+    }
+    for (size_t i = 0; i < this->children().size(); i++) {
+        if (!this->get_child(i)->equals(*other_ptr->get_child(i))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace doris::vectorized

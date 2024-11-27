@@ -61,7 +61,6 @@ class BaseCompaction;
 class CumulativeCompaction;
 class SingleReplicaCompaction;
 class CumulativeCompactionPolicy;
-class MemTracker;
 class StreamLoadRecorder;
 class TCloneReq;
 class TCreateTabletReq;
@@ -72,6 +71,7 @@ class TxnManager;
 class ReportWorker;
 class CreateTabletIdxCache;
 struct DirInfo;
+class WorkloadGroup;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -105,7 +105,7 @@ public:
     // get all info of root_path
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
-    int64_t get_file_or_directory_size(const std::string& file_path);
+    static int64_t get_file_or_directory_size(const std::string& file_path);
 
     // get root path for creating tablet. The returned vector of root path should be round robin,
     // for avoiding that all the tablet would be deployed one disk.
@@ -172,7 +172,7 @@ public:
     }
 
     // start all background threads. This should be call after env is ready.
-    Status start_bg_threads();
+    Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr);
 
     // clear trash and snapshot file
     // option: update disk usage after sweep
@@ -192,14 +192,11 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
-    std::shared_ptr<MemTracker> segment_meta_mem_tracker() { return _segment_meta_mem_tracker; }
-    std::shared_ptr<MemTracker> segcompaction_mem_tracker() { return _segcompaction_mem_tracker; }
-
     // check cumulative compaction config
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                  bool force);
+                                  bool force, bool eager = true);
     Status submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
@@ -227,6 +224,10 @@ public:
     bool remove_broken_path(std::string path);
 
     std::set<string> get_broken_paths() { return _broken_paths; }
+
+    int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
+
+    int get_disk_num() { return _disk_num; }
 
 private:
     // Instance should be inited from `static open()`
@@ -257,6 +258,8 @@ private:
 
     void _clean_unused_pending_publish_info();
 
+    void _clean_unused_partial_update_info();
+
     Status _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
                      const int32_t expire);
 
@@ -269,9 +272,6 @@ private:
 
     // delete tablet with io error process function
     void _disk_stat_monitor_thread_callback();
-
-    // clean file descriptors cache
-    void _cache_clean_callback();
 
     // path gc process function
     void _path_gc_thread_callback(DataDir* data_dir);
@@ -341,6 +341,10 @@ private:
 
     int _get_and_set_next_disk_index(int64 partition_id, TStorageMedium::type storage_medium);
 
+    int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
+
+    int _get_executing_compaction_num(std::unordered_set<TabletSharedPtr>& compaction_tasks);
+
 private:
     EngineOptions _options;
     std::mutex _store_lock;
@@ -364,15 +368,6 @@ private:
     // Hold reference of quering rowsets
     std::mutex _quering_rowsets_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _querying_rowsets;
-
-    // Count the memory consumption of segment compaction tasks.
-    std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
-    // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
-    // The memory consumed by querying is tracked in segment iterator.
-    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
-    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
-    // maybe have to use ColumnReader count as segment meta size.
-    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;
@@ -430,8 +425,9 @@ private:
 
     std::mutex _tablet_submitted_compaction_mutex;
     // a tablet can do base and cumulative compaction at same time
-    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
-    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
+    std::map<DataDir*, std::unordered_set<TabletSharedPtr>> _tablet_submitted_cumu_compaction;
+    std::map<DataDir*, std::unordered_set<TabletSharedPtr>> _tablet_submitted_base_compaction;
+    std::map<DataDir*, std::unordered_set<TabletSharedPtr>> _tablet_submitted_full_compaction;
 
     std::mutex _low_priority_task_nums_mutex;
     std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;
@@ -469,9 +465,6 @@ private:
     scoped_refptr<Thread> _async_publish_thread;
     std::shared_mutex _async_publish_lock;
 
-    bool _clear_segment_cache = false;
-    bool _clear_page_cache = false;
-
     std::atomic<bool> _need_clean_trash {false};
 
     // next index for create tablet
@@ -479,13 +472,17 @@ private:
 
     std::unique_ptr<CreateTabletIdxCache> _create_tablet_idx_lru_cache;
 
+    int _disk_num {-1};
+
+    int64_t _memory_limitation_bytes_for_schema_change;
+
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 
 // lru cache for create tabelt round robin in disks
 // key: partitionId_medium
 // value: index
-class CreateTabletIdxCache : public LRUCachePolicy {
+class CreateTabletIdxCache : public LRUCachePolicyTrackingManual {
 public:
     // get key, delimiter with DELIMITER '-'
     static std::string get_key(int64_t partition_id, TStorageMedium::type medium) {
@@ -497,14 +494,15 @@ public:
 
     void set_index(const std::string& key, int next_idx);
 
-    struct CacheValue {
+    class CacheValue : public LRUCacheValueBase {
+    public:
         int idx = 0;
     };
 
     CreateTabletIdxCache(size_t capacity)
-            : LRUCachePolicy(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE, capacity,
-                             LRUCacheType::NUMBER,
-                             /*stale_sweep_time_s*/ 30 * 60) {}
+            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE,
+                                           capacity, LRUCacheType::NUMBER,
+                                           /*stale_sweep_time_s*/ 30 * 60) {}
 };
 
 struct DirInfo {

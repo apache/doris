@@ -191,16 +191,19 @@ void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physic
     physical_field->physical_type = physical_schema.type;
     _physical_fields.push_back(physical_field);
     physical_field->physical_column_index = _physical_fields.size() - 1;
-    physical_field->type = get_doris_type(physical_schema);
+    auto type = get_doris_type(physical_schema);
+    physical_field->type = type.first;
+    physical_field->is_type_compatibility = type.second;
 }
 
-TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& physical_schema) {
-    TypeDescriptor type;
-    type.type = INVALID_TYPE;
+std::pair<TypeDescriptor, bool> FieldDescriptor::get_doris_type(
+        const tparquet::SchemaElement& physical_schema) {
+    std::pair<TypeDescriptor, bool> ans = {INVALID_TYPE, false};
+    TypeDescriptor& type = ans.first;
     if (physical_schema.__isset.logicalType) {
-        type = convert_to_doris_type(physical_schema.logicalType);
+        ans = convert_to_doris_type(physical_schema.logicalType);
     } else if (physical_schema.__isset.converted_type) {
-        type = convert_to_doris_type(physical_schema);
+        ans = convert_to_doris_type(physical_schema);
     }
     // use physical type instead
     if (type.type == INVALID_TYPE) {
@@ -233,7 +236,7 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
             break;
         }
     }
-    return type;
+    return ans;
 }
 
 // Copy from org.apache.iceberg.avro.AvroSchemaUtil#validAvroName
@@ -302,8 +305,11 @@ void FieldDescriptor::iceberg_sanitize(const std::vector<std::string>& read_colu
     }
 }
 
-TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logicalType) {
-    TypeDescriptor type;
+std::pair<TypeDescriptor, bool> FieldDescriptor::convert_to_doris_type(
+        tparquet::LogicalType logicalType) {
+    std::pair<TypeDescriptor, bool> ans = {INVALID_TYPE, false};
+    TypeDescriptor& type = ans.first;
+    bool& is_type_compatibility = ans.second;
     if (logicalType.__isset.STRING) {
         type = TypeDescriptor(TYPE_STRING);
     } else if (logicalType.__isset.DECIMAL) {
@@ -313,16 +319,25 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
         type = TypeDescriptor(TYPE_DATEV2);
     } else if (logicalType.__isset.INTEGER) {
         if (logicalType.INTEGER.isSigned) {
-            if (logicalType.INTEGER.bitWidth <= 32) {
+            if (logicalType.INTEGER.bitWidth <= 8) {
+                type = TypeDescriptor(TYPE_TINYINT);
+            } else if (logicalType.INTEGER.bitWidth <= 16) {
+                type = TypeDescriptor(TYPE_SMALLINT);
+            } else if (logicalType.INTEGER.bitWidth <= 32) {
                 type = TypeDescriptor(TYPE_INT);
             } else {
                 type = TypeDescriptor(TYPE_BIGINT);
             }
         } else {
-            if (logicalType.INTEGER.bitWidth <= 16) {
+            is_type_compatibility = true;
+            if (logicalType.INTEGER.bitWidth <= 8) {
+                type = TypeDescriptor(TYPE_SMALLINT);
+            } else if (logicalType.INTEGER.bitWidth <= 16) {
                 type = TypeDescriptor(TYPE_INT);
-            } else {
+            } else if (logicalType.INTEGER.bitWidth <= 32) {
                 type = TypeDescriptor(TYPE_BIGINT);
+            } else {
+                type = TypeDescriptor(TYPE_LARGEINT);
             }
         }
     } else if (logicalType.__isset.TIME) {
@@ -344,12 +359,14 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
     } else {
         type = TypeDescriptor(INVALID_TYPE);
     }
-    return type;
+    return ans;
 }
 
-TypeDescriptor FieldDescriptor::convert_to_doris_type(
+std::pair<TypeDescriptor, bool> FieldDescriptor::convert_to_doris_type(
         const tparquet::SchemaElement& physical_schema) {
-    TypeDescriptor type;
+    std::pair<TypeDescriptor, bool> ans = {INVALID_TYPE, false};
+    TypeDescriptor& type = ans.first;
+    bool& is_type_compatibility = ans.second;
     switch (physical_schema.converted_type) {
     case tparquet::ConvertedType::type::UTF8:
         type = TypeDescriptor(TYPE_STRING);
@@ -378,28 +395,33 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(
         type = TypeDescriptor(TYPE_TINYINT);
         break;
     case tparquet::ConvertedType::type::UINT_8:
+        is_type_compatibility = true;
         [[fallthrough]];
     case tparquet::ConvertedType::type::INT_16:
         type = TypeDescriptor(TYPE_SMALLINT);
         break;
     case tparquet::ConvertedType::type::UINT_16:
+        is_type_compatibility = true;
         [[fallthrough]];
     case tparquet::ConvertedType::type::INT_32:
         type = TypeDescriptor(TYPE_INT);
         break;
     case tparquet::ConvertedType::type::UINT_32:
-        [[fallthrough]];
-    case tparquet::ConvertedType::type::UINT_64:
+        is_type_compatibility = true;
         [[fallthrough]];
     case tparquet::ConvertedType::type::INT_64:
         type = TypeDescriptor(TYPE_BIGINT);
+        break;
+    case tparquet::ConvertedType::type::UINT_64:
+        is_type_compatibility = true;
+        type = TypeDescriptor(TYPE_LARGEINT);
         break;
     default:
         LOG(WARNING) << "Not supported parquet ConvertedType: " << physical_schema.converted_type;
         type = TypeDescriptor(INVALID_TYPE);
         break;
     }
-    return type;
+    return ans;
 }
 
 Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElement>& t_schemas,

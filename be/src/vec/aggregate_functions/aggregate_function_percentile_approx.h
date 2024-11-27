@@ -200,9 +200,10 @@ class AggregateFunctionPercentileApproxMerge : public AggregateFunctionPercentil
 public:
     AggregateFunctionPercentileApproxMerge(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         LOG(FATAL) << "AggregateFunctionPercentileApproxMerge do not support add()";
+        __builtin_unreachable();
     }
 };
 
@@ -211,7 +212,7 @@ class AggregateFunctionPercentileApproxTwoParams : public AggregateFunctionPerce
 public:
     AggregateFunctionPercentileApproxTwoParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (is_nullable) {
             double column_data[2] = {0, 0};
@@ -251,7 +252,7 @@ class AggregateFunctionPercentileApproxThreeParams : public AggregateFunctionPer
 public:
     AggregateFunctionPercentileApproxThreeParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (is_nullable) {
             double column_data[3] = {0, 0, 0};
@@ -365,7 +366,7 @@ struct PercentileState {
         inited_flag = false;
     }
 
-    double get() const { return vec_counts[0].terminate(vec_quantile[0]); }
+    double get() const { return vec_counts.empty() ? 0 : vec_counts[0].terminate(vec_quantile[0]); }
 
     void insert_result_into(IColumn& to) const {
         auto& column_data = assert_cast<ColumnVector<Float64>&>(to).get_data();
@@ -386,7 +387,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& sources = assert_cast<const ColumnVector<Int64>&>(*columns[0]);
         const auto& quantile = assert_cast<const ColumnVector<Float64>&>(*columns[1]);
@@ -431,7 +432,7 @@ public:
         return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat64>()));
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& sources = assert_cast<const ColumnVector<Int64>&>(*columns[0]);
         const auto& quantile_array = assert_cast<const ColumnArray&>(*columns[1]);

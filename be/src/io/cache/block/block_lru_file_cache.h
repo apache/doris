@@ -53,6 +53,9 @@ public:
     LRUFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);
     ~LRUFileCache() override {
         _close = true;
+        if (_cache_background_load_thread.joinable()) {
+            _cache_background_load_thread.join();
+        }
         if (_cache_background_thread.joinable()) {
             _cache_background_thread.join();
         }
@@ -70,6 +73,9 @@ public:
     size_t get_used_cache_size(CacheType type) const override;
 
     size_t get_file_segments_num(CacheType type) const override;
+
+    // used by LRUFileCache test
+    void wait_lazy_open();
 
 private:
     struct FileBlockCell {
@@ -144,11 +150,11 @@ private:
                   std::lock_guard<std::mutex>& cache_lock);
 
     bool try_reserve(const Key& key, const CacheContext& context, size_t offset, size_t size,
-                     std::lock_guard<std::mutex>& cache_lock) override;
+                     std::lock_guard<std::mutex>& cache_lock, bool skip_round_check) override;
 
     bool try_reserve_for_lru(const Key& key, QueryFileCacheContextPtr query_context,
                              const CacheContext& context, size_t offset, size_t size,
-                             std::lock_guard<std::mutex>& cache_lock);
+                             bool skip_round_check, std::lock_guard<std::mutex>& cache_lock);
 
     std::vector<CacheType> get_other_cache_type(CacheType cur_cache_type);
 
@@ -160,6 +166,8 @@ private:
 
     void change_cache_type(const Key& key, size_t offset, CacheType new_type,
                            std::lock_guard<std::mutex>& cache_lock) override;
+
+    std::map<std::string, double> get_stats() override;
 
     size_t get_available_cache_size(CacheType cache_type) const;
 
@@ -201,13 +209,17 @@ public:
 private:
     std::atomic_bool _close {false};
     std::thread _cache_background_thread;
-    size_t _num_read_segments = 0;
-    size_t _num_hit_segments = 0;
+    std::atomic_bool _lazy_open_done {true};
+    std::thread _cache_background_load_thread;
+    // size_t _num_read_segments = 0;
+    // size_t _num_hit_segments = 0;
     size_t _num_removed_segments = 0;
 
     std::shared_ptr<MetricEntity> _entity;
 
     DoubleGauge* file_cache_hits_ratio = nullptr;
+    DoubleGauge* file_cache_hits_ratio_5m = nullptr;
+    DoubleGauge* file_cache_hits_ratio_1h = nullptr;
     UIntGauge* file_cache_removed_elements = nullptr;
 
     UIntGauge* file_cache_index_queue_max_size = nullptr;

@@ -617,12 +617,17 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_pushfront_DateV2_notnull "select array_pushfront(kadtv2, kdtv2) from fn_test_not_nullable"
 
     // array_range
-    order_qt_sql_array_range_one_param "select array_range(kint) from fn_test"
-    order_qt_sql_array_range_one_param_notnull "select array_range(kint) from fn_test_not_nullable"
-    order_qt_sql_array_range_two_param "select array_range(kint, 1000) from fn_test"
-    order_qt_sql_array_range_two_param_notnull "select array_range(kint, 1000) from fn_test_not_nullable"
-    order_qt_sql_array_range_three_param "select array_range(kint, 10000, ktint) from fn_test"
-    order_qt_sql_array_range_three_param_notnull "select array_range(kint, 10000, ktint) from fn_test_not_nullable"
+    order_qt_sql_array_range_one_param "select array_range(kint) from fn_test order by id"
+    order_qt_sql_array_range_one_param_notnull "select array_range(kint) from fn_test_not_nullable order by id"
+    order_qt_sql_array_range_two_param "select array_range(kint, 1000) from fn_test order by id"
+    order_qt_sql_array_range_two_param_notnull "select array_range(kint, 1000) from fn_test_not_nullable order by id"
+    order_qt_sql_array_range_three_param "select array_range(kint, 10000, ktint) from fn_test order by id"
+    order_qt_sql_array_range_three_param_notnull "select array_range(kint, 10000, ktint) from fn_test_not_nullable order by id"
+    // make a large size of array element, expect to throw error
+    test  {
+        sql "select array_range(kint, 1000000000) from fn_test"
+        exception ('Array size exceeds the limit 1000000')
+    }
 
     // array_remove
     order_qt_sql_array_remove_Double "select array_remove(kadbl, kdbl) from fn_test"
@@ -1005,6 +1010,8 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_map_TinyInt_notnull "select array_map(x -> x is not null, katint) from fn_test_not_nullable"
     order_qt_sql_array_map_DecimalV3 "select array_map(x -> x is not null, kadcml) from fn_test"
     order_qt_sql_array_map_DecimalV3_notnull "select array_map(x -> x is not null, kadcml) from fn_test_not_nullable"
+    order_qt_sql_array_map_lambda_agg "select array_map(x->(x+100), collect_list(ktint)) from fn_test group by id;"
+
     // test array_exists
     order_qt_sql_array_exists_Double "select array_exists(x -> x > 1, kadbl) from fn_test"
     order_qt_sql_array_exists_Double_notnull "select array_exists(x -> x > 1, kadbl) from fn_test_not_nullable"
@@ -1274,4 +1281,98 @@ suite("nereids_scalar_fn_Array") {
     qt_sequence_datetime_hour """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint-3 hour), interval kint hour) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_minute """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 minute), interval kint minute) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_second """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint second), interval kint-1 second) from fn_test order by kdtmv2s1;"""
+
+    // with array empty
+    qt_array_empty_fe """select array()"""
+    // make large error size
+    test {
+        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), interval kint hour)) from fn_test order by kdtmv2s1;"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+10000 month), interval kint hour)) from fn_test order by kdtmv2s1;"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000001 day), interval kint day)) from fn_test order by kdtmv2s1;"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    sql """ set enable_fold_constant_by_be=true; """
+    qt_array_empty_fe """select array()"""
+
+    // array_map with string is can be succeed
+    qt_sql_array_map """select array_map(x->x!='', split_by_string('amory,is,better,committing', ','))"""
+
+    // array_apply with string should be failed
+    test {
+       sql """select array_apply(split_by_string("amory,is,better,committing", ","), '!=', '');"""
+       exception("errCode = 2")
+    }
+
+    // array_min/max with nested array for args
+    test {
+        sql "select array_min(array(1,2,3),array(4,5,6));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql "select array_max(array(1,2,3),array(4,5,6));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+
+    test {
+        sql "select array_min(array(split_by_string('a,b,c',',')));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    test {
+        sql "select array_max(array(split_by_string('a,b,c',',')));"
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+    // array_map with string is can be succeed
+    qt_sql_array_map """select array_map(x->x!='', split_by_string('amory,is,better,committing', ','))"""
+
+    // array_apply with string should be failed
+    test {
+       sql """select array_apply(split_by_string("amory,is,better,committing", ","), '!=', '');"""
+       exception("errCode = 2")
+    }
+
+    // agg for array types add decimal256 cases array_min/array_max/array_product/array_avg/array_sum with decimal256
+    sql """ set enable_decimal256=true; """
+    order_qt_sql_array_min_decimal256 "select array_min(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_max_decimal256 "select array_max(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_product_decimal256 "select array_product(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_avg_decimal256 "select array_avg(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_sum_decimal256 "select array_sum(c) from fn_test_array_with_large_decimal order by id"
+    // array_overlap for type correctness
+    order_qt_sql_array_overlaps_1 """select arrays_overlap(a, b) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_2 """select arrays_overlap(b, a) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_3 """select arrays_overlap(a, c) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_4 """select arrays_overlap(c, a) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_5 """select arrays_overlap(b, c) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_6 """select arrays_overlap(c, b) from fn_test_array_with_large_decimal order by id"""
+
 }

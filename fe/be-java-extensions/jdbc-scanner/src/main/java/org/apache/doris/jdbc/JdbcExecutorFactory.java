@@ -23,13 +23,28 @@ public class JdbcExecutorFactory {
     public static String getExecutorClass(TOdbcTableType type) {
         switch (type) {
             case MYSQL:
+            case OCEANBASE:
                 return "org/apache/doris/jdbc/MySQLJdbcExecutor";
             case ORACLE:
+            case OCEANBASE_ORACLE:
                 return "org/apache/doris/jdbc/OracleJdbcExecutor";
+            case POSTGRESQL:
+                return "org/apache/doris/jdbc/PostgreSQLJdbcExecutor";
+            case SQLSERVER:
+                return "org/apache/doris/jdbc/SQLServerJdbcExecutor";
             case DB2:
                 return "org/apache/doris/jdbc/DB2JdbcExecutor";
+            case CLICKHOUSE:
+                return "org/apache/doris/jdbc/ClickHouseJdbcExecutor";
+            case SAP_HANA:
+                return "org/apache/doris/jdbc/SapHanaJdbcExecutor";
+            case TRINO:
+            case PRESTO:
+                return "org/apache/doris/jdbc/TrinoJdbcExecutor";
+            case GBASE:
+                return "org/apache/doris/jdbc/GbaseJdbcExecutor";
             default:
-                return "org/apache/doris/jdbc/DefaultJdbcExecutor";
+                throw new IllegalArgumentException("Unsupported jdbc type: " + type);
         }
     }
 }

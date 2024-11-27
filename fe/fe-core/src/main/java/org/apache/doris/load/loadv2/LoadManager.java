@@ -40,6 +40,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -57,6 +58,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -340,6 +342,11 @@ public class LoadManager implements Writable {
         job.unprotectReadEndOperation(operation);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, operation.getId()).add("operation", operation)
                 .add("msg", "replay end load job").build());
+
+        // When idToLoadJob size increase 10000 roughly, we run removeOldLoadJob to reduce mem used
+        if ((idToLoadJob.size() > 0) && (idToLoadJob.size() % 10000 == 0)) {
+            removeOldLoadJob();
+        }
     }
 
     /**
@@ -383,6 +390,7 @@ public class LoadManager implements Writable {
             Map<String, List<LoadJob>> labelToLoadJobs = new HashMap<>();
             for (Long dbId : dbIdToLabelToLoadJobs.keySet()) {
                 if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
                         Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
                         PrivPredicate.LOAD)) {
                     continue;
@@ -402,14 +410,10 @@ public class LoadManager implements Writable {
     /**
      * Get load job num, used by metric.
      **/
-    public long getLoadJobNum(JobState jobState, EtlJobType jobType) {
-        readLock();
-        try {
-            return idToLoadJob.values().stream().filter(j -> j.getState() == jobState && j.getJobType() == jobType)
-                    .count();
-        } finally {
-            readUnlock();
-        }
+    public Map<Pair<EtlJobType, JobState>, Long> getLoadJobNum() {
+        return idToLoadJob.values().stream().collect(Collectors.groupingBy(
+                loadJob -> Pair.of(loadJob.getJobType(), loadJob.getState()),
+                Collectors.counting()));
     }
 
     /**
@@ -447,15 +451,21 @@ public class LoadManager implements Writable {
     }
 
     private void jobRemovedTrigger(LoadJob job) {
-        Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
-        List<LoadJob> list = map.get(job.getLabel());
-        list.remove(job);
         if (job instanceof SparkLoadJob) {
             ((SparkLoadJob) job).clearSparkLauncherLog();
         }
         if (job instanceof BulkLoadJob) {
             ((BulkLoadJob) job).recycleProgress();
         }
+        Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
+        if (map == null) {
+            return;
+        }
+        List<LoadJob> list = map.get(job.getLabel());
+        if (list == null) {
+            return;
+        }
+        list.remove(job);
         if (list.isEmpty()) {
             map.remove(job.getLabel());
         }
@@ -465,6 +475,8 @@ public class LoadManager implements Writable {
     }
 
     private void removeLoadJobIf(Predicate<LoadJob> pred) {
+        long removeJobNum = 0;
+        StopWatch stopWatch = StopWatch.createStarted();
         writeLock();
         try {
             Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
@@ -473,10 +485,14 @@ public class LoadManager implements Writable {
                 if (pred.test(job)) {
                     iter.remove();
                     jobRemovedTrigger(job);
+                    removeJobNum++;
                 }
             }
         } finally {
             writeUnlock();
+            stopWatch.stop();
+            LOG.info("end to removeOldLoadJob, removeJobNum:{} cost:{} ms",
+                    removeJobNum, stopWatch.getTime());
         }
     }
 
@@ -615,6 +631,12 @@ public class LoadManager implements Writable {
                     if (!states.contains(loadJob.getState())) {
                         continue;
                     }
+                    // check auth
+                    try {
+                        loadJob.checkAuth("show load");
+                    } catch (DdlException e) {
+                        continue;
+                    }
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
                 } catch (RuntimeException | DdlException e) {
@@ -636,6 +658,7 @@ public class LoadManager implements Writable {
             Map<String, List<LoadJob>> labelToLoadJobs = new HashMap<>();
             for (Long dbId : dbIdToLabelToLoadJobs.keySet()) {
                 if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        InternalCatalog.INTERNAL_CATALOG_NAME,
                         Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
                         PrivPredicate.LOAD)) {
                     continue;

@@ -36,6 +36,7 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -163,10 +164,10 @@ public class ColumnDefinition {
                     .collect(ImmutableList.toImmutableList());
             return new StructType(structFields);
         } else {
-            if (dataType.isStringLikeType()) {
-                if (dataType instanceof CharType && ((CharType) dataType).getLen() == -1) {
+            if (dataType.isStringLikeType() && !((CharacterType) dataType).isLengthSet()) {
+                if (dataType instanceof CharType) {
                     return new CharType(1);
-                } else if (dataType instanceof VarcharType && ((VarcharType) dataType).getLen() == -1) {
+                } else if (dataType instanceof VarcharType) {
                     return new VarcharType(VarcharType.MAX_VARCHAR_LENGTH);
                 }
             }
@@ -226,6 +227,9 @@ public class ColumnDefinition {
             } else if (type.isJsonType()) {
                 throw new AnalysisException(
                         "JsonType type should not be used in key column[" + getName() + "].");
+            } else if (type.isVariantType()) {
+                throw new AnalysisException(
+                        "Variant type should not be used in key column[" + getName() + "].");
             } else if (type.isMapType()) {
                 throw new AnalysisException("Map can only be used in the non-key column of"
                         + " the duplicate table at present.");
@@ -246,8 +250,22 @@ public class ColumnDefinition {
             }
         }
 
+        if (aggType != null) {
+            // check if aggregate type is valid
+            if (aggType != AggregateType.GENERIC
+                    && !aggType.checkCompatibility(type.toCatalogDataType().getPrimitiveType())) {
+                throw new AnalysisException(String.format("Aggregate type %s is not compatible with primitive type %s",
+                        aggType, type.toSql()));
+            }
+            if (aggType == AggregateType.GENERIC) {
+                if (!SessionVariable.enableAggState()) {
+                    throw new AnalysisException("agg state not enable, need set enable_agg_state=true");
+                }
+            }
+        }
+
         if (isOlap) {
-            if (!isKey && keysType.equals(KeysType.UNIQUE_KEYS)) {
+            if (!isKey && (keysType.equals(KeysType.UNIQUE_KEYS) || keysType.equals(KeysType.DUP_KEYS))) {
                 aggTypeImplicit = true;
             }
 
@@ -268,13 +286,15 @@ public class ColumnDefinition {
             }
             defaultValue = Optional.of(DefaultValue.HLL_EMPTY_DEFAULT_VALUE);
         } else if (type.isBitmapType()) {
-            if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
-                throw new AnalysisException("Bitmap type column can not set default value");
+            if (defaultValue.isPresent() && isOlap && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE
+                    && !defaultValue.get().getValue().equals(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.getValue())) {
+                throw new AnalysisException("Bitmap type column default value only support "
+                        + DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
             }
             defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
         } else if (type.isArrayType() && defaultValue.isPresent() && isOlap
                 && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE && !defaultValue.get()
-                        .getValue().equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.getValue())) {
+                .getValue().equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.getValue())) {
             throw new AnalysisException("Array type column default value only support null or "
                     + DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
         } else if (type.isMapType()) {
@@ -284,6 +304,10 @@ public class ColumnDefinition {
         } else if (type.isStructType()) {
             if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Struct type column default value just support null");
+            }
+        } else if (type.isJsonType() || type.isVariantType()) {
+            if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("Json or Variant type column default value just support null");
             }
         }
 
@@ -334,44 +358,36 @@ public class ColumnDefinition {
 
         // from old planner CreateTableStmt's analyze method, after call columnDef.analyze(engineName.equals("olap"));
         if (isOlap && type.isComplexType()) {
-            if (aggType != null && aggType != AggregateType.NONE
-                    && aggType != AggregateType.REPLACE) {
-                throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
-                        + " column can't support aggregation " + aggType);
-            }
             if (isKey) {
                 throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
-                        + " can only be used in the non-key column of the duplicate table at present.");
+                        + " can only be used in the non-key column at present.");
+            }
+            if (type.isAggStateType()) {
+                if (aggType == null) {
+                    throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
+                            + " column must have aggregation type");
+                } else {
+                    if (aggType != AggregateType.GENERIC
+                            && aggType != AggregateType.NONE
+                            && aggType != AggregateType.REPLACE
+                            && aggType != AggregateType.REPLACE_IF_NOT_NULL) {
+                        throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
+                                + " column can't support aggregation " + aggType);
+                    }
+                }
+                isNullable = false;
+            } else {
+                if (aggType != null && aggType != AggregateType.NONE && aggType != AggregateType.REPLACE
+                        && aggType != AggregateType.REPLACE_IF_NOT_NULL) {
+                    throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
+                            + " column can't support aggregation " + aggType);
+                }
             }
         }
 
         if (type.isTimeLikeType()) {
             throw new AnalysisException("Time type is not supported for olap table");
         }
-    }
-
-    /**
-     * check if is nested complex type.
-     */
-    private boolean isNestedComplexType(DataType dataType) {
-        if (!dataType.isComplexType()) {
-            return false;
-        }
-        if (dataType instanceof ArrayType) {
-            if (((ArrayType) dataType).getItemType() instanceof ArrayType) {
-                return isNestedComplexType(((ArrayType) dataType).getItemType());
-            } else {
-                return ((ArrayType) dataType).getItemType().isComplexType();
-            }
-        }
-        if (dataType instanceof MapType) {
-            return ((MapType) dataType).getKeyType().isComplexType()
-                    || ((MapType) dataType).getValueType().isComplexType();
-        }
-        if (dataType instanceof StructType) {
-            return ((StructType) dataType).getFields().stream().anyMatch(f -> f.getDataType().isComplexType());
-        }
-        return false;
     }
 
     // from TypeDef.java analyze()

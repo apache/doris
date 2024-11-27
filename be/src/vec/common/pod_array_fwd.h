@@ -36,9 +36,12 @@ template <typename T, size_t initial_bytes = 4096, typename TAllocator = Allocat
           size_t pad_right_ = 0, size_t pad_left_ = 0>
 class PODArray;
 
-/** For columns. Padding is enough to read and write xmm-register at the address of the last element. */
+/** For columns. Padding is enough to read and write xmm-register at the address of the last element. 
+  * TODO, pad_right is temporarily changed from 15 to 16, will waste 1 bytes,
+  * can rollback after fix wrong reinterpret_cast column and PODArray swap.
+  */
 template <typename T, size_t initial_bytes = 4096, typename TAllocator = Allocator<false>>
-using PaddedPODArray = PODArray<T, initial_bytes, TAllocator, 15, 16>;
+using PaddedPODArray = PODArray<T, initial_bytes, TAllocator, 16, 16>;
 
 /** A helper for declaring PODArray that uses inline memory.
   * The initial size is set to use all the inline bytes, since using less would

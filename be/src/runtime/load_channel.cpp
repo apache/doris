@@ -22,21 +22,37 @@
 
 #include "bvar/bvar.h"
 #include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group_manager.h"
 
 namespace doris {
 
 bvar::Adder<int64_t> g_loadchannel_cnt("loadchannel_cnt");
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
-                         const std::string& sender_ip, int64_t backend_id, bool enable_profile)
+                         std::string sender_ip, int64_t backend_id, bool enable_profile)
         : _load_id(load_id),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
-          _sender_ip(sender_ip),
+          _sender_ip(std::move(sender_ip)),
           _backend_id(backend_id),
           _enable_profile(enable_profile) {
+    std::shared_ptr<QueryContext> query_context =
+            ExecEnv::GetInstance()->fragment_mgr()->get_query_context(_load_id.to_thrift());
+    if (query_context != nullptr) {
+        _query_thread_context = {_load_id.to_thrift(), query_context->query_mem_tracker,
+                                 query_context->workload_group()};
+    } else {
+        _query_thread_context = {
+                _load_id.to_thrift(),
+                MemTrackerLimiter::create_shared(
+                        MemTrackerLimiter::Type::LOAD,
+                        fmt::format("(FromLoadChannel)Load#Id={}", _load_id.to_string()))};
+    }
     g_loadchannel_cnt << 1;
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
@@ -73,6 +89,7 @@ void LoadChannel::_init_profile() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
+    SCOPED_ATTACH_TASK(_query_thread_context);
     int64_t index_id = params.index_id();
     std::shared_ptr<BaseTabletsChannel> channel;
     {
@@ -81,13 +98,17 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         if (it != _tablets_channels.end()) {
             channel = it->second;
         } else {
+            // just for VLOG
+            if (_txn_id == 0) [[unlikely]] {
+                _txn_id = params.txn_id();
+            }
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
             // TODO(plat1ko): CloudTabletsChannel
             channel = std::make_shared<TabletsChannel>(*StorageEngine::instance(), key, _load_id,
                                                        _is_high_priority, _self_profile);
             {
-                std::lock_guard<SpinLock> l(_tablets_channels_lock);
+                std::lock_guard<std::mutex> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
             }
         }
@@ -129,6 +150,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                               PTabletWriterAddBlockResult* response) {
     SCOPED_TIMER(_add_batch_timer);
     COUNTER_UPDATE(_add_batch_times, 1);
+    SCOPED_ATTACH_TASK(_query_thread_context);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<BaseTabletsChannel> channel;
@@ -145,6 +167,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     }
 
     // 3. handle eos
+    // if channel is incremental, maybe hang on close until all close request arrived.
     if (request.has_eos() && request.eos()) {
         st = _handle_eos(channel.get(), request, response);
         _report_profile(response);
@@ -166,15 +189,34 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     auto index_id = request.index_id();
 
     RETURN_IF_ERROR(channel->close(this, request, response, &finished));
+
+    // for init node, we close waiting(hang on) all close request and let them return together.
+    if (request.has_hang_wait() && request.hang_wait()) {
+        DCHECK(!channel->is_incremental_channel());
+        VLOG_DEBUG << fmt::format("txn {}: reciever index {} close waiting by sender {}", _txn_id,
+                                  request.index_id(), request.sender_id());
+        int count = 0;
+        while (!channel->is_finished()) {
+            bthread_usleep(1000);
+            count++;
+        }
+        // now maybe finished or cancelled.
+        VLOG_TRACE << "reciever close wait finished!" << request.sender_id();
+        if (count >= 1000 * _timeout_s) { // maybe config::streaming_load_rpc_max_alive_time_sec
+            return Status::InternalError("Tablets channel didn't wait all close");
+        }
+    }
+
     if (finished) {
         std::lock_guard<std::mutex> l(_lock);
         {
-            std::lock_guard<SpinLock> l(_tablets_channels_lock);
+            std::lock_guard<std::mutex> l(_tablets_channels_lock);
             _tablets_channels_rows.insert(std::make_pair(
                     index_id,
                     std::make_pair(channel->total_received_rows(), channel->num_rows_filtered())));
             _tablets_channels.erase(index_id);
         }
+        LOG(INFO) << "txn " << _txn_id << " closed tablets_channel " << index_id;
         _finished_channel_ids.emplace(index_id);
     }
     return Status::OK();
@@ -194,7 +236,7 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
     _self_profile->set_timestamp(_last_updated_time);
 
     {
-        std::lock_guard<SpinLock> l(_tablets_channels_lock);
+        std::lock_guard<std::mutex> l(_tablets_channels_lock);
         for (auto& it : _tablets_channels) {
             it.second->refresh_profile();
         }

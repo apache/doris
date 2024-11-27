@@ -24,7 +24,7 @@ suite("test_show_create_database", "p0,external,hive,external_docker,external_do
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String hms_port = context.config.otherConfigs.get("hms_port")
+        String hms_port = context.config.otherConfigs.get("hive2HmsPort")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         String catalog_name = "hive_test_other"

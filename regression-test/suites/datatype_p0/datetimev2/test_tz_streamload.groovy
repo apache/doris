@@ -58,7 +58,7 @@ suite("test_tz_streamload") {
     sql "sync"
     qt_table1 "select * from ${table1} order by k1"
 
-    streamLoad {
+    streamLoad { // contain more complex format
         table "${table2}"
         set 'column_separator', ','
         set 'columns', 'id,createTime,createTime=date_add(createTime, INTERVAL 8 HOUR)'
@@ -68,4 +68,28 @@ suite("test_tz_streamload") {
     }
     sql "sync"
     qt_table2 "select * from ${table2} order by id"
+
+    // test rounding for date type. from hour to date.
+    sql "drop table if exists d"
+    sql """
+        CREATE TABLE d (
+            `k1` int,
+            `k2` date,
+            `k3` datetime
+        )
+        DISTRIBUTED BY HASH(k1) BUCKETS 3
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+
+    streamLoad {
+        table "d"
+        set 'column_separator', ','
+        set 'timezone', 'UTC'
+        file "only_date.csv"
+        time 20000
+    }
+    sql "sync"
+    qt_table1 "select * from d order by k1, k2, k3"
 }

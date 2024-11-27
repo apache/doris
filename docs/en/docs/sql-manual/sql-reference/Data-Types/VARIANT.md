@@ -45,11 +45,11 @@ Below are test results based on clickbench data:
 
 |    | Storage Space |
 |--------------|------------|
-| Predefined Static Columns | 24.329 GB  |
-| VARIANT Type    | 24.296 GB  |
-| JSON Type             | 46.730 GB  |
+| Predefined Static Columns | 12.618 GB  |
+| VARIANT Type    | 12.718 GB  |
+| JSON Type             | 35.711 GB   |
 
-**Saves approximately 50% storage capacity**
+**Saves approximately 65% storage capacity**
 
 | Query Counts        | Predefined Static Columns | VARIANT Type | JSON Type        |
 |---------------------|---------------------------|--------------|-----------------|
@@ -84,12 +84,20 @@ CREATE TABLE IF NOT EXISTS ${table_name} (
 )
 table_properties;
 
+-- Create an bloom filter on v column, to enhance query seed on sub columns
+CREATE TABLE IF NOT EXISTS ${table_name} (
+    k BIGINT,
+    v VARIANT
+)
+...
+properties("replication_num" = "1", "bloom_filter_columns" = "v");
+
 ```
 
 **Query Syntax**
 
 ``` sql
--- use v['a']['b'] format for example
+-- use v['a']['b'] format for example, v['properties']['title'] type is Variant
 SELECT v['properties']['title'] from ${table_name}
 
 ```
@@ -351,8 +359,8 @@ When the above types cannot be compatible, they will be transformed into JSON ty
 **Other limitations include:**
 
 - Aggregate models are currently not supported.
-- VARIANT columns can only create inverted indexes.
-- Using the **RANDOM** mode is recommended for higher write performance.
+- VARIANT columns can only create inverted indexes or bloom filter to speed up query.
+- Using the **RANDOM** mode or [group commit](https://doris.apache.org/docs/dev/data-operate/import/import-way/group-commit-manual/) mode is recommended for higher write performance.
 - Non-standard JSON types such as date and decimal should ideally use static types for better performance, since these types are infered to text type.
 - Arrays with dimensions of 2 or higher will be stored as JSONB encoding, which might perform less efficiently than native arrays.
 - Not supported as primary or sort keys.

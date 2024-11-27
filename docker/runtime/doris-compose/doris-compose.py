@@ -45,6 +45,9 @@ def run(args, disable_log, help):
 
 if __name__ == '__main__':
     args, help = parse_args()
+    verbose = getattr(args, "verbose", False)
+    if verbose:
+        utils.set_log_verbose()
     disable_log = getattr(args, "output_json", False)
     if disable_log:
         utils.set_enable_log(False)
@@ -53,13 +56,13 @@ if __name__ == '__main__':
     try:
         data = run(args, disable_log, help)
         if disable_log:
-            print(utils.pretty_json({"code": 0, "data": data}))
+            print(utils.pretty_json({"code": 0, "data": data}), flush=True)
         code = 0
     except:
         err = traceback.format_exc()
         if disable_log:
-            print(utils.pretty_json({"code": 1, "err": err}))
+            print(utils.pretty_json({"code": 1, "err": err}), flush=True)
         else:
-            print(err)
+            print(err, flush=True)
         code = 1
     sys.exit(code)

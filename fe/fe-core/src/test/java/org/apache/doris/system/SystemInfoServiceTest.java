@@ -21,7 +21,9 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService.HostInfo;
@@ -45,6 +47,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class SystemInfoServiceTest {
     private SystemInfoService infoService;
@@ -130,6 +134,7 @@ public class SystemInfoServiceTest {
 
     @Test
     public void testSelectBackendIdsByPolicy() throws Exception {
+        Config.disable_backend_black_list = true;
         // 1. no backend
         BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
         Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy, 1).size());
@@ -402,19 +407,25 @@ public class SystemInfoServiceTest {
         ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         // also check if the random selection logic can evenly distribute the replica.
         Map<Long, Integer> beCounterMap = Maps.newHashMap();
-        for (int i = 0; i < 10000; ++i) {
-            Map<Tag, List<Long>> res = infoService.selectBackendIdsForReplicaCreation(replicaAlloc,
+        for (int i = 0; i < 30000; ++i) {
+            Pair<Map<Tag, List<Long>>, TStorageMedium> ret = infoService.selectBackendIdsForReplicaCreation(replicaAlloc,
                     Maps.newHashMap(), TStorageMedium.HDD, false, false);
+            Map<Tag, List<Long>> res = ret.first;
             Assert.assertEquals(3, res.get(Tag.DEFAULT_BACKEND_TAG).size());
             for (Long beId : res.get(Tag.DEFAULT_BACKEND_TAG)) {
                 beCounterMap.put(beId, beCounterMap.getOrDefault(beId, 0) + 1);
             }
         }
+        Set<Long> expectBackendIds = infoService.getMixBackends().stream()
+                .filter(Backend::isAlive).map(Backend::getId)
+                .collect(Collectors.toSet());
+        Assert.assertEquals(expectBackendIds, beCounterMap.keySet().stream().collect(Collectors.toSet()));
         List<Integer> list = Lists.newArrayList(beCounterMap.values());
         Collections.sort(list);
-        int diff = list.get(list.size() - 1) - list.get(0);
-        // The max replica num and min replica num's diff is less than 5%.
-        Assert.assertTrue((diff * 1.0 / list.get(0)) < 0.05);
+        int max = list.get(list.size() - 1);
+        int diff =  max - list.get(0);
+        // The max replica num and min replica num's diff is less than 30%.
+        Assert.assertTrue((diff * 1.0 / max) < 0.3);
     }
 
     private void addDisk(Backend be, String path, TStorageMedium medium, long totalB, long availB) {

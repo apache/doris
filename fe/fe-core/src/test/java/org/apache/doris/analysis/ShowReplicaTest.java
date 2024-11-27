@@ -64,7 +64,7 @@ public class ShowReplicaTest extends TestWithFeService {
         executor = new ShowExecutor(connectContext, skewStmt);
         resultSet = executor.execute();
         Assert.assertEquals(10, resultSet.getResultRows().size());
-        Assert.assertEquals(5, resultSet.getResultRows().get(0).size());
+        Assert.assertEquals(6, resultSet.getResultRows().get(0).size());
 
         // update tablets' data size and row count
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
@@ -73,7 +73,8 @@ public class ShowReplicaTest extends TestWithFeService {
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateStat(1024, 2);
+                        replica.setDataSize(1024L);
+                        replica.setRowCount(2L);
                     }
                 }
             }
@@ -87,8 +88,8 @@ public class ShowReplicaTest extends TestWithFeService {
         executor = new ShowExecutor(connectContext, skewStmt);
         resultSet = executor.execute();
         Assert.assertEquals(10, resultSet.getResultRows().size());
-        Assert.assertEquals("4", resultSet.getResultRows().get(4).get(0));
-        Assert.assertEquals(5, resultSet.getResultRows().get(0).size());
+        Assert.assertEquals("4", resultSet.getResultRows().get(4).get(1));
+        Assert.assertEquals(6, resultSet.getResultRows().get(0).size());
     }
 
     @Test

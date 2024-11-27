@@ -115,7 +115,7 @@ public class Histogram {
 
             JsonObject histogramJson = JsonParser.parseString(json).getAsJsonObject();
             String typeStr = histogramJson.get("data_type").getAsString();
-            Type dataType = Type.fromPrimitiveType(PrimitiveType.valueOf(typeStr));
+            Type dataType = Type.fromPrimitiveType(PrimitiveType.valueOf(typeStr.toUpperCase()));
             histogramBuilder.setDataType(dataType);
 
             float sampleRate = histogramJson.get("sample_rate").getAsFloat();

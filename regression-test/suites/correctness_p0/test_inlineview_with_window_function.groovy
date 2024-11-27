@@ -152,7 +152,6 @@ suite("test_inlineview_with_window_function") {
                 )tmp1
                 on tmp.ordernum=tmp1.ordernum;"""
 
-    sql """set enable_nereids_planner=false;"""
     qt_order2 """
             SELECT  
                 row_number() over(partition by add_date order by pc_num desc)

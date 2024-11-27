@@ -64,7 +64,6 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
                 .whenNot(join -> join.hasDistributeHint() || join.left().hasDistributeHint())
                 .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputExprIdSet()))
-                .whenNot(LogicalJoin::isMarkJoin)
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
@@ -97,7 +96,7 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
                         topJoin.getHashJoinConjuncts().stream(),
                         topJoin.getOtherJoinConjuncts().stream())
                 .allMatch(expr -> {
-                    Set<ExprId> usedExprIdSet = expr.<Set<SlotReference>>collect(SlotReference.class::isInstance)
+                    Set<ExprId> usedExprIdSet = expr.<SlotReference>collect(SlotReference.class::isInstance)
                             .stream()
                             .map(SlotReference::getExprId)
                             .collect(Collectors.toSet());

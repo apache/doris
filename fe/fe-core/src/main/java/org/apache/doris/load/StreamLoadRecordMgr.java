@@ -22,15 +22,17 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.plugin.audit.AuditEvent;
-import org.apache.doris.plugin.audit.AuditEvent.EventType;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.plugin.audit.StreamLoadAuditEvent;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -186,6 +188,13 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                     if (state != null && !String.valueOf(state).equalsIgnoreCase(streamLoadRecord.getStatus())) {
                         continue;
                     }
+                    // check auth
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    streamLoadRecord.getDb(), streamLoadRecord.getTable(),
+                                    PrivPredicate.LOAD)) {
+                        continue;
+                    }
                     streamLoadRecords.add(streamLoadRecord.getStreamLoadInfo());
                 } catch (Exception e) {
                     continue;
@@ -250,9 +259,9 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 for (Map.Entry<String, TStreamLoadRecord> entry : streamLoadRecordBatch.entrySet()) {
                     TStreamLoadRecord streamLoadItem = entry.getValue();
                     String startTime = TimeUtils.longToTimeString(streamLoadItem.getStartTime(),
-                            TimeUtils.DATETIME_MS_FORMAT);
+                            TimeUtils.getDatetimeMsFormatWithTimeZone());
                     String finishTime = TimeUtils.longToTimeString(streamLoadItem.getFinishTime(),
-                            TimeUtils.DATETIME_MS_FORMAT);
+                            TimeUtils.getDatetimeMsFormatWithTimeZone());
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("receive stream load record info from backend: {}."
                                         + " label: {}, db: {}, tbl: {}, user: {}, user_ip: {},"
@@ -305,7 +314,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                         if (Strings.isNullOrEmpty(streamLoadItem.getCluster())) {
                             dbName = streamLoadItem.getDb();
                         }
-                        throw new UserException("unknown database, database=" + dbName);
+                        LOG.warn("unknown database, database=" + dbName);
+                        continue;
                     }
                     long dbId = db.getId();
                     Env.getCurrentEnv().getStreamLoadRecordMgr()

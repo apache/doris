@@ -757,6 +757,47 @@
 11	{"id":2,"name":"Mary"}
 11	{"id":3,"name":"Bob"}
 
+-- !sql_explode_json_array_json_Json --
+\N	{"id":1,"name":"John"}
+\N	{"id":2,"name":"Mary"}
+\N	{"id":3,"name":"Bob"}
+0	{"id":1,"name":"John"}
+0	{"id":2,"name":"Mary"}
+0	{"id":3,"name":"Bob"}
+1	{"id":1,"name":"John"}
+1	{"id":2,"name":"Mary"}
+1	{"id":3,"name":"Bob"}
+2	{"id":1,"name":"John"}
+2	{"id":2,"name":"Mary"}
+2	{"id":3,"name":"Bob"}
+3	{"id":1,"name":"John"}
+3	{"id":2,"name":"Mary"}
+3	{"id":3,"name":"Bob"}
+4	{"id":1,"name":"John"}
+4	{"id":2,"name":"Mary"}
+4	{"id":3,"name":"Bob"}
+5	{"id":1,"name":"John"}
+5	{"id":2,"name":"Mary"}
+5	{"id":3,"name":"Bob"}
+6	{"id":1,"name":"John"}
+6	{"id":2,"name":"Mary"}
+6	{"id":3,"name":"Bob"}
+7	{"id":1,"name":"John"}
+7	{"id":2,"name":"Mary"}
+7	{"id":3,"name":"Bob"}
+8	{"id":1,"name":"John"}
+8	{"id":2,"name":"Mary"}
+8	{"id":3,"name":"Bob"}
+9	{"id":1,"name":"John"}
+9	{"id":2,"name":"Mary"}
+9	{"id":3,"name":"Bob"}
+10	{"id":1,"name":"John"}
+10	{"id":2,"name":"Mary"}
+10	{"id":3,"name":"Bob"}
+11	{"id":1,"name":"John"}
+11	{"id":2,"name":"Mary"}
+11	{"id":3,"name":"Bob"}
+
 -- !sql_explode_Double --
 0	0.1
 1	0.2

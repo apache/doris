@@ -35,16 +35,22 @@ namespace doris {
 
 EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request)
         : _alter_tablet_req(request) {
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
+    auto mem_limit = ExecEnv::GetInstance()
+                             ->get_storage_engine()
+                             ->memory_limitation_bytes_per_thread_for_schema_change();
+    _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::SCHEMA_CHANGE,
             fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
                         std::to_string(_alter_tablet_req.base_tablet_id),
                         std::to_string(_alter_tablet_req.new_tablet_id)),
-            config::memory_limitation_per_thread_for_schema_change_bytes);
+            mem_limit);
+    LOG_INFO("schema change")
+            .tag("base_tablet_id", request.base_tablet_id)
+            .tag("new_tablet_id", request.new_tablet_id)
+            .tag("mem_limit", mem_limit);
 }
 
 Status EngineAlterTabletTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker);
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
     Status res = Status::OK();
     try {

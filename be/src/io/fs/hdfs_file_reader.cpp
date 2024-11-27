@@ -28,6 +28,8 @@
 #include "common/logging.h"
 #include "io/fs/err_utils.h"
 // #include "io/fs/hdfs_file_system.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/hdfs_util.h"
@@ -76,41 +78,6 @@ Status HdfsFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         DorisMetrics::instance()->hdfs_file_open_reading->increment(-1);
-        if (_profile != nullptr && is_hdfs(_name_node)) {
-#ifdef USE_HADOOP_HDFS
-            struct hdfsReadStatistics* hdfs_statistics = nullptr;
-            auto r = hdfsFileGetReadStatistics(_handle->file(), &hdfs_statistics);
-            if (r != 0) {
-                return Status::InternalError(
-                        fmt::format("Failed to run hdfsFileGetReadStatistics(): {}", r));
-            }
-            COUNTER_UPDATE(_hdfs_profile.total_bytes_read, hdfs_statistics->totalBytesRead);
-            COUNTER_UPDATE(_hdfs_profile.total_local_bytes_read,
-                           hdfs_statistics->totalLocalBytesRead);
-            COUNTER_UPDATE(_hdfs_profile.total_short_circuit_bytes_read,
-                           hdfs_statistics->totalShortCircuitBytesRead);
-            COUNTER_UPDATE(_hdfs_profile.total_total_zero_copy_bytes_read,
-                           hdfs_statistics->totalZeroCopyBytesRead);
-            hdfsFileFreeReadStatistics(hdfs_statistics);
-
-            struct hdfsHedgedReadMetrics* hdfs_hedged_read_statistics = nullptr;
-            r = hdfsGetHedgedReadMetrics(_handle->fs(), &hdfs_hedged_read_statistics);
-            if (r != 0) {
-                return Status::InternalError(
-                        fmt::format("Failed to run hdfsGetHedgedReadMetrics(): {}", r));
-            }
-
-            COUNTER_UPDATE(_hdfs_profile.total_hedged_read,
-                           hdfs_hedged_read_statistics->hedgedReadOps);
-            COUNTER_UPDATE(_hdfs_profile.hedged_read_in_cur_thread,
-                           hdfs_hedged_read_statistics->hedgedReadOpsInCurThread);
-            COUNTER_UPDATE(_hdfs_profile.hedged_read_wins,
-                           hdfs_hedged_read_statistics->hedgedReadOpsWin);
-
-            hdfsFreeHedgedReadMetrics(hdfs_hedged_read_statistics);
-            hdfsFileClearReadStatistics(_handle->file());
-#endif
-        }
     }
     return Status::OK();
 }
@@ -132,6 +99,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         return Status::OK();
     }
 
+    LIMIT_REMOTE_SCAN_IO(bytes_read);
     size_t has_read = 0;
     while (has_read < bytes_req) {
         tSize loop_read = hdfsPread(_handle->fs(), _handle->file(), offset + has_read,
@@ -187,6 +155,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         return Status::OK();
     }
 
+    LIMIT_REMOTE_SCAN_IO(bytes_read);
     size_t has_read = 0;
     while (has_read < bytes_req) {
         int64_t loop_read =
@@ -211,5 +180,44 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     return Status::OK();
 }
 #endif
+
+void HdfsFileReader::_collect_profile_before_close() {
+    if (_profile != nullptr && is_hdfs(_name_node)) {
+#ifdef USE_HADOOP_HDFS
+        struct hdfsReadStatistics* hdfs_statistics = nullptr;
+        auto r = hdfsFileGetReadStatistics(_handle->file(), &hdfs_statistics);
+        if (r != 0) {
+            LOG(WARNING) << "Failed to run hdfsFileGetReadStatistics(): " << r
+                         << ", name node: " << _name_node;
+            return;
+        }
+        COUNTER_UPDATE(_hdfs_profile.total_bytes_read, hdfs_statistics->totalBytesRead);
+        COUNTER_UPDATE(_hdfs_profile.total_local_bytes_read, hdfs_statistics->totalLocalBytesRead);
+        COUNTER_UPDATE(_hdfs_profile.total_short_circuit_bytes_read,
+                       hdfs_statistics->totalShortCircuitBytesRead);
+        COUNTER_UPDATE(_hdfs_profile.total_total_zero_copy_bytes_read,
+                       hdfs_statistics->totalZeroCopyBytesRead);
+        hdfsFileFreeReadStatistics(hdfs_statistics);
+
+        struct hdfsHedgedReadMetrics* hdfs_hedged_read_statistics = nullptr;
+        r = hdfsGetHedgedReadMetrics(_handle->fs(), &hdfs_hedged_read_statistics);
+        if (r != 0) {
+            LOG(WARNING) << "Failed to run hdfsGetHedgedReadMetrics(): " << r
+                         << ", name node: " << _name_node;
+            return;
+        }
+
+        COUNTER_UPDATE(_hdfs_profile.total_hedged_read, hdfs_hedged_read_statistics->hedgedReadOps);
+        COUNTER_UPDATE(_hdfs_profile.hedged_read_in_cur_thread,
+                       hdfs_hedged_read_statistics->hedgedReadOpsInCurThread);
+        COUNTER_UPDATE(_hdfs_profile.hedged_read_wins,
+                       hdfs_hedged_read_statistics->hedgedReadOpsWin);
+
+        hdfsFreeHedgedReadMetrics(hdfs_hedged_read_statistics);
+        hdfsFileClearReadStatistics(_handle->file());
+#endif
+    }
+}
+
 } // namespace io
 } // namespace doris

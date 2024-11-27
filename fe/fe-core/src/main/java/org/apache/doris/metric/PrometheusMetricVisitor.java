@@ -26,11 +26,14 @@ import org.apache.doris.monitor.jvm.JvmStats.Threads;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -41,6 +44,9 @@ import java.util.stream.Collectors;
  * doris_fe_job{job="load", type="mini", state="pending"} 0
  */
 public class PrometheusMetricVisitor extends MetricVisitor {
+
+    private static final Logger logger = LogManager.getLogger(PrometheusMetricVisitor.class);
+
     // jvm
     private static final String JVM_HEAP_SIZE_BYTES = "jvm_heap_size_bytes";
     private static final String JVM_NON_HEAP_SIZE_BYTES = "jvm_non_heap_size_bytes";
@@ -224,5 +230,28 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             sb.append(NODE_INFO).append("{type=\"is_master\"} ").append(1).append("\n");
         }
         return;
+    }
+
+    @Override
+    public void visitWorkloadGroup() {
+        StringBuilder tmpSb = new StringBuilder();
+        try {
+            String counterTitle = "doris_workload_group_query_detail";
+            tmpSb.append("# HELP " + counterTitle + "\n");
+            tmpSb.append("# TYPE " + counterTitle + " counter\n");
+            Map<String, List<String>> workloadGroupMap = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getWorkloadGroupQueryDetail();
+            for (Map.Entry<String, List<String>> entry : workloadGroupMap.entrySet()) {
+                String name = entry.getKey();
+                List<String> valList = entry.getValue();
+                tmpSb.append(String.format("%s{name=\"%s\", type=\"%s\"} %s\n", counterTitle, name, "running_query_num",
+                        valList.get(0)));
+                tmpSb.append(String.format("%s{name=\"%s\", type=\"%s\"} %s\n", counterTitle, name, "waiting_query_num",
+                        valList.get(1)));
+            }
+            sb.append(tmpSb);
+        } catch (Exception e) {
+            logger.warn("error happends when get workload group query detail ", e);
+        }
     }
 }

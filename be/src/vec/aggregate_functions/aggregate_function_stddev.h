@@ -32,7 +32,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
@@ -104,7 +103,7 @@ struct BaseData {
         double sum_count = count + rhs.count;
         mean = rhs.mean + delta * count / sum_count;
         m2 = rhs.m2 + m2 + (delta * delta) * rhs.count * count / sum_count;
-        count = sum_count;
+        count = int64_t(sum_count);
     }
 
     void add(const IColumn* column, size_t row_num) {
@@ -125,103 +124,6 @@ struct BaseData {
     int64_t count;
 };
 
-template <typename T, bool is_stddev>
-struct BaseDatadecimal {
-    BaseDatadecimal() : mean(0), m2(0), count(0) {}
-    virtual ~BaseDatadecimal() = default;
-
-    void write(BufferWritable& buf) const {
-        write_binary(mean, buf);
-        write_binary(m2, buf);
-        write_binary(count, buf);
-    }
-
-    void read(BufferReadable& buf) {
-        read_binary(mean, buf);
-        read_binary(m2, buf);
-        read_binary(count, buf);
-    }
-
-    void reset() {
-        mean = DecimalV2Value();
-        m2 = DecimalV2Value();
-        count = {};
-    }
-
-    DecimalV2Value get_result(DecimalV2Value res) const {
-        if constexpr (is_stddev) {
-            return DecimalV2Value::sqrt(res);
-        } else {
-            return res;
-        }
-    }
-
-    DecimalV2Value get_pop_result() const {
-        DecimalV2Value new_count = DecimalV2Value();
-        if (count == 1) {
-            return new_count;
-        }
-        DecimalV2Value res = m2 / new_count.assign_from_double(count);
-        return get_result(res);
-    }
-
-    DecimalV2Value get_samp_result() const {
-        DecimalV2Value new_count = DecimalV2Value();
-        DecimalV2Value res = m2 / new_count.assign_from_double(count - 1);
-        return get_result(res);
-    }
-
-    void merge(const BaseDatadecimal& rhs) {
-        if (rhs.count == 0) {
-            return;
-        }
-        DecimalV2Value new_count = DecimalV2Value();
-        new_count.assign_from_double(count);
-        DecimalV2Value rhs_count = DecimalV2Value();
-        rhs_count.assign_from_double(rhs.count);
-
-        DecimalV2Value delta = mean - rhs.mean;
-        DecimalV2Value sum_count = new_count + rhs_count;
-        mean = rhs.mean + delta * (new_count / sum_count);
-        m2 = rhs.m2 + m2 + (delta * delta) * (rhs_count * new_count / sum_count);
-        count += rhs.count;
-    }
-
-    void add(const IColumn* column, size_t row_num) {
-        const auto& sources = assert_cast<const ColumnDecimal<T>&>(*column);
-        Field field = sources[row_num];
-        auto decimal_field = field.template get<DecimalField<T>>();
-        int128_t value;
-        if (decimal_field.get_scale() > DecimalV2Value::SCALE) {
-            value = static_cast<int128_t>(decimal_field.get_value()) /
-                    (decimal_field.get_scale_multiplier() / DecimalV2Value::ONE_BILLION);
-        } else {
-            value = static_cast<int128_t>(decimal_field.get_value()) *
-                    (DecimalV2Value::ONE_BILLION / decimal_field.get_scale_multiplier());
-        }
-        DecimalV2Value source_data = DecimalV2Value(value);
-
-        DecimalV2Value new_count = DecimalV2Value();
-        new_count.assign_from_double(count);
-        DecimalV2Value increase_count = DecimalV2Value();
-        increase_count.assign_from_double(1 + count);
-
-        DecimalV2Value delta = source_data - mean;
-        DecimalV2Value r = delta / increase_count;
-        mean += r;
-        m2 += new_count * delta * r;
-        count += 1;
-    }
-
-    static DataTypePtr get_return_type() {
-        return std::make_shared<DataTypeDecimal<Decimal128V2>>(27, 9);
-    }
-
-    DecimalV2Value mean;
-    DecimalV2Value m2;
-    int64_t count;
-};
-
 template <typename T, typename Data>
 struct PopData : Data {
     using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
@@ -235,6 +137,10 @@ struct PopData : Data {
         }
     }
 };
+
+// For this series of functions, the Decimal type is not supported
+// because the operations involve squaring,
+// which can easily exceed the range of the Decimal type.
 
 template <typename Data>
 struct StddevName : Data {
@@ -296,7 +202,7 @@ public:
         }
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (is_pop) {
             this->data(place).add(columns[0], row_num);

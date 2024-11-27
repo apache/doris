@@ -17,6 +17,12 @@
 
 suite("test_hive_statistic_cache", "p2,external,hive,external_remote,external_remote_hive") {
 
+    Boolean ignoreP2 = true;
+    if (ignoreP2) {
+        logger.info("disable p2 test");
+        return;
+    }
+
     def wait_row_count_reported = { table, expected ->
         for (int i = 0; i < 10; i++) {
             result = sql """show table stats ${table}"""

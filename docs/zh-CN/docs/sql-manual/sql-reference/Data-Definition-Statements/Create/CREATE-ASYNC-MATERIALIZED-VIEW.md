@@ -174,6 +174,7 @@ KEY(k1,k2)
 - 如果使用了 window 函数，分区列的字段一定要在partition by后。
 - 数据变更应发生在分区表上，如果发生在非分区表，物化视图需要全量构建。
 - 物化视图使用 Join 的 null 产生端的字段作为分区字段，不能分区增量更新。
+- 物化视图引用的 base table 分区表，目前只支持内表和 HIVE 表。其中内表的分区列的属性不能是 NULL。HIVE表允许为 NULL。
 
 #### property
 物化视图既可以指定table的property，也可以指定物化视图特有的property。

@@ -29,23 +29,26 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.PredicateUtils;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileScanNode;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.datasource.SplitAssignment;
+import org.apache.doris.datasource.SplitGenerator;
+import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
@@ -62,6 +65,7 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeRangeSet;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -75,20 +79,29 @@ import java.util.stream.Collectors;
 /**
  * Representation of the common elements of all scan nodes.
  */
-public abstract class ScanNode extends PlanNode {
+public abstract class ScanNode extends PlanNode implements SplitGenerator {
     private static final Logger LOG = LogManager.getLogger(ScanNode.class);
+    protected static final int NUM_SPLITS_PER_PARTITION = 10;
+    protected static final int NUM_SPLITTERS_ON_FLIGHT = Config.max_external_cache_loader_thread_pool_size;
     protected final TupleDescriptor desc;
     // for distribution prunner
-    protected Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
+    protected Map<String, PartitionColumnFilter> columnFilters = new CaseInsensitiveMap();
     // Use this if partition_prune_algorithm_version is 2.
     protected Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
     protected String sortColumn = null;
     protected Analyzer analyzer;
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
+    protected List<SplitSource> splitSources = Lists.newArrayList();
     protected PartitionInfo partitionsInfo = null;
+    protected SplitAssignment splitAssignment = null;
+
+    protected long selectedPartitionNum = 0;
+    protected long selectedSplitNum = 0;
 
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
+
+    protected TableSnapshot tableSnapshot;
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
@@ -121,10 +134,6 @@ public abstract class ScanNode extends PlanNode {
 
     public void setSortColumn(String column) {
         sortColumn = column;
-    }
-
-    protected List<Split> getSplits() throws UserException {
-        throw new NotImplementedException("Scan node sub class need to implement getSplits interface.");
     }
 
     /**
@@ -161,15 +170,6 @@ public abstract class ScanNode extends PlanNode {
     // 2. key column slot is distribution column and first column
     protected boolean isKeySearch() {
         return false;
-    }
-
-    /**
-     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
-     * In the projection process, some slots may be removed. So call this to update the slots info.
-     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
-     */
-    public void updateRequiredSlots(PlanTranslatorContext context,
-            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
     }
 
     private void computeColumnFilter(Column column, SlotDescriptor slotDesc, PartitionInfo partitionsInfo) {
@@ -397,7 +397,8 @@ public abstract class ScanNode extends PlanNode {
                 if (null == partitionColumnFilter) {
                     partitionColumnFilter = new PartitionColumnFilter();
                 }
-                LiteralExpr literal = (LiteralExpr) slotBinding;
+                LiteralExpr literal = slotBinding instanceof PlaceHolderExpr
+                        ? ((PlaceHolderExpr) slotBinding).getLiteral() : (LiteralExpr) slotBinding;
                 BinaryPredicate.Operator op = binPredicate.getOp();
                 if (!binPredicate.slotIsLeft()) {
                     op = op.commutative();
@@ -728,14 +729,40 @@ public abstract class ScanNode extends PlanNode {
                 && context.getSessionVariable().getEnablePipelineXEngine()
                 && !fragment.hasNullAwareLeftAntiJoin()
                 && getScanRangeNum()
-                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numBackends;
+                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum()
+                * (numScanBackends() > 0 ? numScanBackends() : numBackends);
+    }
+
+    public int numScanBackends() {
+        return 0;
     }
 
     public int getScanRangeNum() {
         return Integer.MAX_VALUE;
     }
 
-    public boolean shouldUseOneInstance() {
-        return hasLimit() && conjuncts.isEmpty();
+    public boolean shouldUseOneInstance(ConnectContext ctx) {
+        int adaptivePipelineTaskSerialReadOnLimit = 10000;
+
+        if (ctx != null) {
+            if (ctx.getSessionVariable().enableAdaptivePipelineTaskSerialReadOnLimit) {
+                adaptivePipelineTaskSerialReadOnLimit = ctx.getSessionVariable().adaptivePipelineTaskSerialReadOnLimit;
+            } else {
+                return false;
+            }
+        } else {
+            // No connection context, typically for broker load.
+        }
+
+        // For UniqueKey table, we will use multiple instance.
+        return hasLimit() && getLimit() <= adaptivePipelineTaskSerialReadOnLimit && conjuncts.isEmpty();
+    }
+
+    public long getSelectedPartitionNum() {
+        return selectedPartitionNum;
+    }
+
+    public long getSelectedSplitNum() {
+        return selectedSplitNum;
     }
 }

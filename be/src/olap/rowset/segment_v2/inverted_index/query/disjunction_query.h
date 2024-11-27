@@ -28,7 +28,7 @@ class DisjunctionQuery : public Query {
 public:
     DisjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                      const TQueryOptions& query_options);
-    ~DisjunctionQuery() override;
+    ~DisjunctionQuery() override = default;
 
     void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
     void search(roaring::Roaring& roaring) override;
@@ -36,9 +36,8 @@ public:
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
 
-    std::vector<Term*> _terms;
-    std::vector<TermDocs*> _term_docs;
-    std::vector<TermIterator> _term_iterators;
+    std::wstring _field_name;
+    std::vector<std::string> _terms;
 };
 
 } // namespace doris::segment_v2

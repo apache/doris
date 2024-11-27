@@ -21,10 +21,6 @@ This suite is a one dimensional test case file.
 suite("negative_partition_mv_rewrite") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
 
     sql """
     drop table if exists orders_1
@@ -43,7 +39,6 @@ suite("negative_partition_mv_rewrite") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    AUTO PARTITION BY range date_trunc(`o_orderdate`, 'day') ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -73,7 +68,6 @@ suite("negative_partition_mv_rewrite") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    AUTO PARTITION BY range date_trunc(`l_shipdate`, 'day') ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -133,47 +127,6 @@ suite("negative_partition_mv_rewrite") {
     sql """analyze table lineitem_1 with sync;"""
     sql """analyze table partsupp_1 with sync;"""
 
-    def create_mv_lineitem = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(l_shipdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1')  
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_mv_orders = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(o_orderdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL  
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
-
     def mv_name = "mv_1"
     def mtmv_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey 
@@ -182,9 +135,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         """
 
-    create_mv_lineitem(mv_name, mtmv_sql)
-    def job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     // mtmv not exists query col
     def query_sql = """
@@ -193,10 +144,7 @@ suite("negative_partition_mv_rewrite") {
         left join orders_1 
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // Swap tables on either side of the left join
     query_sql = """
@@ -205,10 +153,7 @@ suite("negative_partition_mv_rewrite") {
         left join lineitem_1 
         on orders_1.o_orderkey = lineitem_1.l_orderkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // The filter condition of the query is not in the filter range of mtmv
     mtmv_sql = """
@@ -217,19 +162,14 @@ suite("negative_partition_mv_rewrite") {
         left join orders_1 
         on t1.l_orderkey = orders_1.o_orderkey
         """
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
     query_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey   
         from (select * from lineitem_1 where l_shipdate = '2023-10-18' ) t1 
         left join orders_1 
         on t1.l_orderkey = orders_1.o_orderkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // The filter range of the query is larger than that of the mtmv
     mtmv_sql = """
@@ -239,9 +179,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey 
         where  orders_1.o_orderkey > 2
         """
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
     query_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
         from lineitem_1 
@@ -249,10 +187,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey 
         where  orders_1.o_orderkey > 1
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     query_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
@@ -261,10 +196,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey 
         where  orders_1.o_orderkey > 2 or orders_1.o_orderkey < 0
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // filter in
     mtmv_sql = """
@@ -274,9 +206,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey 
         where  orders_1.o_orderkey in (1, 2, 3)
         """
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
     query_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
         from lineitem_1 
@@ -284,10 +214,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey 
         where  orders_1.o_orderkey in (1, 2, 3, 4)
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // agg not roll up
     mtmv_sql = """
@@ -298,18 +225,13 @@ suite("negative_partition_mv_rewrite") {
             o_shippriority, 
             o_comment 
         """
-    create_mv_orders(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     query_sql = """
         select o_orderdate 
             from orders_1
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select o_orderdate, o_shippriority, o_comment,
@@ -325,9 +247,7 @@ suite("negative_partition_mv_rewrite") {
             o_shippriority,
             o_comment
         """
-    create_mv_orders(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     query_sql = """
         select 
@@ -339,10 +259,7 @@ suite("negative_partition_mv_rewrite") {
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
             from orders_1
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // query partial rewriting
     mtmv_sql = """
@@ -352,18 +269,13 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         group by l_shipdate, o_orderdate, l_partkey, l_suppkey
         """
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     query_sql = """
         select l_shipdate, l_partkey, count(*) from lineitem_1 
         group by l_shipdate, l_partkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select
@@ -376,9 +288,7 @@ suite("negative_partition_mv_rewrite") {
         from orders_1
         left join lineitem_1 on lineitem_1.l_orderkey = orders_1.o_orderkey
         """
-    create_mv(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     query_sql = """
         select
@@ -390,18 +300,13 @@ suite("negative_partition_mv_rewrite") {
         count(*)
         from orders_1
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // view partial rewriting
     mtmv_sql = """
         select l_shipdate, l_partkey, l_orderkey, count(*) from lineitem_1 group by l_shipdate, l_partkey, l_orderkey
         """
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     query_sql = """
         select l_shipdate, l_partkey, l_orderkey, count(*) 
@@ -409,10 +314,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_shipdate=orders_1.o_orderdate 
         group by l_shipdate, l_partkey, l_orderkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select o_orderdate, o_shippriority, o_comment, l_orderkey, o_orderkey, sum(o_orderkey)   
@@ -425,9 +327,7 @@ suite("negative_partition_mv_rewrite") {
             l_orderkey,
             o_orderkey
         """
-    create_mv_orders(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     query_sql = """
         select o_orderdate, o_shippriority, o_comment, l_orderkey, ps_partkey, sum(o_orderkey)
@@ -441,10 +341,7 @@ suite("negative_partition_mv_rewrite") {
             l_orderkey, 
             ps_partkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // union rewrite
     mtmv_sql = """
@@ -455,9 +352,7 @@ suite("negative_partition_mv_rewrite") {
         where l_shipdate >= "2023-10-17"
         group by l_shipdate, o_orderdate, l_partkey
         """
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     query_sql = """
         select l_shipdate, o_orderdate, l_partkey, count(*)
@@ -467,10 +362,7 @@ suite("negative_partition_mv_rewrite") {
         where l_shipdate >= "2023-10-15"
         group by l_shipdate, o_orderdate, l_partkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select l_shipdate, l_partkey, l_orderkey
@@ -478,9 +370,7 @@ suite("negative_partition_mv_rewrite") {
         where l_shipdate >= "2023-10-10"
         group by l_shipdate, l_partkey, l_orderkey
         """
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     query_sql = """
         select t.l_shipdate, o_orderdate, t.l_partkey
@@ -490,10 +380,7 @@ suite("negative_partition_mv_rewrite") {
         where l_shipdate >= "2023-10-10"
         group by t.l_shipdate, o_orderdate, t.l_partkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // project rewriting
     mtmv_sql = """
@@ -502,9 +389,7 @@ suite("negative_partition_mv_rewrite") {
         case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end as cnt_2
         from orders_1;
         """
-    create_mv_orders(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     query_sql = """
         select o_shippriority, o_comment, o_shippriority + o_custkey  + o_orderkey,
@@ -512,10 +397,7 @@ suite("negative_partition_mv_rewrite") {
         case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end as cnt_2
         from orders_1;
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // agg under join
     mtmv_sql = """
@@ -525,9 +407,7 @@ suite("negative_partition_mv_rewrite") {
         group by
         t1.o_orderdate, t1.o_shippriority, t1.o_orderkey
         """
-    create_mv_orders(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     query_sql = """
         select t1.o_orderdate, t1.o_shippriority, t1.o_orderkey 
@@ -536,10 +416,7 @@ suite("negative_partition_mv_rewrite") {
         group by
         t1.o_orderdate, t1.o_shippriority, t1.o_orderkey
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // filter include and or
     mtmv_sql = """
@@ -549,9 +426,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey 
         where  orders_1.o_orderkey > 2 and orders_1.o_orderdate >= "2023-10-17" or l_partkey > 1
         """
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
     query_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
         from lineitem_1 
@@ -559,10 +434,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey 
         where  orders_1.o_orderkey > 2 and (orders_1.o_orderdate >= "2023-10-17" or l_partkey > 1)
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // group by under group by
     mtmv_sql = """
@@ -572,19 +444,15 @@ suite("negative_partition_mv_rewrite") {
               GROUP BY l_orderkey) AS c_orders 
         GROUP BY c_count ORDER BY custdist DESC, c_count DESC;
         """
-    create_mv(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
+
     query_sql = """
         SELECT c_count, count(*) AS custdist 
         FROM (SELECT l_orderkey, count(o_orderkey) AS c_count FROM lineitem_1 
               LEFT OUTER JOIN orders_1 ON l_orderkey = o_custkey AND o_comment NOT LIKE '%special%requests%' 
               GROUP BY l_orderkey) AS c_orders 
         GROUP BY c_count ORDER BY custdist DESC, c_count DESC;"""
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // condition on not equal
     mtmv_sql = """
@@ -594,9 +462,8 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey > orders_1.o_orderkey 
         group by l_shipdate, o_orderdate, l_partkey;
         """
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
+
     query_sql = """
         select l_shipdate, o_orderdate, l_partkey, count(*)
         from lineitem_1
@@ -604,10 +471,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey > orders_1.o_orderkey 
         group by l_shipdate, o_orderdate, l_partkey
     """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mtmv exists join but not exists agg, query exists agg
     mtmv_sql = """
@@ -616,9 +480,8 @@ suite("negative_partition_mv_rewrite") {
         left join orders_1
         on t.l_orderkey = orders_1.o_orderkey;
         """
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
+
     query_sql = """    
         select l_shipdate, o_orderdate, l_partkey 
         from (select l_shipdate, l_partkey, l_orderkey from lineitem_1 group by l_shipdate, l_partkey, l_orderkey) as t
@@ -626,8 +489,5 @@ suite("negative_partition_mv_rewrite") {
         on t.l_orderkey = orders_1.o_orderkey 
         group by l_shipdate, o_orderdate, l_partkey ;
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 }

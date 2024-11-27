@@ -23,7 +23,6 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/runtime_filter_consumer.h"
 
@@ -79,8 +78,6 @@ public:
 
     bool can_read() override;
 
-    Status close(doris::RuntimeState* state) override;
-
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override;
 
 private:
@@ -103,18 +100,28 @@ public:
     MultiCastDataStreamSourceLocalState(RuntimeState* state, OperatorXBase* parent);
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::open(state));
-        RETURN_IF_ERROR(_acquire_runtime_filter());
-        return Status::OK();
-    }
+    Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
     friend class MultiCastDataStreamerSourceOperatorX;
 
-    RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); }
+    std::vector<Dependency*> filter_dependencies() override {
+        if (_filter_dependencies.empty()) {
+            return {};
+        }
+        std::vector<Dependency*> res;
+        res.resize(_filter_dependencies.size());
+        for (size_t i = 0; i < _filter_dependencies.size(); i++) {
+            res[i] = _filter_dependencies[i].get();
+        }
+        return res;
+    }
 
 private:
+    friend class MultiCastDataStreamerSourceOperatorX;
     vectorized::VExprContextSPtrs _output_expr_contexts;
-    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
+    std::vector<std::shared_ptr<RuntimeFilterDependency>> _filter_dependencies;
+
+    RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
 };
 
 class MultiCastDataStreamerSourceOperatorX final
@@ -145,8 +152,8 @@ public:
 
         if (_t_data_stream_sink.__isset.conjuncts) {
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_data_stream_sink.conjuncts,
-                                                                 _conjuncts));
-            RETURN_IF_ERROR(vectorized::VExpr::prepare(_conjuncts, state, _row_desc()));
+                                                                 conjuncts()));
+            RETURN_IF_ERROR(vectorized::VExpr::prepare(conjuncts(), state, _row_desc()));
         }
         return Status::OK();
     }
@@ -157,7 +164,7 @@ public:
             RETURN_IF_ERROR(vectorized::VExpr::open(_output_expr_contexts, state));
         }
         if (_t_data_stream_sink.__isset.conjuncts) {
-            RETURN_IF_ERROR(vectorized::VExpr::open(_conjuncts, state));
+            RETURN_IF_ERROR(vectorized::VExpr::open(conjuncts(), state));
         }
         return Status::OK();
     }

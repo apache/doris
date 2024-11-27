@@ -37,7 +37,6 @@
         notContains "1 | 3"
      }
 
-     sql "SET enable_nereids_planner=false"
      qt_select22 'select * from (select 1 as a, 2 as b union all select 3, 3) t where a = 1 order by a, b;'
      qt_select23 'select * from (select 1 as a, 2 as b union select 3, 3) t where a = 1 order by a, b;'
  }

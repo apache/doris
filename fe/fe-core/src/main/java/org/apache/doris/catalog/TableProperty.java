@@ -26,6 +26,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -60,6 +61,7 @@ public class TableProperty implements Writable {
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
+    private boolean isInAtomicRestore = false;
 
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
@@ -77,6 +79,8 @@ public class TableProperty implements Writable {
      */
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
+    private TInvertedIndexStorageFormat invertedIndexStorageFormat = TInvertedIndexStorageFormat.DEFAULT;
+
     private TCompressionType compressionType = TCompressionType.LZ4F;
 
     private boolean enableLightSchemaChange = false;
@@ -88,6 +92,8 @@ public class TableProperty implements Writable {
     private boolean storeRowColumn = false;
 
     private boolean skipWriteIndexOnLoad = false;
+
+    private long rowStorePageSize = PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
 
     private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
 
@@ -102,6 +108,9 @@ public class TableProperty implements Writable {
 
     private long timeSeriesCompactionEmptyRowsetsThreshold
                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE;
+
+    private long timeSeriesCompactionLevelThreshold
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -140,6 +149,7 @@ public class TableProperty implements Writable {
                 buildEnableSingleReplicaCompaction();
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
+                buildTimeSeriesCompactionLevelThreshold();
                 break;
             default:
                 break;
@@ -188,6 +198,26 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildInAtomicRestore() {
+        isInAtomicRestore = Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE, "false"));
+        return this;
+    }
+
+    public boolean isInAtomicRestore() {
+        return isInAtomicRestore;
+    }
+
+    public TableProperty setInAtomicRestore() {
+        properties.put(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE, "true");
+        return this;
+    }
+
+    public TableProperty clearInAtomicRestore() {
+        properties.remove(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE);
+        return this;
+    }
+
     public TableProperty buildEnableLightSchemaChange() {
         enableLightSchemaChange = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, "false"));
@@ -229,6 +259,17 @@ public class TableProperty implements Writable {
 
     public boolean storeRowColumn() {
         return storeRowColumn;
+    }
+
+    public TableProperty buildRowStorePageSize() {
+        rowStorePageSize = Long.parseLong(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
+                                        Long.toString(PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long rowStorePageSize() {
+        return rowStorePageSize;
     }
 
     public TableProperty buildSkipWriteIndexOnLoad() {
@@ -295,6 +336,17 @@ public class TableProperty implements Writable {
 
     public long timeSeriesCompactionEmptyRowsetsThreshold() {
         return timeSeriesCompactionEmptyRowsetsThreshold;
+    }
+
+    public TableProperty buildTimeSeriesCompactionLevelThreshold() {
+        timeSeriesCompactionLevelThreshold = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long timeSeriesCompactionLevelThreshold() {
+        return timeSeriesCompactionLevelThreshold;
     }
 
     public TableProperty buildMinLoadReplicaNum() {
@@ -416,6 +468,13 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildInvertedIndexStorageFormat() {
+        invertedIndexStorageFormat = TInvertedIndexStorageFormat.valueOf(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
+                TInvertedIndexStorageFormat.DEFAULT.name()));
+        return this;
+    }
+
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
         removeDuplicateReplicaNumProperty();
@@ -479,6 +538,10 @@ public class TableProperty implements Writable {
         return storageFormat;
     }
 
+    public TInvertedIndexStorageFormat getInvertedIndexStorageFormat() {
+        return invertedIndexStorageFormat;
+    }
+
     public DataSortInfo getDataSortInfo() {
         return dataSortInfo;
     }
@@ -501,6 +564,16 @@ public class TableProperty implements Writable {
     public boolean getEnableUniqueKeyMergeOnWrite() {
         return Boolean.parseBoolean(properties.getOrDefault(
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
+    }
+
+    public void setEnableMowLightDelete(boolean enable) {
+        properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE, Boolean.toString(enable));
+    }
+
+    public boolean getEnableMowLightDelete() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE,
+                Boolean.toString(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE)));
     }
 
     public void setSequenceMapCol(String colName) {
@@ -559,6 +632,7 @@ public class TableProperty implements Writable {
                 .buildMinLoadReplicaNum()
                 .buildStorageMedium()
                 .buildStorageFormat()
+                .buildInvertedIndexStorageFormat()
                 .buildDataSortInfo()
                 .buildCompressionType()
                 .buildStoragePolicy()
@@ -566,6 +640,7 @@ public class TableProperty implements Writable {
                 .buildBinlogConfig()
                 .buildEnableLightSchemaChange()
                 .buildStoreRowColumn()
+                .buildRowStorePageSize()
                 .buildSkipWriteIndexOnLoad()
                 .buildCompactionPolicy()
                 .buildTimeSeriesCompactionGoalSizeMbytes()
@@ -573,7 +648,9 @@ public class TableProperty implements Writable {
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction()
-                .buildTimeSeriesCompactionEmptyRowsetsThreshold();
+                .buildTimeSeriesCompactionEmptyRowsetsThreshold()
+                .buildTimeSeriesCompactionLevelThreshold()
+                .buildInAtomicRestore();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
@@ -601,5 +678,16 @@ public class TableProperty implements Writable {
                 && properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
         }
+    }
+
+    public String getPropertiesString() {
+        StringBuilder str = new StringBuilder("");
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (str.length() != 0) {
+                str.append(", ");
+            }
+            str.append(entry.getKey() + " = " + entry.getValue());
+        }
+        return str.toString();
     }
 }

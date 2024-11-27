@@ -60,10 +60,11 @@ public:
         return doris::FieldType::OLAP_FIELD_TYPE_NONE;
     }
 
-    Field get_default() const override { return String(); }
+    Field get_default() const override { return Field(String()); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        LOG(FATAL) << "Unimplemented get_field for DataTypeFixedLengthObject";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Unimplemented get_field for DataTypeFixedLengthObject");
         __builtin_unreachable();
     }
 

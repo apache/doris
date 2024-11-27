@@ -157,6 +157,29 @@ struct DayNameImpl {
 };
 
 template <typename ArgType>
+struct ToIso8601Impl {
+    using OpArgType = ArgType;
+    static constexpr auto name = "to_iso8601";
+    static constexpr auto max_size = std::is_same_v<ArgType, UInt32> ? 10 : 26;
+
+    static inline auto execute(const typename DateTraits<ArgType>::T& dt,
+                               ColumnString::Chars& res_data, size_t& offset) {
+        auto length = dt.to_buffer((char*)res_data.data() + offset,
+                                   std::is_same_v<ArgType, UInt32> ? -1 : 6);
+        if (std::is_same_v<ArgType, UInt64>) {
+            res_data[offset + 10] = 'T';
+        }
+
+        offset += length;
+        return offset;
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename DateTraits<ArgType>::DateType>()};
+    }
+};
+
+template <typename ArgType>
 struct MonthNameImpl {
     using OpArgType = ArgType;
     static constexpr auto name = "monthname";
@@ -190,8 +213,9 @@ struct DateFormatImpl {
         if (format.size > 128) {
             return std::pair {offset, true};
         }
-        char buf[128];
-        if (!dt.to_format_string(format.data, format.size, buf)) {
+        char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+        if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                              100 + SAFE_FORMAT_STRING_MARGIN)) {
             return std::pair {offset, true};
         }
 
@@ -227,8 +251,9 @@ struct FromUnixTimeImpl {
         }
         dt.from_unixtime(val, time_zone);
 
-        char buf[128];
-        if (!dt.to_format_string(format.data, format.size, buf)) {
+        char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+        if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                              100 + SAFE_FORMAT_STRING_MARGIN)) {
             return std::pair {offset, true};
         }
 

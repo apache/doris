@@ -27,7 +27,9 @@ suite("test_distribute") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set runtime_filter_mode=OFF'
-
+    sql 'set be_number_for_test=1'
+    sql "set parallel_pipeline_task_num=1"
+    
     // create tables
     sql """drop table if exists t1;"""
     sql """drop table if exists t2;"""
@@ -81,6 +83,14 @@ suite("test_distribute") {
     qt_select1_3 """select count(*) from t3;"""
     qt_select1_4 """select count(*) from t4;"""
 
+//// analyze before query
+    sql """
+       analyze table t1 with sync;
+       analyze table t2 with sync;
+       analyze table t3 with sync;
+       analyze table t4 with sync;
+       """
+
 //// test inner join with all edge and vertax is complete and equal predicates
     qt_select2_1 """explain shape plan select count(*) from t1 join t2 on c1 = c2;"""
     qt_select2_2 """explain shape plan select count(*) from t1 join [shuffle] t2 on c1 = c2;"""
@@ -104,7 +114,7 @@ suite("test_distribute") {
     qt_select5_1 """explain shape plan select count(*) from t1 join [shuffle] t2 on c1 > c2;"""
     qt_select5_2 """explain shape plan select count(*) from t1 join [broadcast] t2 on c1 > c2;"""
 
-    qt_select6_1 """explain shape plan select count(*) from t1 join [shuffle] t2 on c1 > c2 join t3 on c2 > c3 where c1 < 100;"""
+    qt_select6_1 """explain shape plan select /*+ leading(t3 {t1 t2}) */ count(*) from t1 join [shuffle] t2 on c1 > c2 join t3 on c2 > c3 where c1 < 100;"""
     qt_select6_2 """explain shape plan select count(*) from t1 join t2 on c1 > c2 join t3 on c2 > c3 where c1 < 100;"""
 
     // (A leftjoin B on (Pab)) leftjoin C on (Pac) = (A leftjoin C on (Pac)) leftjoin B on (Pab)

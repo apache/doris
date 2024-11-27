@@ -25,6 +25,6 @@ import java.util.Map;
 public class RangerHiveAccessControllerFactory implements AccessControllerFactory {
     @Override
     public CatalogAccessController createAccessController(Map<String, String> prop) {
-        return new RangerHiveAccessController(prop);
+        return new RangerCacheHiveAccessController(prop);
     }
 }

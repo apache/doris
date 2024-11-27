@@ -23,6 +23,7 @@ import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
@@ -35,7 +36,7 @@ import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Maps;
+import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -45,10 +46,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public class AnalyzeTest extends TestWithFeService {
 
@@ -160,8 +159,8 @@ public class AnalyzeTest extends TestWithFeService {
             @Mock
             protected void runQuery(String sql) {}
         };
-        HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
-        colToPartitions.put("col1", Collections.singleton("t1"));
+        List<Pair<String, String>> colList = Lists.newArrayList();
+        colList.add(Pair.of("col1", "index1"));
         AnalysisInfo analysisJobInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
                 .setCatalogId(0)
                 .setDBId(0)
@@ -170,7 +169,7 @@ public class AnalyzeTest extends TestWithFeService {
                 .setAnalysisMode(AnalysisMode.FULL)
                 .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.FUNDAMENTALS)
-                .setColToPartitions(colToPartitions)
+                .setJobColumns(colList)
                 .setState(AnalysisState.RUNNING)
                 .build();
         new OlapAnalysisTask(analysisJobInfo).doExecute();

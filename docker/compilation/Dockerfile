@@ -17,29 +17,43 @@
 
 FROM centos:7 AS builder
 
+# Switch repos to point to to vault.centos.org because CentOS 7 is EOL
+RUN sed -i \
+  -e 's/^mirrorlist/#mirrorlist/' \
+  -e 's/^#baseurl/baseurl/' \
+  -e 's/mirror\.centos\.org/vault.centos.org/' \
+  /etc/yum.repos.d/*.repo
+
 # install epel repo for ccache
-RUN yum install epel-release -y && yum clean all && yum makecache
+RUN yum install epel-release -y && yum install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-repo.x86_64.rpm -y && yum clean all && yum makecache
 
 # install dependencies
 RUN yum install -y byacc patch automake libtool perf vim make which file ncurses-devel gettext-devel unzip bzip2 zip util-linux \
-    wget git python2 bison java-11-openjdk-devel java-1.8.0-openjdk-devel
+    wget git python2 bison java-1.8.0-openjdk-devel
 
 # clean cache
 RUN yum clean all
 
 # install maven 3.6.3
-RUN mkdir -p /usr/share/maven /usr/share/maven/ref && \
-    wget -q -O /tmp/apache-maven.tar.gz https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.6.3-bin.tar.gz && \
-    tar -xzf /tmp/apache-maven.tar.gz -C /usr/share/maven --strip-components=1 && \
-    rm -f /tmp/apache-maven.tar.gz && \
-    ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
+RUN mkdir -p /usr/share/maven /usr/share/maven/ref \
+    && wget -q -O /tmp/apache-maven.tar.gz https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/apache-maven-3.6.3-bin.tar.gz \
+    && tar -xzf /tmp/apache-maven.tar.gz -C /usr/share/maven --strip-components=1 \
+    && rm -f /tmp/apache-maven.tar.gz \
+    && ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
 
 # install nodejs
-RUN wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v12.13.0-linux-x64.tar.gz \
+RUN wget https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/node-v12.13.0-linux-x64.tar.gz \
     -q -O /tmp/node-v12.13.0-linux-x64.tar.gz \
     && cd /tmp/ && tar -xf node-v12.13.0-linux-x64.tar.gz \
     && cp -r node-v12.13.0-linux-x64/* /usr/local/ \
     && rm /tmp/node-v12.13.0-linux-x64.tar.gz && rm -rf node-v12.13.0-linux-x64
+
+# install jdk17
+RUN wget https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/openjdk-17.0.2_linux-x64_bin.tar.gz \
+    -q -O /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz \
+    && cd /tmp && tar -xzf openjdk-17.0.2_linux-x64_bin.tar.gz \
+    && cp -r jdk-17.0.2/ /usr/lib/jvm/ \
+    && rm /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz && rm -rf /tmp/jdk-17.0.2/
 
 # install ldb-toolchain
 # 0.17

@@ -40,7 +40,7 @@ Status DataGenOperator::open(RuntimeState* state) {
 
 Status DataGenOperator::close(RuntimeState* state) {
     RETURN_IF_ERROR(SourceOperator::close(state));
-    static_cast<void>(_node->close(state));
+    RETURN_IF_ERROR(_node->close(state));
     return Status::OK();
 }
 
@@ -97,8 +97,8 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // TODO: use runtime filter to filte result block, maybe this node need derive from vscan_node.
     for (const auto& filter_desc : p._runtime_filter_descs) {
         IRuntimeFilter* runtime_filter = nullptr;
-        RETURN_IF_ERROR(state->register_consumer_runtime_filter(filter_desc, false, p.node_id(),
-                                                                &runtime_filter));
+        RETURN_IF_ERROR(state->register_consumer_runtime_filter(
+                filter_desc, p.ignore_data_distribution(), p.node_id(), &runtime_filter));
         runtime_filter->init_profile(_runtime_profile.get());
     }
     return Status::OK();
@@ -108,7 +108,7 @@ Status DataGenLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    static_cast<void>(_table_func->close(state));
+    RETURN_IF_ERROR(_table_func->close(state));
     return PipelineXLocalState<>::close(state);
 }
 

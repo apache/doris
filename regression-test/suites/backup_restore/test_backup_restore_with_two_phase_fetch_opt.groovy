@@ -17,7 +17,7 @@
 
 suite("test_backup_restore_with_two_phase_fetch_opt", "backup_restore") {
     String suiteName = "test_backup_restore_with_two_phase_fetch_opt"
-    String repoName = "${suiteName}_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
     String snapshotName = "${suiteName}_snapshot"
@@ -80,9 +80,7 @@ suite("test_backup_restore_with_two_phase_fetch_opt", "backup_restore") {
         ON (${tableName})
     """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
@@ -101,9 +99,7 @@ suite("test_backup_restore_with_two_phase_fetch_opt", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     result = sql "SELECT * FROM ${dbName}.${tableName} ORDER BY dt DESC LIMIT 5"
     assertEquals(result.size(), 5)

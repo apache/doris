@@ -176,12 +176,6 @@ public:
             nested_function->insert_result_into(nested_place(place), to);
         }
     }
-
-    bool allocates_memory_in_arena() const override {
-        return nested_function->allocates_memory_in_arena();
-    }
-
-    bool is_state() const override { return nested_function->is_state(); }
 };
 
 /** There are two cases: for single argument and variadic.
@@ -200,7 +194,7 @@ public:
                       AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>>(
                       nested_function_, arguments) {}
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
         if (!column->is_null_at(row_num)) {
@@ -286,12 +280,14 @@ public:
                       nested_function_, arguments),
               number_of_arguments(arguments.size()) {
         if (number_of_arguments == 1) {
-            LOG(FATAL)
-                    << "Logical error: single argument is passed to AggregateFunctionNullVariadic";
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Logical error: single argument is passed to AggregateFunctionNullVariadic");
         }
 
         if (number_of_arguments > MAX_ARGS) {
-            LOG(FATAL) << fmt::format(
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
                     "Maximum number of arguments for aggregate function with Nullable types is {}",
                     size_t(MAX_ARGS));
         }
@@ -301,7 +297,7 @@ public:
         }
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         /// This container stores the columns we really pass to the nested function.
         const IColumn* nested_columns[number_of_arguments];
@@ -323,10 +319,6 @@ public:
 
         this->set_flag(place);
         this->nested_function->add(this->nested_place(place), nested_columns, row_num, arena);
-    }
-
-    bool allocates_memory_in_arena() const override {
-        return this->nested_function->allocates_memory_in_arena();
     }
 
 private:

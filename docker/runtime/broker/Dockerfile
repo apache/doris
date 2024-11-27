@@ -1,4 +1,3 @@
-#!/bin/bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -16,26 +15,45 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# choose a base image
-FROM openjdk:8u342-jdk
+# how to use Dockerfile.
+# this is dockerfile for build doris broker image on amd64.
+# when build youself image.
+# 1. pull binary from official website and decompress into resource directory that the level equals with Dockerfile_broker_ubuntu.
+# 2. untar xxxx.tar.gz in resource directory, update the dockerfile field `apache-doris-xxx`, replace with real version.
+# 3. run commad docker build -t xxx.doris.broker:xx -f Dockerfile_broker_ubuntu.
+
+# we have support buildx for amd64 and arm64 architecture image build.
+# get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
+#
+
+FROM ubuntu:22.04
+
+ARG TARGETARCH
+
+ARG DORIS_VERSION="x.x.x"
+
+RUN apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    patchelf gdb binutils binutils-common mysql-client \
+    curl wget less vim htop iproute2 numactl jq iotop sysstat \
+    tcpdump iputils-ping dnsutils strace lsof blktrace tzdata \
+    bpfcc-tools linux-headers-realtime linux-tools-realtime silversearcher-ag \
+    net-tools openjdk-8-jdk && \
+    rm -rf /var/lib/apt/lists/*
 
 # set environment variables
-ENV JAVA_HOME="/usr/local/openjdk-8/" \
-    PATH="/opt/apache-doris/broker/bin:$PATH"
+ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64}
 
-# Download the software to the mirror, where the broker directory is synchronously compressed to the binary package of FE,
-# which needs to be decompressed and repackaged by itself, and can be replaced as needed
-ADD ./resource/apache_hdfs_broker.tar.gz /opt/
+# apache-doris/broker from doris release xxxx.tar.gz
+ADD resource/apache-doris-${DORIS_VERSION}-bin-${TARGETARCH:-amd64}/extensions/apache_hdfs_broker /opt/apache-doris/apache_hdfs_broker
 
-# deploy software
-RUN apt-get update && \
-    apt-get install -y default-mysql-client && \
-    apt-get clean && \
-    mkdir /opt/apache-doris && \
-    cd /opt && \
-    mv apache_hdfs_broker /opt/apache-doris/broker
+COPY resource/broker_*.sh /opt/apache-doris/
 
-ADD ./resource/init_broker.sh /opt/apache-doris/broker/bin
-RUN chmod 755 /opt/apache-doris/broker/bin/init_broker.sh
+RUN chmod +x /opt/apache-doris/broker_*.sh
 
-ENTRYPOINT ["/opt/apache-doris/broker/bin/init_broker.sh"]
+ADD ./resource/init_broker.sh /usr/local/bin/
+
+RUN chmod 755 /usr/local/bin/init_broker.sh
+
+WORKDIR /opt/apache-doris
+
+ENTRYPOINT ["bash","init_broker.sh"]

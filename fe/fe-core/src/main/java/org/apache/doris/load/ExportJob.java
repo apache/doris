@@ -62,6 +62,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -98,7 +99,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Data
@@ -109,7 +109,7 @@ public class ExportJob implements Writable {
 
     private static final int MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT = Config.maximum_tablets_of_outfile_in_export;
 
-    public static final String CONSISTENT_ALL = "all";
+    public static final String CONSISTENT_NONE = "none";
     public static final String CONSISTENT_PARTITION = "partition";
 
     @SerializedName("id")
@@ -174,6 +174,8 @@ public class ExportJob implements Writable {
     private String withBom;
     @SerializedName("dataConsistency")
     private String dataConsistency;
+    @SerializedName("compressType")
+    private String compressType;
 
     private TableRef tableRef;
 
@@ -205,9 +207,7 @@ public class ExportJob implements Writable {
     // backend_address => snapshot path
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
 
-    private List<ExportTaskExecutor> jobExecutorList;
-
-    private ConcurrentHashMap<Long, TransientTaskExecutor> taskIdToExecutor = new ConcurrentHashMap<>();
+    private List<ExportTaskExecutor> jobExecutorList = Lists.newArrayList();
 
     private Integer finishedTaskCount = 0;
     private List<List<OutfileInfo>> allOutfileInfo = Lists.newArrayList();
@@ -228,7 +228,7 @@ public class ExportJob implements Writable {
         this.lineDelimiter = "\n";
         this.columns = "";
         this.withBom = "false";
-        this.dataConsistency = "all";
+        this.dataConsistency = CONSISTENT_PARTITION;
     }
 
     public ExportJob(long jobId) {
@@ -270,7 +270,7 @@ public class ExportJob implements Writable {
                 if (exportTable.getType() == TableType.VIEW) {
                     // view table
                     generateViewOrExternalTableOutfile(qualifiedTableName);
-                } else if (exportTable.getType() == TableType.OLAP) {
+                } else if (exportTable.isManagedTable()) {
                     // olap table
                     generateOlapTableOutfile(qualifiedTableName);
                 } else {
@@ -397,14 +397,21 @@ public class ExportJob implements Writable {
         return statementBase;
     }
 
-    public List<? extends TransientTaskExecutor> getTaskExecutors() {
-        return jobExecutorList;
+    public List<? extends TransientTaskExecutor> getCopiedTaskExecutors() {
+        return Lists.newArrayList(jobExecutorList);
     }
 
     private void generateExportJobExecutor() {
         jobExecutorList = Lists.newArrayList();
         for (List<StatementBase> selectStmts : selectStmtListPerParallel) {
             ExportTaskExecutor executor = new ExportTaskExecutor(selectStmts, this);
+            jobExecutorList.add(executor);
+        }
+
+        // add empty task to make export job could be finished finally if jobExecutorList is empty
+        // which means that export table without data
+        if (jobExecutorList.isEmpty()) {
+            ExportTaskExecutor executor = new ExportTaskExecutor(Lists.newArrayList(), this);
             jobExecutorList.add(executor);
         }
     }
@@ -419,8 +426,8 @@ public class ExportJob implements Writable {
             list.addItem(SelectListItem.createStarItem(this.tableName));
         } else {
             for (Column column : exportTable.getBaseSchema()) {
-                String colName = column.getName().toLowerCase();
-                if (exportColumns.contains(colName)) {
+                String colName = column.getName();
+                if (exportColumns.contains(colName.toLowerCase())) {
                     SlotRef slotRef = new SlotRef(this.tableName, colName);
                     SelectListItem selectListItem = new SelectListItem(slotRef, null);
                     list.addItem(selectListItem);
@@ -511,15 +518,23 @@ public class ExportJob implements Writable {
             // get partitions
             // user specifies partitions, already checked in ExportCommand
             if (!this.partitionNames.isEmpty()) {
-                this.partitionNames.forEach(partitionName -> partitions.add(table.getPartition(partitionName)));
+                this.partitionNames.forEach(partitionName -> {
+                    Partition partition = table.getPartition(partitionName);
+                    if (partition.hasData()) {
+                        partitions.add(partition);
+                    }
+                });
             } else {
-                if (table.getPartitions().size() > Config.maximum_number_of_export_partitions) {
-                    throw new UserException("The partitions number of this export job is larger than the maximum number"
-                            + " of partitions allowed by a export job");
-                }
-                partitions.addAll(table.getPartitions());
+                table.getPartitions().forEach(partition -> {
+                    if (partition.hasData()) {
+                        partitions.add(partition);
+                    }
+                });
             }
-
+            if (partitions.size() > Config.maximum_number_of_export_partitions) {
+                throw new UserException("The partitions number of this export job is larger than the maximum number"
+                        + " of partitions allowed by a export job");
+            }
             // get tablets
             for (Partition partition : partitions) {
                 // Partition data consistency is not need to verify partition version.
@@ -589,8 +604,7 @@ public class ExportJob implements Writable {
             List<Long> tabletsList = new ArrayList<>(flatTabletIdList.subList(start, start + tabletsNum));
             List<List<Long>> tablets = new ArrayList<>();
             for (int i = 0; i < tabletsList.size(); i += MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT) {
-                int end = i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT < tabletsList.size()
-                        ? i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT : tabletsList.size();
+                int end = Math.min(i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT, tabletsList.size());
                 tablets.add(new ArrayList<>(tabletsList.subList(i, end)));
             }
 
@@ -607,13 +621,17 @@ public class ExportJob implements Writable {
         if (format.equals("csv") || format.equals("csv_with_names") || format.equals("csv_with_names_and_types")) {
             outfileProperties.put(OutFileClause.PROP_COLUMN_SEPARATOR, columnSeparator);
             outfileProperties.put(OutFileClause.PROP_LINE_DELIMITER, lineDelimiter);
+        } else {
+            // orc / parquet
+            // compressType == null means outfile will use default compression type
+            if (compressType != null) {
+                outfileProperties.put(ExportCommand.COMPRESS_TYPE, compressType);
+            }
         }
         if (!maxFileSize.isEmpty()) {
             outfileProperties.put(OutFileClause.PROP_MAX_FILE_SIZE, maxFileSize);
         }
-        if (!deleteExistingFiles.isEmpty()) {
-            outfileProperties.put(OutFileClause.PROP_DELETE_EXISTING_FILES, deleteExistingFiles);
-        }
+
         outfileProperties.put(OutFileClause.PROP_WITH_BOM, withBom);
 
         // broker properties
@@ -671,11 +689,11 @@ public class ExportJob implements Writable {
         }
 
         // we need cancel all task
-        taskIdToExecutor.keySet().forEach(id -> {
+        jobExecutorList.forEach(executor -> {
             try {
-                Env.getCurrentEnv().getTransientTaskManager().cancelMemoryTask(id);
+                Env.getCurrentEnv().getTransientTaskManager().cancelMemoryTask(executor.getId());
             } catch (JobException e) {
-                LOG.warn("cancel export task {} exception: {}", id, e);
+                LOG.warn("cancel export task {} exception: {}", executor.getId(), e);
             }
         });
 
@@ -686,10 +704,15 @@ public class ExportJob implements Writable {
         setExportJobState(ExportJobState.CANCELLED);
         finishTimeMs = System.currentTimeMillis();
         failMsg = new ExportFailMsg(type, msg);
+        jobExecutorList.clear();
+        selectStmtListPerParallel.clear();
+        allOutfileInfo.clear();
+        partitionToVersion.clear();
         if (FeConstants.runningUnitTest) {
             return;
         }
-        Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.CANCELLED);
+        Env.getCurrentEnv().getEditLog().logExportUpdateState(this, ExportJobState.CANCELLED);
+        LOG.info("cancel export job {}", id);
     }
 
     private void exportExportJob() {
@@ -730,7 +753,13 @@ public class ExportJob implements Writable {
         setExportJobState(ExportJobState.FINISHED);
         finishTimeMs = System.currentTimeMillis();
         outfileInfo = GsonUtils.GSON.toJson(allOutfileInfo);
-        Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.FINISHED);
+        // Clear the jobExecutorList to release memory.
+        jobExecutorList.clear();
+        selectStmtListPerParallel.clear();
+        allOutfileInfo.clear();
+        partitionToVersion.clear();
+        Env.getCurrentEnv().getEditLog().logExportUpdateState(this, ExportJobState.FINISHED);
+        LOG.info("finish export job {}", id);
     }
 
     public void replayExportJobState(ExportJobState newState) {

@@ -37,7 +37,7 @@ import java.util.List;
 
 /** max agg function. */
 public class Max extends NullableAggregateFunction
-        implements UnaryExpression, CustomSignature, SupportWindowAnalytic, CouldRollUp {
+        implements UnaryExpression, CustomSignature, SupportWindowAnalytic, RollUpTrait {
     public Max(Expression child) {
         this(false, false, child);
     }
@@ -90,5 +90,10 @@ public class Max extends NullableAggregateFunction
     @Override
     public Function constructRollUp(Expression param, Expression... varParams) {
         return new Max(this.distinct, this.alwaysNullable, param);
+    }
+
+    @Override
+    public boolean canRollUp() {
+        return true;
     }
 }

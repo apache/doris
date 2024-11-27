@@ -17,24 +17,38 @@
 
 package org.apache.doris.datasource.jdbc;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.JdbcAnalysisTask;
+import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
- * Elasticsearch external table.
+ * Jdbc external table.
  */
 public class JdbcExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalTable.class);
+
+    public static final String MYSQL_ROW_COUNT_SQL = "SELECT * FROM QUERY"
+            + "(\"catalog\"=\"${ctlName}\", \"query\"=\"show table status from `${dbName}` like '${tblName}'\");";
 
     private JdbcTable jdbcTable;
 
@@ -71,8 +85,9 @@ public class JdbcExternalTable extends ExternalTable {
     }
 
     @Override
-    public List<Column> initSchema() {
-        return ((JdbcExternalCatalog) catalog).getJdbcClient().getColumnsFromJdbc(dbName, name);
+    public Optional<SchemaCacheValue> initSchema() {
+        return Optional.of(new SchemaCacheValue(((JdbcExternalCatalog) catalog).getJdbcClient()
+                .getColumnsFromJdbc(dbName, name)));
     }
 
     private JdbcTable toJdbcTable() {
@@ -80,27 +95,13 @@ public class JdbcExternalTable extends ExternalTable {
         JdbcExternalCatalog jdbcCatalog = (JdbcExternalCatalog) catalog;
         String fullDbName = this.dbName + "." + this.name;
         JdbcTable jdbcTable = new JdbcTable(this.id, fullDbName, schema, TableType.JDBC_EXTERNAL_TABLE);
-        jdbcTable.setCatalogId(jdbcCatalog.getId());
-        jdbcTable.setExternalTableName(fullDbName);
-        jdbcTable.setRemoteDatabaseName(
-                ((JdbcExternalCatalog) catalog).getJdbcClient().getRemoteDatabaseName(this.dbName));
-        jdbcTable.setRemoteTableName(
-                ((JdbcExternalCatalog) catalog).getJdbcClient().getRemoteTableName(this.dbName, this.name));
-        jdbcTable.setRemoteColumnNames(((JdbcExternalCatalog) catalog).getJdbcClient().getRemoteColumnNames(this.dbName,
-                this.name));
-        jdbcTable.setJdbcTypeName(jdbcCatalog.getDatabaseTypeName());
-        jdbcTable.setJdbcUrl(jdbcCatalog.getJdbcUrl());
-        jdbcTable.setJdbcUser(jdbcCatalog.getJdbcUser());
-        jdbcTable.setJdbcPasswd(jdbcCatalog.getJdbcPasswd());
-        jdbcTable.setDriverClass(jdbcCatalog.getDriverClass());
-        jdbcTable.setDriverUrl(jdbcCatalog.getDriverUrl());
-        jdbcTable.setResourceName(jdbcCatalog.getResource());
-        jdbcTable.setCheckSum(jdbcCatalog.getCheckSum());
-        jdbcTable.setConnectionPoolMinSize(jdbcCatalog.getConnectionPoolMinSize());
-        jdbcTable.setConnectionPoolMaxSize(jdbcCatalog.getConnectionPoolMaxSize());
-        jdbcTable.setConnectionPoolMaxLifeTime(jdbcCatalog.getConnectionPoolMaxLifeTime());
-        jdbcTable.setConnectionPoolMaxWaitTime(jdbcCatalog.getConnectionPoolMaxWaitTime());
-        jdbcTable.setConnectionPoolKeepAlive(jdbcCatalog.isConnectionPoolKeepAlive());
+        jdbcCatalog.configureJdbcTable(jdbcTable, fullDbName);
+
+        // Set remote properties
+        jdbcTable.setRemoteDatabaseName(jdbcCatalog.getJdbcClient().getRemoteDatabaseName(this.dbName));
+        jdbcTable.setRemoteTableName(jdbcCatalog.getJdbcClient().getRemoteTableName(this.dbName, this.name));
+        jdbcTable.setRemoteColumnNames(jdbcCatalog.getJdbcClient().getRemoteColumnNames(this.dbName, this.name));
+
         return jdbcTable;
     }
 
@@ -108,5 +109,51 @@ public class JdbcExternalTable extends ExternalTable {
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
         return new JdbcAnalysisTask(info);
+    }
+
+    @Override
+    public long fetchRowCount() {
+        Map<String, String> params = new HashMap<>();
+        params.put("ctlName", catalog.getName());
+        params.put("dbName", dbName);
+        params.put("tblName", name);
+        switch (((JdbcExternalCatalog) catalog).getDatabaseTypeName()) {
+            case JdbcResource.MYSQL:
+                try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+                    StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+                    String sql = stringSubstitutor.replace(MYSQL_ROW_COUNT_SQL);
+                    StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+                    List<ResultRow> resultRows = stmtExecutor.executeInternalQuery();
+                    if (resultRows == null || resultRows.size() != 1) {
+                        LOG.info("No mysql status found for table {}.{}.{}", catalog.getName(), dbName, name);
+                        return -1;
+                    }
+                    StatementBase parsedStmt = stmtExecutor.getParsedStmt();
+                    if (parsedStmt == null || parsedStmt.getColLabels() == null) {
+                        LOG.info("No column label found for table {}.{}.{}", catalog.getName(), dbName, name);
+                        return -1;
+                    }
+                    ResultRow resultRow = resultRows.get(0);
+                    List<String> colLabels = parsedStmt.getColLabels();
+                    int index = colLabels.indexOf("TABLE_ROWS");
+                    if (index == -1) {
+                        LOG.info("No TABLE_ROWS in status for table {}.{}.{}", catalog.getName(), dbName, name);
+                        return -1;
+                    }
+                    long rows = Long.parseLong(resultRow.get(index));
+                    LOG.info("Get mysql table {}.{}.{} row count {}", catalog.getName(), dbName, name, rows);
+                    return rows;
+                } catch (Exception e) {
+                    LOG.warn("Failed to fetch mysql row count for table {}.{}.{}. Reason [{}]",
+                            catalog.getName(), dbName, name, e.getMessage());
+                    return -1;
+                }
+            case JdbcResource.ORACLE:
+            case JdbcResource.POSTGRESQL:
+            case JdbcResource.SQLSERVER:
+            default:
+                break;
+        }
+        return -1;
     }
 }

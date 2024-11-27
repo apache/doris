@@ -128,7 +128,7 @@ TEST_F(BitmapFilterColumnPredicateTest, evaluate_column) {
     bitmap_value.add_many(filter_values.data(), filter_values.size());
     filter->insert(&bitmap_value);
 
-    auto column = vectorized::ColumnInt32::create();
+    auto column = vectorized::PredicateColumnType<TYPE_INT>::create();
     column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
 
     uint16_t* sel = new uint16_t[column->size()];
@@ -162,7 +162,7 @@ TEST_F(BitmapFilterColumnPredicateTest, evaluate_column_nullable) {
     bitmap_value.add_many(filter_values.data(), filter_values.size());
     filter->insert(&bitmap_value);
 
-    auto column = vectorized::ColumnInt32::create();
+    auto column = vectorized::PredicateColumnType<TYPE_INT>::create();
     column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
     auto flag = vectorized::ColumnUInt8::create();
     flag->insert_many_defaults(column->size());

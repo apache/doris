@@ -28,6 +28,7 @@
 #include <string>
 #include <utility>
 
+#include "bvar/bvar.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -69,13 +70,21 @@
 namespace doris {
 using namespace ErrorCode;
 
+bvar::Adder<int64_t> g_load_stream_writer_cnt("load_stream_writer_count");
+bvar::Adder<int64_t> g_load_stream_file_writer_cnt("load_stream_file_writer_count");
+
 LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profile)
         : _req(*context), _rowset_writer(nullptr) {
     _rowset_builder =
             std::make_unique<RowsetBuilder>(*StorageEngine::instance(), *context, profile);
+    _query_thread_context.init(); // from load stream
+    g_load_stream_writer_cnt << 1;
 }
 
-LoadStreamWriter::~LoadStreamWriter() = default;
+LoadStreamWriter::~LoadStreamWriter() {
+    g_load_stream_file_writer_cnt << -_segment_file_writers.size();
+    g_load_stream_writer_cnt << -1;
+}
 
 Status LoadStreamWriter::init() {
     RETURN_IF_ERROR(_rowset_builder->init());
@@ -85,6 +94,7 @@ Status LoadStreamWriter::init() {
 }
 
 Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf) {
+    SCOPED_ATTACH_TASK(_query_thread_context);
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
@@ -99,6 +109,7 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
                     return st;
                 }
                 _segment_file_writers.push_back(std::move(file_writer));
+                g_load_stream_file_writer_cnt << 1;
             }
         }
 
@@ -119,10 +130,10 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
 }
 
 Status LoadStreamWriter::close_segment(uint32_t segid) {
+    SCOPED_ATTACH_TASK(_query_thread_context);
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
-        DBUG_EXECUTE_IF("LoadStreamWriter.close_segment.uninited_writer", { _is_init = false; });
         if (!_is_init) {
             return Status::Corruption("close_segment failed, LoadStreamWriter is not inited");
         }
@@ -152,10 +163,10 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
 
 Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat,
                                      TabletSchemaSPtr flush_schema) {
+    SCOPED_ATTACH_TASK(_query_thread_context);
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
-        DBUG_EXECUTE_IF("LoadStreamWriter.add_segment.uninited_writer", { _is_init = false; });
         if (!_is_init) {
             return Status::Corruption("add_segment failed, LoadStreamWriter is not inited");
         }
@@ -183,8 +194,8 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
     return _rowset_writer->add_segment(segid, stat, flush_schema);
 }
 
-Status LoadStreamWriter::close() {
-    std::lock_guard<std::mutex> l(_lock);
+Status LoadStreamWriter::_pre_close() {
+    SCOPED_ATTACH_TASK(_query_thread_context);
     if (!_is_init) {
         // if this delta writer is not initialized, but close() is called.
         // which means this tablet has no data loaded, but at least one tablet
@@ -210,6 +221,15 @@ Status LoadStreamWriter::close() {
 
     RETURN_IF_ERROR(_rowset_builder->build_rowset());
     RETURN_IF_ERROR(_rowset_builder->submit_calc_delete_bitmap_task());
+    _pre_closed = true;
+    return Status::OK();
+}
+
+Status LoadStreamWriter::close() {
+    std::lock_guard<std::mutex> l(_lock);
+    if (!_pre_closed) {
+        RETURN_IF_ERROR(_pre_close());
+    }
     RETURN_IF_ERROR(_rowset_builder->wait_calc_delete_bitmap());
     RETURN_IF_ERROR(_rowset_builder->commit_txn());
 

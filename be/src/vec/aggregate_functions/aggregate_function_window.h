@@ -65,7 +65,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena*) const override {
         ++data(place).count;
     }
 
@@ -103,7 +103,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena*) const override {
         ++data(place).rank;
     }
 
@@ -148,7 +148,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena*) const override {
         ++data(place).rank;
     }
 
@@ -197,7 +197,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
-    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {}
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena*) const override {}
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
@@ -255,7 +255,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
-    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {}
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena*) const override {}
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
@@ -299,7 +299,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
-    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {}
+    void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena*) const override {}
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
@@ -497,9 +497,9 @@ template <typename Data, bool arg_ignore_null = false>
 struct WindowFunctionLastImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
-        if ((frame_start <= frame_end) &&
-            ((frame_end <= partition_start) ||
-             (frame_start >= partition_end))) { //beyond or under partition, set null
+        DCHECK_LE(frame_start, frame_end);
+        if ((frame_end <= partition_start) ||
+            (frame_start >= partition_end)) { //beyond or under partition, set null
             this->set_is_null();
             return;
         }
@@ -556,18 +556,26 @@ public:
         this->data(place).insert_result_into(to);
     }
 
-    void add(AggregateDataPtr place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
-        LOG(FATAL) << "WindowFunctionLeadLagData do not support add";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "WindowFunctionLeadLagData do not support add");
+        __builtin_unreachable();
     }
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {
-        LOG(FATAL) << "WindowFunctionLeadLagData do not support merge";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "WindowFunctionLeadLagData do not support merge");
+        __builtin_unreachable();
     }
     void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
-        LOG(FATAL) << "WindowFunctionLeadLagData do not support serialize";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "WindowFunctionLeadLagData do not support serialize");
+        __builtin_unreachable();
     }
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {
-        LOG(FATAL) << "WindowFunctionLeadLagData do not support deserialize";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "WindowFunctionLeadLagData do not support deserialize");
+        __builtin_unreachable();
     }
 
 private:

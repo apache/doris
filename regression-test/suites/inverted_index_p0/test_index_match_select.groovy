@@ -152,6 +152,7 @@ suite("test_index_match_select", "inverted_index_select"){
             sql """ build index ${text_colume1}_idx on ${indexTbName1} """
             wait_for_build_index_on_partition_finish(indexTbName1, timeout)
         }
+        sql """ set enable_common_expr_pushdown = true; """
 
         // case1: match term
         // case1.0 test match ""

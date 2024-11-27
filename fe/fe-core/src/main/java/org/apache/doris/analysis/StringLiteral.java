@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.thrift.TExprNode;
@@ -40,6 +41,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
@@ -148,8 +150,8 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
-        return "\"" + getStringValue() + "\"";
+    public String getStringValueForArray(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
     }
 
     @Override
@@ -273,7 +275,7 @@ public class StringLiteral extends LiteralExpr {
                         return new FloatLiteral(Double.valueOf(value), targetType);
                     } catch (NumberFormatException e) {
                         // consistent with CastExpr's getResultValue() method
-                        return new NullLiteral();
+                        return NullLiteral.create(targetType);
                     }
                 case DECIMALV2:
                 case DECIMAL32:
@@ -339,16 +341,19 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
-    public void setupParamFromBinary(ByteBuffer data) {
+    public void setupParamFromBinary(ByteBuffer data, boolean isUnsigned) {
         int strLen = getParmLen(data);
         if (strLen > data.remaining()) {
             strLen = data.remaining();
         }
         byte[] bytes = new byte[strLen];
         data.get(bytes);
-        value = new String(bytes);
+        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
+        // different environment
+        value = new String(bytes, StandardCharsets.UTF_8);
         if (LOG.isDebugEnabled()) {
             LOG.debug("parsed value '{}'", value);
         }
+        type = Type.VARCHAR;
     }
 }

@@ -111,7 +111,7 @@ public:
         return std::make_shared<DataTypeQuantileState>();
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         if constexpr (arg_is_nullable) {
             auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
@@ -150,8 +150,8 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 };
 
-AggregateFunctionPtr create_aggregate_function_quantile_state_union(const std::string& name,
-                                                                    const DataTypes& argument_types,
-                                                                    const bool result_is_nullable);
+AggregateFunctionPtr create_aggregate_function_quantile_state_union(
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr);
 
 } // namespace doris::vectorized

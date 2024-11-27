@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
@@ -143,7 +142,7 @@ public class Repository implements Writable {
             return PREFIX_JOB_INFO;
         } else {
             return PREFIX_JOB_INFO
-                    + TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+                    + TimeUtils.longToTimeString(createTime, TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         }
     }
 
@@ -222,30 +221,10 @@ public class Repository implements Writable {
             return Status.OK;
         }
 
-        // A temporary solution is to delete all stale snapshots before creating an S3 repository
-        // so that we can add regression tests about backup/restore.
-        //
-        // TODO: support hdfs/brokers
-        if (fileSystem instanceof S3FileSystem) {
-            String deleteStaledSnapshots = fileSystem.getProperties()
-                    .getOrDefault(CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, "false");
-            if (deleteStaledSnapshots.equalsIgnoreCase("true")) {
-                // delete with prefix:
-                // eg. __palo_repository_repo_name/
-                String snapshotPrefix = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name));
-                LOG.info("property {} is set, delete snapshots with prefix: {}",
-                        CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, snapshotPrefix);
-                Status st = ((S3FileSystem) fileSystem).deleteDirectory(snapshotPrefix);
-                if (!st.ok()) {
-                    return st;
-                }
-            }
-        }
-
         String repoInfoFilePath = assembleRepoInfoFilePath();
         // check if the repo is already exist in remote
         List<RemoteFile> remoteFiles = Lists.newArrayList();
-        Status st = fileSystem.list(repoInfoFilePath, remoteFiles);
+        Status st = fileSystem.globList(repoInfoFilePath, remoteFiles);
         if (!st.ok()) {
             return st;
         }
@@ -389,6 +368,9 @@ public class Repository implements Writable {
     // Check if this repo is available.
     // If failed to connect this repo, set errMsg and return false.
     public boolean ping() {
+        if (FeConstants.runningUnitTest) {
+            return true;
+        }
         // for s3 sdk, the headObject() method does not support list "dir",
         // so we check FILE_REPO_INFO instead.
         String path = location + "/" + joinPrefix(PREFIX_REPO, name) + "/" + FILE_REPO_INFO;
@@ -417,7 +399,7 @@ public class Repository implements Writable {
         String listPath = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name), PREFIX_SNAPSHOT_DIR)
                 + "*";
         List<RemoteFile> result = Lists.newArrayList();
-        Status st = fileSystem.list(listPath, result);
+        Status st = fileSystem.globList(listPath, result);
         if (!st.ok()) {
             return st;
         }
@@ -595,7 +577,7 @@ public class Repository implements Writable {
     public Status download(String remoteFilePath, String localFilePath) {
         // 0. list to get to full name(with checksum)
         List<RemoteFile> remoteFiles = Lists.newArrayList();
-        Status status = fileSystem.list(remoteFilePath + "*", remoteFiles);
+        Status status = fileSystem.globList(remoteFilePath + "*", remoteFiles);
         if (!status.ok()) {
             return status;
         }
@@ -759,7 +741,7 @@ public class Repository implements Writable {
                 LOG.debug("assemble infoFilePath: {}, snapshot: {}", infoFilePath, snapshotName);
             }
             List<RemoteFile> results = Lists.newArrayList();
-            Status st = fileSystem.list(infoFilePath + "*", results);
+            Status st = fileSystem.globList(infoFilePath + "*", results);
             if (!st.ok()) {
                 info.add(snapshotName);
                 info.add(FeConstants.null_string);

@@ -66,6 +66,7 @@ message PTabletID {
     optional int64 partition_id = 1;
     optional int64 index_id = 2;
     optional int64 tablet_id = 3;
+    optional int64 num_segments = 4;
 }
 
 message PTabletInfo {
@@ -98,6 +99,7 @@ message PTabletWriterOpenRequest {
     optional bool is_incremental = 15 [default = false];
     optional int64 txn_expiration = 16; // Absolute time
     optional bool write_file_cache = 17;
+    optional int32 sender_id = 19;
 };
 
 message PTabletWriterOpenResult {
@@ -152,6 +154,8 @@ message PTabletWriterAddBlockRequest {
     optional bool write_single_replica = 12 [default = false];
     map<int64, PSlaveTabletNodes> slave_tablet_nodes = 13;
     optional bool is_single_tablet_block = 14 [default = false];
+    // for auto-partition first stage close, we should hang.
+    optional bool hang_wait = 15 [default = false];
 };
 
 message PSlaveTabletNodes {
@@ -224,6 +228,12 @@ message PExecPlanFragmentStartRequest {
 
 message PExecPlanFragmentResult {
     required PStatus status = 1;
+    // BE receive rpc
+    optional int64 received_time = 2;
+    // Start executing on bthread
+    optional int64 execution_time = 3;
+    // Done on bthread
+    optional int64 execution_done_time = 4;
 };
 
 message PCancelPlanFragmentRequest {
@@ -252,6 +262,20 @@ message PFetchDataResult {
     optional bool empty_batch = 6;
 };
 
+message PFetchArrowDataRequest {
+    optional PUniqueId finst_id = 1;
+};
+
+message PFetchArrowDataResult {
+    optional PStatus status = 1;
+    // valid when status is ok
+    optional int64 packet_seq = 2;
+    optional bool eos = 3;
+    optional PBlock block = 4;
+    optional bool empty_batch = 5;
+    optional string timezone = 6;
+};
+
 message PFetchArrowFlightSchemaRequest {
     optional PUniqueId finst_id = 1;
 };
@@ -261,6 +285,7 @@ message PFetchArrowFlightSchemaResult {
     // valid when status is ok
     optional bytes schema = 2;
     optional bytes be_arrow_flight_ip = 3;
+    optional int32 be_arrow_flight_port = 4;
 };
 
 message KeyTuple {
@@ -287,6 +312,12 @@ message PTabletKeyLookupRequest {
     optional bytes output_expr = 5;
     // return binary mysql row format if true
     optional bool is_binary_row = 6;
+
+    // For cloud
+    // version to read
+    optional int64 version = 7;
+    // serilized from TQueryOptions 
+    optional bytes query_options = 8;
 }
 
 message PTabletKeyLookupResponse {
@@ -385,10 +416,13 @@ message PKafkaMetaProxyRequest {
     repeated PIntegerPair offset_times = 3;
     // optional for getting latest offsets of partitons
     repeated int32 partition_id_for_latest_offsets = 4;
+    // optional for getting real offset for end/beginning flag
+    repeated PIntegerPair offset_flags = 5;
 };
 
 message PProxyRequest {
     optional PKafkaMetaProxyRequest kafka_meta_request = 1;
+    optional int64 timeout_secs = 2;
 };
 
 message PKafkaMetaProxyResult {
@@ -503,6 +537,27 @@ enum PFilterType {
     MAX_FILTER = 6;
 };
 
+message PSendFilterSizeRequest {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    required PNetworkAddress source_addr = 3;
+    required uint64 filter_size = 4;
+};
+
+message PSendFilterSizeResponse {
+    required PStatus status = 1;
+};
+
+message PSyncFilterSizeRequest {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    required uint64 filter_size = 3;
+};
+
+message PSyncFilterSizeResponse {
+    required PStatus status = 1;
+};
+
 message PMergeFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
@@ -514,6 +569,8 @@ message PMergeFilterRequest {
     optional bool is_pipeline = 8;
     optional bool opt_remote_rf = 9;
     optional PColumnType column_type = 10;
+    optional bool contain_null = 11;
+    optional bool ignored = 12;
 };
 
 message PMergeFilterResponse {
@@ -532,6 +589,8 @@ message PPublishFilterRequest {
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
     optional PColumnType column_type = 10;
+    optional bool contain_null = 11;
+    optional bool ignored = 12;
 };
 
 message PPublishFilterRequestV2 {
@@ -544,6 +603,8 @@ message PPublishFilterRequestV2 {
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
     optional int64 merge_time = 9;
+    optional bool contain_null = 10;
+    optional bool ignored = 11;
 };
 
 message PPublishFilterResponse {
@@ -552,8 +613,10 @@ message PPublishFilterResponse {
 
 message PExprResult {
     required PScalarType type = 1;
-    required string content = 2;
+    required string content = 2; //maybe need remove after next version of 2.1
     required bool success = 3;
+    optional PTypeDesc type_desc = 4;
+    optional PValues result_content = 5;
 };
 
 message PExprResultMap {
@@ -637,6 +700,24 @@ message PFetchTableSchemaResult {
   optional int32 column_nums = 2;
   repeated string column_names = 3;
   repeated PTypeDesc column_types = 4;
+}
+
+message POutfileWriteSuccessRequest {
+    optional bytes result_file_sink = 1;
+}
+
+message POutfileWriteSuccessResult {
+    optional PStatus status = 1;
+}
+
+message PJdbcTestConnectionRequest {
+    optional bytes jdbc_table = 1;
+    optional int32 jdbc_table_type = 2;
+    optional string query_str = 3;
+}
+
+message PJdbcTestConnectionResult {
+    optional PStatus status = 1;
 }
 
 message PRowLocation {
@@ -747,6 +828,7 @@ message PGroupCommitInsertResponse {
     optional int64 txn_id = 3;
     optional int64 loaded_rows = 4;
     optional int64 filtered_rows = 5;
+    optional string error_url = 6;
 }
 
 message POpenLoadStreamRequest {
@@ -832,6 +914,19 @@ message PFetchRemoteSchemaResponse {
     optional TabletSchemaPB merged_schema = 2;
 }
 
+message PGetBeResourceRequest {
+}
+
+message PGlobalResourceUsage {
+    optional int64 mem_limit = 1;
+    optional int64 mem_usage = 2;
+}
+
+message PGetBeResourceResponse {
+    optional PStatus status = 1;
+    optional PGlobalResourceUsage global_be_resource_usage = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -842,6 +937,7 @@ service PBackendService {
     rpc exec_plan_fragment_start(PExecPlanFragmentStartRequest) returns (PExecPlanFragmentResult);
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
+    rpc fetch_arrow_data(PFetchArrowDataRequest) returns (PFetchArrowDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
     rpc open_load_stream(POpenLoadStreamRequest) returns (POpenLoadStreamResponse);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
@@ -855,6 +951,8 @@ service PBackendService {
     rpc commit(PCommitRequest) returns (PCommitResult);
     rpc rollback(PRollbackRequest) returns (PRollbackResult);
     rpc merge_filter(PMergeFilterRequest) returns (PMergeFilterResponse);
+    rpc send_filter_size(PSendFilterSizeRequest) returns (PSendFilterSizeResponse);
+    rpc sync_filter_size(PSyncFilterSizeRequest) returns (PSyncFilterSizeResponse);
     rpc apply_filter(PPublishFilterRequest) returns (PPublishFilterResponse);
     rpc apply_filterv2(PPublishFilterRequestV2) returns (PPublishFilterResponse);
     rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
@@ -865,6 +963,7 @@ service PBackendService {
     rpc hand_shake(PHandShakeRequest) returns (PHandShakeResponse);
     rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
+    rpc outfile_write_success(POutfileWriteSuccessRequest) returns (POutfileWriteSuccessResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
@@ -876,5 +975,7 @@ service PBackendService {
     rpc get_wal_queue_size(PGetWalQueueSizeRequest) returns(PGetWalQueueSizeResponse);
     rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
     rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
+    rpc test_jdbc_connection(PJdbcTestConnectionRequest) returns (PJdbcTestConnectionResult);
+    rpc get_be_resource(PGetBeResourceRequest) returns (PGetBeResourceResponse);
 };
 

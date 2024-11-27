@@ -28,11 +28,13 @@ class CharReplaceCharFilter : public lucene::analysis::CharFilter {
 public:
     CharReplaceCharFilter(lucene::util::Reader* in, const std::string& pattern,
                           const std::string& replacement);
-    virtual ~CharReplaceCharFilter() = default;
+    ~CharReplaceCharFilter() override = default;
 
     void init(const void* _value, int32_t _length, bool copyData) override;
     int32_t read(const void** start, int32_t min, int32_t max) override;
     int32_t readCopy(void* start, int32_t off, int32_t len) override;
+
+    size_t size() override { return _buf.size(); }
 
 private:
     void fill();

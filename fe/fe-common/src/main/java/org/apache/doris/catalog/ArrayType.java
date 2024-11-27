@@ -130,11 +130,13 @@ public class ArrayType extends Type {
 
     @Override
     public String toSql(int depth) {
+        StringBuilder typeStr = new StringBuilder();
+        typeStr.append("array<").append(itemType.toSql(depth + 1));
         if (!containsNull) {
-            return "ARRAY<" + itemType.toSql(depth + 1) + " NOT NULL>";
-        } else {
-            return "ARRAY<" + itemType.toSql(depth + 1) + ">";
+            typeStr.append(" not null");
         }
+        typeStr.append(">");
+        return typeStr.toString();
     }
 
     @Override
@@ -198,7 +200,7 @@ public class ArrayType extends Type {
 
     @Override
     public boolean isSupported() {
-        return !itemType.isNull();
+        return itemType.isSupported() && !itemType.isNull();
     }
 
     @Override
@@ -213,7 +215,7 @@ public class ArrayType extends Type {
 
     @Override
     public String toString() {
-        return String.format("ARRAY<%s>", itemType.toString());
+        return String.format("array<%s>", itemType.toString());
     }
 
     @Override
@@ -221,16 +223,6 @@ public class ArrayType extends Type {
         TColumnType thrift = new TColumnType();
         thrift.type = PrimitiveType.ARRAY.toThrift();
         return thrift;
-    }
-
-    @Override
-    public boolean isFixedLengthType() {
-        return false;
-    }
-
-    @Override
-    public boolean supportsTablePartitioning() {
-        return false;
     }
 
     @Override

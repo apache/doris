@@ -33,6 +33,13 @@ under the License.
 
 Repeat the str of the string count times, return empty string when count is less than 1, return NULL when str, count is any NULL
 
+:::tip
+It can be repeated up to 10000 times by default, you can adjust session variable to change it 
+```
+set repeat_max_num = 20000
+```
+:::
+
 ### example
 
 ```

@@ -46,6 +46,9 @@ public:
     AssertNumRowsLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~AssertNumRowsLocalState() = default;
+
+private:
+    friend class AssertNumRowsOperatorX;
 };
 
 class AssertNumRowsOperatorX final : public StreamingOperatorX<AssertNumRowsLocalState> {
@@ -67,6 +70,7 @@ private:
     int64_t _desired_num_rows;
     const std::string _subquery_string;
     TAssertion::type _assertion;
+    bool _should_convert_output_to_nullable;
 };
 
 } // namespace pipeline

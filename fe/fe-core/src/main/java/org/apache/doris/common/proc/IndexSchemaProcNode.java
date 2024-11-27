@@ -68,14 +68,12 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             String extraStr = StringUtils.join(extras, ",");
 
             List<String> rowList = Arrays.asList(column.getDisplayName(),
-                                                 column.getOriginType().toString(),
+                                                 column.getOriginType().hideVersionForVersionColumn(true),
                                                  column.isAllowNull() ? "Yes" : "No",
                                                  ((Boolean) column.isKey()).toString(),
                                                  column.getDefaultValue() == null
                                                          ? FeConstants.null_string : column.getDefaultValue(),
                                                  extraStr);
-
-            rowList.set(1, column.getOriginType().hideVersionForVersionColumn(false));
             result.addRow(rowList);
         }
         return result;

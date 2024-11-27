@@ -176,6 +176,8 @@ otherwise, an error "Unable to find a suitable base table for partitioning" will
 - If window functions are used, the partition column fields must be after the PARTITION BY.
 - Data changes should occur on partitioned tables. If they occur on non-partitioned tables, the materialized view needs to be fully rebuilt.
 - Using the fields that generate nulls in the JOIN as partition fields in the materialized view prohibits partition incremental updates.
+- The base table partition table referenced by the materialized view currently only supports internal tables and HIVE tables. The attribute of the partition column of the inner table cannot be NULL. The HIVE table allows NULL.
+
 
 #### property
 The materialized view can specify both the properties of the table and the properties unique to the materialized view.

@@ -161,3 +161,27 @@ deprecated_enable_local_exchange	true	true	0
 -- !cmd --
 show_hidden_columns	false	false	0
 
+-- !cmd --
+read_only	true	true	0
+
+-- !cmd --
+0
+
+-- !cmd --
+read_only	true	true	0
+
+-- !cmd --
+read_only	true	true	0
+
+-- !cmd --
+super_read_only	true	true	0
+
+-- !cmd --
+0
+
+-- !cmd --
+super_read_only	true	true	0
+
+-- !cmd --
+super_read_only	true	true	0
+

@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -100,7 +101,13 @@ public:
 
     int64_t num_rows_written() const { return _num_rows_written; }
 
+    // for partial update
+    int64_t num_rows_updated() const { return _num_rows_updated; }
+    int64_t num_rows_deleted() const { return _num_rows_deleted; }
+    int64_t num_rows_new_added() const { return _num_rows_new_added; }
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
+
+    io::FileWriter* get_file_writer(int32_t segment_id);
 
     Status close();
 
@@ -131,17 +138,19 @@ public:
     bool need_buffering();
 
 private:
-    Status _expand_variant_to_subcolumns(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
+    // This method will catch exception when allocate memory failed
+    Status _parse_variant_columns(vectorized::Block& block) {
+        RETURN_IF_CATCH_EXCEPTION({ return _internal_parse_variant_columns(block); });
+    }
+    Status _internal_parse_variant_columns(vectorized::Block& block);
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                      const vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
                      const vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
-                                  int32_t segment_id, bool no_compression = false,
-                                  TabletSchemaSPtr flush_schema = nullptr);
+                                  int32_t segment_id, bool no_compression = false);
     Status _create_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
-                                  int32_t segment_id, bool no_compression = false,
-                                  TabletSchemaSPtr flush_schema = nullptr);
+                                  int32_t segment_id, bool no_compression = false);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                  TabletSchemaSPtr flush_schema = nullptr,
                                  int64_t* flush_size = nullptr);
@@ -153,10 +162,13 @@ private:
     RowsetWriterContext* _context;
 
     mutable SpinLock _lock; // protect following vectors.
-    std::vector<io::FileWriterPtr> _file_writers;
+    std::unordered_map<int32_t, io::FileWriterPtr> _file_writers;
 
     // written rows by add_block/add_row
     std::atomic<int64_t> _num_rows_written = 0;
+    std::atomic<int64_t> _num_rows_updated = 0;
+    std::atomic<int64_t> _num_rows_new_added = 0;
+    std::atomic<int64_t> _num_rows_deleted = 0;
     std::atomic<int64_t> _num_rows_filtered = 0;
 };
 
@@ -180,6 +192,10 @@ public:
 
     int64_t num_rows_written() const { return _segment_flusher.num_rows_written(); }
 
+    // for partial update
+    int64_t num_rows_updated() const { return _segment_flusher.num_rows_updated(); }
+    int64_t num_rows_deleted() const { return _segment_flusher.num_rows_deleted(); }
+    int64_t num_rows_new_added() const { return _segment_flusher.num_rows_new_added(); }
     int64_t num_rows_filtered() const { return _segment_flusher.num_rows_filtered(); }
 
     // Flush a block into a single segment, with pre-allocated segment_id.
@@ -195,6 +211,10 @@ public:
     }
 
     Status close();
+
+    io::FileWriter* get_file_writer(int32_t segment_id) {
+        return _segment_flusher.get_file_writer(segment_id);
+    }
 
 private:
     std::atomic<int32_t> _next_segment_id = 0;

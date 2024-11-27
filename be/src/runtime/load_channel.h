@@ -17,10 +17,8 @@
 
 #pragma once
 
-#include <algorithm>
 #include <atomic>
-#include <functional>
-#include <map>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <ostream>
@@ -28,15 +26,11 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
-#include <vector>
 
 #include "common/status.h"
-#include "olap/memtable_memory_limiter.h"
-#include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
-#include "util/thrift_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -52,7 +46,7 @@ class BaseTabletsChannel;
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
-                const std::string& sender_ip, int64_t backend_id, bool enable_profile);
+                std::string sender_ip, int64_t backend_id, bool enable_profile);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -91,6 +85,7 @@ protected:
 
 private:
     UniqueId _load_id;
+    int64_t _txn_id = 0;
 
     SpinLock _profile_serialize_lock;
     std::unique_ptr<RuntimeProfile> _profile;
@@ -109,11 +104,13 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<BaseTabletsChannel>> _tablets_channels;
     // index id -> (received rows, filtered rows)
     std::unordered_map<int64_t, std::pair<size_t, size_t>> _tablets_channels_rows;
-    SpinLock _tablets_channels_lock;
+    std::mutex _tablets_channels_lock;
     // This is to save finished channels id, to handle the retry request.
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
+
+    QueryThreadContext _query_thread_context;
 
     std::atomic<time_t> _last_updated_time;
 

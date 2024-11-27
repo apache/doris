@@ -17,8 +17,11 @@
 
 #include "http/http_client.h"
 
+#include <fcntl.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -30,6 +33,7 @@
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/utils.h"
+#include "util/md5.h"
 
 namespace doris {
 
@@ -43,8 +47,15 @@ public:
             return;
         }
         req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; version=0.0.4");
+        bool is_acquire_md5 = !req->param("acquire_md5").empty();
         if (req->method() == HttpMethod::HEAD) {
             req->add_output_header(HttpHeaders::CONTENT_LENGTH, std::to_string(5).c_str());
+            if (is_acquire_md5) {
+                Md5Digest md5;
+                md5.update("md5sum", 6);
+                md5.digest();
+                req->add_output_header(HttpHeaders::CONTENT_MD5, md5.hex().c_str());
+            }
             HttpChannel::send_reply(req);
         } else {
             std::string response = "test1";
@@ -80,6 +91,13 @@ public:
     }
 };
 
+class HttpDownloadFileHandler : public HttpHandler {
+public:
+    void handle(HttpRequest* req) override {
+        do_file_response("/proc/self/exe", req, nullptr, true);
+    }
+};
+
 static EvHttpServer* s_server = nullptr;
 static int real_port = 0;
 static std::string hostname = "";
@@ -87,6 +105,7 @@ static std::string hostname = "";
 static HttpClientTestSimpleGetHandler s_simple_get_handler;
 static HttpClientTestSimplePostHandler s_simple_post_handler;
 static HttpNotFoundHandler s_not_found_handler;
+static HttpDownloadFileHandler s_download_file_handler;
 
 class HttpClientTest : public testing::Test {
 public:
@@ -99,7 +118,8 @@ public:
         s_server->register_handler(HEAD, "/simple_get", &s_simple_get_handler);
         s_server->register_handler(POST, "/simple_post", &s_simple_post_handler);
         s_server->register_handler(GET, "/not_found", &s_not_found_handler);
-        s_server->start();
+        s_server->register_handler(HEAD, "/download_file", &s_download_file_handler);
+        static_cast<void>(s_server->start());
         real_port = s_server->get_real_port();
         EXPECT_NE(0, real_port);
         hostname = "http://127.0.0.1:" + std::to_string(real_port);
@@ -201,6 +221,124 @@ TEST_F(HttpClientTest, not_found) {
     auto status = HttpClient::execute_with_retry(3, 1, get_cb);
     // libcurl is configured by CURLOPT_FAILONERROR
     EXPECT_FALSE(status.ok());
+}
+
+TEST_F(HttpClientTest, header_content_md5) {
+    std::string url = hostname + "/simple_get";
+
+    {
+        // without md5
+        HttpClient client;
+        auto st = client.init(url);
+        EXPECT_TRUE(st.ok());
+        client.set_method(HEAD);
+        client.set_basic_auth("test1", "");
+        st = client.execute();
+        EXPECT_TRUE(st.ok());
+        uint64_t len = 0;
+        st = client.get_content_length(&len);
+        EXPECT_TRUE(st.ok());
+        EXPECT_EQ(5, len);
+        std::string md5;
+        st = client.get_content_md5(&md5);
+        EXPECT_TRUE(st.ok());
+        EXPECT_TRUE(md5.empty());
+    }
+
+    {
+        // with md5
+        HttpClient client;
+        auto st = client.init(url + "?acquire_md5=true");
+        EXPECT_TRUE(st.ok());
+        client.set_method(HEAD);
+        client.set_basic_auth("test1", "");
+        st = client.execute();
+        EXPECT_TRUE(st.ok());
+        uint64_t len = 0;
+        st = client.get_content_length(&len);
+        EXPECT_TRUE(st.ok());
+        EXPECT_EQ(5, len);
+        std::string md5_value;
+        st = client.get_content_md5(&md5_value);
+        EXPECT_TRUE(st.ok());
+
+        Md5Digest md5;
+        md5.update("md5sum", 6);
+        md5.digest();
+        EXPECT_EQ(md5_value, md5.hex());
+    }
+}
+
+TEST_F(HttpClientTest, download_file_md5) {
+    std::string url = hostname + "/download_file";
+    HttpClient client;
+    auto st = client.init(url);
+    EXPECT_TRUE(st.ok());
+    client.set_method(HEAD);
+    client.set_basic_auth("test1", "");
+    st = client.execute();
+    EXPECT_TRUE(st.ok());
+
+    std::string md5_value;
+    st = client.get_content_md5(&md5_value);
+    EXPECT_TRUE(st.ok());
+
+    int fd = open("/proc/self/exe", O_RDONLY);
+    ASSERT_TRUE(fd >= 0);
+    struct stat stat;
+    ASSERT_TRUE(fstat(fd, &stat) >= 0);
+
+    int64_t file_size = stat.st_size;
+    Md5Digest md5;
+    void* buf = mmap(nullptr, file_size, PROT_READ, MAP_SHARED, fd, 0);
+    md5.update(buf, file_size);
+    md5.digest();
+    munmap(buf, file_size);
+
+    EXPECT_EQ(md5_value, md5.hex());
+    close(fd);
+}
+
+TEST_F(HttpClientTest, escape_url) {
+    HttpClient client;
+    client._curl = curl_easy_init();
+    auto check_result = [&client](const auto& input_url, const auto& output_url) -> bool {
+        std::string escaped_url;
+        if (!client._escape_url(input_url, &escaped_url).ok()) {
+            return false;
+        }
+        if (escaped_url != output_url) {
+            return false;
+        }
+        return true;
+    };
+    std::string input_A = hostname + "/download_file?token=oxof&file_name=02x_0.dat";
+    std::string output_A = hostname + "/download_file?token=oxof&file_name=02x_0.dat";
+    ASSERT_TRUE(check_result(input_A, output_A));
+
+    std::string input_B = hostname + "/download_file?";
+    std::string output_B = hostname + "/download_file?";
+    ASSERT_TRUE(check_result(input_B, output_B));
+
+    std::string input_C = hostname + "/download_file";
+    std::string output_C = hostname + "/download_file";
+    ASSERT_TRUE(check_result(input_C, output_C));
+
+    std::string input_D = hostname + "/download_file?&";
+    std::string output_D = hostname + "/download_file?&";
+    ASSERT_TRUE(check_result(input_D, output_D));
+
+    std::string input_E = hostname + "/download_file?key=0x2E";
+    std::string output_E = hostname + "/download_file?key=0x2E";
+    ASSERT_TRUE(check_result(input_E, output_E));
+
+    std::string input_F = hostname + "/download_file?key=0x2E&key=%";
+    std::string output_F = hostname + "/download_file?key=0x2E&key=%25";
+    ASSERT_TRUE(check_result(input_F, output_F));
+
+    std::string input_G = hostname + "/download_file?key=0x2E&key=%2E#section";
+    std::string output_G = hostname + "/download_file?key=0x2E&key=%252E#section";
+    ASSERT_TRUE(check_result(input_G, output_G));
 }
 
 } // namespace doris

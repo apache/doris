@@ -137,7 +137,6 @@ TEST_F(ParquetReaderTest, normal) {
     p_reader->set_file_reader(reader);
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
-    runtime_state.init_mem_trackers();
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
     static_cast<void>(p_reader->open());

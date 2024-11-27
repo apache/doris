@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
@@ -122,6 +123,17 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         return indexId;
     }
 
+    public void resetIndexIdForRestore(long id, String srcDbName, String dbName) {
+        indexId = id;
+
+        // the source db name is not setted in old BackupMeta, keep compatible with the old one.
+        // See InitMaterializationContextHook.java:createSyncMvContexts for details.
+        if (defineStmt != null && srcDbName != null) {
+            String newStmt = defineStmt.originStmt.replaceAll(srcDbName, dbName);
+            defineStmt = new OriginStatement(newStmt, defineStmt.idx);
+        }
+    }
+
     public KeysType getKeysType() {
         return keysType;
     }
@@ -160,6 +172,18 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         initColumnNameMap();
     }
 
+    public List<Column> getPrefixKeyColumns() {
+        List<Column> keys = Lists.newArrayList();
+        for (Column col : schema) {
+            if (col.isKey()) {
+                keys.add(col);
+            } else {
+                break;
+            }
+        }
+        return keys;
+    }
+
     public void setSchemaHash(int newSchemaHash) {
         this.schemaHash = newSchemaHash;
     }
@@ -188,6 +212,24 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                     column.setDefineExpr(entry.getValue());
                     match = true;
                     break;
+                }
+            }
+
+            boolean isCastSlot =
+                    entry.getValue() instanceof CastExpr && entry.getValue().getChild(0) instanceof SlotRef;
+
+            // Compatibility code for older versions of mv
+            // old version:
+            // goods_number -> mva_SUM__CAST(`goods_number` AS BIGINT)
+            // new version:
+            // goods_number -> mva_SUM__CAST(`goods_number` AS bigint)
+            if (isCastSlot && !match) {
+                for (Column column : schema) {
+                    if (column.getName().equalsIgnoreCase(entry.getKey())) {
+                        column.setDefineExpr(entry.getValue());
+                        match = true;
+                        break;
+                    }
                 }
             }
 
@@ -345,6 +387,13 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
         this.schema.forEach(column -> {
             column.setUniqueId(incAndGetMaxColUniqueId());
+            this.indexes.forEach(index -> {
+                index.getColumns().forEach(col -> {
+                    if (col.equalsIgnoreCase(column.getName())) {
+                        index.getColumnUniqueIds().add(column.getUniqueId());
+                    }
+                });
+            });
             if (LOG.isDebugEnabled()) {
                 LOG.debug("indexId: {},  column:{}, uniqueId:{}",
                         indexId, column, column.getUniqueId());

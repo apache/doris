@@ -50,6 +50,7 @@ import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPruner;
 import org.apache.doris.planner.RangePartitionPrunerV2;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -118,6 +119,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     private List<Predicate> deleteConditions;
 
     private MarkedCountDownLatch<Long, Long> countDownLatch;
+
+    private long timeoutS = 300L;
 
     public DeleteJob(long id, long transactionId, String label,
                      Map<Long, Short> partitionReplicaNum, DeleteInfo deleteInfo) {
@@ -249,14 +252,16 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         return tabletDeleteInfoMap.values();
     }
 
+    public void setTimeoutS(long timeoutS) {
+        this.timeoutS = timeoutS;
+    }
+
     public long getTimeoutMs() {
         if (FeConstants.runningUnitTest) {
             // for making unit test run fast
             return 1000;
         }
-        // timeout is between 30 seconds to 5 min
-        long timeout = Math.max(totalTablets.size() * Config.tablet_delete_timeout_second * 1000L, 30000L);
-        return Math.min(timeout, Config.delete_job_max_timeout_second * 1000L);
+        return timeoutS * 1000L;
     }
 
     public void setTargetDb(Database targetDb) {
@@ -283,8 +288,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     public long beginTxn() throws Exception {
         long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(deleteInfo.getDbId(),
                 Lists.newArrayList(deleteInfo.getTableId()), label, null,
-                new TransactionState.TxnCoordinator(
-                        TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0,
+                        FrontendOptions.getLocalHostAddress(),
+                        ExecuteEnv.getInstance().getStartupTime()),
                 TransactionState.LoadJobSourceType.FRONTEND, id, Config.stream_load_default_timeout_second);
         this.signature = txnId;
         Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(this);
@@ -311,13 +317,17 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                                 () -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER)));
                 for (Predicate condition : deleteConditions) {
                     SlotRef slotRef = (SlotRef) condition.getChild(0);
-                    String columnName = new String(slotRef.getColumnName());
+                    String columnName = slotRef.getColumnName();
                     TColumn column = colNameToColDesc.get(slotRef.getColumnName());
                     if (column == null) {
                         columnName = CreateMaterializedViewStmt.mvColumnBuilder(columnName);
                         column = colNameToColDesc.get(columnName);
                     }
                     if (column == null) {
+                        if (partition.isRollupIndex(index.getId())) {
+                            throw new AnalysisException("If MV or rollup index exists, do not support delete."
+                                    + "Drop existing rollup or MV and try again.");
+                        }
                         throw new AnalysisException(
                                 "condition's column not founded in index, column=" + columnName + " , index=" + index);
                     }
@@ -371,6 +381,12 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         long timeoutMs = getTimeoutMs();
         boolean ok = countDownLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
         if (ok) {
+            if (!countDownLatch.getStatus().ok()) {
+                // encounter some errors that don't need to retry, abort directly
+                LOG.warn("delete job failed, errmsg={}", countDownLatch.getStatus().getErrorMsg());
+                throw new UserException(String.format("delete job failed, errmsg:%s",
+                        countDownLatch.getStatus().getErrorMsg()));
+            }
             return;
         }
 
@@ -538,6 +554,10 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             deleteJob.setTargetDb(params.getDb());
             deleteJob.setTargetTbl(params.getTable());
             deleteJob.setCountDownLatch(new MarkedCountDownLatch<>((int) replicaNum));
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                deleteJob.setTimeoutS(connectContext.getExecTimeout());
+            }
             return deleteJob;
         }
 

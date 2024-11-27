@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
@@ -26,6 +27,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.plsql.PLSqlLogicalPlanBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.plugin.DialectConverterPlugin;
@@ -34,17 +36,23 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
+import org.antlr.v4.runtime.Recognizer;
+import org.antlr.v4.runtime.Token;
+import org.antlr.v4.runtime.TokenSource;
 import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -55,6 +63,21 @@ public class NereidsParser {
     public static final Logger LOG = LogManager.getLogger(NereidsParser.class);
     private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
     private static final PostProcessor POST_PROCESSOR = new PostProcessor();
+
+    private static final BitSet EXPLAIN_TOKENS = new BitSet();
+
+    static {
+        EXPLAIN_TOKENS.set(DorisLexer.EXPLAIN);
+        EXPLAIN_TOKENS.set(DorisLexer.PARSED);
+        EXPLAIN_TOKENS.set(DorisLexer.ANALYZED);
+        EXPLAIN_TOKENS.set(DorisLexer.LOGICAL);
+        EXPLAIN_TOKENS.set(DorisLexer.REWRITTEN);
+        EXPLAIN_TOKENS.set(DorisLexer.PHYSICAL);
+        EXPLAIN_TOKENS.set(DorisLexer.OPTIMIZED);
+        EXPLAIN_TOKENS.set(DorisLexer.PLAN);
+        EXPLAIN_TOKENS.set(DorisLexer.PROCESS);
+
+    }
 
     /**
      * In MySQL protocol, client could send multi-statement in a single packet.
@@ -81,6 +104,98 @@ public class NereidsParser {
             statementBases.add(new LogicalPlanAdapter(parsedPlanToContext.first, parsedPlanToContext.second));
         }
         return statementBases;
+    }
+
+    /**
+     * scan to token
+     * for example: select id from tbl return Tokens: ['select', 'id', 'from', 'tbl']
+     */
+    public static TokenSource scan(String sql) {
+        return new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+    }
+
+    /**
+     * tryParseExplainPlan
+     * @param sql sql
+     * @return key: ExplainOptions, value: explain body
+     */
+    public static Optional<Pair<ExplainOptions, String>> tryParseExplainPlan(String sql) {
+        try {
+            TokenSource tokenSource = scan(sql);
+            if (expect(tokenSource, DorisLexer.EXPLAIN) == null) {
+                return Optional.empty();
+            }
+
+            Token token = readUntilNonComment(tokenSource);
+            if (token == null) {
+                return Optional.empty();
+            }
+
+            int tokenType = token.getType();
+            ExplainLevel explainLevel = ExplainLevel.ALL_PLAN;
+            if (tokenType == DorisLexer.PARSED) {
+                explainLevel = ExplainLevel.PARSED_PLAN;
+                token = readUntilNonComment(tokenSource);
+            } else if (tokenType == DorisLexer.ANALYZED) {
+                explainLevel = ExplainLevel.ANALYZED_PLAN;
+                token = readUntilNonComment(tokenSource);
+            } else if (tokenType == DorisLexer.LOGICAL || tokenType == DorisLexer.REWRITTEN) {
+                explainLevel = ExplainLevel.REWRITTEN_PLAN;
+                token = readUntilNonComment(tokenSource);
+            } else if (tokenType == DorisLexer.PHYSICAL || tokenType == DorisLexer.OPTIMIZED) {
+                explainLevel = ExplainLevel.OPTIMIZED_PLAN;
+                token = readUntilNonComment(tokenSource);
+            }
+
+            if (token == null) {
+                return Optional.empty();
+            }
+            tokenType = token.getType();
+            if (tokenType != DorisLexer.PLAN) {
+                return Optional.empty();
+            }
+
+            token = readUntilNonComment(tokenSource);
+            Token explainPlanBody;
+            boolean showPlanProcess = false;
+            if (token.getType() == DorisLexer.PROCESS) {
+                showPlanProcess = true;
+                explainPlanBody = readUntilNonComment(tokenSource);
+            } else {
+                explainPlanBody = token;
+            }
+
+            if (explainPlanBody == null) {
+                return Optional.empty();
+            }
+            ExplainOptions explainOptions = new ExplainOptions(explainLevel, showPlanProcess);
+            return Optional.of(Pair.of(explainOptions, sql.substring(explainPlanBody.getStartIndex())));
+        } catch (Throwable t) {
+            return Optional.empty();
+        }
+    }
+
+    private static Token expect(TokenSource tokenSource, int tokenType) {
+        Token nextToken = readUntilNonComment(tokenSource);
+        if (nextToken == null) {
+            return null;
+        }
+        return nextToken.getType() == tokenType ? nextToken : null;
+    }
+
+    private static Token readUntilNonComment(TokenSource tokenSource) {
+        Token token = tokenSource.nextToken();
+        while (token != null) {
+            int tokenType = token.getType();
+            if (tokenType == DorisLexer.BRACKETED_COMMENT
+                    || tokenType == DorisLexer.SIMPLE_COMMENT
+                    || tokenType == DorisLexer.WS) {
+                token = tokenSource.nextToken();
+                continue;
+            }
+            break;
+        }
+        return token;
     }
 
     private List<StatementBase> parseSQLWithDialect(String sql,
@@ -160,11 +275,43 @@ public class NereidsParser {
                         Function<DorisParser, ParserRuleContext> parseFunction) {
         ParserRuleContext tree = toAst(sql, parseFunction);
         LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
-                    ? new LogicalPlanBuilder() : logicalPlanBuilder;
+                    ? new LogicalPlanBuilder(getHintMap(sql, DorisParser::selectHint)) : logicalPlanBuilder;
         return (T) realLogicalPlanBuilder.visit(tree);
     }
 
-    private ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
+    public LogicalPlan parseForCreateView(String sql) {
+        ParserRuleContext tree = toAst(sql, DorisParser::singleStatement);
+        LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView(
+                getHintMap(sql, DorisParser::selectHint));
+        return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+    }
+
+    /** get hint map */
+    public static Map<Integer, ParserRuleContext> getHintMap(String sql,
+                                                             Function<DorisParser, ParserRuleContext> parseFunction) {
+        // parse hint first round
+        DorisLexer hintLexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        CommonTokenStream hintTokenStream = new CommonTokenStream(hintLexer);
+
+        Map<Integer, ParserRuleContext> selectHintMap = Maps.newHashMap();
+
+        Token hintToken = hintTokenStream.getTokenSource().nextToken();
+        while (hintToken != null && hintToken.getType() != DorisLexer.EOF) {
+            if (hintToken.getChannel() == 2 && sql.charAt(hintToken.getStartIndex() + 2) == '+') {
+                String hintSql = sql.substring(hintToken.getStartIndex() + 3, hintToken.getStopIndex() + 1);
+                DorisLexer newHintLexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(hintSql)));
+                CommonTokenStream newHintTokenStream = new CommonTokenStream(newHintLexer);
+                DorisParser hintParser = new DorisParser(newHintTokenStream);
+                ParserRuleContext hintContext = parseFunction.apply(hintParser);
+                selectHintMap.put(hintToken.getStartIndex(), hintContext);
+            }
+            hintToken = hintTokenStream.getTokenSource().nextToken();
+        }
+        return selectHintMap;
+    }
+
+    /** toAst */
+    public static ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         DorisParser parser = new DorisParser(tokenStream);
@@ -187,5 +334,43 @@ public class NereidsParser {
             tree = parseFunction.apply(parser);
         }
         return tree;
+    }
+
+    /**
+     * removeCommentAndTrimBlank
+     *
+     * for example: select   \/*+SET_VAR(key=value)*\/ \/* trace_id: 1234 *\/ *,   a, \n b from table
+     *
+     * will be normalized to: select \/*+SET_VAR(key=value)*\/ * , a, b from table
+     */
+    public static String removeCommentAndTrimBlank(String sql) {
+        DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        CommonTokenStream tokenStream = new CommonTokenStream(lexer);
+        tokenStream.fill();
+
+        // maybe add more space char
+        StringBuilder newSql = new StringBuilder((int) (sql.length() * 1.2));
+
+        for (Token token : tokenStream.getTokens()) {
+            int tokenType = token.getType();
+            switch (tokenType) {
+                case DorisLexer.SIMPLE_COMMENT:
+                case DorisLexer.WS:
+                case Recognizer.EOF:
+                    break;
+                case DorisLexer.BRACKETED_COMMENT:
+                    String bracketedComment = token.getText();
+                    // append hint
+                    if (bracketedComment.startsWith("/*+")) {
+                        newSql.append(bracketedComment);
+                        newSql.append(" ");
+                    }
+                    break;
+                default:
+                    newSql.append(token.getText());
+                    newSql.append(" ");
+            }
+        }
+        return newSql.toString().trim();
     }
 }

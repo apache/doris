@@ -35,7 +35,7 @@ namespace doris {
 // common use cases (in particular, resize() will fill with uninitialized data
 // instead of memsetting to \0)
 // only build() can transfer data to the outside.
-class faststring : private Allocator<false, false, false> {
+class faststring : private Allocator<false, false, false, DefaultMemoryAllocator> {
 public:
     enum { kInitialCapacity = 32 };
 
@@ -85,7 +85,8 @@ public:
     OwnedSlice build() {
         uint8_t* ret = data_;
         if (ret == initial_data_) {
-            ret = reinterpret_cast<uint8_t*>(Allocator::alloc(len_));
+            ret = reinterpret_cast<uint8_t*>(Allocator::alloc(capacity_));
+            DCHECK(len_ <= capacity_);
             memcpy(ret, data_, len_);
         }
         OwnedSlice result(ret, len_, capacity_);

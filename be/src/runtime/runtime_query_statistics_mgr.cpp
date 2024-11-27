@@ -17,10 +17,12 @@
 
 #include "runtime/runtime_query_statistics_mgr.h"
 
+#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "util/debug_util.h"
 #include "util/time.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -33,17 +35,19 @@ void QueryStatisticsCtx::collect_query_statistics(TQueryStatistics* tq_s) {
     tq_s->__set_workload_group_id(_wg_id);
 }
 
-void RuntimeQueryStatiticsMgr::register_query_statistics(std::string query_id,
-                                                         std::shared_ptr<QueryStatistics> qs_ptr,
-                                                         TNetworkAddress fe_addr) {
+void RuntimeQueryStatisticsMgr::register_query_statistics(std::string query_id,
+                                                          std::shared_ptr<QueryStatistics> qs_ptr,
+                                                          TNetworkAddress fe_addr,
+                                                          TQueryType::type query_type) {
     std::lock_guard<std::shared_mutex> write_lock(_qs_ctx_map_lock);
     if (_query_statistics_ctx_map.find(query_id) == _query_statistics_ctx_map.end()) {
-        _query_statistics_ctx_map[query_id] = std::make_unique<QueryStatisticsCtx>(fe_addr);
+        _query_statistics_ctx_map[query_id] =
+                std::make_unique<QueryStatisticsCtx>(fe_addr, query_type);
     }
     _query_statistics_ctx_map.at(query_id)->_qs_list.push_back(qs_ptr);
 }
 
-void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
+void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
     int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
     // 1 get query statistics map
     std::map<TNetworkAddress, std::map<std::string, TQueryStatistics>> fe_qs_map;
@@ -53,6 +57,9 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
         int64_t current_time = MonotonicMillis();
         int64_t conf_qs_timeout = config::query_statistics_reserve_timeout_ms;
         for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
+            if (qs_ctx_ptr->_query_type == TQueryType::EXTERNAL) {
+                continue;
+            }
             if (fe_qs_map.find(qs_ctx_ptr->_fe_addr) == fe_qs_map.end()) {
                 std::map<std::string, TQueryStatistics> tmp_map;
                 fe_qs_map[qs_ctx_ptr->_fe_addr] = std::move(tmp_map);
@@ -83,8 +90,8 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
         std::string add_str = PrintThriftNetworkAddress(addr);
         if (!coord_status.ok()) {
             std::stringstream ss;
-            LOG(WARNING) << "could not get client " << add_str
-                         << " when report workload runtime stats, reason is "
+            LOG(WARNING) << "[report_query_statistics]could not get client " << add_str
+                         << " when report workload runtime stats, reason:"
                          << coord_status.to_string();
             continue;
         }
@@ -103,26 +110,38 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
             coord->reportExecStatus(res, params);
             rpc_result[addr] = true;
         } catch (apache::thrift::TApplicationException& e) {
-            LOG(WARNING) << "fe " << add_str
-                         << " throw exception when report statistics, reason=" << e.what()
+            LOG(WARNING) << "[report_query_statistics]fe " << add_str
+                         << " throw exception when report statistics, reason:" << e.what()
                          << " , you can see fe log for details.";
         } catch (apache::thrift::transport::TTransportException& e) {
-            LOG(WARNING) << "report workload runtime statistics to " << add_str
-                         << " failed,  err: " << e.what();
+            LOG(WARNING) << "[report_query_statistics]report workload runtime statistics to "
+                         << add_str << " failed,  reason: " << e.what();
             rpc_status = coord.reopen();
             if (!rpc_status.ok()) {
-                LOG(WARNING)
-                        << "reopen thrift client failed when report workload runtime statistics to"
-                        << add_str;
+                LOG(WARNING) << "[report_query_statistics]reopen thrift client failed when report "
+                                "workload runtime statistics to"
+                             << add_str;
             } else {
                 try {
                     coord->reportExecStatus(res, params);
                     rpc_result[addr] = true;
                 } catch (apache::thrift::transport::TTransportException& e2) {
-                    LOG(WARNING) << "retry report workload runtime stats to " << add_str
-                                 << " failed,  err: " << e2.what();
+                    LOG(WARNING)
+                            << "[report_query_statistics]retry report workload runtime stats to "
+                            << add_str << " failed,  reason: " << e2.what();
+                } catch (std::exception& e) {
+                    LOG_WARNING(
+                            "[report_query_statistics]unknow exception when report workload "
+                            "runtime statistics to {}, "
+                            "reason:{}. ",
+                            add_str, e.what());
                 }
             }
+        } catch (std::exception& e) {
+            LOG_WARNING(
+                    "[report_query_statistics]unknown exception when report workload runtime "
+                    "statistics to {}, reason:{}. ",
+                    add_str, e.what());
         }
     }
 
@@ -147,7 +166,7 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
     }
 }
 
-void RuntimeQueryStatiticsMgr::set_query_finished(std::string query_id) {
+void RuntimeQueryStatisticsMgr::set_query_finished(std::string query_id) {
     // NOTE: here must be a write lock
     std::lock_guard<std::shared_mutex> write_lock(_qs_ctx_map_lock);
     // when a query get query_ctx succ, but failed before create node/operator,
@@ -159,7 +178,7 @@ void RuntimeQueryStatiticsMgr::set_query_finished(std::string query_id) {
     }
 }
 
-std::shared_ptr<QueryStatistics> RuntimeQueryStatiticsMgr::get_runtime_query_statistics(
+std::shared_ptr<QueryStatistics> RuntimeQueryStatisticsMgr::get_runtime_query_statistics(
         std::string query_id) {
     std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
     if (_query_statistics_ctx_map.find(query_id) == _query_statistics_ctx_map.end()) {
@@ -172,7 +191,7 @@ std::shared_ptr<QueryStatistics> RuntimeQueryStatiticsMgr::get_runtime_query_sta
     return qs_ptr;
 }
 
-void RuntimeQueryStatiticsMgr::get_metric_map(
+void RuntimeQueryStatisticsMgr::get_metric_map(
         std::string query_id, std::map<WorkloadMetricType, std::string>& metric_map) {
     QueryStatistics ret_qs;
     int64_t query_time_ms = 0;
@@ -189,13 +208,45 @@ void RuntimeQueryStatiticsMgr::get_metric_map(
     metric_map.emplace(WorkloadMetricType::QUERY_TIME, std::to_string(query_time_ms));
     metric_map.emplace(WorkloadMetricType::SCAN_ROWS, std::to_string(ret_qs.get_scan_rows()));
     metric_map.emplace(WorkloadMetricType::SCAN_BYTES, std::to_string(ret_qs.get_scan_bytes()));
+    metric_map.emplace(WorkloadMetricType::QUERY_MEMORY_BYTES,
+                       std::to_string(ret_qs.get_current_used_memory_bytes()));
 }
 
-void RuntimeQueryStatiticsMgr::set_workload_group_id(std::string query_id, int64_t wg_id) {
+void RuntimeQueryStatisticsMgr::set_workload_group_id(std::string query_id, int64_t wg_id) {
     // wg id just need eventual consistency, read lock is ok
     std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
     if (_query_statistics_ctx_map.find(query_id) != _query_statistics_ctx_map.end()) {
         _query_statistics_ctx_map.at(query_id)->_wg_id = wg_id;
+    }
+}
+
+void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* block) {
+    std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
+    int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
+
+    // block's schema come from SchemaBackendActiveTasksScanner::_s_tbls_columns
+    for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
+        TQueryStatistics tqs;
+        qs_ctx_ptr->collect_query_statistics(&tqs);
+        SchemaScannerHelper::insert_int64_value(0, be_id, block);
+        SchemaScannerHelper::insert_string_value(1, qs_ctx_ptr->_fe_addr.hostname, block);
+        SchemaScannerHelper::insert_string_value(2, query_id, block);
+
+        int64_t task_time = qs_ctx_ptr->_is_query_finished
+                                    ? qs_ctx_ptr->_query_finish_time - qs_ctx_ptr->_query_start_time
+                                    : MonotonicMillis() - qs_ctx_ptr->_query_start_time;
+        SchemaScannerHelper::insert_int64_value(3, task_time, block);
+        SchemaScannerHelper::insert_int64_value(4, tqs.cpu_ms, block);
+        SchemaScannerHelper::insert_int64_value(5, tqs.scan_rows, block);
+        SchemaScannerHelper::insert_int64_value(6, tqs.scan_bytes, block);
+        SchemaScannerHelper::insert_int64_value(7, tqs.max_peak_memory_bytes, block);
+        SchemaScannerHelper::insert_int64_value(8, tqs.current_used_memory_bytes, block);
+        SchemaScannerHelper::insert_int64_value(9, tqs.shuffle_send_bytes, block);
+        SchemaScannerHelper::insert_int64_value(10, tqs.shuffle_send_rows, block);
+
+        std::stringstream ss;
+        ss << qs_ctx_ptr->_query_type;
+        SchemaScannerHelper::insert_string_value(11, ss.str(), block);
     }
 }
 

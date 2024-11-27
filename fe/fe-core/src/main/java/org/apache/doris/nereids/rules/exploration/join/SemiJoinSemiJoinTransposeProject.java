@@ -31,8 +31,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
-import java.util.HashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * rule for semi-semi transpose
@@ -43,7 +43,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
     /*
      *        topSemi                   newTopSemi
      *        /     \                   /       \
-     *    aProject   C              aProject     B
+     *    abProject   C              acProject     B
      *      |            ──►          |
      * bottomSemi                newBottomSemi
      *    /   \                     /   \
@@ -55,16 +55,21 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                 .when(this::typeChecker)
                 .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child(), false))
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(join -> join.left().isAllSlots())
                 .then(topSemi -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
-                    LogicalProject abProject = topSemi.left();
+                    LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> abProject = topSemi.left();
                     GroupPlan a = bottomSemi.left();
                     GroupPlan b = bottomSemi.right();
                     GroupPlan c = topSemi.right();
                     Set<ExprId> aOutputExprIdSet = a.getOutputExprIdSet();
-                    Set<NamedExpression> acProjects = new HashSet<NamedExpression>(abProject.getProjects());
+                    // if bottom semi join is mark join, we need remove the mark join slot creating by bottom semi join
+                    // from the project list before swapping the bottom semi to top semi
+                    Set<NamedExpression> acProjects = abProject.getProjects().stream()
+                            .filter(slot -> !(abProject.child().isMarkJoin()
+                                    && abProject.child().getMarkJoinSlotReference().get()
+                                            .getExprId() == slot.getExprId()))
+                            .collect(Collectors.toSet());
 
                     bottomSemi.getConditionSlot()
                             .forEach(slot -> {
@@ -73,6 +78,9 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                                 }
                             });
                     LogicalJoin newBottomSemi = topSemi.withChildrenNoContext(a, c, null);
+                    if (topSemi.isMarkJoin()) {
+                        acProjects.add(topSemi.getMarkJoinSlotReference().get());
+                    }
                     newBottomSemi.getJoinReorderContext().copyFrom(bottomSemi.getJoinReorderContext());
                     newBottomSemi.getJoinReorderContext().setHasCommute(false);
                     newBottomSemi.getJoinReorderContext().setHasLAsscom(false);

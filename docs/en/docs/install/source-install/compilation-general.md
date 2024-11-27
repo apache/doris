@@ -74,24 +74,21 @@ This topic is about how to compile Doris from source.
 
 > 3. For Doris 0.14.0, use `apache/incubator-doris:build-env-1.2` to compile; for Doris 0.14.x, use `apache/incubator-doris:build-env-1.3.1` to compile.
 
-> 4. The docker images of build-env-1.3.1 and above include both OpenJDK 8 and OpenJDK 11, please confirm the default JDK version with `java -version`. You can also switch versions as follows. (It is recommended to use JDK8.)
->
->    Switch to JDK 8:
->
->    ```
->    alternatives --set java java-1.8.0-openjdk.x86_64
->    alternatives --set javac java-1.8.0-openjdk.x86_64
->    export JAVA_HOME=/usr/lib/jvm/java-1.8.0
->    ```
->
->    Switch to JDK 11:
->
->    ```
->    alternatives --set java java-11-openjdk.x86_64
->    alternatives --set javac java-11-openjdk.x86_64
->    export JAVA_HOME=/usr/lib/jvm/java-11
->    ```
->
+> 4. The latest version of the `apache/doris:build-env-ldb-toolchain-latest` image contains both JDK 8 and JDK 17.
+    >
+    >   Switch to JDK 8:
+    >
+    >   ```
+    >   export JAVA_HOME=/usr/lib/jvm/java-1.8.0
+    >   export PATH=$JAVA_HOME/bin/:$PATH
+    >   ```
+    >
+    >   Switch to JDK 17:
+    >
+    >   ```
+    >   export JAVA_HOME=/usr/lib/jvm/jdk-17.0.2/
+    >   export PATH=$JAVA_HOME/bin/:$PATH
+    >   ```
 
 2. Run the image
 

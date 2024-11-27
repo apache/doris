@@ -44,7 +44,9 @@ using namespace ErrorCode;
 FullCompaction::FullCompaction(const TabletSharedPtr& tablet)
         : Compaction(tablet, "FullCompaction:" + std::to_string(tablet->tablet_id())) {}
 
-FullCompaction::~FullCompaction() {}
+FullCompaction::~FullCompaction() {
+    _tablet->set_is_full_compaction_running(false);
+}
 
 Status FullCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
@@ -53,6 +55,11 @@ Status FullCompaction::prepare_compact() {
 
     std::unique_lock base_lock(_tablet->get_base_compaction_lock());
     std::unique_lock cumu_lock(_tablet->get_cumulative_compaction_lock());
+    _tablet->set_is_full_compaction_running(true);
+
+    DBUG_EXECUTE_IF("FullCompaction.prepare_compact.set_cumu_point", {
+        _tablet->set_cumulative_layer_point(_tablet->max_version_unlocked().second + 1);
+    })
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
@@ -73,7 +80,11 @@ Status FullCompaction::execute_compact_impl() {
     // 3. set state to success
     _state = CompactionState::SUCCESS;
 
-    // 4. set cumulative point
+    // 4. set cumulative level
+    _tablet->cumulative_compaction_policy()->update_compaction_level(_tablet.get(), _input_rowsets,
+                                                                     _output_rowset);
+
+    // 5. set cumulative point
     Version last_version = _input_rowsets.back()->version();
     _tablet->cumulative_compaction_policy()->update_cumulative_point(_tablet.get(), _input_rowsets,
                                                                      _output_rowset, last_version);
@@ -111,6 +122,7 @@ Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
         std::lock_guard<std::mutex> rowset_update_wlock(_tablet->get_rowset_update_lock());
         std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
         RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
+        DBUG_EXECUTE_IF("FullCompaction.modify_rowsets.sleep", { sleep(5); })
         _tablet->save_meta();
     }
     return Status::OK();
@@ -128,7 +140,7 @@ Status FullCompaction::_check_all_version(const std::vector<RowsetSharedPtr>& ro
                 "Full compaction rowsets' versions not equal to all exist rowsets' versions. "
                 "full compaction rowsets max version={}-{}"
                 ", current rowsets max version={}-{}"
-                "full compaction rowsets min version={}-{}, current rowsets min version=0-1",
+                ", full compaction rowsets min version={}-{}, current rowsets min version=0-1",
                 last_rowset->start_version(), last_rowset->end_version(),
                 _tablet->max_version().first, _tablet->max_version().second,
                 first_rowset->start_version(), first_rowset->end_version());

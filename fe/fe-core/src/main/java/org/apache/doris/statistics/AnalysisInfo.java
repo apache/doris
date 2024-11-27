@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -35,9 +36,10 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.text.ParseException;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 public class AnalysisInfo implements Writable {
 
@@ -95,8 +97,8 @@ public class AnalysisInfo implements Writable {
     @SerializedName("tblId")
     public final long tblId;
 
-    // TODO: Map here is wired, List is enough
-    public final Map<String, Set<String>> colToPartitions;
+    // Pair<IndexName, ColumnName>
+    public final List<Pair<String, String>> jobColumns;
 
     public final Set<String> partitionNames;
 
@@ -190,6 +192,9 @@ public class AnalysisInfo implements Writable {
 
     @SerializedName("emptyJob")
     public final boolean emptyJob;
+
+    @SerializedName("rowCount")
+    public final long rowCount;
     /**
      *
      * Used to store the newest partition version of tbl when creating this job.
@@ -199,21 +204,24 @@ public class AnalysisInfo implements Writable {
 
     public final boolean userInject;
 
+    public final ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
+
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
-            Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
+            List<Pair<String, String>> jobColumns, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, long sampleRows, int maxBucketNum, long periodTimeInMs, String message,
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForPartitionColumn, long tblUpdateTime, boolean emptyJob, boolean userInject) {
+            boolean usingSqlForPartitionColumn, long tblUpdateTime, boolean emptyJob, boolean userInject,
+            long rowCount) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
         this.catalogId = catalogId;
         this.dbId = dbId;
         this.tblId = tblId;
-        this.colToPartitions = colToPartitions;
+        this.jobColumns = jobColumns;
         this.partitionNames = partitionNames;
         this.colName = colName;
         this.indexId = indexId;
@@ -244,6 +252,7 @@ public class AnalysisInfo implements Writable {
         this.tblUpdateTime = tblUpdateTime;
         this.emptyJob = emptyJob;
         this.userInject = userInject;
+        this.rowCount = rowCount;
     }
 
     @Override
@@ -268,8 +277,8 @@ public class AnalysisInfo implements Writable {
         if (maxBucketNum > 0) {
             sj.add("MaxBucketNum: " + maxBucketNum);
         }
-        if (colToPartitions != null) {
-            sj.add("colToPartitions: " + getColToPartitionStr());
+        if (jobColumns != null) {
+            sj.add("jobColumns: " + getJobColumns());
         }
         if (lastExecTimeInMs > 0) {
             sj.add("LastExecTime: " + StatisticsUtil.getReadableTime(lastExecTimeInMs));
@@ -301,12 +310,12 @@ public class AnalysisInfo implements Writable {
         taskIds.add(taskId);
     }
 
-    public String getColToPartitionStr() {
-        if (colToPartitions == null || colToPartitions.isEmpty()) {
+    public String getJobColumns() {
+        if (jobColumns == null || jobColumns.isEmpty()) {
             return "";
         }
         Gson gson = new Gson();
-        return gson.toJson(colToPartitions);
+        return gson.toJson(jobColumns);
     }
 
     @Override
@@ -344,5 +353,9 @@ public class AnalysisInfo implements Writable {
 
     public TableIf getTable() {
         return StatisticsUtil.findTable(catalogId, dbId, tblId);
+    }
+
+    public void addIndexRowCount(long indexId, long rowCount) {
+        indexesRowCount.put(indexId, rowCount);
     }
 }

@@ -53,6 +53,7 @@ public:
     bool equals(const IDataType& rhs) const override;
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
+    std::string to_string(double int_val) const;
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_TIME);
     }
@@ -76,7 +77,7 @@ class DataTypeTimeV2 final : public DataTypeNumberBase<Float64> {
 public:
     DataTypeTimeV2(int scale = 0) : _scale(scale) {
         if (UNLIKELY(scale > 6)) {
-            LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scale {} is out of bounds", scale);
         }
         if (scale == -1) {
             _scale = 0;
@@ -85,6 +86,7 @@ public:
     bool equals(const IDataType& rhs) const override;
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
+    std::string to_string(double int_val) const;
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_TIMEV2);
     }

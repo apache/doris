@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -40,6 +41,7 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
@@ -92,6 +94,8 @@ public class KafkaRoutineLoadJobTest {
 
     @Before
     public void init() {
+        MockedAuth.mockedConnectContext(connectContext, "root", "192.168.1.1");
+
         List<String> partitionNameList = Lists.newArrayList();
         partitionNameList.add("p1");
         partitionNames = new PartitionNames(false, partitionNameList);
@@ -284,6 +288,20 @@ public class KafkaRoutineLoadJobTest {
             public List<Integer> getAllKafkaPartitions(String brokerList, String topic,
                     Map<String, String> convertedCustomProperties) throws UserException {
                 return Lists.newArrayList(1, 2, 3);
+            }
+        };
+
+        new MockUp<KafkaUtil>() {
+            @Mock
+            public List<Pair<Integer, Long>> getRealOffsets(String brokerList, String topic,
+                                                             Map<String, String> convertedCustomProperties,
+                                                             List<Pair<Integer, Long>> offsetFlags)
+                                                             throws LoadException {
+                List<Pair<Integer, Long>> pairList = new ArrayList<>();
+                pairList.add(Pair.of(1, 0L));
+                pairList.add(Pair.of(2, 0L));
+                pairList.add(Pair.of(3, 0L));
+                return pairList;
             }
         };
 

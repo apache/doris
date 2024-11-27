@@ -17,6 +17,12 @@
 
 #include "vec/exprs/vmatch_predicate.h"
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
+
+#include <CLucene/analysis/LanguageBasedAnalyzer.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/Exprs_types.h>
@@ -29,13 +35,17 @@
 #include <string_view>
 #include <vector>
 
+#include "CLucene/analysis/standard95/StandardAnalyzer.h"
 #include "common/status.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vliteral.h"
+#include "vec/exprs/vslot_ref.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
@@ -53,6 +63,12 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _inverted_index_ctx->parser_mode = node.match_predicate.parser_mode;
     _inverted_index_ctx->char_filter_map = node.match_predicate.char_filter_map;
     _analyzer = InvertedIndexReader::create_analyzer(_inverted_index_ctx.get());
+    _analyzer->set_lowercase(node.match_predicate.parser_lowercase);
+    if (node.match_predicate.parser_stopwords == "none") {
+        _analyzer->set_stopwords(nullptr);
+    } else {
+        _analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
+    }
     _inverted_index_ctx->analyzer = _analyzer.get();
 }
 
@@ -69,14 +85,10 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
         argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
         child_expr_name.emplace_back(child->expr_name());
     }
-    // result column always not null
-    if (_data_type->is_nullable()) {
-        _function = SimpleFunctionFactory::instance().get_function(
-                _fn.name.function_name, argument_template, remove_nullable(_data_type));
-    } else {
-        _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
-                                                                   argument_template, _data_type);
-    }
+
+    _function = SimpleFunctionFactory::instance().get_function(
+            _fn.name.function_name, argument_template, _data_type,
+            {.enable_decimal256 = state->enable_decimal256()});
     if (_function == nullptr) {
         std::string type_str;
         for (auto arg : argument_template) {
@@ -117,9 +129,35 @@ void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStat
     VExpr::close(context, scope);
 }
 
+Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+    DCHECK_EQ(get_num_children(), 2);
+    return _evaluate_inverted_index(context, _function, segment_num_rows);
+}
+
 Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
-    // TODO: not execute const expr again, but use the const column in function context
+    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+        return Status::OK();
+    }
+    DBUG_EXECUTE_IF("VMatchPredicate.execute", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "{} not support slow path, hit debug point.", _expr_name);
+    });
+    DBUG_EXECUTE_IF("VMatchPredicate.must_in_slow_path", {
+        auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                "VMatchPredicate.must_in_slow_path", "column_name", "");
+
+        std::vector<std::string> column_names;
+        boost::split(column_names, debug_col_name, boost::algorithm::is_any_of(","));
+
+        auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+        std::string column_name = column_slot_ref->expr_name();
+        auto it = std::find(column_names.begin(), column_names.end(), column_name);
+        if (it == column_names.end()) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "column {} should in slow path while VMatchPredicate::execute.", column_name);
+        }
+    })
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
         int column_id = -1;
@@ -133,11 +171,6 @@ Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
-    if (_data_type->is_nullable()) {
-        auto nested = block->get_by_position(num_columns_without_result).column;
-        auto nullable = ColumnNullable::create(nested, ColumnUInt8::create(block->rows(), 0));
-        block->replace_by_position(num_columns_without_result, nullable);
-    }
     return Status::OK();
 }
 

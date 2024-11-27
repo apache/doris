@@ -438,7 +438,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondInvalidParameters) {
     DeletePredicatePB del_pred;
     Status failed_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(),
                                                                  conditions, &del_pred);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_PARAMETERS>(""), failed_res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), failed_res);
 }
 
 // 检测过滤条件中指定的列不存在,或者列不符合要求
@@ -454,7 +454,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     DeletePredicatePB del_pred;
     Status failed_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(),
                                                                  conditions, &del_pred);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), failed_res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), failed_res);
 
     // 'v'是value列
     conditions.clear();
@@ -661,7 +661,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_1;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_1);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k1的值越下界，k1类型为int8
     conditions[0].condition_values.clear();
@@ -669,7 +669,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_2;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_2);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k2的值越上界，k2类型为int16
     conditions[0].condition_values.clear();
@@ -678,7 +678,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_3;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_3);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k2的值越下界，k2类型为int16
     conditions[0].condition_values.clear();
@@ -686,7 +686,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_4;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_4);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k3的值越上界，k3类型为int32
     conditions[0].condition_values.clear();
@@ -695,7 +695,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_5;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_5);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k3的值越下界，k3类型为int32
     conditions[0].condition_values.clear();
@@ -703,7 +703,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_6;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_6);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k4的值越上界，k2类型为int64
     conditions[0].condition_values.clear();
@@ -712,7 +712,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_7;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_7);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k4的值越下界，k1类型为int64
     conditions[0].condition_values.clear();
@@ -720,7 +720,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_8;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_8);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k5的值越上界，k5类型为int128
     conditions[0].condition_values.clear();
@@ -729,7 +729,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_9;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_9);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k5的值越下界，k5类型为int128
     conditions[0].condition_values.clear();
@@ -737,7 +737,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_10;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_10);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k9整数部分长度过长，k9类型为decimal, precision=6, frac=3
     conditions[0].condition_values.clear();
@@ -746,7 +746,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_11;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_11);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k9小数部分长度过长，k9类型为decimal, precision=6, frac=3
     conditions[0].condition_values.clear();
@@ -754,7 +754,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_12;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_12);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k9没有小数部分，但包含小数点
     conditions[0].condition_values.clear();
@@ -762,7 +762,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_13;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_13);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k10类型的过滤值不符合对应格式，k10为date
     conditions[0].condition_values.clear();
@@ -771,21 +771,21 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_14;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_14);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-64-01");
     DeletePredicatePB del_pred_15;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_15);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-40");
     DeletePredicatePB del_pred_16;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_16);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k11类型的过滤值不符合对应格式，k11为datetime
     conditions[0].condition_values.clear();
@@ -794,42 +794,42 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_17;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_17);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-64-01 00:00:00");
     DeletePredicatePB del_pred_18;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_18);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-40 00:00:00");
     DeletePredicatePB del_pred_19;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_19);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-01 24:00:00");
     DeletePredicatePB del_pred_20;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_20);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-01 00:60:00");
     DeletePredicatePB del_pred_21;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_21);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-01 00:00:60");
     DeletePredicatePB del_pred_22;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_22);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     // 测试k12和k13类型的过滤值过长，k12,k13类型分别为string(64), varchar(64)
     conditions[0].condition_values.clear();
@@ -841,7 +841,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_23;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_23);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 
     conditions[0].condition_values.clear();
     conditions[0].column_name = "k13";
@@ -852,7 +852,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_24;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_24);
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), res);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 }
 
 class TestDeleteHandler : public testing::Test {
@@ -1191,5 +1191,45 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
 }
+
+// clang-format off
+TEST_F(TestDeleteHandler, TestParseDeleteCondition) {
+    auto test = [](const std::tuple<std::string, bool, TCondition>& in) {
+        auto& [cond_str, exp_succ, exp_cond] = in;
+        TCondition parsed_cond;
+        EXPECT_EQ(DeleteHandler::parse_condition(cond_str, &parsed_cond), exp_succ) << " unexpected result, cond_str: " << cond_str;
+        if (exp_succ) EXPECT_EQ(parsed_cond, exp_cond) << " unexpected result, cond_str: " << cond_str;
+    };
+
+    auto gen_cond = [](const std::string& col, const std::string& op, const std::string& val) {
+        TCondition cond;
+        cond.__set_column_name(col);
+        cond.__set_condition_op(op);
+        cond.__set_condition_values(std::vector<std::string>{val});
+        return cond;
+    };
+
+    // <cond_str, parsed, expect_value>>
+    std::vector<std::tuple<std::string, bool, TCondition>> test_input {
+        {R"(abc=b)"             , true,  gen_cond(R"(abc)"   , "=" , R"(b)"         )}, // normal case
+        {R"(abc!=b)"            , true,  gen_cond(R"(abc)"   , "!=", R"(b)"         )}, // normal case
+        {R"(abc<=b)"            , true,  gen_cond(R"(abc)"   , "<=", R"(b)"         )}, // normal case
+        {R"(abc>=b)"            , true,  gen_cond(R"(abc)"   , ">=", R"(b)"         )}, // normal case
+        {R"(abc>>b)"            , true,  gen_cond(R"(abc)"   , ">>", R"(b)"         )}, // normal case
+        {R"(abc<<b)"            , true,  gen_cond(R"(abc)"   , "<<", R"(b)"         )}, // normal case
+        {R"(abc!='b')"          , true,  gen_cond(R"(abc)"   , "!=", R"(b)"         )}, // value surrounded by '
+        {R"(abc=)"              , true, gen_cond(R"(abc)"    , "=" , R"()"          )}, // missing value, it means not to be parsed succefully, how every it's a ignorable bug
+        {R"(@a*<<10086)"        , true,  gen_cond(R"(@a*)"   , "<<", R"(10086)"     )}, // column ends with *
+        {R"(*a=b)"              , false, gen_cond(R"(*a)"    , "=" , R"(b)"         )}, // starts with *
+        {R"(a*a>>WTF(10086))"   , true,  gen_cond(R"(a*a)"   , ">>", R"(WTF(10086))")}, // function
+        {R"(a-b IS NULL)"       , true,  gen_cond(R"(a-b)"   , "IS", R"(NULL)"      )}, // - in col name and test IS NULL
+        {R"(@a*-b IS NOT NULL)" , true,  gen_cond(R"(@a*-b)" , "IS", R"(NOT NULL)"  )}, // test IS NOT NULL
+        {R"(a IS b IS NOT NULL)", true,  gen_cond(R"(a IS b)", "IS", R"(NOT NULL)"  )}, // test " IS " in column name
+        {R"(_a-zA-Z@0-9 /.a-zA-Z0-9_+-/?@#$%^&*" ,:=hell)", true, gen_cond(R"(_a-zA-Z@0-9 /.a-zA-Z0-9_+-/?@#$%^&*" ,:)", "=", R"(hell)")}, // hellbound column name
+        {R"(this is a col very loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooon colum name=long)", true,  gen_cond(R"(this is a col very loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooon colum name)", "=", R"(long)")}, // test " IS " in column name
+    };
+    for (auto& i : test_input) { test(i); }
+}
+// clang-format on
 
 } // namespace doris

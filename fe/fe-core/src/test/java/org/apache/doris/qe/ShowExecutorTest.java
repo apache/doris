@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.SetType;
@@ -325,6 +326,16 @@ public class ShowExecutorTest {
     }
 
     @Test
+    public void testShowViews() throws AnalysisException {
+        ShowTableStmt stmt = new ShowTableStmt("testDb", null, false, TableType.VIEW,
+                null, null);
+        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+        ShowResultSet resultSet = executor.execute();
+
+        Assert.assertFalse(resultSet.next());
+    }
+
+    @Test
     public void testShowTableFromCatalog() throws AnalysisException {
         ShowTableStmt stmt = new ShowTableStmt("testDb", "internal", false, null);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
@@ -448,7 +459,7 @@ public class ShowExecutorTest {
         ctx.setEnv(env);
         ctx.setQualifiedUser("testUser");
 
-        ShowCreateDbStmt stmt = new ShowCreateDbStmt("testDb");
+        ShowCreateDbStmt stmt = new ShowCreateDbStmt(new DbName(InternalCatalog.INTERNAL_CATALOG_NAME, "testDb"));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
 
@@ -463,7 +474,7 @@ public class ShowExecutorTest {
         ctx.setEnv(env);
         ctx.setQualifiedUser("testUser");
 
-        ShowCreateDbStmt stmt = new ShowCreateDbStmt("emptyDb");
+        ShowCreateDbStmt stmt = new ShowCreateDbStmt(new DbName(InternalCatalog.INTERNAL_CATALOG_NAME, "emptyDb"));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         executor.execute();
 

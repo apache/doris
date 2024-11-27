@@ -22,20 +22,20 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[date_dim]
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=()
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=()
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=()
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=()
+------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------PhysicalProject
 ----------------------------filter(ws_bill_addr_sk IS NULL)
 ------------------------------PhysicalOlapScan[web_sales]
---------------------------PhysicalDistribute[DistributionSpecReplicated]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[item]
-----------------------PhysicalDistribute[DistributionSpecReplicated]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[item]
+--------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=()

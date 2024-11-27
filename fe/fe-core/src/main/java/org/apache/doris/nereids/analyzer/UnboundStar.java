@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -28,17 +29,26 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Star expression.
  */
 public class UnboundStar extends NamedExpression implements LeafExpression, Unbound, PropagateNullable {
-
     private final List<String> qualifier;
+    // the start and end position of the sql substring(e.g. "*", "table.*")
+    private final Optional<Pair<Integer, Integer>> indexInSqlString;
 
     public UnboundStar(List<String> qualifier) {
         super(ImmutableList.of());
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
+        this.indexInSqlString = Optional.empty();
+    }
+
+    public UnboundStar(List<String> qualifier, Optional<Pair<Integer, Integer>> indexInSqlString) {
+        super(ImmutableList.of());
+        this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
+        this.indexInSqlString = indexInSqlString;
     }
 
     @Override
@@ -71,6 +81,10 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
         return qualifier.equals(that.qualifier);
     }
 
+    public Optional<Pair<Integer, Integer>> getIndexInSqlString() {
+        return indexInSqlString;
+    }
+
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), qualifier);
@@ -79,5 +93,9 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUnboundStar(this, context);
+    }
+
+    public UnboundStar withIndexInSql(Pair<Integer, Integer> index) {
+        return new UnboundStar(qualifier, Optional.ofNullable(index));
     }
 }

@@ -21,6 +21,8 @@
 #include <math.h>
 #include <re2/stringpiece.h>
 
+#include <bitset>
+#include <cstddef>
 #include <string_view>
 
 #include "common/status.h"
@@ -57,7 +59,31 @@ struct StringASCII {
     }
 };
 
-struct NameStringLenght {
+struct NameQuote {
+    static constexpr auto name = "quote";
+};
+
+struct NameQuoteImpl {
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        size_t offset_size = offsets.size();
+        size_t pos = 0;
+        res_offsets.resize(offset_size);
+        res_data.resize(data.size() + offset_size * 2);
+        for (int i = 0; i < offset_size; i++) {
+            const unsigned char* raw_str = &data[offsets[i - 1]];
+            ColumnString::Offset size = offsets[i] - offsets[i - 1];
+            res_data[pos] = '\'';
+            std::memcpy(res_data.data() + pos + 1, raw_str, size);
+            res_data[pos + size + 1] = '\'';
+            pos += size + 2;
+            res_offsets[i] = pos;
+        }
+        return Status::OK();
+    }
+};
+
+struct NameStringLength {
     static constexpr auto name = "length";
 };
 
@@ -74,6 +100,28 @@ struct StringLengthImpl {
         for (int i = 0; i < size; ++i) {
             int str_size = offsets[i] - offsets[i - 1];
             res[i] = str_size;
+        }
+        return Status::OK();
+    }
+};
+
+struct NameCrc32 {
+    static constexpr auto name = "crc32";
+};
+
+struct Crc32Impl {
+    using ReturnType = DataTypeInt64;
+    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    using Type = String;
+    using ReturnColumnType = ColumnVector<Int64>;
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         PaddedPODArray<Int64>& res) {
+        auto size = offsets.size();
+        res.resize(size);
+        for (int i = 0; i < size; ++i) {
+            res[i] = crc32_z(0L, (const unsigned char*)data.data() + offsets[i - 1],
+                             offsets[i] - offsets[i - 1]);
         }
         return Status::OK();
     }
@@ -460,25 +508,167 @@ struct NameLTrim {
 struct NameRTrim {
     static constexpr auto name = "rtrim";
 };
-template <bool is_ltrim, bool is_rtrim>
+struct NameTrimIn {
+    static constexpr auto name = "trim_in";
+};
+struct NameLTrimIn {
+    static constexpr auto name = "ltrim_in";
+};
+struct NameRTrimIn {
+    static constexpr auto name = "rtrim_in";
+};
+template <bool is_ltrim, bool is_rtrim, bool trim_single>
 struct TrimUtil {
     static Status vector(const ColumnString::Chars& str_data,
-                         const ColumnString::Offsets& str_offsets, const StringRef& rhs,
+                         const ColumnString::Offsets& str_offsets, const StringRef& remove_str,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        size_t offset_size = str_offsets.size();
-        res_offsets.resize(str_offsets.size());
+        const size_t offset_size = str_offsets.size();
+        res_offsets.resize(offset_size);
+        res_data.reserve(str_data.size());
         for (size_t i = 0; i < offset_size; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&str_data[str_offsets[i - 1]]);
-            ColumnString::Offset size = str_offsets[i] - str_offsets[i - 1];
-            StringRef str(raw_str, size);
+            const auto* str_begin = str_data.data() + str_offsets[i - 1];
+            const auto* str_end = str_data.data() + str_offsets[i];
+
             if constexpr (is_ltrim) {
-                str = simd::VStringFunctions::ltrim(str, rhs);
+                str_begin =
+                        simd::VStringFunctions::ltrim<trim_single>(str_begin, str_end, remove_str);
             }
             if constexpr (is_rtrim) {
-                str = simd::VStringFunctions::rtrim(str, rhs);
+                str_end =
+                        simd::VStringFunctions::rtrim<trim_single>(str_begin, str_end, remove_str);
             }
-            StringOP::push_value_string(std::string_view((char*)str.data, str.size), i, res_data,
-                                        res_offsets);
+
+            res_data.insert_assume_reserved(str_begin, str_end);
+            res_offsets[i] = res_data.size();
+        }
+        return Status::OK();
+    }
+};
+template <bool is_ltrim, bool is_rtrim, bool trim_single>
+struct TrimInUtil {
+    static Status vector(const ColumnString::Chars& str_data,
+                         const ColumnString::Offsets& str_offsets, const StringRef& remove_str,
+                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        const size_t offset_size = str_offsets.size();
+        res_offsets.resize(offset_size);
+        res_data.reserve(str_data.size());
+        bool all_ascii = simd::VStringFunctions::is_ascii(remove_str) &&
+                         simd::VStringFunctions::is_ascii(StringRef(
+                                 reinterpret_cast<const char*>(str_data.data()), str_data.size()));
+
+        if (all_ascii) {
+            return impl_vectors_ascii(str_data, str_offsets, remove_str, res_data, res_offsets);
+        } else {
+            return impl_vectors_utf8(str_data, str_offsets, remove_str, res_data, res_offsets);
+        }
+    }
+
+private:
+    static Status impl_vectors_ascii(const ColumnString::Chars& str_data,
+                                     const ColumnString::Offsets& str_offsets,
+                                     const StringRef& remove_str, ColumnString::Chars& res_data,
+                                     ColumnString::Offsets& res_offsets) {
+        const size_t offset_size = str_offsets.size();
+        std::bitset<128> char_lookup;
+        const char* remove_begin = remove_str.data;
+        const char* remove_end = remove_str.data + remove_str.size;
+
+        while (remove_begin < remove_end) {
+            char_lookup.set(static_cast<unsigned char>(*remove_begin));
+            remove_begin += 1;
+        }
+
+        for (size_t i = 0; i < offset_size; ++i) {
+            const char* str_begin =
+                    reinterpret_cast<const char*>(str_data.data() + str_offsets[i - 1]);
+            const char* str_end = reinterpret_cast<const char*>(str_data.data() + str_offsets[i]);
+            const char* left_trim_pos = str_begin;
+            const char* right_trim_pos = str_end;
+
+            if constexpr (is_ltrim) {
+                while (left_trim_pos < str_end) {
+                    if (!char_lookup.test(static_cast<unsigned char>(*left_trim_pos))) {
+                        break;
+                    }
+                    ++left_trim_pos;
+                }
+            }
+
+            if constexpr (is_rtrim) {
+                while (right_trim_pos > left_trim_pos) {
+                    --right_trim_pos;
+                    if (!char_lookup.test(static_cast<unsigned char>(*right_trim_pos))) {
+                        ++right_trim_pos;
+                        break;
+                    }
+                }
+            }
+
+            res_data.insert_assume_reserved(left_trim_pos, right_trim_pos);
+            res_offsets[i] = res_data.size();
+        }
+
+        return Status::OK();
+    }
+
+    static Status impl_vectors_utf8(const ColumnString::Chars& str_data,
+                                    const ColumnString::Offsets& str_offsets,
+                                    const StringRef& remove_str, ColumnString::Chars& res_data,
+                                    ColumnString::Offsets& res_offsets) {
+        const size_t offset_size = str_offsets.size();
+        res_offsets.resize(offset_size);
+        res_data.reserve(str_data.size());
+
+        std::unordered_set<std::string_view> char_lookup;
+        const char* remove_begin = remove_str.data;
+        const char* remove_end = remove_str.data + remove_str.size;
+
+        while (remove_begin < remove_end) {
+            size_t byte_len, char_len;
+            std::tie(byte_len, char_len) = simd::VStringFunctions::iterate_utf8_with_limit_length(
+                    remove_begin, remove_end, 1);
+            char_lookup.insert(std::string_view(remove_begin, byte_len));
+            remove_begin += byte_len;
+        }
+
+        for (size_t i = 0; i < offset_size; ++i) {
+            const char* str_begin =
+                    reinterpret_cast<const char*>(str_data.data() + str_offsets[i - 1]);
+            const char* str_end = reinterpret_cast<const char*>(str_data.data() + str_offsets[i]);
+            const char* left_trim_pos = str_begin;
+            const char* right_trim_pos = str_end;
+
+            if constexpr (is_ltrim) {
+                while (left_trim_pos < str_end) {
+                    size_t byte_len, char_len;
+                    std::tie(byte_len, char_len) =
+                            simd::VStringFunctions::iterate_utf8_with_limit_length(left_trim_pos,
+                                                                                   str_end, 1);
+                    if (char_lookup.find(std::string_view(left_trim_pos, byte_len)) ==
+                        char_lookup.end()) {
+                        break;
+                    }
+                    left_trim_pos += byte_len;
+                }
+            }
+
+            if constexpr (is_rtrim) {
+                while (right_trim_pos > left_trim_pos) {
+                    const char* prev_char_pos = right_trim_pos;
+                    do {
+                        --prev_char_pos;
+                    } while ((*prev_char_pos & 0xC0) == 0x80);
+                    size_t byte_len = right_trim_pos - prev_char_pos;
+                    if (char_lookup.find(std::string_view(prev_char_pos, byte_len)) ==
+                        char_lookup.end()) {
+                        break;
+                    }
+                    right_trim_pos = prev_char_pos;
+                }
+            }
+
+            res_data.insert_assume_reserved(left_trim_pos, right_trim_pos);
+            res_offsets[i] = res_data.size();
         }
         return Status::OK();
     }
@@ -496,9 +686,9 @@ struct Trim1Impl {
         if (const auto* col = assert_cast<const ColumnString*>(column.get())) {
             auto col_res = ColumnString::create();
             char blank[] = " ";
-            StringRef rhs(blank, 1);
-            RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim>::vector(
-                    col->get_chars(), col->get_offsets(), rhs, col_res->get_chars(),
+            const StringRef remove_str(blank, 1);
+            RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, true>::vector(
+                    col->get_chars(), col->get_offsets(), remove_str, col_res->get_chars(),
                     col_res->get_offsets())));
             block.replace_by_position(result, std::move(col_res));
         } else {
@@ -525,15 +715,30 @@ struct Trim2Impl {
         const auto& rcol =
                 assert_cast<const ColumnConst*>(block.get_by_position(arguments[1]).column.get())
                         ->get_data_column_ptr();
-        if (auto col = assert_cast<const ColumnString*>(column.get())) {
-            if (auto col_right = assert_cast<const ColumnString*>(rcol.get())) {
+        if (const auto* col = assert_cast<const ColumnString*>(column.get())) {
+            if (const auto* col_right = assert_cast<const ColumnString*>(rcol.get())) {
                 auto col_res = ColumnString::create();
-                const char* raw_rhs = reinterpret_cast<const char*>(&(col_right->get_chars()[0]));
-                ColumnString::Offset rhs_size = col_right->get_offsets()[0];
-                StringRef rhs(raw_rhs, rhs_size);
-                RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim>::vector(
-                        col->get_chars(), col->get_offsets(), rhs, col_res->get_chars(),
-                        col_res->get_offsets())));
+                const auto* remove_str_raw = col_right->get_chars().data();
+                const ColumnString::Offset remove_str_size = col_right->get_offsets()[0];
+                const StringRef remove_str(remove_str_raw, remove_str_size);
+
+                if (remove_str.size == 1) {
+                    RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, true>::vector(
+                            col->get_chars(), col->get_offsets(), remove_str, col_res->get_chars(),
+                            col_res->get_offsets())));
+                } else {
+                    if constexpr (std::is_same<Name, NameTrimIn>::value ||
+                                  std::is_same<Name, NameLTrimIn>::value ||
+                                  std::is_same<Name, NameRTrimIn>::value) {
+                        RETURN_IF_ERROR((TrimInUtil<is_ltrim, is_rtrim, false>::vector(
+                                col->get_chars(), col->get_offsets(), remove_str,
+                                col_res->get_chars(), col_res->get_offsets())));
+                    } else {
+                        RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim, false>::vector(
+                                col->get_chars(), col->get_offsets(), remove_str,
+                                col_res->get_chars(), col_res->get_offsets())));
+                    }
+                }
                 block.replace_by_position(result, std::move(col_res));
             } else {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
@@ -563,8 +768,9 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (!is_string_or_fixed_string(arguments[0])) {
-            LOG(FATAL) << fmt::format("Illegal type {} of argument of function {}",
-                                      arguments[0]->get_name(), get_name());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type {} of argument of function {}",
+                                   arguments[0]->get_name(), get_name());
         }
         return arguments[0];
     }
@@ -817,7 +1023,7 @@ struct ToBase64Impl {
                 dst = dst_uptr.get();
             }
 
-            int outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
+            auto outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
 
             StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
@@ -860,7 +1066,7 @@ struct ToBase64OldImpl {
                 dst = dst_uptr.get();
             }
 
-            int outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
+            auto outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
 
             StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
@@ -902,7 +1108,7 @@ struct FromBase64Impl {
                 dst_uptr.reset(new char[cipher_len]);
                 dst = dst_uptr.get();
             }
-            int outlen = base64_decode(source, srclen, dst);
+            auto outlen = base64_decode(source, srclen, dst);
 
             if (outlen < 0) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
@@ -1038,7 +1244,8 @@ using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, Find
 
 // ready for regist function
 using FunctionStringASCII = FunctionUnaryToType<StringASCII, NameStringASCII>;
-using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLenght>;
+using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLength>;
+using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;
 using FunctionStringUTF8Length = FunctionUnaryToType<StringUtf8LengthImpl, NameStringUtf8Length>;
 using FunctionStringSpace = FunctionUnaryToType<StringSpace, NameStringSpace>;
 using FunctionStringStartsWith =
@@ -1051,6 +1258,8 @@ using FunctionStringLocate =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringLocateImpl, NameLocate>;
 using FunctionStringFindInSet =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringFindInSetImpl, NameFindInSet>;
+
+using FunctionQuote = FunctionStringToString<NameQuoteImpl, NameQuote>;
 
 using FunctionToLower = FunctionStringToString<TransferImpl<NameToLower>, NameToLower>;
 
@@ -1074,6 +1283,7 @@ using FunctionStringRPad = FunctionStringPad<StringRPad>;
 void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringASCII>();
     factory.register_function<FunctionStringLength>();
+    factory.register_function<FunctionCrc32>();
     factory.register_function<FunctionStringUTF8Length>();
     factory.register_function<FunctionStringSpace>();
     factory.register_function<FunctionStringStartsWith>();
@@ -1082,6 +1292,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringFindInSet>();
     factory.register_function<FunctionStringLocate>();
     factory.register_function<FunctionStringLocatePos>();
+    factory.register_function<FunctionQuote>();
+    factory.register_function<FunctionAutoPartitionName>();
     factory.register_function<FunctionReverseCommon>();
     factory.register_function<FunctionUnHex>();
     factory.register_function<FunctionToLower>();
@@ -1093,6 +1305,12 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTrim<Trim2Impl<true, true, NameTrim>>>();
     factory.register_function<FunctionTrim<Trim2Impl<true, false, NameLTrim>>>();
     factory.register_function<FunctionTrim<Trim2Impl<false, true, NameRTrim>>>();
+    factory.register_function<FunctionTrim<Trim1Impl<true, true, NameTrimIn>>>();
+    factory.register_function<FunctionTrim<Trim1Impl<true, false, NameLTrimIn>>>();
+    factory.register_function<FunctionTrim<Trim1Impl<false, true, NameRTrimIn>>>();
+    factory.register_function<FunctionTrim<Trim2Impl<true, true, NameTrimIn>>>();
+    factory.register_function<FunctionTrim<Trim2Impl<true, false, NameLTrimIn>>>();
+    factory.register_function<FunctionTrim<Trim2Impl<false, true, NameRTrimIn>>>();
     factory.register_function<FunctionConvertTo>();
     factory.register_function<FunctionSubstring<Substr3Impl>>();
     factory.register_function<FunctionSubstring<Substr2Impl>>();
@@ -1112,10 +1330,12 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionFromBase64>();
     factory.register_function<FunctionSplitPart>();
     factory.register_function<FunctionSplitByString>();
+    factory.register_function<FunctionCountSubString>();
     factory.register_function<FunctionSubstringIndex>();
     factory.register_function<FunctionExtractURLParameter>();
     factory.register_function<FunctionStringParseUrl>();
     factory.register_function<FunctionUrlDecode>();
+    factory.register_function<FunctionUrlEncode>();
     factory.register_function<FunctionRandomBytes>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDoubleImpl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
@@ -1125,12 +1345,16 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringDigestOneArg<MD5Sum>>();
     factory.register_function<FunctionStringDigestSHA1>();
     factory.register_function<FunctionStringDigestSHA2>();
-    factory.register_function<FunctionReplace>();
+    factory.register_function<FunctionReplace<ReplaceImpl, true>>();
+    factory.register_function<FunctionReplace<ReplaceEmptyImpl, false>>();
+    factory.register_function<FunctionTranslate>();
     factory.register_function<FunctionMask>();
     factory.register_function<FunctionMaskPartial<true>>();
     factory.register_function<FunctionMaskPartial<false>>();
     factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
+    factory.register_function<FunctionStrcmp>();
+    factory.register_function<FunctionNgramSearch>();
 
     /// @TEMPORARY: for be_exec_version=3
     factory.register_alternative_function<FunctionSubstringOld<Substr3ImplOld>>();
@@ -1138,7 +1362,6 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alternative_function<FunctionLeftOld>();
     factory.register_alternative_function<FunctionRightOld>();
     factory.register_alternative_function<FunctionSubstringIndexOld>();
-    factory.register_alternative_function<FunctionStringRepeatOld>();
     factory.register_alternative_function<FunctionUnHexOld>();
     factory.register_alternative_function<FunctionToBase64Old>();
 

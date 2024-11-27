@@ -57,7 +57,7 @@ using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
 constexpr auto SERIALIZED_MEM_SIZE_LIMIT = 256;
 inline size_t upper_int32(size_t size) {
-    return (3 + size) / 4.0;
+    return size_t((3 + size) / 4.0);
 }
 
 /** Properties of data type.
@@ -410,6 +410,10 @@ inline bool is_compilable_type(const DataTypePtr& data_type) {
 inline bool is_complex_type(const DataTypePtr& data_type) {
     WhichDataType which(data_type);
     return which.is_array() || which.is_map() || which.is_struct();
+}
+
+inline bool is_variant_type(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_variant_type();
 }
 
 } // namespace vectorized

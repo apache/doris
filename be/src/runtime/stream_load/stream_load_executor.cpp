@@ -45,6 +45,7 @@
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "thrift/protocol/TDebugProtocol.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
@@ -69,7 +70,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
 #ifndef BE_TEST
     ctx->start_write_data_nanos = MonotonicNanos();
     LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
-              << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
+              << ", query_id=" << ctx->id;
     Status st;
     auto exec_fragment = [ctx, this](RuntimeState* state, Status* status) {
         if (ctx->group_commit) {
@@ -78,41 +79,27 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         }
         ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
         ctx->commit_infos = std::move(state->tablet_commit_infos());
+        ctx->number_total_rows = state->num_rows_load_total();
+        ctx->number_loaded_rows = state->num_rows_load_success();
+        ctx->number_filtered_rows = state->num_rows_load_filtered();
+        ctx->number_unselected_rows = state->num_rows_load_unselected();
+        ctx->loaded_bytes = state->num_bytes_load_total();
+        int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
+        if (!ctx->group_commit && num_selected_rows > 0 &&
+            (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
+            // NOTE: Do not modify the error message here, for historical reasons,
+            // some users may rely on this error message.
+            *status = Status::DataQualityError("too many filtered rows");
+        }
+        ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
+
         if (status->ok()) {
-            ctx->number_total_rows = state->num_rows_load_total();
-            ctx->number_loaded_rows = state->num_rows_load_success();
-            ctx->number_filtered_rows = state->num_rows_load_filtered();
-            ctx->number_unselected_rows = state->num_rows_load_unselected();
-
-            int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
-            if (!ctx->group_commit && num_selected_rows > 0 &&
-                (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
-                // NOTE: Do not modify the error message here, for historical reasons,
-                // some users may rely on this error message.
-                *status = Status::DataQualityError("too many filtered rows");
-            }
-            if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
-                ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-            }
-
-            if (status->ok()) {
-                DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
-                DorisMetrics::instance()->stream_load_rows_total->increment(
-                        ctx->number_loaded_rows);
-            }
+            DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
+            DorisMetrics::instance()->stream_load_rows_total->increment(ctx->number_loaded_rows);
         } else {
-            if (ctx->group_commit) {
-                ctx->number_total_rows = state->num_rows_load_total();
-                ctx->number_loaded_rows = state->num_rows_load_success();
-                ctx->number_filtered_rows = state->num_rows_load_filtered();
-                ctx->number_unselected_rows = state->num_rows_load_unselected();
-                if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
-                    ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-                }
-            }
             LOG(WARNING) << "fragment execute failed"
-                         << ", query_id=" << UniqueId(ctx->put_result.params.params.query_id)
                          << ", err_msg=" << status->to_string() << ", " << ctx->brief();
+            ctx->number_loaded_rows = 0;
             // cancel body_sink, make sender known it
             if (ctx->body_sink != nullptr) {
                 ctx->body_sink->cancel(status->to_string());
@@ -148,21 +135,18 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                 static_cast<void>(this->commit_txn(ctx.get()));
             }
         }
-
-        LOG(INFO) << "finished to execute stream load. label=" << ctx->label
-                  << ", txn_id=" << ctx->txn_id
-                  << ", query_id=" << print_id(ctx->put_result.params.params.query_id)
-                  << ", receive_data_cost_ms="
-                  << (ctx->receive_and_read_data_cost_nanos - ctx->read_data_cost_nanos) / 1000000
-                  << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
-                  << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000;
     };
 
+    // Reset thread memory tracker, otherwise SCOPED_ATTACH_TASK will be called nested, nesting is
+    // not allowed, first time in on_chunk_data, second time in StreamLoadExecutor::execute_plan_fragment.
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+
     if (ctx->put_result.__isset.params) {
-        st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params, exec_fragment);
+        st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params,
+                                                           QuerySource::STREAM_LOAD, exec_fragment);
     } else {
         st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.pipeline_params,
-                                                           exec_fragment);
+                                                           QuerySource::STREAM_LOAD, exec_fragment);
     }
 
     if (!st.ok()) {
@@ -189,6 +173,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
         request.__set_timeout(ctx->timeout_second);
     }
     request.__set_request_id(ctx->id.to_thrift());
+    request.__set_backend_id(_exec_env->master_info()->backend_id);
 
     TLoadTxnBeginResult result;
     Status status;
@@ -324,6 +309,8 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
 }
 
 Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
+    DBUG_EXECUTE_IF("StreamLoadExecutor.commit_txn.block", DBUG_BLOCK);
+
     DorisMetrics::instance()->stream_load_txn_commit_request_total->increment(1);
 
     TLoadTxnCommitRequest request;

@@ -67,7 +67,7 @@ public:
                                bitmap);
     }
 
-    Status evaluate(const vectorized::NameAndTypePair& name_with_type,
+    Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     InvertedIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
         if (iterator == nullptr) {
@@ -99,11 +99,11 @@ public:
             return Status::InvalidArgument("invalid comparison predicate type {}", PT);
         }
 
-        roaring::Roaring roaring;
+        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
 
         auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(_value);
         RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
-                                                           num_rows, &roaring));
+                                                           num_rows, roaring));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE
@@ -118,9 +118,9 @@ public:
         }
 
         if constexpr (PT == PredicateType::NE) {
-            *bitmap -= roaring;
+            *bitmap -= *roaring;
         } else {
-            *bitmap &= roaring;
+            *bitmap &= *roaring;
         }
 
         return Status::OK();
@@ -202,12 +202,23 @@ public:
                 return bf->test_bytes(_value.data, _value.size);
             } else {
                 // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
-                // Datev1/DatetimeV1 using VecDatetimeValue in bloom filter, NO need to convert.
                 if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
                     decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
                     return bf->test_bytes(
                             const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
                             sizeof(decimal12_t));
+                    // Datev1 using uint24_t in bloom filter
+                } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
+                    uint24_t date_value(_value.to_olap_date());
+                    return bf->test_bytes(
+                            const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
+                            sizeof(uint24_t));
+                    // DatetimeV1 using int64_t in bloom filter
+                } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
+                    int64_t datetime_value(_value.to_olap_datetime());
+                    return bf->test_bytes(
+                            const_cast<char*>(reinterpret_cast<const char*>(&datetime_value)),
+                            sizeof(int64_t));
                 } else {
                     return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
                                           sizeof(T));
@@ -283,6 +294,7 @@ public:
                     } while (false);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                    __builtin_unreachable();
                 }
             } else {
                 auto* data_array =
@@ -313,6 +325,7 @@ public:
                     } while (false);
                 } else {
                     LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                    __builtin_unreachable();
                 }
             } else {
                 auto* data_array =
@@ -518,6 +531,7 @@ private:
                                                     dict_code);
             } else {
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                __builtin_unreachable();
             }
         } else {
             auto* data_array =

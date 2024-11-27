@@ -41,6 +41,13 @@ class ExecEnv;
 class TUniqueId;
 class RuntimeState;
 
+struct BlockData {
+    BlockData(const std::shared_ptr<vectorized::Block>& block)
+            : block(block), block_bytes(block->bytes()) {};
+    std::shared_ptr<vectorized::Block> block;
+    size_t block_bytes;
+};
+
 class LoadBlockQueue {
 public:
     LoadBlockQueue(const UniqueId& load_instance_id, std::string& label, int64_t txn_id,
@@ -55,6 +62,7 @@ public:
               wait_internal_group_commit_finish(wait_internal_group_commit_finish),
               _group_commit_interval_ms(group_commit_interval_ms),
               _start_time(std::chrono::steady_clock::now()),
+              _last_print_time(_start_time),
               _group_commit_data_bytes(group_commit_data_bytes),
               _all_block_queues_bytes(all_block_queues_bytes) {};
 
@@ -94,7 +102,7 @@ private:
 
     // the set of load ids of all blocks in this queue
     std::set<UniqueId> _load_ids;
-    std::list<std::shared_ptr<vectorized::Block>> _block_queue;
+    std::list<BlockData> _block_queue;
 
     // wal
     std::string _wal_base_path;
@@ -105,6 +113,7 @@ private:
     // commit by time interval, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
     int64_t _group_commit_interval_ms;
     std::chrono::steady_clock::time_point _start_time;
+    std::chrono::steady_clock::time_point _last_print_time;
     // commit by data size
     int64_t _group_commit_data_bytes;
     int64_t _data_bytes = 0;
@@ -129,13 +138,14 @@ public:
     Status get_first_block_load_queue(int64_t table_id, int64_t base_schema_version,
                                       const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                      int be_exe_version);
+                                      int be_exe_version,
+                                      std::shared_ptr<MemTrackerLimiter> mem_tracker);
     Status get_load_block_queue(const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
-    Status _create_group_commit_load(std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                     int be_exe_version);
+    Status _create_group_commit_load(int be_exe_version,
+                                     std::shared_ptr<MemTrackerLimiter> mem_tracker);
     Status _exec_plan_fragment(int64_t db_id, int64_t table_id, const std::string& label,
                                int64_t txn_id, bool is_pipeline,
                                const TExecPlanFragmentParams& params,
@@ -156,7 +166,7 @@ private:
     std::condition_variable _cv;
     // fragment_instance_id to load_block_queue
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
-    bool _need_plan_fragment = false;
+    bool _is_creating_plan_fragment = false;
 };
 
 class GroupCommitMgr {
@@ -172,7 +182,8 @@ public:
     Status get_first_block_load_queue(int64_t db_id, int64_t table_id, int64_t base_schema_version,
                                       const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                      int be_exe_version);
+                                      int be_exe_version,
+                                      std::shared_ptr<MemTrackerLimiter> mem_tracker);
     std::promise<Status> debug_promise;
     std::future<Status> debug_future = debug_promise.get_future();
 

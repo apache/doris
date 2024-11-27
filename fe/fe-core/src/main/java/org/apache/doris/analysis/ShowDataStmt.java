@@ -35,6 +35,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -114,7 +115,7 @@ public class ShowDataStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         dbName = analyzer.getDefaultDb();
-        if (Strings.isNullOrEmpty(dbName)) {
+        if (Strings.isNullOrEmpty(dbName) && tableName == null) {
             getAllDbStats();
             return;
         }
@@ -159,9 +160,10 @@ public class ShowDataStmt extends ShowStmt {
                 });
 
                 for (Table table : tables) {
-                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
-                            table.getName(),
-                            PrivPredicate.SHOW)) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                    table.getName(),
+                                    PrivPredicate.SHOW)) {
                         continue;
                     }
                     sortedTables.add(table);
@@ -176,14 +178,11 @@ public class ShowDataStmt extends ShowStmt {
                     long tableSize = 0;
                     long replicaCount = 0;
                     long remoteSize = 0;
-                    olapTable.readLock();
-                    try {
-                        tableSize = olapTable.getDataSize();
-                        replicaCount = olapTable.getReplicaCount();
-                        remoteSize = olapTable.getRemoteDataSize();
-                    } finally {
-                        olapTable.readUnlock();
-                    }
+
+                    tableSize = olapTable.getDataSize();
+                    replicaCount = olapTable.getReplicaCount();
+                    remoteSize = olapTable.getRemoteDataSize();
+
                     //|TableName|Size|ReplicaCount|RemoteSize
                     List<Object> row = Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize);
                     totalRowsObject.add(row);
@@ -433,7 +432,12 @@ public class ShowDataStmt extends ShowStmt {
         return toSql();
     }
 
-    private void getAllDbStats() {
+    private void getAllDbStats() throws AnalysisException {
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    PrivPredicate.ADMIN.getPrivs().toString());
+        }
         List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
         if (dbNames == null || dbNames.isEmpty()) {
             return;

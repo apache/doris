@@ -211,6 +211,7 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
+    SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
 
     ThreadCpuStopWatch cpu_time_stop_watch;
@@ -225,10 +226,11 @@ Status PipelineTask::execute(bool* eos) {
         if (cpu_qs) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
+        query_context()->update_wg_cpu_adder(delta_cpu_time);
     }};
     // The status must be runnable
     *eos = false;
-    if (!_opened) {
+    if (!_opened && !_fragment_context->is_canceled()) {
         {
             SCOPED_RAW_TIMER(&time_spent);
             // if _open_status is not ok, could know have execute open function,
@@ -271,19 +273,22 @@ Status PipelineTask::execute(bool* eos) {
     }
 
     auto status = Status::OK();
-
+    _task_profile->add_info_string("TaskState", "Runnable");
     this->set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
         if (_data_state != SourceState::MORE_DATA && !source_can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
+            _task_profile->add_info_string("TaskState", "BlockedBySource");
             break;
         }
         if (!sink_can_write()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
+            _task_profile->add_info_string("TaskState", "BlockedBySink");
             break;
         }
         if (time_spent > THREAD_TIME_SLICE) {
             COUNTER_UPDATE(_yield_counts, 1);
+            _task_profile->add_info_string("TaskState", "Yield");
             break;
         }
         // TODO llj: Pipeline entity should_yield
@@ -307,6 +312,7 @@ Status PipelineTask::execute(bool* eos) {
             }
             *eos = status.is<ErrorCode::END_OF_FILE>() ? true : *eos;
             if (*eos) { // just return, the scheduler will do finish work
+                _task_profile->add_info_string("TaskState", "Finished");
                 break;
             }
         }

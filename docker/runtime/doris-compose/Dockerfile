@@ -16,14 +16,21 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# choose a base image
-FROM openjdk:8u342-jdk
+#### START ARG ####
 
-ARG OUT_DIRECTORY=output
+# docker build cmd example:
+# docker build -f docker/runtime/doris-compose/Dockerfile -t <your-image-name>:<version> .
+
+# choose a base image
+ARG JDK_IMAGE=openjdk:17-jdk-slim
+#ARG JDK_IMAGE=openjdk:8u342-jdk
+
+#### END ARG ####
+
+FROM ${JDK_IMAGE}
 
 # set environment variables
-ENV JAVA_HOME="/usr/local/openjdk-8/"
-ENV jacoco_version 0.8.8
+ENV JACOCO_VERSION 0.8.8
 
 RUN mkdir -p /opt/apache-doris/coverage
 
@@ -31,26 +38,24 @@ RUN  sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list
 RUN  apt-get clean
 
 RUN apt-get update && \
-    apt-get install -y default-mysql-client python lsof tzdata curl unzip patchelf jq && \
+    apt-get install -y default-mysql-client python lsof tzdata curl unzip patchelf jq procps util-linux gosu && \
     ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata && \
     apt-get clean
 
-RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/$jacoco_version/jacoco-$jacoco_version.zip -o jacoco.zip && \
+RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/jacoco-${JACOCO_VERSION}.zip -o jacoco.zip && \
     mkdir /jacoco && \
     unzip jacoco.zip -d /jacoco
 
 # cloud
-COPY ${OUT_DIRECTORY}/../cloud/CMakeLists.txt ${OUT_DIRECTORY}/../cloud/output* /opt/apache-doris/cloud/
-RUN <<EOF
-    mkdir /opt/apache-doris/fdb
-    if [ -d /opt/apache-doris/cloud/bin ]; then
-        sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/cloud/bin/start.sh
+# COPY --chmod=777 README.md cloud/output* output/ms* /opt/apache-doris/cloud/
+RUN mkdir /opt/apache-doris/fdb
+RUN if [ -d /opt/apache-doris/cloud/bin ]; then                            \
+        sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/cloud/bin/start.sh ; \
     fi
-EOF
 
 # fe and be
-COPY $OUT_DIRECTORY /opt/apache-doris/
+COPY --chmod=777 output /opt/apache-doris/
 # in docker, run 'chmod 755 doris_be' first time cost 1min, remove it.
 RUN sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/be/bin/start_be.sh
 

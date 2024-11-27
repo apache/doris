@@ -50,6 +50,13 @@ check_init_cloud() {
 
         lock_cluster
 
+        # Check if SQL_MODE_NODE_MGR is set
+        if [[ "$SQL_MODE_NODE_MGR" -eq 1 ]]; then
+            health_log "SQL_MODE_NODE_MGR is set, skipping create_instance"
+            touch $HAS_CREATE_INSTANCE_FILE
+            return
+        fi
+
         output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/create_instance?token=greedisgood9999" \
             -d '{"instance_id":"default_instance_id",
                     "name": "default_instance",
@@ -87,6 +94,19 @@ stop_cloud() {
     bash bin/stop.sh
 }
 
+wait_process() {
+    pid=""
+    for ((i = 0; i < 5; i++)); do
+        sleep 1s
+        pid=$(pgrep _cloud)
+        if [ -n "$pid" ]; then
+            break
+        fi
+    done
+
+    wait_pid $pid
+}
+
 main() {
     trap stop_cloud SIGTERM
 
@@ -96,9 +116,10 @@ main() {
 
     check_init_cloud &
 
-    health_log "input args: $ARGS"
+    health_log "run starts.sh with args: $ARGS"
+    bash bin/start.sh $ARGS --daemon | tee -a $DORIS_HOME/log/doris_cloud.out
 
-    bash bin/start.sh $ARGS
+    wait_process
 }
 
 main

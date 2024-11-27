@@ -18,11 +18,12 @@
 ---
 name: Add Scope Labeler
 
-on:
-  pull_request_target:
-    types:
-      - opened
-      - synchronize
+# This action has some error, skip it temporarily
+#on:
+#  pull_request_target:
+#    types:
+#      - opened
+#      - synchronize
 
 jobs:
   process:

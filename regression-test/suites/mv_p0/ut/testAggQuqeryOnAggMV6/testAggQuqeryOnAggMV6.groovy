@@ -40,15 +40,19 @@ suite ("testAggQuqeryOnAggMV6") {
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    sql """analyze table emps with sync;"""
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from emps where deptno>=20 group by deptno) a where sum_salary>10;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from emps where deptno>=0 group by deptno) a where sum_salary>10;",
+            "emps_mv")
     qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from emps where deptno>=20 group by deptno) a where sum_salary>10 order by 1;"
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
+
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from emps where deptno>=0 group by deptno) a where sum_salary>10;",
+            "emps_mv")
 }

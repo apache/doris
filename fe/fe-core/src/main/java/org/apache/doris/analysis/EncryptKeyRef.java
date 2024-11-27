@@ -19,18 +19,19 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EncryptKey;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Strings;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 public class EncryptKeyRef extends Expr {
-    private static final Logger LOG = LogManager.getLogger(EncryptKeyRef.class);
     private EncryptKeyName encryptKeyName;
     private EncryptKey encryptKey;
 
@@ -58,6 +59,13 @@ public class EncryptKeyRef extends Expr {
         if ("".equals(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         } else {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                            dbName, PrivPredicate.SHOW)) {
+                String message = ErrorCode.ERR_DB_ACCESS_DENIED_ERROR.formatErrorMsg(
+                        PrivPredicate.SHOW.getPrivs().toString(), dbName);
+                throw new AnalysisException(message);
+            }
             Database database = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
 
             EncryptKey encryptKey = database.getEncryptKey(encryptKeyName.getKeyName());

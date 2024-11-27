@@ -50,6 +50,9 @@ public class FeConstants {
     // set to false to disable internal schema db
     public static boolean enableInternalSchemaDb = true;
 
+    // for UT, create internal workload group thread can not start
+    public static boolean shouldCreateInternalWorkloadGroup = true;
+
     // default scheduler interval is 10 seconds
     public static int default_scheduler_interval_millisecond = 10000;
 
@@ -71,6 +74,7 @@ public class FeConstants {
     public static final String FS_PREFIX_BOS = "bos";
     public static final String FS_PREFIX_COS = "cos";
     public static final String FS_PREFIX_COSN = "cosn";
+    public static final String FS_PREFIX_LAKEFS = "lakefs";
     public static final String FS_PREFIX_OBS = "obs";
     public static final String FS_PREFIX_OFS = "ofs";
     public static final String FS_PREFIX_GFS = "gfs";

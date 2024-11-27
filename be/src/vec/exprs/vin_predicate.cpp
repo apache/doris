@@ -28,11 +28,14 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vliteral.h"
+#include "vec/exprs/vslot_ref.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
@@ -66,11 +69,13 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     // construct the proper function_name
     std::string head(_is_not_in ? "not_" : "");
     std::string real_function_name = head + std::string(function_name);
-    if (is_struct(remove_nullable(argument_template[0].type))) {
-        real_function_name = "struct_" + real_function_name;
+    auto arg_type = remove_nullable(argument_template[0].type);
+    if (is_struct(arg_type) || is_array(arg_type) || is_map(arg_type)) {
+        real_function_name = "collection_" + real_function_name;
     }
-    _function = SimpleFunctionFactory::instance().get_function(real_function_name,
-                                                               argument_template, _data_type);
+    _function = SimpleFunctionFactory::instance().get_function(
+            real_function_name, argument_template, _data_type,
+            {.enable_decimal256 = state->enable_decimal256()});
     if (_function == nullptr) {
         return Status::NotSupported("Function {} is not implemented", real_function_name);
     }
@@ -83,8 +88,8 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 Status VInPredicate::open(RuntimeState* state, VExprContext* context,
                           FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    for (auto& child : _children) {
+        RETURN_IF_ERROR(child->open(state, context, scope));
     }
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
@@ -99,9 +104,17 @@ void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateSc
     VExpr::close(context, scope);
 }
 
+Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+    DCHECK_GE(get_num_children(), 2);
+    return _evaluate_inverted_index(context, _function, segment_num_rows);
+}
+
 Status VInPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
     if (is_const_and_have_executed()) { // const have execute in open function
         return get_result_from_const(block, _expr_name, result_column_id);
+    }
+    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+        return Status::OK();
     }
     DCHECK(_open_finished || _getting_const_col);
     // TODO: not execute const expr again, but use the const column in function context
@@ -115,6 +128,7 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
+
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;

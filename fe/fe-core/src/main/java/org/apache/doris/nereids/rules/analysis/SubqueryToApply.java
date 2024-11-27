@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -77,24 +79,21 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             RuleType.FILTER_SUBQUERY_TO_APPLY.build(
                 logicalFilter().thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
-                    ImmutableList<Set<SubqueryExpr>> subqueryExprsList = filter.getConjuncts().stream()
-                            .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryToApply::canConvertToSupply))
-                            .collect(ImmutableList.toImmutableList());
-                    if (subqueryExprsList.stream()
-                            .flatMap(Collection::stream).noneMatch(SubqueryExpr.class::isInstance)) {
+
+                    Set<Expression> conjuncts = filter.getConjuncts();
+                    CollectSubquerys collectSubquerys = collectSubquerys(conjuncts);
+                    if (!collectSubquerys.hasSubquery) {
                         return filter;
                     }
-                    ImmutableList<Boolean> shouldOutputMarkJoinSlot =
-                            filter.getConjuncts().stream()
-                                    .map(expr -> !(expr instanceof SubqueryExpr)
-                                            && expr.containsType(SubqueryExpr.class))
-                                    .collect(ImmutableList.toImmutableList());
 
-                    List<Expression> oldConjuncts = ImmutableList.copyOf(filter.getConjuncts());
-                    ImmutableList.Builder<Expression> newConjuncts = new ImmutableList.Builder<>();
+                    List<Boolean> shouldOutputMarkJoinSlot = shouldOutputMarkJoinSlot(conjuncts);
+
+                    List<Expression> oldConjuncts = Utils.fastToImmutableList(conjuncts);
+                    ImmutableSet.Builder<Expression> newConjuncts = new ImmutableSet.Builder<>();
                     LogicalPlan applyPlan = null;
                     LogicalPlan tmpPlan = (LogicalPlan) filter.child();
 
+                    List<Set<SubqueryExpr>> subqueryExprsList = collectSubquerys.subqueies;
                     // Subquery traversal with the conjunct of and as the granularity.
                     for (int i = 0; i < subqueryExprsList.size(); ++i) {
                         Set<SubqueryExpr> subqueryExprs = subqueryExprsList.get(i);
@@ -119,9 +118,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         * if it's semi join with non-null mark slot
                         * we can safely change the mark conjunct to hash conjunct
                         */
+                        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx.cascadesContext);
                         boolean isMarkSlotNotNull = conjunct.containsType(MarkJoinSlotReference.class)
                                         ? ExpressionUtils.canInferNotNullForMarkSlot(
-                                                TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(conjunct, null))
+                                                TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(conjunct,
+                                                        rewriteContext), rewriteContext)
                                         : false;
 
                         applyPlan = subqueryToApply(subqueryExprs.stream()
@@ -132,21 +133,22 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         tmpPlan = applyPlan;
                         newConjuncts.add(conjunct);
                     }
-                    Set<Expression> conjuncts = ImmutableSet.copyOf(newConjuncts.build());
-                    Plan newFilter = new LogicalFilter<>(conjuncts, applyPlan);
+                    Plan newFilter = new LogicalFilter<>(newConjuncts.build(), applyPlan);
                     return new LogicalProject<>(filter.getOutput().stream().collect(ImmutableList.toImmutableList()),
                         newFilter);
                 })
             ),
             RuleType.PROJECT_SUBQUERY_TO_APPLY.build(logicalProject().thenApply(ctx -> {
                 LogicalProject<Plan> project = ctx.root;
-                ImmutableList<Set<SubqueryExpr>> subqueryExprsList = project.getProjects().stream()
-                        .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryToApply::canConvertToSupply))
-                        .collect(ImmutableList.toImmutableList());
-                if (subqueryExprsList.stream().flatMap(Collection::stream).count() == 0) {
+
+                List<NamedExpression> projects = project.getProjects();
+                CollectSubquerys collectSubquerys = collectSubquerys(projects);
+                if (!collectSubquerys.hasSubquery) {
                     return project;
                 }
-                List<NamedExpression> oldProjects = ImmutableList.copyOf(project.getProjects());
+
+                List<Set<SubqueryExpr>> subqueryExprsList = collectSubquerys.subqueies;
+                List<NamedExpression> oldProjects = ImmutableList.copyOf(projects);
                 ImmutableList.Builder<NamedExpression> newProjects = new ImmutableList.Builder<>();
                 LogicalPlan childPlan = (LogicalPlan) project.child();
                 LogicalPlan applyPlan;
@@ -166,7 +168,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                             replaceSubquery.replace(oldProjects.get(i), context);
 
                     applyPlan = subqueryToApply(
-                            subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
+                            Utils.fastToImmutableList(subqueryExprs),
                             childPlan, context.getSubqueryToMarkJoinSlot(),
                             ctx.cascadesContext,
                             Optional.of(newProject), true, false);
@@ -240,9 +242,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         * if it's semi join with non-null mark slot
                         * we can safely change the mark conjunct to hash conjunct
                         */
+                        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx.cascadesContext);
                         boolean isMarkSlotNotNull = conjunct.containsType(MarkJoinSlotReference.class)
                                 ? ExpressionUtils.canInferNotNullForMarkSlot(
-                                    TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(conjunct, null))
+                                    TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(conjunct, rewriteContext),
+                                    rewriteContext)
                                 : false;
                         applyPlan = subqueryToApply(
                                 subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
@@ -565,5 +569,34 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             return true;
         }
         return false;
+    }
+
+    private List<Boolean> shouldOutputMarkJoinSlot(Collection<Expression> conjuncts) {
+        ImmutableList.Builder<Boolean> result = ImmutableList.builderWithExpectedSize(conjuncts.size());
+        for (Expression expr : conjuncts) {
+            result.add(!(expr instanceof SubqueryExpr) && expr.containsType(SubqueryExpr.class));
+        }
+        return result.build();
+    }
+
+    private CollectSubquerys collectSubquerys(Collection<? extends Expression> exprs) {
+        boolean hasSubqueryExpr = false;
+        ImmutableList.Builder<Set<SubqueryExpr>> subqueryExprsListBuilder = ImmutableList.builder();
+        for (Expression expression : exprs) {
+            Set<SubqueryExpr> subqueries = expression.collect(SubqueryToApply::canConvertToSupply);
+            hasSubqueryExpr |= !subqueries.isEmpty();
+            subqueryExprsListBuilder.add(subqueries);
+        }
+        return new CollectSubquerys(subqueryExprsListBuilder.build(), hasSubqueryExpr);
+    }
+
+    private static class CollectSubquerys {
+        final List<Set<SubqueryExpr>> subqueies;
+        final boolean hasSubquery;
+
+        public CollectSubquerys(List<Set<SubqueryExpr>> subqueies, boolean hasSubquery) {
+            this.subqueies = subqueies;
+            this.hasSubquery = hasSubquery;
+        }
     }
 }

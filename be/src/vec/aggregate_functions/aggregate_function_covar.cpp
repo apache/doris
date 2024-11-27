@@ -63,7 +63,8 @@ AggregateFunctionPtr create_function_single_value(const String& name,
 template <bool is_nullable>
 AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string& name,
                                                                const DataTypes& argument_types,
-                                                               const bool result_is_nullable) {
+                                                               const bool result_is_nullable,
+                                                               const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSamp, CovarSampName, SampData,
                                         is_nullable>(name, argument_types, result_is_nullable,
                                                      NULLABLE);
@@ -71,18 +72,21 @@ AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string
 
 AggregateFunctionPtr create_aggregate_function_covariance_pop(const std::string& name,
                                                               const DataTypes& argument_types,
-                                                              const bool result_is_nullable) {
+                                                              const bool result_is_nullable,
+                                                              const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionPop, CovarName, PopData>(
             name, argument_types, result_is_nullable, NOTNULLABLE);
 }
 
+// register covar_pop for nullable/non_nullable both.
 void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("covar", create_aggregate_function_covariance_pop);
     factory.register_alias("covar", "covar_pop");
 }
 
 void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("covar_samp", create_aggregate_function_covariance_samp<NOTNULLABLE>);
+    factory.register_function("covar_samp", create_aggregate_function_covariance_samp<NOTNULLABLE>,
+                              NOTNULLABLE);
     factory.register_function("covar_samp", create_aggregate_function_covariance_samp<NULLABLE>,
                               NULLABLE);
 }

@@ -29,9 +29,18 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SortSinkOperator, StreamingOperator)
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SortSharedState>::init(state, info));
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _sort_blocks_memory_usage =
+            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "SortBlocks", TUnit::BYTES, "MemoryUsage", 1);
+    return Status::OK();
+}
+
+Status SortSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<SortSinkOperatorX>();
 
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
@@ -62,14 +71,11 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _shared_state->sorter->init_profile(_profile);
 
     _profile->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
-
-    _sort_blocks_memory_usage =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "SortBlocks", TUnit::BYTES, "MemoryUsage", 1);
     return Status::OK();
 }
 
 SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs)
+                                     const DescriptorTbl& descs, bool require_bucket_distribution)
         : DataSinkOperatorX(operator_id, tnode.node_id),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
           _pool(pool),
@@ -79,7 +85,8 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TP
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _use_two_phase_read(tnode.sort_node.sort_info.use_two_phase_read),
           _merge_by_exchange(tnode.sort_node.merge_by_exchange),
-          _is_colocate(tnode.sort_node.__isset.is_colocate ? tnode.sort_node.is_colocate : false),
+          _is_colocate(tnode.sort_node.__isset.is_colocate && tnode.sort_node.is_colocate),
+          _require_bucket_distribution(require_bucket_distribution),
           _is_analytic_sort(tnode.sort_node.__isset.is_analytic_sort
                                     ? tnode.sort_node.is_analytic_sort
                                     : false),
@@ -104,7 +111,7 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
                 }
                 for (auto* slot : tuple_desc->slots()) {
                     if (slot->id() == first_sort_slot.slot_id) {
-                        RETURN_IF_ERROR(query_ctx->get_runtime_predicate().init(
+                        RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_node_id).init(
                                 slot->type().type, _nulls_first[0], _is_asc_order[0],
                                 slot->col_name()));
                         break;
@@ -112,7 +119,7 @@ Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
                 }
             }
         }
-        if (!query_ctx->get_runtime_predicate().inited()) {
+        if (!query_ctx->get_runtime_predicate(_node_id).inited()) {
             return Status::InternalError("runtime predicate is not properly initialized");
         }
     }
@@ -149,19 +156,20 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0) {
+        COUNTER_UPDATE(local_state._sort_blocks_memory_usage, (int64_t)in_block->bytes());
         RETURN_IF_ERROR(local_state._shared_state->sorter->append_block(in_block));
         local_state._mem_tracker->set_consumption(local_state._shared_state->sorter->data_size());
-        COUNTER_SET(local_state._sort_blocks_memory_usage,
-                    (int64_t)local_state._shared_state->sorter->data_size());
         RETURN_IF_CANCELLED(state);
 
-        // update runtime predicate
         if (_use_topn_opt) {
-            vectorized::Field new_top = local_state._shared_state->sorter->get_top_value();
-            if (!new_top.is_null() && new_top != local_state.old_top) {
-                auto* query_ctx = state->get_query_ctx();
-                RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(new_top));
-                local_state.old_top = std::move(new_top);
+            auto& predicate = state->get_query_ctx()->get_runtime_predicate(_node_id);
+            if (predicate.need_update()) {
+                vectorized::Field new_top = local_state._shared_state->sorter->get_top_value();
+                if (!new_top.is_null() && new_top != local_state.old_top) {
+                    auto* query_ctx = state->get_query_ctx();
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_node_id).update(new_top));
+                    local_state.old_top = std::move(new_top);
+                }
             }
         }
         if (!_reuse_mem) {
@@ -176,4 +184,25 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
     return Status::OK();
 }
 
+size_t SortSinkOperatorX::get_revocable_mem_size(RuntimeState* state) const {
+    auto& local_state = get_local_state(state);
+    return local_state._shared_state->sorter->data_size();
+}
+
+Status SortSinkOperatorX::prepare_for_spill(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    return local_state._shared_state->sorter->prepare_for_read();
+}
+
+Status SortSinkOperatorX::merge_sort_read_for_spill(RuntimeState* state,
+                                                    doris::vectorized::Block* block, int batch_size,
+                                                    bool* eos) {
+    auto& local_state = get_local_state(state);
+    return local_state._shared_state->sorter->merge_sort_read_for_spill(state, block, batch_size,
+                                                                        eos);
+}
+void SortSinkOperatorX::reset(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    local_state._shared_state->sorter->reset();
+}
 } // namespace doris::pipeline

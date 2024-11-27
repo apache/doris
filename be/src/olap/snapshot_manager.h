@@ -29,7 +29,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
-#include "runtime/memory/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
 class RowsetMetaPB;
@@ -63,7 +63,8 @@ public:
 
 private:
     SnapshotManager() : _snapshot_base_id(0) {
-        _mem_tracker = std::make_shared<MemTracker>("SnapshotManager");
+        _mem_tracker =
+                MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "SnapshotManager");
     }
 
     Status _calc_snapshot_id_path(const TabletSharedPtr& tablet, int64_t timeout_s,
@@ -80,6 +81,7 @@ private:
                                       const std::vector<RowsetSharedPtr>& consistent_rowsets);
 
     Status _create_snapshot_files(const TabletSharedPtr& ref_tablet,
+                                  const TabletSharedPtr& target_tablet,
                                   const TSnapshotRequest& request, std::string* snapshot_path,
                                   bool* allow_incremental_clone);
 
@@ -97,7 +99,7 @@ private:
     std::mutex _snapshot_mutex;
     uint64_t _snapshot_base_id;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 }; // SnapshotManager
 
 } // namespace doris

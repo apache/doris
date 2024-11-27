@@ -18,11 +18,6 @@ import org.apache.commons.lang3.StringUtils
 // under the License.
 
 suite("two_level_nestedtypes_with_s3data") {
-    sql """set enable_nereids_planner=false"""
-    sql """ set enable_fallback_to_original_planner=true;"""
-    // this test case aim to test one-level nested type with s3 data
-
-
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
@@ -71,37 +66,6 @@ suite("two_level_nestedtypes_with_s3data") {
         }
     }
 
-    def be_id = 10139
-    def load_from_tvf = {table_name, uri_file, format ->
-        if (format == "csv") {
-            order_qt_sql_tvf """select c2, c9, c10, c12, c16 from local(
-                "file_path" = "${uri_file}",
-                "backend_id" = "${be_id}",
-                "column_separator"="|",
-                "format" = "${format}") order by c1 limit 10; """
-            sql """
-            insert into ${table_name} select * from local(
-            "file_path" = "${uri_file}",
-            "backend_id" = "${be_id}",
-            "column_separator"="|",
-            "format" = "${format}") order by c1; """
-        } else {
-            order_qt_sql_tvf """select c_bool, c_double, c_decimal, c_date, c_char from local(
-                "file_path" = "${uri_file}",
-                "backend_id" = "${be_id}",
-                "column_separator"="|",
-                "format" = "${format}") order by k1 limit 10;"""
-            sql """
-            insert into ${table_name} select * from local(
-            "file_path" = "${uri_file}",
-            "backend_id" = "${be_id}",
-            "column_separator"="|",
-            "format" = "${format}") order by k1; """
-        }
-
-        // where to filter different format data
-        order_qt_select_doris """ select c_bool, c_double, c_decimal, c_date, c_char from ${table_name} where k1 IS NOT NULL order by k1 limit 10; """
-    }
     def load_from_s3 = {table_name, uri_file, format ->
         if (format == "csv") {
             order_qt_sql_s3 """select c2, c9, c10, c12, c16 from s3(
@@ -110,7 +74,7 @@ suite("two_level_nestedtypes_with_s3data") {
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
                     "column_separator"="|",
-                    "read_json_by_line"="true") order by c1 limit 10; """
+                    "read_json_by_line"="true") order by c2, c9, c10 limit 10; """
             sql """
             insert into ${table_name} select * from s3(
             "uri" = "${uri_file}",
@@ -118,7 +82,7 @@ suite("two_level_nestedtypes_with_s3data") {
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
                     "column_separator"="|",
-                    "read_json_by_line"="true") order by c1; """
+                    "read_json_by_line"="true") order by c2, c9, c10; """
         } else {
             order_qt_sql_s3 """select c_bool, c_double, c_decimal, c_date, c_char from s3(
                 "uri" = "${uri_file}",

@@ -46,7 +46,6 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/frame_of_reference_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/plain_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/rle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/segcompaction_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/result_buffer_mgr_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
@@ -57,6 +56,7 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/remote_rowset_gc_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/jsonb_value_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/vec/runtime/vdata_stream_test.cpp
 )
 
 list(APPEND UT_FILES

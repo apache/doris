@@ -15,11 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_outfile_hdfs", "p2") {
-    String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
-    String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
-    String fs = "hdfs://${nameNodeHost}:${hdfsPort}"
-    String user_name = "hadoop"
+suite("test_outfile_p2", "p2") {
+
+    String dfsNameservices=context.config.otherConfigs.get("dfsNameservices")
+    String dfsHaNamenodesHdfsCluster=context.config.otherConfigs.get("dfsHaNamenodesHdfsCluster")
+    String dfsNamenodeRpcAddress1=context.config.otherConfigs.get("dfsNamenodeRpcAddress1")
+    String dfsNamenodeRpcAddress2=context.config.otherConfigs.get("dfsNamenodeRpcAddress2")
+    String dfsNamenodeRpcAddress3=context.config.otherConfigs.get("dfsNamenodeRpcAddress3")
+    String dfsNameservicesPort=context.config.otherConfigs.get("dfsNameservicesPort")
+    String hadoopSecurityAuthentication =context.config.otherConfigs.get("hadoopSecurityAuthentication")
+    String hadoopKerberosKeytabPath =context.config.otherConfigs.get("hadoopKerberosKeytabPath")
+    String hadoopKerberosPrincipal =context.config.otherConfigs.get("hadoopKerberosPrincipal")
+
 
     def table_outfile_name = "test_outfile_hdfs"
     // create table and insert
@@ -38,11 +45,23 @@ suite("test_outfile_hdfs", "p2") {
 
     // use a simple sql to make sure there is only one fragment
     // #21343
-    sql """select * from ${table_outfile_name} INTO OUTFILE '${fs}/user/outfile_test/'
-        FORMAT AS PARQUET PROPERTIES
+    sql """
+        SELECT * FROM ${table_outfile_name}
+        INTO OUTFILE "hdfs://${dfsNameservices}/user/outfile_test/" 
+        FORMAT AS parquet
+        PROPERTIES
         (
-            'hadoop.username' = '${user_name}',
-            'fs.defaultFS'='${fs}'
+            "dfs.data.transfer.protection" = "integrity",
+            'dfs.nameservices'="${dfsNameservices}",
+            'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
+            'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
+            'dfs.namenode.rpc-address.hdfs-cluster.nn2'="${dfsNamenodeRpcAddress2}:${dfsNameservicesPort}",
+            'dfs.namenode.rpc-address.hdfs-cluster.nn3'="${dfsNamenodeRpcAddress3}:${dfsNameservicesPort}",
+            'hadoop.security.authentication'="${hadoopSecurityAuthentication}",
+            'hadoop.kerberos.keytab'="${hadoopKerberosKeytabPath}",   
+            'hadoop.kerberos.principal'="${hadoopKerberosPrincipal}",
+            'dfs.client.failover.proxy.provider.hdfs-cluster'="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
         );
     """
+    
 }

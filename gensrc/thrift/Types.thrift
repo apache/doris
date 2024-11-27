@@ -222,7 +222,9 @@ enum TTaskType {
     PUSH_COOLDOWN_CONF,
     PUSH_STORAGE_POLICY,
     ALTER_INVERTED_INDEX,
-    GC_BINLOG
+    GC_BINLOG,
+    CLEAN_TRASH,
+    UPDATE_VISIBLE_VERSION
 }
 
 enum TStmtType {
@@ -398,8 +400,9 @@ enum TOdbcTableType {
     PRESTO,
     OCEANBASE,
     OCEANBASE_ORACLE,
-    NEBULA,
-    DB2
+    NEBULA, // Deprecated
+    DB2,
+    GBASE
 }
 
 struct TJdbcExecutorCtorParams {
@@ -703,15 +706,15 @@ enum TSortType {
 enum TMetadataType {
   ICEBERG,
   BACKENDS,
-  WORKLOAD_GROUPS,
   FRONTENDS,
   CATALOGS,
   FRONTENDS_DISKS,
   MATERIALIZED_VIEWS,
   JOBS,
   TASKS,
-  QUERIES,
-  WORKLOAD_SCHED_POLICY
+  WORKLOAD_SCHED_POLICY,
+  PARTITIONS,
+  PARTITION_VALUES;
 }
 
 enum TIcebergQueryType {

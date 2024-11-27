@@ -250,6 +250,19 @@ public:
 
     [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
+    virtual size_t revocable_mem_size(RuntimeState* state) const { return 0; }
+
+    virtual Status revoke_memory(RuntimeState* state) { return Status::OK(); }
+    [[nodiscard]] virtual bool require_data_distribution() const { return false; }
+    [[nodiscard]] bool followed_by_shuffled_operator() const {
+        return _followed_by_shuffled_operator;
+    }
+    void set_followed_by_shuffled_operator(bool followed_by_shuffled_operator) {
+        _followed_by_shuffled_operator = followed_by_shuffled_operator;
+    }
+    [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
+    [[nodiscard]] virtual bool require_shuffled_data_distribution() const { return false; }
+
 protected:
     OperatorBuilderBase* _operator_builder = nullptr;
     OperatorPtr _child;
@@ -258,6 +271,7 @@ protected:
     OperatorXPtr _child_x = nullptr;
 
     bool _is_closed;
+    bool _followed_by_shuffled_operator = false;
 };
 
 /**

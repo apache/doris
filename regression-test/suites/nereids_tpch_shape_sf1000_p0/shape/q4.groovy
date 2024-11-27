@@ -29,10 +29,12 @@ suite("q4") {
     sql "set runtime_filter_type=8"
 sql 'set enable_runtime_filter_prune=false'   
     sql 'set parallel_pipeline_task_num=8'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
 
 
-    
+
+
     qt_select """
     explain shape plan
     select  

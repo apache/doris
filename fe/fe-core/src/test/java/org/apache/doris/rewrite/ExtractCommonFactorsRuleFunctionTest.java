@@ -100,7 +100,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
     public void testWideCommonFactorsWithOrPredicate() throws Exception {
         String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 where tb1.k1 > 1000 or tb1.k1 < 200 or tb1.k1 = 300";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("(`tb1`.`k1` = 300) OR (`tb1`.`k1` > 1000) OR (`tb1`.`k1` < 200)"));
+        Assert.assertTrue(planString.contains("((`tb1`.`k1` = 300) OR ((`tb1`.`k1` > 1000) OR (`tb1`.`k1` < 200)))"));
     }
 
     @Test
@@ -237,7 +237,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
                 + "\"storage_format\" = \"V2\"\n"
                 + ");";
         dorisAssert.withTable(createTableSQL);
-        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ sum(l_extendedprice* (1 - l_discount)) as revenue "
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false,enable_fold_constant_by_be=false) */ sum(l_extendedprice* (1 - l_discount)) as revenue "
                 + "from lineitem, part "
                 + "where ( p_partkey = l_partkey and p_brand = 'Brand#11' "
                 + "and p_container in ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG') "
@@ -259,8 +259,8 @@ public class ExtractCommonFactorsRuleFunctionTest {
         Assert.assertTrue(planString.contains("`l_partkey` = `p_partkey`"));
         Assert.assertTrue(planString.contains("`l_shipmode` IN ('AIR', 'AIR REG')"));
         Assert.assertTrue(planString.contains("`l_shipinstruct` = 'DELIVER IN PERSON'"));
-        Assert.assertTrue(planString.contains("(`l_quantity` >= 9) AND (`l_quantity` <= 19) "
-                + "OR (`l_quantity` >= 20) AND (`l_quantity` <= 36)"));
+        Assert.assertTrue(planString.contains("(((`l_quantity` >= 9.00) AND (`l_quantity` <= 19.00)) "
+                + "OR ((`l_quantity` >= 20.00) AND (`l_quantity` <= 36.00)))"));
         Assert.assertTrue(planString.contains("`p_size` >= 1"));
         Assert.assertTrue(planString.contains("`p_brand` IN ('Brand#11', 'Brand#21', 'Brand#32')"));
         Assert.assertTrue(planString.contains("`p_size` <= 15"));
@@ -273,27 +273,27 @@ public class ExtractCommonFactorsRuleFunctionTest {
         // tinyint
         String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k1 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("CAST(`k1` AS VARCHAR(65533)) LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k1` AS varchar(65533)) LIKE '%4%'");
 
         // smallint
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k2 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("CAST(`k2` AS VARCHAR(65533)) LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k2` AS varchar(65533)) LIKE '%4%'");
 
         // int
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k3 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("CAST(`k3` AS VARCHAR(65533)) LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k3` AS varchar(65533)) LIKE '%4%'");
 
         // bigint
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k4 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("CAST(`k4` AS VARCHAR(65533)) LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k4` AS varchar(65533)) LIKE '%4%'");
 
         // largeint
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb3 where k5 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("CAST(`k5` AS VARCHAR(65533)) LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("CAST(`k5` AS varchar(65533)) LIKE '%4%'");
     }
 
     @Test

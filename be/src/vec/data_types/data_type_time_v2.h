@@ -83,6 +83,7 @@ public:
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    std::string to_string(UInt32 int_val) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     MutableColumnPtr create_column() const override;
@@ -106,7 +107,7 @@ public:
 
     DataTypeDateTimeV2(UInt32 scale = 0) : _scale(scale) {
         if (UNLIKELY(scale > 6)) {
-            LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scale {} is out of bounds", scale);
         }
     }
 
@@ -125,6 +126,7 @@ public:
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    std::string to_string(UInt64 int_val) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeDateTimeV2SerDe>(_scale, nesting_level);
@@ -132,7 +134,10 @@ public:
 
     Field get_field(const TExprNode& node) const override {
         DateV2Value<DateTimeV2ValueType> value;
-        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
+        const int32_t scale =
+                node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
+        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size(),
+                                scale)) {
             return value.to_date_int_val();
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,

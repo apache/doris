@@ -188,6 +188,7 @@ void test_file_cache(io::CacheType cache_type) {
     {
         io::LRUFileCache cache(cache_base_path, settings);
         ASSERT_TRUE(cache.initialize());
+        cache.wait_lazy_open();
         {
             auto holder = cache.get_or_set(key, 0, 10, context); /// Add range [0, 9]
             auto segments = fromHolder(holder);
@@ -533,6 +534,7 @@ void test_file_cache(io::CacheType cache_type) {
 
         io::LRUFileCache cache2(cache_base_path, settings);
         static_cast<void>(cache2.initialize());
+        cache2.wait_lazy_open();
         auto holder1 = cache2.get_or_set(key, 2, 28, context); /// Get [2, 29]
 
         auto segments1 = fromHolder(holder1);
@@ -614,6 +616,7 @@ TEST(LRUFileCache, resize) {
     settings.max_file_segment_size = 100;
     io::LRUFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
+    cache.wait_lazy_open();
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -637,6 +640,7 @@ TEST(LRUFileCache, query_limit_heap_use_after_free) {
     settings.total_size = 15;
     io::LRUFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
+    cache.wait_lazy_open();
     io::CacheContext context;
     context.cache_type = io::CacheType::NORMAL;
     auto key = io::LRUFileCache::hash("key1");
@@ -719,6 +723,7 @@ TEST(LRUFileCache, query_limit_dcheck) {
     settings.total_size = 15;
     io::LRUFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
+    cache.wait_lazy_open();
     io::CacheContext context;
     context.cache_type = io::CacheType::NORMAL;
     auto key = io::LRUFileCache::hash("key1");
@@ -834,6 +839,7 @@ TEST(LRUFileCache, fd_cache_remove) {
     settings.total_size = 15;
     io::LRUFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
+    cache.wait_lazy_open();
     io::CacheContext context;
     context.cache_type = io::CacheType::NORMAL;
     auto key = io::LRUFileCache::hash("key1");
@@ -912,6 +918,7 @@ TEST(LRUFileCache, fd_cache_evict) {
     settings.total_size = 15;
     io::LRUFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
+    cache.wait_lazy_open();
     io::CacheContext context;
     context.cache_type = io::CacheType::NORMAL;
     auto key = io::LRUFileCache::hash("key1");

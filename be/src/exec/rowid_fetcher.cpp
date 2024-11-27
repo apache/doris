@@ -71,7 +71,8 @@ Status RowIDFetcher::init() {
         if (!client) {
             LOG(WARNING) << "Get rpc stub failed, host=" << node_info.host
                          << ", port=" << node_info.brpc_port;
-            return Status::InternalError("RowIDFetcher failed to init rpc client");
+            return Status::InternalError("RowIDFetcher failed to init rpc client, host={}, port={}",
+                                         node_info.host, node_info.brpc_port);
         }
         _stubs.push_back(client);
     }
@@ -231,7 +232,7 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     std::vector<PRowLocation> rows_locs;
     rows_locs.reserve(rows_locs.size());
     RETURN_IF_ERROR(_merge_rpc_results(mget_req, resps, cntls, res_block, &rows_locs));
-    if (rows_locs.size() != res_block->rows() || rows_locs.size() != column_row_ids->size()) {
+    if (rows_locs.size() < column_row_ids->size()) {
         return Status::InternalError("Miss matched return row loc count {}, expected {}, input {}",
                                      rows_locs.size(), res_block->rows(), column_row_ids->size());
     }
@@ -255,12 +256,12 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
                 reinterpret_cast<const GlobalRowLoacation*>(column_row_ids->get_data_at(i).data);
         permutation.push_back(positions[*location]);
     }
-    // Check row consistency
-    RETURN_IF_CATCH_EXCEPTION(res_block->check_number_of_rows());
     for (size_t i = 0; i < res_block->columns(); ++i) {
         res_block->get_by_position(i).column =
                 res_block->get_by_position(i).column->permute(permutation, permutation.size());
     }
+    // Check row consistency
+    RETURN_IF_CATCH_EXCEPTION(res_block->check_number_of_rows());
     // shrink for char type
     std::vector<size_t> char_type_idx;
     for (size_t i = 0; i < _fetch_option.desc->slots().size(); i++) {

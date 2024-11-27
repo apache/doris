@@ -68,8 +68,9 @@ public class RecoverPartitionStmt extends DdlStmt {
         dbTblName.analyze(analyzer);
         // disallow external catalog
         Util.prohibitExternalCatalog(dbTblName.getCtl(), this.getClass().getSimpleName());
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbTblName.getDb(),
-                dbTblName.getTbl(), PrivPredicate.ALTER_CREATE)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), dbTblName.getCtl(), dbTblName.getDb(),
+                        dbTblName.getTbl(), PrivPredicate.ALTER_CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "RECOVERY",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),

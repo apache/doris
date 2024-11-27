@@ -124,6 +124,10 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
                 schedulerInstantJob(job, TaskType.SCHEDULED, null);
             }
         }
+        if (job.getJobConfig().isImmediate() && JobExecuteType.ONE_TIME.equals(job.getJobConfig().getExecuteType())) {
+            schedulerInstantJob(job, TaskType.SCHEDULED, null);
+            return;
+        }
         //RECURRING job and  immediate is true
         if (job.getJobConfig().isImmediate()) {
             job.getJobConfig().getTimerDefinition().setLatestSchedulerTimeMs(System.currentTimeMillis());
@@ -151,7 +155,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     }
 
 
-    public void schedulerInstantJob(T job, TaskType taskType, C context) {
+    public void schedulerInstantJob(T job, TaskType taskType, C context) throws JobException {
         List<? extends AbstractTask> tasks = job.commonCreateTasks(taskType, context);
         if (CollectionUtils.isEmpty(tasks)) {
             log.info("job create task is empty, skip scheduler, job id is {}, job name is {}", job.getJobId(),
@@ -161,12 +165,15 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
             }
             return;
         }
-        tasks.forEach(task -> {
-            taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
-                    job.getJobConfig());
+        for (AbstractTask task : tasks) {
+            if (!taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
+                    job.getJobConfig())) {
+                throw new JobException(job.formatMsgWhenExecuteQueueFull(task.getTaskId()));
+
+            }
             log.info("dispatch instant job, job id is {}, job name is {}, task id is {}", job.getJobId(),
                     job.getJobName(), task.getTaskId());
-        });
+        }
     }
 
     /**
@@ -188,15 +195,14 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
                 clearEndJob(job);
                 continue;
             }
-            if (!job.getJobStatus().equals(JobStatus.RUNNING) && !job.getJobConfig().checkIsTimerJob()) {
-                continue;
+            if (job.getJobStatus().equals(JobStatus.RUNNING) && job.getJobConfig().checkIsTimerJob()) {
+                cycleTimerJobScheduler(job, lastTimeWindowMs);
             }
-            cycleTimerJobScheduler(job, lastTimeWindowMs);
         }
     }
 
     private void clearEndJob(T job) {
-        if (job.getFinishTimeMs() + FINISHED_JOB_CLEANUP_THRESHOLD_TIME_MS < System.currentTimeMillis()) {
+        if (job.getFinishTimeMs() + FINISHED_JOB_CLEANUP_THRESHOLD_TIME_MS > System.currentTimeMillis()) {
             return;
         }
         try {

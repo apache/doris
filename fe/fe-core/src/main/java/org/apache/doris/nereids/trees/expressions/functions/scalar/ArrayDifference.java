@@ -46,13 +46,13 @@ public class ArrayDifference extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(SmallIntType.INSTANCE)).args(ArrayType.of(TinyIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE)).args(ArrayType.of(SmallIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(IntegerType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(LargeIntType.INSTANCE)).args(ArrayType.of(BigIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(LargeIntType.INSTANCE)).args(ArrayType.of(LargeIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(FloatType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.retArgType(0).args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
             FunctionSignature.retArgType(0).args(ArrayType.of(DecimalV3Type.WILDCARD))
     );

@@ -22,7 +22,7 @@ suite ("dis_26495") {
     sql """ DROP TABLE IF EXISTS doris_test; """
 
     sql """
-        create table doris_test (a int,b int, agg_st_1 agg_state max_by(int ,int))
+        create table doris_test (a int,b int, agg_st_1 agg_state<max_by(int ,int)> generic)
             DISTRIBUTED BY HASH(a) BUCKETS 1 properties("replication_num" = "1");
         """
 

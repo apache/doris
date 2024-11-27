@@ -35,6 +35,7 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -138,7 +139,8 @@ public class UpdateStmt extends DdlStmt {
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         // check load privilege, select privilege will check when analyze insert stmt
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.LOAD)) {
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(), tableName.getTbl(),
+                        PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
         }
 
@@ -189,12 +191,8 @@ public class UpdateStmt extends DdlStmt {
 
         // step3: generate select list and insert column name list in insert stmt
         boolean isMow = ((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite();
-        boolean hasVariant = false;
         int setExprCnt = 0;
         for (Column column : targetTable.getColumns()) {
-            if (column.getType().isVariantType()) {
-                hasVariant = true;
-            }
             for (BinaryPredicate setExpr : setExprs) {
                 Expr lhs = setExpr.getChild(0);
                 if (((SlotRef) lhs).getColumn().equals(column)) {
@@ -202,21 +200,29 @@ public class UpdateStmt extends DdlStmt {
                 }
             }
         }
-        // 1.table with sequence col cannot use partial update cause in MOW, we encode pk
+        // table with sequence col cannot use partial update cause in MOW, we encode pk
         // with seq column but we don't know which column is sequence in update
-        // 2. variant column update schema during load, so implement partial update is complicated,
-        //  just ignore it at present
         if (isMow && ((OlapTable) targetTable).getSequenceCol() == null
-                && setExprCnt <= targetTable.getColumns().size() * 3 / 10
-                && !hasVariant) {
+                && setExprCnt <= targetTable.getColumns().size() * 3 / 10) {
             isPartialUpdate = true;
+        }
+        Optional<Column> sequenceMapCol = Optional.empty();
+        OlapTable olapTable = (OlapTable) targetTable;
+        if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null) {
+            sequenceMapCol = olapTable.getFullSchema().stream()
+                    .filter(col -> col.getName().equalsIgnoreCase(olapTable.getSequenceMapCol())).findFirst();
         }
         for (Column column : targetTable.getColumns()) {
             Expr expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
             boolean existInExpr = false;
             for (BinaryPredicate setExpr : setExprs) {
                 Expr lhs = setExpr.getChild(0);
-                if (((SlotRef) lhs).getColumn().equals(column)) {
+                Column exprColumn = ((SlotRef) lhs).getColumn();
+                // when updating the sequence map column, the real sequence column need to set with the same value.
+                boolean isSequenceMapColumn = sequenceMapCol.isPresent()
+                        && exprColumn.equals(sequenceMapCol.get());
+                if (exprColumn.equals(column) || (olapTable.hasSequenceCol()
+                        && column.equals(olapTable.getSequenceCol()) && isSequenceMapColumn)) {
                     expr = setExpr.getChild(1);
                     existInExpr = true;
                 }

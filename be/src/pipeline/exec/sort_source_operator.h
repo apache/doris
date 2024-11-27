@@ -64,6 +64,8 @@ public:
 
     bool is_source() const override { return true; }
 
+    const vectorized::SortDescription& get_sort_description(RuntimeState* state) const;
+
 private:
     friend class SortLocalState;
 };

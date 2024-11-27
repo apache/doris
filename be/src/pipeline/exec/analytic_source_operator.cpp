@@ -161,15 +161,21 @@ bool AnalyticLocalState::_whether_need_next_partition(
 Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    _blocks_memory_usage =
+            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
+    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
+    return Status::OK();
+}
+
+Status AnalyticLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::open(state));
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
 
     auto& p = _parent->cast<AnalyticSourceOperatorX>();
     _agg_functions_size = p._agg_functions.size();
-
-    _blocks_memory_usage =
-            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
-    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
 
     _agg_functions.resize(p._agg_functions.size());
     for (size_t i = 0; i < _agg_functions.size(); i++) {
@@ -236,7 +242,7 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             std::bind<void>(&AnalyticLocalState::_execute_for_win_func, this, std::placeholders::_1,
                             std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
 
-    RETURN_IF_CATCH_EXCEPTION(static_cast<void>(_create_agg_status()));
+    _create_agg_status();
     return Status::OK();
 }
 
@@ -248,7 +254,7 @@ void AnalyticLocalState::_reset_agg_status() {
     }
 }
 
-Status AnalyticLocalState::_create_agg_status() {
+void AnalyticLocalState::_create_agg_status() {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         try {
             _agg_functions[i]->create(
@@ -264,23 +270,19 @@ Status AnalyticLocalState::_create_agg_status() {
         }
     }
     _agg_functions_created = true;
-    return Status::OK();
 }
 
-Status AnalyticLocalState::_destroy_agg_status() {
+void AnalyticLocalState::_destroy_agg_status() {
     if (UNLIKELY(_fn_place_ptr == nullptr || !_agg_functions_created)) {
-        return Status::OK();
+        return;
     }
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i]->destroy(
                 _fn_place_ptr +
                 _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states[i]);
     }
-    return Status::OK();
 }
 
-//now is execute for lead/lag row_number/rank/dense_rank/ntile functions
-//sum min max count avg first_value last_value functions
 void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t partition_end,
                                                int64_t frame_start, int64_t frame_end) {
     for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -292,7 +294,7 @@ void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t 
                 partition_start, partition_end, frame_start, frame_end,
                 _fn_place_ptr +
                         _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states[i],
-                agg_columns.data(), nullptr);
+                agg_columns.data(), _agg_arena_pool.get());
 
         // If the end is not greater than the start, the current window should be empty.
         _current_window_empty =
@@ -359,6 +361,7 @@ Status AnalyticLocalState::_get_next_for_rows(size_t current_block_rows) {
                         1; //going on calculate,add up data, no need to reset state
         } else {
             _reset_agg_status();
+            range_end = _shared_state->current_row_position + _rows_end_offset + 1;
             if (!_parent->cast<AnalyticSourceOperatorX>()
                          ._window.__isset
                          .window_start) { //[preceding, offset]        --unbound: [preceding, following]
@@ -366,7 +369,8 @@ Status AnalyticLocalState::_get_next_for_rows(size_t current_block_rows) {
             } else {
                 range_start = _shared_state->current_row_position + _rows_start_offset;
             }
-            range_end = _shared_state->current_row_position + _rows_end_offset + 1;
+            // Make sure range_start <= range_end
+            range_start = std::min(range_start, range_end);
         }
         _executor.execute(_partition_by_start.pos, _shared_state->partition_by_end.pos, range_start,
                           range_end);
@@ -417,7 +421,7 @@ void AnalyticLocalState::_update_order_by_range() {
     }
 }
 
-Status AnalyticLocalState::init_result_columns() {
+void AnalyticLocalState::init_result_columns() {
     if (!_window_end_position) {
         _result_window_columns.resize(_agg_functions_size);
         for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -425,7 +429,6 @@ Status AnalyticLocalState::init_result_columns() {
                     _agg_functions[i]->data_type()->create_column(); //return type
         }
     }
-    return Status::OK();
 }
 
 //calculate pos have arrive partition end, so it's needed to init next partition, and update the boundary of partition
@@ -536,7 +539,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         }
         local_state._next_partition =
                 local_state.init_next_partition(local_state._shared_state->found_partition_end);
-        static_cast<void>(local_state.init_result_columns());
+        local_state.init_result_columns();
         size_t current_block_rows =
                 local_state._shared_state->input_blocks[local_state._output_block_index].rows();
         static_cast<void>(local_state._executor.get_next(current_block_rows));
@@ -558,7 +561,7 @@ Status AnalyticLocalState::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    static_cast<void>(_destroy_agg_status());
+    _destroy_agg_status();
     _agg_arena_pool = nullptr;
 
     std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
@@ -576,6 +579,7 @@ Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
         RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child_x->row_desc(),
                                                    intermediate_slot_desc, output_slot_desc));
+        _agg_functions[i]->set_version(state->be_exec_version());
         _change_to_nullable_flags.push_back(output_slot_desc->is_nullable() &&
                                             !_agg_functions[i]->data_type()->is_nullable());
     }

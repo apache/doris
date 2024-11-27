@@ -6,15 +6,24 @@ PhysicalResultSink
 ------PhysicalOlapScan[t]
 ------PhysicalOlapScan[t]
 
+Hint log:
+Used:
+UnUsed: use_push_down_distinct_through_join
+SyntaxError:
+
 -- !basic --
 PhysicalResultSink
 --hashAgg[LOCAL]
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
-------hashAgg[LOCAL]
---------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t]
-----------PhysicalOlapScan[t]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t]
 ------PhysicalOlapScan[t]
+
+Hint log:
+Used:
+UnUsed: use_push_down_distinct_through_join
+SyntaxError:
 
 -- !basic_sql --
 1

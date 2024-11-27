@@ -18,9 +18,7 @@
 #include "http/action/http_stream.h"
 
 #include <cstddef>
-#include <deque>
 #include <future>
-#include <shared_mutex>
 #include <sstream>
 
 // use string iequal
@@ -31,7 +29,6 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "common/config.h"
-#include "common/consts.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
@@ -42,7 +39,6 @@
 #include "http/http_common.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/utils.h"
 #include "io/fs/stream_load_pipe.h"
 #include "olap/storage_engine.h"
@@ -57,9 +53,7 @@
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/byte_buffer.h"
-#include "util/debug_util.h"
 #include "util/doris_metrics.h"
-#include "util/load_util.h"
 #include "util/metrics.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
@@ -126,14 +120,13 @@ void HttpStreamAction::handle(HttpRequest* req) {
     // update statistics
     http_stream_requests_total->increment(1);
     http_stream_duration_ms->increment(ctx->load_cost_millis);
-    http_stream_current_processing->increment(-1);
 }
 
 Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx) {
     if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
                      << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
-        return Status::InternalError("receive body don't equal with body bytes");
+        return Status::Error<ErrorCode::NETWORK_ERROR>("receive body don't equal with body bytes");
     }
     RETURN_IF_ERROR(ctx->body_sink->finish());
 
@@ -183,7 +176,6 @@ int HttpStreamAction::on_header(HttpRequest* req) {
         // add new line at end
         str = str + '\n';
         HttpChannel::send_reply(req, str);
-        http_stream_current_processing->increment(-1);
         if (config::enable_stream_load_record) {
             str = ctx->prepare_stream_load_record(str);
             _save_stream_load_record(ctx, str);
@@ -197,7 +189,7 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     // auth information
     if (!parse_basic_auth(*http_req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
-        return Status::InternalError("no valid Basic authorization");
+        return Status::NotAuthorized("no valid Basic authorization");
     }
 
     // TODO(zs) : need Need to request an FE to obtain information such as format
@@ -205,12 +197,19 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     ctx->body_bytes = 0;
     size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
     if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-        ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        try {
+            ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        } catch (const std::exception& e) {
+            return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                           http_req->header(HttpHeaders::CONTENT_LENGTH), e.what());
+        }
         // csv max body size
         if (ctx->body_bytes > csv_max_body_bytes) {
             LOG(WARNING) << "body exceed max size." << ctx->brief();
-            return Status::InternalError("body exceed max size: {}, data: {}", csv_max_body_bytes,
-                                         ctx->body_bytes);
+            return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                    "body size {} exceed BE's conf `streaming_load_max_mb` {}. increase it if you "
+                    "are sure this load is reasonable",
+                    ctx->body_bytes, csv_max_body_bytes);
         }
     }
 
@@ -240,26 +239,37 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     struct evhttp_request* ev_req = req->get_evhttp_request();
     auto evbuf = evhttp_request_get_input_buffer(ev_req);
 
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
+
     int64_t start_read_data_time = MonotonicNanos();
+    Status st = ctx->allocate_schema_buffer();
+    if (!st.ok()) {
+        ctx->status = st;
+        return;
+    }
     while (evbuffer_get_length(evbuf) > 0) {
-        auto bb = ByteBuffer::allocate(128 * 1024);
+        ByteBufferPtr bb;
+        st = ByteBuffer::allocate(128 * 1024, &bb);
+        if (!st.ok()) {
+            ctx->status = st;
+            return;
+        }
         auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
         bb->pos = remove_bytes;
         bb->flip();
-        auto st = ctx->body_sink->append(bb);
+        st = ctx->body_sink->append(bb);
         // schema_buffer stores 1M of data for parsing column information
         // need to determine whether to cache for the first time
         if (ctx->is_read_schema) {
-            if (ctx->schema_buffer->pos + remove_bytes < config::stream_tvf_buffer_size) {
-                ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
+            if (ctx->schema_buffer()->pos + remove_bytes < config::stream_tvf_buffer_size) {
+                ctx->schema_buffer()->put_bytes(bb->ptr, remove_bytes);
             } else {
                 LOG(INFO) << "use a portion of data to request fe to obtain column information";
                 ctx->is_read_schema = false;
                 ctx->status = process_put(req, ctx);
             }
         }
-
-        if (!st.ok() && !ctx->status.ok()) {
+        if (!st.ok()) {
             LOG(WARNING) << "append body content failed. errmsg=" << st << ", " << ctx->brief();
             ctx->status = st;
             return;
@@ -287,6 +297,7 @@ void HttpStreamAction::free_handler_ctx(std::shared_ptr<void> param) {
     }
     // remove stream load context from stream load manager and the resource will be released
     ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+    http_stream_current_processing->increment(-1);
 }
 
 Status HttpStreamAction::process_put(HttpRequest* http_req,
@@ -294,6 +305,10 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     TStreamLoadPutRequest request;
     if (http_req != nullptr) {
         request.__set_load_sql(http_req->header(HTTP_SQL));
+        if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
+            bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
+            request.__set_memtable_on_sink_node(value);
+        }
     } else {
         request.__set_token(ctx->auth.token);
         request.__set_load_sql(ctx->sql_str);
@@ -336,15 +351,25 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     ctx->label = ctx->put_result.params.import_label;
     ctx->put_result.params.__set_wal_id(ctx->wal_id);
     if (http_req != nullptr && http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
-        size_t content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
-        if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
-            ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
-            ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
-            ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
-            ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
-            ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
-            ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
-            content_length *= 3;
+        // FIXME find a way to avoid chunked stream load write large WALs
+        size_t content_length = 0;
+        if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+            try {
+                content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            } catch (const std::exception& e) {
+                return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                               http_req->header(HttpHeaders::CONTENT_LENGTH),
+                                               e.what());
+            }
+            if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
+                ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
+                ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
+                content_length *= 3;
+            }
         }
         ctx->put_result.params.__set_content_length(content_length);
     }
@@ -373,7 +398,8 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
     std::string group_commit_mode = req->header(HTTP_GROUP_COMMIT);
     if (!group_commit_mode.empty() && !iequal(group_commit_mode, "sync_mode") &&
         !iequal(group_commit_mode, "async_mode") && !iequal(group_commit_mode, "off_mode")) {
-        return Status::InternalError("group_commit can only be [async_mode, sync_mode, off_mode]");
+        return Status::InvalidArgument(
+                "group_commit can only be [async_mode, sync_mode, off_mode]");
     }
     if (config::wait_internal_group_commit_finish) {
         group_commit_mode = "sync_mode";
@@ -386,12 +412,20 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
         ss << "This http load content length <0 (" << content_length
            << "), please check your content length.";
         LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
+        return Status::InvalidArgument(ss.str());
     }
-    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode") || content_length == 0) {
+    // allow chunked stream load in flink
+    auto is_chunk =
+            !req->header(HttpHeaders::TRANSFER_ENCODING).empty() &&
+            req->header(HttpHeaders::TRANSFER_ENCODING).find("chunked") != std::string::npos;
+    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode") ||
+        (content_length == 0 && !is_chunk)) {
         // off_mode and empty
         ctx->group_commit = false;
         return Status::OK();
+    }
+    if (is_chunk) {
+        ctx->label = "";
     }
 
     auto partial_columns = !req->header(HTTP_PARTIAL_COLUMNS).empty() &&
@@ -400,7 +434,7 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
     auto partitions = !req->header(HTTP_PARTITIONS).empty();
     if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit) {
         if (!config::wait_internal_group_commit_finish && !ctx->label.empty()) {
-            return Status::InternalError("label and group_commit can't be set at the same time");
+            return Status::InvalidArgument("label and group_commit can't be set at the same time");
         }
         ctx->group_commit = true;
         if (iequal(group_commit_mode, "async_mode")) {

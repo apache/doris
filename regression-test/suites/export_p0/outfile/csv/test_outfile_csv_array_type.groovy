@@ -93,7 +93,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load1 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -126,7 +126,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load2 """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -158,7 +158,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load_date """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -190,7 +190,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load_datetime """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -225,7 +225,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load_varchar """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -259,7 +259,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_smallint """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -292,7 +292,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load_tinyint """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -325,7 +325,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load_boolean """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -358,7 +358,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load_bigint """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -390,7 +390,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load_largeint """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -423,7 +423,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load_float """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -455,7 +455,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load_double """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -487,7 +487,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load_CHAR """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",
@@ -520,7 +520,7 @@ suite("test_outfile_csv_array_type", "p0") {
         def outfile_url = outfile_to_S3()
 
         qt_select_load_decimal """ SELECT * FROM S3 (
-                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.csv",
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
                 "format" = "csv",

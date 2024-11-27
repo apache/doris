@@ -18,9 +18,9 @@
 #pragma once
 
 #include <cctz/time_zone.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <orc/OrcFile.hh>
@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
@@ -46,9 +47,12 @@
 #include "vec/columns/column_array.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/column_type_convert.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
+#include "vec/exprs/vliteral.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class RuntimeState;
@@ -77,13 +81,6 @@ class DataBuffer;
 namespace doris::vectorized {
 
 class ORCFileInputStream;
-
-struct OrcPredicate {
-    std::string col_name;
-    orc::PredicateDataType data_type;
-    std::vector<orc::Literal> literals;
-    SQLFilterOp op;
-};
 
 struct LazyReadContext {
     VExprContextSPtrs conjuncts;
@@ -126,6 +123,7 @@ public:
         int64_t set_fill_column_time = 0;
         int64_t decode_value_time = 0;
         int64_t decode_null_map_time = 0;
+        int64_t filter_block_time = 0;
     };
 
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
@@ -137,14 +135,15 @@ public:
               const std::string& ctz, io::IOContext* io_ctx, bool enable_lazy_mat = true);
 
     ~OrcReader() override;
-
+    //If you want to read the file by index instead of column name, set hive_use_column_names to false.
     Status init_reader(
             const std::vector<std::string>* column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, bool is_acid,
             const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
+            const bool hive_use_column_names = true);
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
@@ -163,6 +162,8 @@ public:
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
+    Status get_next_block_impl(Block* block, size_t* read_rows, bool* eof);
+
     void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
                          orc::ColumnVectorBatch* batch, int idx);
 
@@ -175,6 +176,19 @@ public:
 
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
+
+    Status get_schema_col_name_attribute(std::vector<std::string>* col_names,
+                                         std::vector<uint64_t>* col_attributes,
+                                         std::string attribute);
+    void set_table_col_to_file_col(
+            std::unordered_map<std::string, std::string> table_col_to_file_col) {
+        _table_col_to_file_col = table_col_to_file_col;
+    }
+
+    void set_position_delete_rowids(vector<int64_t>* delete_rows) {
+        _position_delete_ordered_rowids = delete_rows;
+    }
+    void _execute_filter_position_delete_rowids(IColumn::Filter& filter);
 
     void set_delete_rows(const TransactionalHiveReader::AcidRowIDSet* delete_rows) {
         _delete_rows = delete_rows;
@@ -190,6 +204,12 @@ public:
             std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
             bool* is_stripe_filtered);
 
+    static TypeDescriptor convert_to_doris_type(const orc::Type* orc_type);
+    static std::string get_field_name_lower_case(const orc::Type* orc_type, int pos);
+
+protected:
+    void _collect_profile_before_close() override;
+
 private:
     struct OrcProfile {
         RuntimeProfile::Counter* read_time = nullptr;
@@ -202,19 +222,26 @@ private:
         RuntimeProfile::Counter* set_fill_column_time = nullptr;
         RuntimeProfile::Counter* decode_value_time = nullptr;
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
+        RuntimeProfile::Counter* filter_block_time = nullptr;
+        RuntimeProfile::Counter* selected_row_group_count = nullptr;
+        RuntimeProfile::Counter* evaluated_row_group_count = nullptr;
     };
 
     class ORCFilterImpl : public orc::ORCFilter {
     public:
-        ORCFilterImpl(OrcReader* orcReader) : orcReader(orcReader) {}
+        ORCFilterImpl(OrcReader* orcReader) : _orcReader(orcReader) {}
         ~ORCFilterImpl() override = default;
         void filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                     void* arg) const override {
-            static_cast<void>(orcReader->filter(data, sel, size, arg));
+            if (_status.ok()) {
+                _status = _orcReader->filter(data, sel, size, arg);
+            }
         }
+        Status get_status() { return _status; }
 
     private:
-        OrcReader* orcReader = nullptr;
+        mutable Status _status = Status::OK();
+        OrcReader* _orcReader = nullptr;
     };
 
     class StringDictFilterImpl : public orc::StringDictFilter {
@@ -225,19 +252,28 @@ private:
         virtual void fillDictFilterColumnNames(
                 std::unique_ptr<orc::StripeInformation> current_strip_information,
                 std::list<std::string>& column_names) const override {
-            static_cast<void>(_orc_reader->fill_dict_filter_column_names(
-                    std::move(current_strip_information), column_names));
+            if (_status.ok()) {
+                _status = _orc_reader->fill_dict_filter_column_names(
+                        std::move(current_strip_information), column_names);
+            }
         }
         virtual void onStringDictsLoaded(
                 std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
                 bool* is_stripe_filtered) const override {
-            static_cast<void>(_orc_reader->on_string_dicts_loaded(column_name_to_dict_map,
-                                                                  is_stripe_filtered));
+            if (_status.ok()) {
+                _status = _orc_reader->on_string_dicts_loaded(column_name_to_dict_map,
+                                                              is_stripe_filtered);
+            }
         }
 
+        Status get_status() { return _status; }
+
     private:
+        mutable Status _status = Status::OK();
         OrcReader* _orc_reader = nullptr;
     };
+
+    //class RowFilter : public orc::RowReader
 
     // Create inner orc file,
     // return EOF if file is empty
@@ -252,15 +288,35 @@ private:
                         bool* is_hive1_orc);
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
-    TypeDescriptor _convert_to_doris_type(const orc::Type* orc_type);
-    bool _init_search_argument(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    std::tuple<bool, orc::Literal, orc::PredicateDataType> _make_orc_literal(
+            const VSlotRef* slot_ref, const VLiteral* literal);
+    bool _check_slot_can_push_down(const VExprSPtr& expr);
+    bool _check_rest_children_can_push_down(const VExprSPtr& expr);
+    bool _check_expr_can_push_down(const VExprSPtr& expr);
+    bool _build_less_than(const VExprSPtr& expr,
+                          std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_less_than_equals(const VExprSPtr& expr,
+                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_equals(const VExprSPtr& expr, std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_filter_in(const VExprSPtr& expr,
+                          std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_is_null(const VExprSPtr& expr,
+                        std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_search_argument(const VExprSPtr& expr,
+                                std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _init_search_argument(const VExprContextSPtrs& conjuncts);
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_system_properties();
     void _init_file_description();
+
     template <bool is_filter = false>
-    Status _orc_column_to_doris_column(const std::string& col_name, const ColumnPtr& doris_column,
+    Status _fill_doris_data_column(const std::string& col_name, MutableColumnPtr& data_column,
+                                   const DataTypePtr& data_type, const orc::Type* orc_column_type,
+                                   orc::ColumnVectorBatch* cvb, size_t num_values);
+
+    template <bool is_filter = false>
+    Status _orc_column_to_doris_column(const std::string& col_name, ColumnPtr& doris_column,
                                        const DataTypePtr& data_type,
                                        const orc::Type* orc_column_type,
                                        orc::ColumnVectorBatch* cvb, size_t num_values);
@@ -271,7 +327,8 @@ private:
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
         OrcColumnType* data = dynamic_cast<OrcColumnType*>(cvb);
         if (data == nullptr) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
+                                         cvb->toString());
         }
         auto* cvb_data = data->data.data();
         auto& column_data = static_cast<ColumnVector<CppType>&>(*data_column).get_data();
@@ -313,7 +370,8 @@ private:
                                            orc::ColumnVectorBatch* cvb, size_t num_values) {
         OrcColumnType* data = dynamic_cast<OrcColumnType*>(cvb);
         if (data == nullptr) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
+                                         cvb->toString());
         }
         if (_decimal_scale_params_index >= _decimal_scale_params.size()) {
             DecimalScaleParams temp_scale_params;
@@ -401,7 +459,8 @@ private:
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
         auto* data = dynamic_cast<OrcColumnType*>(cvb);
         if (data == nullptr) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
+                                         cvb->toString());
         }
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
         auto& column_data = static_cast<ColumnVector<DorisColumnType>&>(*data_column).get_data();
@@ -467,8 +526,6 @@ private:
                                      orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
                                      size_t* element_size);
 
-    std::string _get_field_name_lower_case(const orc::Type* orc_type, int pos);
-
     void _collect_profile_on_close();
 
     bool _can_filter_by_dict(int slot_id);
@@ -527,27 +584,32 @@ private:
     // This is used for Hive 1.x which use internal column name in Orc file.
     // _col0, _col1...
     std::unordered_map<std::string, std::string> _removed_acid_file_col_name_to_schema_col;
-    // Flag for hive engine. True if the external table engine is Hive1.x with orc col name
-    // as _col1, col2, ...
-    bool _is_hive1_orc = false;
+    // Flag for hive engine.
+    // 1. True if the external table engine is Hive1.x with orc col name as _col1, col2, ...
+    // 2. If true, use indexes instead of column names when reading orc tables.
+    bool _is_hive1_orc_or_use_idx = false;
+
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
+    // TODO: check if we can remove _col_name_to_file_col_name_low_case
+    std::unordered_map<std::string, std::string> _col_name_to_file_col_name_low_case;
     std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;
     std::unique_ptr<ORCFileInputStream> _file_input_stream;
     Statistics _statistics;
     OrcProfile _orc_profile;
+    orc::ReaderMetrics _reader_metrics;
 
     std::unique_ptr<orc::ColumnVectorBatch> _batch;
     std::unique_ptr<orc::Reader> _reader;
     std::unique_ptr<orc::RowReader> _row_reader;
     std::unique_ptr<ORCFilterImpl> _orc_filter;
-    orc::ReaderOptions _reader_options;
     orc::RowReaderOptions _row_reader_options;
 
     std::shared_ptr<io::FileSystem> _file_system;
 
     io::IOContext* _io_ctx = nullptr;
     bool _enable_lazy_mat = true;
+    bool _enable_filter_by_min_max = true;
 
     std::vector<DecimalScaleParams> _decimal_scale_params;
     size_t _decimal_scale_params_index;
@@ -569,13 +631,22 @@ private:
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     std::shared_ptr<ObjectPool> _obj_pool;
-    std::unique_ptr<orc::StringDictFilter> _string_dict_filter;
-    bool _is_dict_cols_converted;
+    std::unique_ptr<StringDictFilterImpl> _string_dict_filter;
+    bool _dict_cols_has_converted = false;
     bool _has_complex_type = false;
     std::vector<orc::TypeKind>* _unsupported_pushdown_types;
+
+    // resolve schema change
+    std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
+    //for iceberg table , when table column name != file column name
+    //TODO(CXY) : remove _table_col_to_file_col,because we hava _col_name_to_file_col_name，
+    // the two have the same effect.
+    std::unordered_map<std::string, std::string> _table_col_to_file_col;
+    //support iceberg position delete .
+    std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
 };
 
-class ORCFileInputStream : public orc::InputStream {
+class ORCFileInputStream : public orc::InputStream, public ProfileCollector {
 public:
     ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr inner_reader,
                        OrcReader::Statistics* statistics, const io::IOContext* io_ctx,
@@ -587,7 +658,11 @@ public:
               _io_ctx(io_ctx),
               _profile(profile) {}
 
-    ~ORCFileInputStream() override = default;
+    ~ORCFileInputStream() override {
+        if (_file_reader != nullptr) {
+            _file_reader->collect_profile_before_close();
+        }
+    }
 
     uint64_t getLength() const override { return _file_reader->size(); }
 
@@ -600,14 +675,24 @@ public:
     void beforeReadStripe(std::unique_ptr<orc::StripeInformation> current_strip_information,
                           std::vector<bool> selected_columns) override;
 
+    void set_all_tiny_stripes() { _is_all_tiny_stripes = true; }
+
+    io::FileReaderSPtr& get_file_reader() { return _file_reader; }
+
+    io::FileReaderSPtr& get_inner_reader() { return _inner_reader; }
+
+protected:
+    void _collect_profile_at_runtime() override {};
+    void _collect_profile_before_close() override;
+
 private:
     const std::string& _file_name;
     io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
+    bool _is_all_tiny_stripes = false;
     // Owned by OrcReader
     OrcReader::Statistics* _statistics = nullptr;
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
-
 } // namespace doris::vectorized

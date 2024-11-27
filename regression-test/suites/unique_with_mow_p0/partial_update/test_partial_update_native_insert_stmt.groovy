@@ -26,10 +26,6 @@ suite("test_partial_update_native_insert_stmt", "p0") {
 
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
             sql "use ${db};"
-
-            sql "set enable_nereids_dml=false;"
-            sql "set experimental_enable_nereids_planner=false;"
-            sql "set enable_fallback_to_original_planner=true;"
             sql "sync;"
 
             // sql 'set enable_fallback_to_original_planner=false'
@@ -56,7 +52,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
             qt_1 """ select * from ${tableName} order by id; """
             test {
                 sql """insert into ${tableName} values(2,400),(1,200),(4,400)"""
-                exception "You must explicitly specify the columns to be updated when updating partial columns using the INSERT statement."
+                exception "Column count doesn't match value count"
             }
             sql "set enable_unique_key_partial_update=false;"
             sql "sync;"
@@ -329,12 +325,10 @@ suite("test_partial_update_native_insert_stmt", "p0") {
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
         PROPERTIES ("replication_allocation" = "tag.location.default: 1", "enable_unique_key_merge_on_write" = "false");"""
 
-        test {
-            sql """insert into ${tableName10} values
-            (10000,"2017-10-01","2017-10-01 08:00:05","北京",20,0,"2017-10-01 06:00:00",20,10,10),
-            (10000,"2017-10-01","2017-10-01 09:00:05","北京",20,0,"2017-10-01 07:00:00",15,2,2);  """
-            exception "Partial update is only allowed on unique table with merge-on-write enabled"
-        }
+        sql """insert into ${tableName10} values
+        (10000,"2017-10-01","2017-10-01 08:00:05","北京",20,0,"2017-10-01 06:00:00",20,10,10),
+        (10000,"2017-10-01","2017-10-01 09:00:05","北京",20,0,"2017-10-01 07:00:00",15,2,2);  """
+        qt_sql "select * from ${tableName10} order by user_id;"
 
         sql """ DROP TABLE IF EXISTS ${tableName8}; """
         sql """ DROP TABLE IF EXISTS ${tableName9}; """

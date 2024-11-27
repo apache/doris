@@ -17,8 +17,11 @@
 
 #pragma once
 
+#include <arrow/type.h>
+#include <cctz/time_zone.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/segment_v2.pb.h>
 #include <stdint.h>
 
 #include <atomic>
@@ -29,7 +32,9 @@
 #include <mutex>
 
 #include "common/status.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_statistics.h"
+#include "util/runtime_profile.h"
 
 namespace google {
 namespace protobuf {
@@ -51,7 +56,13 @@ namespace pipeline {
 class Dependency;
 } // namespace pipeline
 
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 class PFetchDataResult;
+class PFetchArrowDataResult;
+class RuntimeState;
 
 struct GetResultBatchCtx {
     brpc::Controller* cntl = nullptr;
@@ -68,28 +79,55 @@ struct GetResultBatchCtx {
                  bool eos = false);
 };
 
+struct GetArrowResultBatchCtx {
+    brpc::Controller* cntl = nullptr;
+    PFetchArrowDataResult* result = nullptr;
+    google::protobuf::Closure* done = nullptr;
+
+    GetArrowResultBatchCtx(brpc::Controller* cntl_, PFetchArrowDataResult* result_,
+                           google::protobuf::Closure* done_)
+            : cntl(cntl_), result(result_), done(done_) {}
+
+    void on_failure(const Status& status);
+    void on_close(int64_t packet_seq);
+    void on_data(const std::shared_ptr<vectorized::Block>& block, int64_t packet_seq,
+                 int be_exec_version,
+                 segment_v2::CompressionTypePB fragement_transmission_compression_type,
+                 std::string timezone, RuntimeProfile::Counter* serialize_batch_ns_timer,
+                 RuntimeProfile::Counter* uncompressed_bytes_counter,
+                 RuntimeProfile::Counter* compressed_bytes_counter);
+};
+
 // buffer used for result customer and producer
 class BufferControlBlock {
 public:
-    BufferControlBlock(const TUniqueId& id, int buffer_size);
+    BufferControlBlock(const TUniqueId& id, int buffer_size, RuntimeState* state);
     virtual ~BufferControlBlock();
 
     Status init();
     // Only one fragment is written, so can_sink returns true, then the sink must be executed
     virtual bool can_sink();
-    virtual Status add_batch(std::unique_ptr<TFetchDataResult>& result);
-    virtual Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
+    virtual Status add_batch(std::unique_ptr<TFetchDataResult>& result, bool is_pipeline = false);
+    virtual Status add_arrow_batch(std::shared_ptr<vectorized::Block>& result);
 
     virtual void get_batch(GetResultBatchCtx* ctx);
-    virtual Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
+    // for ArrowFlightBatchLocalReader
+    virtual Status get_arrow_batch(std::shared_ptr<vectorized::Block>* result,
+                                   cctz::time_zone& timezone_obj);
+    // for ArrowFlightBatchRemoteReader
+    virtual void get_arrow_batch(GetArrowResultBatchCtx* ctx);
+
+    virtual void register_arrow_schema(const std::shared_ptr<arrow::Schema>& arrow_schema);
+    virtual Status find_arrow_schema(std::shared_ptr<arrow::Schema>* arrow_schema);
 
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
     Status close(Status exec_status);
-    // this is called by RPC, called from coordinator
-    virtual Status cancel();
+
+    virtual void cancel(const Status& reason);
 
     [[nodiscard]] const TUniqueId& fragment_id() const { return _fragment_id; }
+    [[nodiscard]] std::shared_ptr<MemTrackerLimiter> mem_tracker() { return _mem_tracker; }
 
     void update_return_rows(int64_t num_rows) {
         // _query_statistics may be null when the result sink init failed
@@ -102,12 +140,12 @@ public:
 
 protected:
     virtual bool _get_batch_queue_empty() {
-        return _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
+        return _fe_result_batch_queue.empty() && _arrow_flight_result_batch_queue.empty();
     }
     virtual void _update_batch_queue_empty() {}
 
     using FeResultQueue = std::list<std::unique_ptr<TFetchDataResult>>;
-    using ArrowFlightResultQueue = std::list<std::shared_ptr<arrow::RecordBatch>>;
+    using ArrowFlightResultQueue = std::list<std::shared_ptr<vectorized::Block>>;
 
     // result's query id
     TUniqueId _fragment_id;
@@ -120,7 +158,9 @@ protected:
 
     // blocking queue for batch
     FeResultQueue _fe_result_batch_queue;
-    ArrowFlightResultQueue _arrow_flight_batch_queue;
+    ArrowFlightResultQueue _arrow_flight_result_batch_queue;
+    // for arrow flight
+    std::shared_ptr<arrow::Schema> _arrow_schema;
 
     // protects all subsequent data in this block
     std::mutex _lock;
@@ -128,31 +168,50 @@ protected:
     std::condition_variable _data_arrival;
     // signal removal of data by stream consumer
     std::condition_variable _data_removal;
+    // get arrow flight result is a sync method, need wait for data ready and return result.
+    // TODO, waiting for data will block pipeline, so use a request pool to save requests waiting for data.
+    std::condition_variable _arrow_data_arrival;
 
     std::deque<GetResultBatchCtx*> _waiting_rpc;
+    std::deque<GetArrowResultBatchCtx*> _waiting_arrow_result_batch_rpc;
 
     // only used for FE using return rows to check limit
     std::unique_ptr<QueryStatistics> _query_statistics;
+
+    std::string _timezone;
+    cctz::time_zone _timezone_obj;
+    int _be_exec_version;
+    segment_v2::CompressionTypePB _fragement_transmission_compression_type;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+
+    // only used for ArrowFlightBatchRemoteReader
+    RuntimeProfile _profile;
+    RuntimeProfile::Counter* _serialize_batch_ns_timer = nullptr;
+    RuntimeProfile::Counter* _uncompressed_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _compressed_bytes_counter = nullptr;
 };
 
 class PipBufferControlBlock : public BufferControlBlock {
 public:
-    PipBufferControlBlock(const TUniqueId& id, int buffer_size)
-            : BufferControlBlock(id, buffer_size) {}
+    PipBufferControlBlock(const TUniqueId& id, int buffer_size, RuntimeState* state)
+            : BufferControlBlock(id, buffer_size, state) {}
 
     bool can_sink() override {
         return _get_batch_queue_empty() || _buffer_rows < _buffer_limit || _is_cancelled;
     }
 
-    Status add_batch(std::unique_ptr<TFetchDataResult>& result) override;
+    Status add_batch(std::unique_ptr<TFetchDataResult>& result, bool is_pipeline = true) override;
 
-    Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) override;
+    Status add_arrow_batch(std::shared_ptr<vectorized::Block>& result) override;
 
     void get_batch(GetResultBatchCtx* ctx) override;
 
-    Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) override;
+    Status get_arrow_batch(std::shared_ptr<vectorized::Block>* result,
+                           cctz::time_zone& timezone_obj) override;
 
-    Status cancel() override;
+    void get_arrow_batch(GetArrowResultBatchCtx* ctx) override;
+
+    void cancel(const Status& reason) override;
 
     void set_dependency(std::shared_ptr<pipeline::Dependency> result_sink_dependency);
 

@@ -17,13 +17,16 @@
 
 package org.apache.doris.resource.workloadgroup;
 
+import org.apache.doris.common.UserException;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
 
 // used to mark QueryQueue offer result
 // if offer failed, then need to cancel query
@@ -36,7 +39,7 @@ public class QueueToken implements Comparable<QueueToken> {
         return Long.compare(this.tokenId, other.getTokenId());
     }
 
-    enum TokenState {
+    public enum TokenState {
         ENQUEUE_SUCCESS,
         READY_TO_RUN
     }
@@ -45,85 +48,84 @@ public class QueueToken implements Comparable<QueueToken> {
 
     private long tokenId = 0;
 
-    private TokenState tokenState;
+    private volatile TokenState tokenState;
 
     private long queueWaitTimeout = 0;
 
-    private String offerResultDetail;
+    private long queueStartTime = -1;
+    private long queueEndTime = -1;
 
-    private boolean isTimeout = false;
+    private volatile String queueMsg = "";
 
-    private final ReentrantLock tokenLock = new ReentrantLock();
-    private final Condition tokenCond = tokenLock.newCondition();
+    QueryQueue queryQueue = null;
 
-    public QueueToken(TokenState tokenState, long queueWaitTimeout,
-            String offerResultDetail) {
+    // Object is just a placeholder, it's meaningless now
+    private CompletableFuture<Object> future;
+
+    public QueueToken(long queueWaitTimeout, QueryQueue queryQueue) {
         this.tokenId = tokenIdGenerator.addAndGet(1);
-        this.tokenState = tokenState;
         this.queueWaitTimeout = queueWaitTimeout;
-        this.offerResultDetail = offerResultDetail;
+        this.queueStartTime = System.currentTimeMillis();
+        this.queryQueue = queryQueue;
+        this.future = new CompletableFuture<>();
     }
 
-    public boolean waitSignal(long queryTimeoutMillis) throws InterruptedException {
-        this.tokenLock.lock();
+    public void setQueueMsg(String msg) {
+        this.queueMsg = msg;
+    }
+
+    public void setTokenState(TokenState tokenState) {
+        this.tokenState = tokenState;
+    }
+
+    public String getQueueMsg() {
+        return queueMsg;
+    }
+
+    public void get(String queryId, int queryTimeout) throws UserException {
+        if (isReadyToRun()) {
+            return;
+        }
+        long waitTimeout = queueWaitTimeout > 0 ? Math.min(queueWaitTimeout, queryTimeout) : queryTimeout;
+        waitTimeout = waitTimeout <= 0 ? 4096 : waitTimeout;
         try {
-            if (isTimeout) {
-                return false;
-            }
-            if (tokenState == TokenState.READY_TO_RUN) {
-                return true;
-            }
-            // If query timeout is less than queue wait timeout, then should use
-            // query timeout as wait timeout
-            long waitTimeout = queryTimeoutMillis > queueWaitTimeout ? queueWaitTimeout : queryTimeoutMillis;
-            tokenCond.await(waitTimeout, TimeUnit.MILLISECONDS);
-            // If wait timeout and is steal not ready to run, then return false
-            if (tokenState != TokenState.READY_TO_RUN) {
-                LOG.warn("wait in queue timeout, timeout = {}", waitTimeout);
-                isTimeout = true;
-                return false;
-            } else {
-                return true;
-            }
+            future.get(waitTimeout, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            throw new UserException("query queue timeout, timeout: " + waitTimeout + " ms ");
+        } catch (CancellationException e) {
+            throw new UserException("query is cancelled");
         } catch (Throwable t) {
-            LOG.warn("meet execption when wait for signal", t);
-            // If any exception happens, set isTimeout to true and return false
-            // Then the caller will call returnToken to queue normally.
-            offerResultDetail = "meet exeption when wait for signal";
-            isTimeout = true;
-            return false;
-        } finally {
-            this.tokenLock.unlock();
+            String errMsg = String.format("error happens when query {} queue", queryId);
+            LOG.error(errMsg, t);
+            throw new RuntimeException(errMsg, t);
         }
     }
 
-    public boolean signal() {
-        this.tokenLock.lock();
-        try {
-            // If current token is not ENQUEUE_SUCCESS, then it maybe has error
-            // not run it any more.
-            if (this.tokenState != TokenState.ENQUEUE_SUCCESS || isTimeout) {
-                return false;
-            }
-            this.tokenState = TokenState.READY_TO_RUN;
-            tokenCond.signal();
-            return true;
-        } catch (Throwable t) {
-            isTimeout = true;
-            offerResultDetail = "meet exception when signal";
-            LOG.warn("failed to signal token", t);
-            return false;
-        } finally {
-            this.tokenLock.unlock();
-        }
+    public void complete() {
+        this.queueEndTime = System.currentTimeMillis();
+        this.tokenState = TokenState.READY_TO_RUN;
+        this.setQueueMsg("RUNNING");
+        future.complete(null);
     }
 
-    public String getOfferResultDetail() {
-        return offerResultDetail;
+    public void notifyWaitQuery() {
+        this.queryQueue.notifyWaitQuery();
+    }
+
+    public void cancel() {
+        future.cancel(true);
+    }
+
+    public long getQueueStartTime() {
+        return queueStartTime;
+    }
+
+    public long getQueueEndTime() {
+        return queueEndTime;
     }
 
     public boolean isReadyToRun() {
-        return this.tokenState == TokenState.READY_TO_RUN;
+        return tokenState == TokenState.READY_TO_RUN;
     }
 
     @Override

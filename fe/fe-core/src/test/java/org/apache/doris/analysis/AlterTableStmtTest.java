@@ -52,11 +52,11 @@ public class AlterTableStmtTest {
                 minTimes = 0;
                 result = true;
 
-                accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -122,5 +122,28 @@ public class AlterTableStmtTest {
         Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` ENABLE FEATURE \"sequence_load\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
                 stmt.toSql());
         Assert.assertEquals("testDb", stmt.getTbl().getDb());
+    }
+
+    @Test
+    public void testCreateIndex() throws UserException {
+        List<AlterClause> ops = Lists.newArrayList();
+        ops.add(new CreateIndexClause(
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"),
+                new IndexDef("index1", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "balabala"),
+                true));
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` ADD INDEX `index1` (`col1`) USING INVERTED COMMENT 'balabala'",
+                stmt.toSql());
+    }
+
+    @Test
+    public void testDropIndex() throws UserException {
+        List<AlterClause> ops = Lists.newArrayList();
+        ops.add(new DropIndexClause("index1", false,
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"), true));
+        AlterTableStmt stmt = new AlterTableStmt(new TableName(internalCtl, "testDb", "testTbl"), ops);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` DROP INDEX `index1`", stmt.toSql());
     }
 }

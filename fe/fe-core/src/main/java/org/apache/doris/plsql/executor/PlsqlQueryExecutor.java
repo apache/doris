@@ -53,6 +53,7 @@ public class PlsqlQueryExecutor implements QueryExecutor {
                 return new QueryResult(new DorisRowResult(executor.getCoord(), executor.getColumns(),
                         executor.getReturnTypes()), () -> metadata(executor), processor, null);
             } else {
+                // If ResultExpr is empty, not need to return result in plsql.Stmt.statement()
                 return new QueryResult(new DorisRowResult(executor.getCoord(), executor.getColumns(), null),
                         null, processor, null);
             }

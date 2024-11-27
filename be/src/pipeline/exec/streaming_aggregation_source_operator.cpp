@@ -21,7 +21,6 @@
 
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
-#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"

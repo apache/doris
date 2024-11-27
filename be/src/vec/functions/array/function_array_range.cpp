@@ -168,9 +168,9 @@ struct RangeImplUtil {
         dest_nested_column->reserve(input_rows_count);
         dest_nested_null_map.reserve(input_rows_count);
 
-        vector(start_column->get_data(), end_column->get_data(), step_column->get_data(),
-               args_null_map->get_data(), nested_column->get_data(), dest_nested_null_map,
-               dest_offsets);
+        RETURN_IF_ERROR(vector(start_column->get_data(), end_column->get_data(),
+                               step_column->get_data(), args_null_map->get_data(),
+                               nested_column->get_data(), dest_nested_null_map, dest_offsets));
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(dest_array_column_ptr), std::move(args_null_map));
@@ -178,11 +178,12 @@ struct RangeImplUtil {
     }
 
 private:
-    static void vector(const PaddedPODArray<SourceDataType>& start,
-                       const PaddedPODArray<SourceDataType>& end, const PaddedPODArray<Int32>& step,
-                       NullMap& args_null_map, PaddedPODArray<SourceDataType>& nested_column,
-                       PaddedPODArray<UInt8>& dest_nested_null_map,
-                       ColumnArray::Offsets64& dest_offsets) {
+    static Status vector(const PaddedPODArray<SourceDataType>& start,
+                         const PaddedPODArray<SourceDataType>& end,
+                         const PaddedPODArray<Int32>& step, NullMap& args_null_map,
+                         PaddedPODArray<SourceDataType>& nested_column,
+                         PaddedPODArray<UInt8>& dest_nested_null_map,
+                         ColumnArray::Offsets64& dest_offsets) {
         int rows = start.size();
         for (auto row = 0; row < rows; ++row) {
             auto idx = start[row];
@@ -195,6 +196,13 @@ private:
                     dest_offsets.push_back(dest_offsets.back());
                     continue;
                 } else {
+                    if (idx < end_row && step_row > 0 &&
+                        ((static_cast<__int128_t>(end_row) - static_cast<__int128_t>(step_row) -
+                          1) / static_cast<__int128_t>(step_row) +
+                         1) > max_array_size_as_field) {
+                        return Status::InvalidArgument("Array size exceeds the limit {}",
+                                                       max_array_size_as_field);
+                    }
                     int offset = dest_offsets.back();
                     while (idx < end[row]) {
                         nested_column.push_back(idx);
@@ -219,11 +227,17 @@ private:
                     using UNIT = std::conditional_t<std::is_same_v<TimeUnitOrVoid, void>,
                                                     std::integral_constant<TimeUnit, TimeUnit::DAY>,
                                                     TimeUnitOrVoid>;
+                    int move = 0;
                     while (doris::datetime_diff<UNIT::value, DateTimeV2ValueType,
                                                 DateTimeV2ValueType>(idx, end_row) > 0) {
+                        if (move > max_array_size_as_field) {
+                            return Status::InvalidArgument("Array size exceeds the limit {}",
+                                                           max_array_size_as_field);
+                        }
                         nested_column.push_back(idx);
                         dest_nested_null_map.push_back(0);
                         offset++;
+                        move++;
                         idx = doris::vectorized::date_time_add<
                                 UNIT::value, DateV2Value<DateTimeV2ValueType>,
                                 DateV2Value<DateTimeV2ValueType>, DateTimeV2>(idx, step_row,
@@ -233,6 +247,7 @@ private:
                 }
             }
         }
+        return Status::OK();
     }
 };
 

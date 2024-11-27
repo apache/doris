@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -174,15 +175,20 @@ TEST(function_string_test, function_string_repeat_test) {
     std::string func_name = "repeat";
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
 
-    DataSet data_set = {
-            {{std::string("a"), 3}, std::string("aaa")},
-            {{std::string("hel lo"), 2}, std::string("hel lohel lo")},
-            {{std::string("hello word"), -1}, std::string("")},
-            {{std::string(""), 1}, std::string("")},
-            {{std::string("a"), 1073741825}, std::string("aaaaaaaaaa")}, // ut repeat max num 10
-            {{std::string("HELLO,!^%"), 2}, std::string("HELLO,!^%HELLO,!^%")},
-            {{std::string("你"), 2}, std::string("你你")}};
+    DataSet data_set = {{{std::string("a"), 3}, std::string("aaa")},
+                        {{std::string("hel lo"), 2}, std::string("hel lohel lo")},
+                        {{std::string("hello word"), -1}, std::string("")},
+                        {{std::string(""), 1}, std::string("")},
+                        {{std::string("HELLO,!^%"), 2}, std::string("HELLO,!^%HELLO,!^%")},
+                        {{std::string("你"), 2}, std::string("你你")}};
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    {
+        DataSet data_set = {{{std::string("a"), 1073741825},
+                             std::string("aaaaaaaaaa")}}; // ut repeat max num 10
+        Status st = check_function<DataTypeString, true>(func_name, input_types, data_set, true);
+        EXPECT_NE(Status::OK(), st);
+    }
 }
 
 TEST(function_string_test, function_string_reverse_test) {
@@ -207,6 +213,18 @@ TEST(function_string_test, function_string_length_test) {
                         {{std::string("")}, int32_t(0)}};
 
     static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+}
+
+TEST(function_string_test, function_string_quote_test) {
+    std::string func_name = "quote";
+    InputTypeSet input_types = {TypeIndex::String};
+    DataSet data_set = {{{std::string("hello")}, std::string(R"('hello')")},
+                        {{std::string("hello\t\n\nworld")}, std::string("'hello\t\n\nworld'")},
+                        {{std::string("HELLO,!^%")}, std::string("'HELLO,!^%'")},
+                        {{std::string("MYtestStr\\t\\n")}, std::string("'MYtestStr\\t\\n'")},
+                        {{std::string("")}, std::string("''")},
+                        {{Null()}, Null()}};
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
 TEST(function_string_test, function_append_trailing_char_if_absent_test) {
@@ -265,7 +283,7 @@ TEST(function_string_test, function_lpad_test) {
                         {{std::string("hi"), 0, std::string("?")}, std::string("")},
                         {{std::string("hi"), -1, std::string("?")}, Null()},
                         {{std::string("h"), 1, std::string("")}, std::string("h")},
-                        {{std::string("hi"), 5, std::string("")}, Null()},
+                        {{std::string("hi"), 5, std::string("")}, std::string("")},
                         {{std::string("hi"), 5, std::string("ab")}, std::string("abahi")},
                         {{std::string("hi"), 5, std::string("呵呵")}, std::string("呵呵呵hi")},
                         {{std::string("呵呵"), 5, std::string("hi")}, std::string("hih呵呵")}};
@@ -286,7 +304,7 @@ TEST(function_string_test, function_rpad_test) {
                         {{std::string("hi"), 0, std::string("?")}, std::string("")},
                         {{std::string("hi"), -1, std::string("?")}, Null()},
                         {{std::string("h"), 1, std::string("")}, std::string("h")},
-                        {{std::string("hi"), 5, std::string("")}, Null()},
+                        {{std::string("hi"), 5, std::string("")}, std::string("")},
                         {{std::string("hi"), 5, std::string("ab")}, std::string("hiaba")},
                         {{std::string("hi"), 5, std::string("呵呵")}, std::string("hi呵呵呵")},
                         {{std::string("呵呵"), 5, std::string("hi")}, std::string("呵呵hih")}};
@@ -447,11 +465,11 @@ TEST(function_string_test, function_concat_ws_test) {
     {
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::Array, TypeIndex::String};
 
-        Array vec1 = {Field("", 0), Field("", 0), Field("", 0)};
-        Array vec2 = {Field("123", 3), Field("456", 3), Field("789", 3)};
-        Array vec3 = {Field("", 0), Field("?", 1), Field("", 0)};
-        Array vec4 = {Field("abc", 3), Field("", 0), Field("def", 3)};
-        Array vec5 = {Field("abc", 3), Field("def", 3), Field("ghi", 3)};
+        Array vec1 = {Field(String("", 0)), Field(String("", 0)), Field(String("", 0))};
+        Array vec2 = {Field(String("123", 3)), Field(String("456", 3)), Field(String("789", 3))};
+        Array vec3 = {Field(String("", 0)), Field(String("?", 1)), Field(String("", 0))};
+        Array vec4 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
+        Array vec5 = {Field(String("abc", 3)), Field(String("def", 3)), Field(String("ghi", 3))};
         DataSet data_set = {{{std::string("-"), vec1}, std::string("--")},
                             {{std::string(""), vec2}, std::string("123456789")},
                             {{std::string("-"), vec3}, std::string("-?-")},
@@ -1137,6 +1155,24 @@ TEST(function_string_test, function_replace) {
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
+TEST(function_string_test, function_replace_empty) {
+    std::string func_name = "replace_empty";
+    InputTypeSet input_types = {
+            TypeIndex::String,
+            TypeIndex::String,
+            TypeIndex::String,
+    };
+    DataSet data_set = {
+            {{Null(), VARCHAR("9090"), VARCHAR("")}, {Null()}},
+            {{VARCHAR("http://www.baidu.com:9090"), VARCHAR("9090"), VARCHAR("")},
+             {VARCHAR("http://www.baidu.com:")}},
+            {{VARCHAR("aaaaa"), VARCHAR("a"), VARCHAR("")}, {VARCHAR("")}},
+            {{VARCHAR("abc"), VARCHAR(""), VARCHAR("xyz")}, {VARCHAR("xyzaxyzbxyzcxyz")}},
+            {{VARCHAR("aaaaa"), VARCHAR("aa"), VARCHAR("")}, {VARCHAR("a")}},
+            {{VARCHAR("aaaaa"), VARCHAR("aa"), VARCHAR("a")}, {VARCHAR("aaa")}}};
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
 TEST(function_string_test, function_bit_length_test) {
     std::string func_name = "bit_length";
     InputTypeSet input_types = {TypeIndex::String};
@@ -1150,6 +1186,101 @@ TEST(function_string_test, function_bit_length_test) {
                         {{std::string("313233")}, 48},
                         {{std::string("EFBC9F")}, 48}};
     static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+}
+
+TEST(function_string_test, function_uuid_test) {
+    {
+        std::string func_name = "uuid_to_int";
+        InputTypeSet input_types = {TypeIndex::String};
+        uint64_t high = 9572195551486940809ULL;
+        uint64_t low = 1759290071393952876ULL;
+        __int128 result = (__int128)high * (__int128)10000000000000000000ULL + (__int128)low;
+        DataSet data_set = {{{Null()}, Null()},
+                            {{std::string("6ce4766f-6783-4b30-b357-bba1c7600348")}, result},
+                            {{std::string("6ce4766f67834b30b357bba1c7600348")}, result},
+                            {{std::string("ffffffff-ffff-ffff-ffff-ffffffffffff")}, (__int128)-1},
+                            {{std::string("00000000-0000-0000-0000-000000000000")}, (__int128)0},
+                            {{std::string("123")}, Null()}};
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    }
+    {
+        std::string func_name = "int_to_uuid";
+        InputTypeSet input_types = {TypeIndex::Int128};
+        uint64_t high = 9572195551486940809ULL;
+        uint64_t low = 1759290071393952876ULL;
+        __int128 value = (__int128)high * (__int128)10000000000000000000ULL + (__int128)low;
+        DataSet data_set = {{{Null()}, Null()},
+                            {{value}, std::string("6ce4766f-6783-4b30-b357-bba1c7600348")},
+                            {{(__int128)-1}, std::string("ffffffff-ffff-ffff-ffff-ffffffffffff")},
+                            {{(__int128)0}, std::string("00000000-0000-0000-0000-000000000000")}};
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(function_string_test, function_strcmp_test) {
+    std::string func_name = "strcmp";
+    {
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+
+        DataSet data_set = {{{Null(), Null()}, Null()},
+                            {{std::string(""), std::string("")}, (int8_t)0},
+                            {{std::string("test"), std::string("test")}, (int8_t)0},
+                            {{std::string("test1"), std::string("test")}, (int8_t)1},
+                            {{std::string("test"), std::string("test1")}, (int8_t)-1},
+                            {{Null(), std::string("test")}, Null()},
+                            {{std::string("test"), Null()}, Null()},
+                            {{VARCHAR(""), VARCHAR("")}, (int8_t)0},
+                            {{VARCHAR("test"), VARCHAR("test")}, (int8_t)0},
+                            {{VARCHAR("test1"), VARCHAR("test")}, (int8_t)1},
+                            {{VARCHAR("test"), VARCHAR("test1")}, (int8_t)-1},
+                            {{Null(), VARCHAR("test")}, Null()},
+                            {{VARCHAR("test"), Null()}, Null()}};
+        static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {Consted {TypeIndex::String}, TypeIndex::String};
+        DataSet data_set = {{{Null(), Null()}, Null()},
+                            {{std::string(""), std::string("")}, (int8_t)0},
+                            {{std::string("test"), std::string("test")}, (int8_t)0},
+                            {{std::string("test1"), std::string("test")}, (int8_t)1},
+                            {{std::string("test"), std::string("test1")}, (int8_t)-1},
+                            {{Null(), std::string("test")}, Null()},
+                            {{std::string("test"), Null()}, Null()},
+                            {{VARCHAR(""), VARCHAR("")}, (int8_t)0},
+                            {{VARCHAR("test"), VARCHAR("test")}, (int8_t)0},
+                            {{VARCHAR("test1"), VARCHAR("test")}, (int8_t)1},
+                            {{VARCHAR("test"), VARCHAR("test1")}, (int8_t)-1},
+                            {{Null(), VARCHAR("test")}, Null()},
+                            {{VARCHAR("test"), Null()}, Null()}};
+
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeInt8, true>(func_name, input_types, const_dataset));
+        }
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::String, Consted {TypeIndex::String}};
+        DataSet data_set = {{{Null(), Null()}, Null()},
+                            {{std::string(""), std::string("")}, (int8_t)0},
+                            {{std::string("test"), std::string("test")}, (int8_t)0},
+                            {{std::string("test1"), std::string("test")}, (int8_t)1},
+                            {{std::string("test"), std::string("test1")}, (int8_t)-1},
+                            {{Null(), std::string("test")}, Null()},
+                            {{std::string("test"), Null()}, Null()},
+                            {{VARCHAR(""), VARCHAR("")}, (int8_t)0},
+                            {{VARCHAR("test"), VARCHAR("test")}, (int8_t)0},
+                            {{VARCHAR("test1"), VARCHAR("test")}, (int8_t)1},
+                            {{VARCHAR("test"), VARCHAR("test1")}, (int8_t)-1},
+                            {{Null(), VARCHAR("test")}, Null()},
+                            {{VARCHAR("test"), Null()}, Null()}};
+
+        for (const auto& line : data_set) {
+            DataSet const_dataset = {line};
+            static_cast<void>(
+                    check_function<DataTypeInt8, true>(func_name, input_types, const_dataset));
+        }
+    }
 }
 
 } // namespace doris::vectorized

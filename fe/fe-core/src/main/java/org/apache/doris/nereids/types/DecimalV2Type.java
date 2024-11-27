@@ -173,6 +173,10 @@ public class DecimalV2Type extends FractionalType {
         return scale;
     }
 
+    public int getRange() {
+        return precision - scale;
+    }
+
     @Override
     public DataType conversion() {
         if (Config.enable_decimal_conversion && shouldConversion) {

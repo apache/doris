@@ -21,12 +21,12 @@
 #include <CLucene/util/bkd/bkd_reader.h>
 
 #include "common/config.h"
-#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 
 namespace doris::segment_v2 {
-Status FulltextIndexSearcherBuilder::build(DorisCompoundReader* directory,
+Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
                                            OptionalIndexSearcherPtr& output_searcher) {
     auto close_directory = true;
     lucene::index::IndexReader* reader = nullptr;
@@ -44,6 +44,7 @@ Status FulltextIndexSearcherBuilder::build(DorisCompoundReader* directory,
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "FulltextIndexSearcherBuilder build index_searcher error.");
     }
+    reader_size = reader->getTermInfosRAMUsed();
     // NOTE: need to cl_refcount-- here, so that directory will be deleted when
     // index_searcher is destroyed
     _CLDECDELETE(directory)
@@ -51,15 +52,14 @@ Status FulltextIndexSearcherBuilder::build(DorisCompoundReader* directory,
     return Status::OK();
 }
 
-Status BKDIndexSearcherBuilder::build(DorisCompoundReader* directory,
+Status BKDIndexSearcherBuilder::build(lucene::store::Directory* directory,
                                       OptionalIndexSearcherPtr& output_searcher) {
     try {
         auto close_directory = true;
         auto bkd_reader =
                 std::make_shared<lucene::util::bkd::bkd_reader>(directory, close_directory);
         if (!bkd_reader->open()) {
-            LOG(INFO) << "bkd index file " << directory->getPath() + "/" + directory->getFileName()
-                      << " is empty";
+            LOG(INFO) << "bkd index file " << directory->toString() << " is empty";
         }
         output_searcher = bkd_reader;
         _CLDECDELETE(directory)
@@ -94,7 +94,8 @@ Result<std::unique_ptr<IndexSearcherBuilder>> IndexSearcherBuilder::create_index
     return index_builder;
 }
 
-Result<IndexSearcherPtr> IndexSearcherBuilder::get_index_searcher(DorisCompoundReader* directory) {
+Result<IndexSearcherPtr> IndexSearcherBuilder::get_index_searcher(
+        lucene::store::Directory* directory) {
     OptionalIndexSearcherPtr result;
     auto st = build(directory, result);
     if (!st.ok()) {
@@ -106,7 +107,6 @@ Result<IndexSearcherPtr> IndexSearcherBuilder::get_index_searcher(DorisCompoundR
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "InvertedIndexSearcherCache build error."));
     }
-    directory->getDorisIndexInput()->setIdxFileCache(false);
     return *result;
 }
 } // namespace doris::segment_v2

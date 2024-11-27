@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
-import org.apache.doris.nereids.trees.expressions.functions.table.ActiveQueries;
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
@@ -30,10 +29,12 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
+import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
+import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
+import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
-import org.apache.doris.nereids.trees.expressions.functions.table.WorkloadGroups;
 
 /** TableValuedFunctionVisitor */
 public interface TableValuedFunctionVisitor<R, C> {
@@ -53,6 +54,14 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitMvInfos(MvInfos mvInfos, C context) {
         return visitTableValuedFunction(mvInfos, context);
+    }
+
+    default R visitPartitions(Partitions partitions, C context) {
+        return visitTableValuedFunction(partitions, context);
+    }
+
+    default R visitPartitionValues(PartitionValues partitionValues, C context) {
+        return visitTableValuedFunction(partitionValues, context);
     }
 
     default R visitJobs(Jobs jobs, C context) {
@@ -91,15 +100,11 @@ public interface TableValuedFunctionVisitor<R, C> {
         return visitTableValuedFunction(numbers, context);
     }
 
-    default R visitQueries(ActiveQueries queries, C context) {
-        return visitTableValuedFunction(queries, context);
-    }
-
     default R visitS3(S3 s3, C context) {
         return visitTableValuedFunction(s3, context);
     }
 
-    default R visitWorkloadGroups(WorkloadGroups workloadGroups, C context) {
-        return visitTableValuedFunction(workloadGroups, context);
+    default R visitQuery(Query query, C context) {
+        return visitTableValuedFunction(query, context);
     }
 }

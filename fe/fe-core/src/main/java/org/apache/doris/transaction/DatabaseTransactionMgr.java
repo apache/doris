@@ -23,7 +23,9 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
@@ -44,11 +46,16 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.CleanLabelOperationLog;
@@ -83,9 +90,8 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -114,18 +120,10 @@ public class DatabaseTransactionMgr {
 
     // the lock is used to control the access to transaction states
     // no other locks should be inside this lock
-    private final ReentrantReadWriteLock transactionLock = new ReentrantReadWriteLock(true);
+    private final MonitoredReentrantReadWriteLock transactionLock = new MonitoredReentrantReadWriteLock(true);
 
     // transactionId -> running TransactionState
     private final Map<Long, TransactionState> idToRunningTransactionState = Maps.newHashMap();
-
-    /**
-     * the multi table ids that are in transaction, used to check whether a table is in transaction
-     * multi table transaction state
-     * txnId -> tableId list
-     */
-    private final ConcurrentHashMap<Long, List<Long>> multiTableRunningTransactionTableIdMaps =
-            new ConcurrentHashMap<>();
 
     // transactionId -> final status TransactionState
     private final Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newHashMap();
@@ -168,8 +166,6 @@ public class DatabaseTransactionMgr {
 
     private long lockReportingThresholdMs = Config.lock_reporting_threshold_ms;
 
-    private long maxFinalTxnsNum = Long.MAX_VALUE;
-
     private void readLock() {
         this.transactionLock.readLock().lock();
     }
@@ -193,9 +189,6 @@ public class DatabaseTransactionMgr {
         this.env = env;
         this.idGenerator = idGenerator;
         this.editLog = env.getEditLog();
-        if (Config.label_num_threshold >= 0) {
-            this.maxFinalTxnsNum = Config.label_num_threshold;
-        }
     }
 
     public long getDbId() {
@@ -346,6 +339,7 @@ public class DatabaseTransactionMgr {
         if (!coordinator.isFromInternal) {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         }
+        MTMVUtil.checkModifyMTMVData(db, tableIdList, ConnectContext.get());
         checkDatabaseDataQuota();
         Preconditions.checkNotNull(coordinator);
         Preconditions.checkNotNull(label);
@@ -469,8 +463,13 @@ public class DatabaseTransactionMgr {
         checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
                           tableToPartition, totalInvolvedBackends);
 
-        unprotectedPreCommitTransaction2PC(transactionState, errorReplicaIds, tableToPartition,
-                totalInvolvedBackends, db);
+        writeLock();
+        try {
+            unprotectedPreCommitTransaction2PC(transactionState, errorReplicaIds, tableToPartition,
+                    totalInvolvedBackends, db);
+        } finally {
+            writeUnlock();
+        }
         LOG.info("transaction:[{}] successfully pre-committed", transactionState);
     }
 
@@ -501,7 +500,9 @@ public class DatabaseTransactionMgr {
         List<Long> tabletIds = tabletCommitInfos.stream()
                 .map(TabletCommitInfo::getTabletId).collect(Collectors.toList());
         List<TabletMeta> tabletMetaList = tabletInvertedIndex.getTabletMetaList(tabletIds);
+        HashMap<Long, Boolean> tableIdtoRestoring = new HashMap<>();
         for (int i = 0; i < tabletMetaList.size(); i++) {
+            // get partition and table of this tablet
             TabletMeta tabletMeta = tabletMetaList.get(i);
             if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
                 continue;
@@ -510,21 +511,43 @@ public class DatabaseTransactionMgr {
             long tableId = tabletMeta.getTableId();
             OlapTable tbl = (OlapTable) idToTable.get(tableId);
             if (tbl == null) {
-                // this can happen when tableId == -1 (tablet being dropping)
-                // or table really not exist.
+                // this can happen when tableId == -1 (tablet being dropping) or table really not exist.
                 continue;
             }
 
-            if (tbl.getState() == OlapTable.OlapTableState.RESTORE) {
-                throw new LoadException("Table " + tbl.getName() + " is in restore process. "
-                        + "Can not load into it");
-            }
-
+            // check relative partition restore here
             long partitionId = tabletMeta.getPartitionId();
             if (tbl.getPartition(partitionId) == null) {
-                // this can happen when partitionId == -1 (tablet being dropping)
-                // or partition really not exist.
+                // this can happen when partitionId == -1 (tablet being dropping) or partition really not exist.
                 continue;
+            }
+            if (tbl.getPartition(partitionId).getState() == PartitionState.RESTORE) {
+                // partition in restore process which can not load data
+                throw new LoadException("Table [" + tbl.getName() + "], Partition ["
+                        + tbl.getPartition(partitionId).getName() + "] is in restore process. Can not load into it");
+            }
+
+            // only do check when here's restore on this table now
+            if (tbl.getState() == OlapTableState.RESTORE) {
+                boolean hasPartitionRestoring = false;
+                if (tableIdtoRestoring.containsKey(tableId)) {
+                    hasPartitionRestoring = tableIdtoRestoring.get(tableId);
+                } else {
+                    for (Partition partition : tbl.getPartitions()) {
+                        if (partition.getState() == PartitionState.RESTORE) {
+                            hasPartitionRestoring = true;
+                            break;
+                        }
+                    }
+                    tableIdtoRestoring.put(tableId, hasPartitionRestoring);
+                }
+                // tbl RESTORE && all partition NOT RESTORE -> whole table restore
+                // tbl RESTORE && some partition RESTORE -> just partitions restore, NOT WHOLE TABLE
+                // so check wether the whole table restore here
+                if (!hasPartitionRestoring) {
+                    throw new LoadException(
+                            "Table " + tbl.getName() + " is in restore process. " + "Can not load into it");
+                }
             }
 
             if (!tableToPartition.containsKey(tableId)) {
@@ -620,6 +643,14 @@ public class DatabaseTransactionMgr {
 
                         int successReplicaNum = tabletSuccReplicas.size();
                         if (successReplicaNum < loadRequiredReplicaNum) {
+                            long now = System.currentTimeMillis();
+                            long lastLoadFailedTime = tablet.getLastLoadFailedTime();
+                            tablet.setLastLoadFailedTime(now);
+                            if (now - lastLoadFailedTime >= 5000L) {
+                                Env.getCurrentEnv().getTabletScheduler().tryAddRepairTablet(
+                                        tablet, db.getId(), table, partition, index, 0);
+                            }
+
                             String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
                                     tabletVersionFailedReplicas);
 
@@ -988,7 +1019,12 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public void finishTransaction(long transactionId) throws UserException {
+    public void finishTransaction(long transactionId, Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) throws UserException {
+        if (DebugPointUtil.isEnable("DatabaseTransactionMgr.stop_finish_transaction")) {
+            return;
+        }
+
         TransactionState transactionState = null;
         readLock();
         try {
@@ -1033,6 +1069,7 @@ public class DatabaseTransactionMgr {
                 transactionState.setFinishTime(System.currentTimeMillis());
                 transactionState.clearErrorMsg();
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
+                setTableVersion(transactionState, db);
                 unprotectUpsertTransactionState(transactionState, false);
                 txnOperated = true;
                 // TODO(cmy): We found a very strange problem. When delete-related transactions are processed here,
@@ -1050,10 +1087,21 @@ public class DatabaseTransactionMgr {
                     LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
                 }
             }
-            updateCatalogAfterVisible(transactionState, db);
+            updateCatalogAfterVisible(transactionState, db, partitionVisibleVersions, backendPartitions);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
+        // Here, we only wait for the EventProcessor to finish processing the event,
+        // but regardless of the success or failure of the result,
+        // it does not affect the logic of transaction
+        try {
+            produceEvent(transactionState, db);
+        } catch (Throwable t) {
+            // According to normal logic, no exceptions will be thrown,
+            // but in order to avoid bugs affecting the original logic, all exceptions are caught
+            LOG.warn("produceEvent failed: ", t);
+        }
+
         // The visible latch should only be counted down after all things are done
         // (finish transaction, write edit log, etc).
         // Otherwise, there is no way for stream load to query the result right after loading finished,
@@ -1061,6 +1109,35 @@ public class DatabaseTransactionMgr {
         transactionState.countdownVisibleLatch();
         LOG.info("finish transaction {} successfully, publish times {}, publish result {}",
                 transactionState, transactionState.getPublishCount(), publishResult.name());
+    }
+
+    private void setTableVersion(TransactionState transactionState, Database db) {
+        Map<Long, TableCommitInfo> idToTableCommitInfos = transactionState.getIdToTableCommitInfos();
+        for (Entry<Long, TableCommitInfo> entry : idToTableCommitInfos.entrySet()) {
+            OlapTable table = (OlapTable) db.getTableNullable(entry.getKey());
+            if (table == null) {
+                LOG.warn("table {} does not exist when setTableVersion. transaction: {}, db: {}",
+                        entry.getKey(), transactionState.getTransactionId(), db.getId());
+                continue;
+            }
+            entry.getValue().setVersion(table.getNextVersion());
+            entry.getValue().setVersionTime(System.currentTimeMillis());
+        }
+    }
+
+    private void produceEvent(TransactionState transactionState, Database db) throws AnalysisException {
+        Collection<TableCommitInfo> tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
+        for (TableCommitInfo tableCommitInfo : tableCommitInfos) {
+            long tableId = tableCommitInfo.getTableId();
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            if (table == null) {
+                LOG.warn("table {} does not exist when produceEvent. transaction: {}, db: {}",
+                        tableId, transactionState.getTransactionId(), db.getId());
+                continue;
+            }
+            Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new DataChangeEvent(db.getCatalog().getId(), db.getId(), tableId));
+        }
     }
 
     private boolean finishCheckPartitionVersion(TransactionState transactionState, Database db,
@@ -1114,6 +1191,45 @@ public class DatabaseTransactionMgr {
         return true;
     }
 
+    private class TabletsPublishResultLogs {
+        public List<String> quorumSuccLogs = Lists.newArrayList();
+        public List<String> timeoutSuccLogs = Lists.newArrayList();
+        public List<String> failedLogs = Lists.newArrayList();
+
+        public void addQuorumSuccLog(String log) {
+            if (quorumSuccLogs.size() < 16) {
+                quorumSuccLogs.add(log);
+            }
+        }
+
+        public void addTimeoutSuccLog(String log) {
+            if (timeoutSuccLogs.size() < 16) {
+                timeoutSuccLogs.add(log);
+            }
+        }
+
+        public void addFailedLog(String log) {
+            if (failedLogs.size() < 16) {
+                failedLogs.add(log);
+            }
+        }
+
+        public void log() {
+            // log failed logs
+            for (String log : failedLogs) {
+                LOG.info(log);
+            }
+            // log timeout succ logs
+            for (String log : timeoutSuccLogs) {
+                LOG.info(log);
+            }
+            // log quorum succ logs
+            for (String log : quorumSuccLogs) {
+                LOG.info(log);
+            }
+        }
+    }
+
     private PublishResult finishCheckQuorumReplicas(TransactionState transactionState,
             List<Pair<OlapTable, Partition>> relatedTblPartitions,
             Set<Long> errorReplicaIds) {
@@ -1128,7 +1244,7 @@ public class DatabaseTransactionMgr {
         List<Replica> tabletSuccReplicas = Lists.newArrayList();
         List<Replica> tabletWriteFailedReplicas = Lists.newArrayList();
         List<Replica> tabletVersionFailedReplicas = Lists.newArrayList();
-        List<String> logs = Lists.newArrayList();
+        TabletsPublishResultLogs logs = new TabletsPublishResultLogs();
 
         Map<Long, PublishVersionTask> publishTasks = transactionState.getPublishVersionTasks();
         PublishResult publishResult = PublishResult.QUORUM_SUCC;
@@ -1179,12 +1295,13 @@ public class DatabaseTransactionMgr {
                         if (hasFailedReplica) {
                             String writeDetail = getTabletWriteDetail(tabletSuccReplicas,
                                     tabletWriteFailedReplicas, tabletVersionFailedReplicas);
-                            logs.add(String.format("publish version quorum succ for transaction %s on tablet %s"
-                                    + " with version %s, and has failed replicas, load require replica num %s. "
-                                    + "table %s, partition: [ id=%s, commit version=%s ], tablet detail: %s",
+                            logs.addQuorumSuccLog(String.format("publish version quorum succ for transaction %s "
+                                    + "on tablet %s with version %s, and has failed replicas, load require replica "
+                                    + "num %s. table %s, partition: [ id=%s, commit version=%s ], tablet detail: %s",
                                     transactionState, tablet.getId(), newVersion, loadRequiredReplicaNum, tableId,
                                     partitionId, partition.getCommittedVersion(), writeDetail));
                         }
+                        tablet.setLastLoadFailedTime(-1L);
                         continue;
                     }
 
@@ -1203,9 +1320,9 @@ public class DatabaseTransactionMgr {
                         // that are being publised exists on a few replicas we should go
                         // ahead, otherwise data may be lost and thre
                         // publish task hangs forever.
-                        logs.add(String.format("publish version timeout succ for transaction %s on tablet %s "
-                                + "with version %s, and has failed replicas, load require replica num %s. "
-                                + "table %s, partition %s, tablet detail: %s",
+                        logs.addTimeoutSuccLog(String.format("publish version timeout succ for transaction %s "
+                                + "on tablet %s with version %s, and has failed replicas, load require replica num %s."
+                                + " table %s, partition %s, tablet detail: %s",
                                 transactionState, tablet.getId(), newVersion,
                                 loadRequiredReplicaNum, tableId, partitionId, writeDetail));
                     } else {
@@ -1216,8 +1333,8 @@ public class DatabaseTransactionMgr {
                                 tablet.getId(), healthReplicaNum, loadRequiredReplicaNum, tableId,
                                 partitionId, newVersion);
                         transactionState.setErrorMsg(errMsg);
-                        logs.add(String.format("publish version failed for transaction %s on tablet %s with version"
-                                + " %s, and has failed replicas, load required replica num %s. table %s, "
+                        logs.addQuorumSuccLog(String.format("publish version failed for transaction %s on tablet %s "
+                                + " with version %s, and has failed replicas, load required replica num %s. table %s, "
                                 + "partition %s, tablet detail: %s",
                                 transactionState, tablet.getId(), newVersion,
                                 loadRequiredReplicaNum, tableId, partitionId, writeDetail));
@@ -1230,10 +1347,7 @@ public class DatabaseTransactionMgr {
                 || now - transactionState.getLastPublishLogTime() > Config.publish_fail_log_interval_second * 1000L;
         if (needLog) {
             transactionState.setLastPublishLogTime(now);
-            for (String log : logs) {
-                LOG.info("{}. publish times {}, whole txn publish result {}",
-                        log, transactionState.getPublishCount(), publishResult.name());
-            }
+            logs.log();
         }
 
         return publishResult;
@@ -1316,8 +1430,7 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
-                    System.currentTimeMillis());
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 String partitionRange = "";
@@ -1325,7 +1438,8 @@ public class DatabaseTransactionMgr {
                         || tblPartitionInfo.getType() == PartitionType.LIST) {
                     partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
                 }
-                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange, -1, -1);
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange, -1, -1,
+                        table.isTemporaryPartition(partitionId));
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
@@ -1357,8 +1471,7 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
-                    System.currentTimeMillis());
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
@@ -1369,7 +1482,8 @@ public class DatabaseTransactionMgr {
                 }
                 PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange,
                         partition.getNextVersion(),
-                        System.currentTimeMillis() /* use as partition visible time */);
+                        System.currentTimeMillis() /* use as partition visible time */,
+                        table.isTemporaryPartition(partitionId));
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
@@ -1387,7 +1501,7 @@ public class DatabaseTransactionMgr {
     protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PRECOMMITTED) {
-            LOG.warn("Unknow exception. state of transaction [{}] changed, failed to commit transaction",
+            LOG.warn("Unknown exception. state of transaction [{}] changed, failed to commit transaction",
                     transactionState.getTransactionId());
             return;
         }
@@ -1713,7 +1827,7 @@ public class DatabaseTransactionMgr {
                 break;
             }
         }
-        while (finalStatusTransactionStateDeque.size() > maxFinalTxnsNum
+        while ((Config.label_num_threshold > 0 && finalStatusTransactionStateDeque.size() > Config.label_num_threshold)
                 && numOfClearedTransaction < left) {
             TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
             if (transactionState.getFinishTime() != -1) {
@@ -1789,13 +1903,16 @@ public class DatabaseTransactionMgr {
         return null;
     }
 
-    public List<Pair<Long, Long>> getTransactionIdByCoordinateBe(String coordinateHost, int limit) {
+    public List<Pair<Long, Long>> getPrepareTransactionIdByCoordinateBe(long coordinateBeId,
+            String coordinateHost, int limit) {
         ArrayList<Pair<Long, Long>> txnInfos = new ArrayList<>();
         readLock();
         try {
             idToRunningTransactionState.values().stream()
                     .filter(t -> (t.getCoordinator().sourceType == TransactionState.TxnSourceType.BE
-                            && t.getCoordinator().ip.equals(coordinateHost)))
+                            && t.getTransactionStatus() == TransactionStatus.PREPARE
+                            && t.getCoordinator().ip.equals(coordinateHost)
+                            && (t.getCoordinator().id == 0 || t.getCoordinator().id == coordinateBeId)))
                     .limit(limit)
                     .forEach(t -> txnInfos.add(Pair.of(t.getDbId(), t.getTransactionId())));
         } finally {
@@ -1821,8 +1938,10 @@ public class DatabaseTransactionMgr {
                 for (Long tblId : tblIds) {
                     Table tbl = db.getTableNullable(tblId);
                     if (tbl != null) {
-                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), db.getFullName(),
-                                tbl.getName(), PrivPredicate.SHOW)) {
+                        if (!Env.getCurrentEnv().getAccessManager()
+                                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                        db.getFullName(),
+                                        tbl.getName(), PrivPredicate.SHOW)) {
                             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                                     "SHOW TRANSACTION",
                                     ConnectContext.get().getQualifiedUser(),
@@ -1920,7 +2039,8 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db) {
+    private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db,
+            Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         List<Long> newPartitionLoadedTableIds = new ArrayList<>();
@@ -1977,7 +2097,16 @@ public class DatabaseTransactionMgr {
                                     lastFailedVersion = newCommitVersion;
                                 }
                             }
-                            replica.updateVersionWithFailedInfo(newVersion, lastFailedVersion, lastSuccessVersion);
+                            replica.updateVersionWithFailed(newVersion, lastFailedVersion, lastSuccessVersion);
+                            if (newVersion == Partition.PARTITION_INIT_VERSION + 1) {
+                                index.setRowCountReported(false);
+                            }
+                            Set<Long> partitionIds = backendPartitions.get(replica.getBackendId());
+                            if (partitionIds == null) {
+                                partitionIds = Sets.newHashSet();
+                                backendPartitions.put(replica.getBackendId(), partitionIds);
+                            }
+                            partitionIds.add(partitionId);
                         }
                     }
                 } // end for indices
@@ -1988,6 +2117,7 @@ public class DatabaseTransactionMgr {
                     newPartitionLoadedTableIds.add(tableId);
                 }
                 partition.updateVisibleVersionAndTime(version, versionTime);
+                partitionVisibleVersions.put(partition.getId(), version);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("transaction state {} set partition {}'s version to [{}]",
                             transactionState, partition.getId(), version);
@@ -2026,10 +2156,8 @@ public class DatabaseTransactionMgr {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
-                                entry.getKey(), dbId, endTransactionId);
-                    }
+                    LOG.info("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
+                            entry.getKey(), dbId, endTransactionId);
                     return false;
                 }
             }
@@ -2136,7 +2264,7 @@ public class DatabaseTransactionMgr {
             if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
                 updateCatalogAfterCommitted(transactionState, db, true);
             } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                updateCatalogAfterVisible(transactionState, db);
+                updateCatalogAfterVisible(transactionState, db, Maps.newHashMap(), Maps.newHashMap());
             }
             unprotectUpsertTransactionState(transactionState, true);
         } finally {

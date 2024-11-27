@@ -53,7 +53,6 @@ suite("test_schema_change_duplicate", "p0") {
             set 'column_separator', ','
 
             file 'all_types.csv'
-            time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
@@ -201,6 +200,13 @@ suite("test_schema_change_duplicate", "p0") {
 
     sql """ insert into ${tableName3} values (10002, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 10086) """
+
+    sql """ alter table ${tableName3} drop column v14 """
+    
+    sql """ alter table ${tableName3} add column v14 bitmap after k13 """
+
+    sql """ insert into ${tableName3} values (10002, 2, 3, 4, 5, 6.6, 1.7, 8.8,
+    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', to_bitmap(243)) """
 
     sql """ alter table ${tableName3} drop column v14 """
 

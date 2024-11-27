@@ -113,6 +113,7 @@ message RowsetMetaPB {
     reserved 50;
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
+    optional int64 compaction_level = 52 [default = 0];
 }
 
 message SegmentStatisticsPB {
@@ -210,6 +211,7 @@ message ColumnPB {
     optional segment_v2.ColumnPathInfo column_path_info = 20;
     // sparse column within a variant column
     repeated ColumnPB sparse_columns = 21;
+    optional bool is_auto_increment = 22;
 }
 
 enum IndexType {
@@ -217,6 +219,11 @@ enum IndexType {
     INVERTED = 1;
     BLOOMFILTER = 2;
     NGRAM_BF = 3;
+}
+
+enum InvertedIndexStorageFormatPB {
+    V1 = 0;
+    V2 = 1;
 }
 
 message TabletIndexPB {
@@ -258,6 +265,10 @@ message TabletSchemaPB {
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_idxes = 24;
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
+    // column unique ids for row store columns
+    repeated int32 row_store_column_unique_ids = 26;
+    optional int64 row_store_page_size = 27 [default=16384];
 }
 
 enum TabletStatePB {
@@ -338,6 +349,7 @@ message TabletMetaPB {
     optional int64 time_series_compaction_file_count_threshold = 30 [default = 2000];
     optional int64 time_series_compaction_time_threshold_seconds = 31 [default = 3600];
     optional int64 time_series_compaction_empty_rowsets_threshold = 32 [default = 5];
+    optional int64 time_series_compaction_level_threshold = 33 [default = 1];
 }
 
 message OLAPRawDeltaHeaderMessage {
@@ -378,4 +390,20 @@ message RowsetBinlogMetasPB {
     }
 
     repeated RowsetBinlogMetaPB rowset_binlog_metas = 1;
+}
+
+message PartialUpdateInfoPB {
+    optional bool is_partial_update = 1 [default = false];
+    repeated string partial_update_input_columns = 2;
+    repeated uint32 missing_cids = 3;
+    repeated uint32 update_cids = 4;
+    optional bool can_insert_new_rows_in_partial_update = 5 [default = false];
+    optional bool is_strict_mode = 6 [default = false];
+    optional int64 timestamp_ms = 7 [default = 0];
+    optional string timezone = 8;
+    optional bool is_input_columns_contains_auto_inc_column = 9 [default = false];
+    optional bool is_schema_contains_auto_inc_column = 10 [default = false];
+    repeated string default_values = 11;
+    optional int64 max_version_in_flush_phase = 12 [default = -1];
+    optional int32 nano_seconds = 13 [default = 0];
 }

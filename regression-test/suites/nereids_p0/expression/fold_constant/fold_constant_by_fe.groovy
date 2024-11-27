@@ -19,6 +19,7 @@ suite("test_fold_constant_by_fe") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_fold_nondeterministic_fn=true'
+    sql 'set enable_fold_constant_by_be=false'
 
     def results = sql 'select uuid(), uuid()'
     assertFalse(Objects.equals(results[0][0], results[0][1]))
@@ -68,7 +69,7 @@ suite("test_fold_constant_by_fe") {
     test_year = [2001, 2013, 123, 1969, 2023]
     for (year in test_year) {
         for (integer in test_int) {
-            qt_sql "select /*+SET_VAR(time_zone=\"UTC+8\")*/ makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year / 10 * year * integer})"
+            qt_sql "select /*+SET_VAR(time_zone=\"Asia/Shanghai\")*/ makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year / 10 * year * integer})"
         }
     }
 
@@ -143,7 +144,7 @@ suite("test_fold_constant_by_fe") {
     // So after changing arguments of from_unixtime from int to bigint, we also changed test case to avoid precision loss cast on fe.
     for (year in test_year) {
         for (integer in test_int) {
-            res = sql "explain select /*+SET_VAR(time_zone=\"UTC+8\")*/ makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year * integer * 10})"
+            res = sql "explain select /*+SET_VAR(time_zone=\"Asia/Shanghai\")*/ makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year * integer * 10})"
             res = res.split('VUNION')[1]
             assertFalse(res.contains("makedate") || res.contains("from"))
         }
@@ -154,4 +155,97 @@ suite("test_fold_constant_by_fe") {
         res = res.split('VUNION')[1]
         assertFalse(res.contains("unix"))
     }
+
+    // test null like string cause of fe need to fold constant like that to enable not null derive
+    res = sql """explain select null like '%123%'"""
+    assertFalse(res.contains("like"))
+    // now fe fold constant still can not deal with this case
+    res = sql """explain select "12" like '%123%'"""
+    assertTrue(res.contains("like"))
+
+    // Test Case 1: Append missing trailing character
+    testFoldConst("select append_trailing_char_if_absent('hello', '!')")
+    // Expected Output: 'hello!'
+
+    // Test Case 2: Trailing character already present
+    testFoldConst("select append_trailing_char_if_absent('hello!', '!')")
+    // Expected Output: 'hello!'
+
+    // Test Case 3: Append trailing space
+    testFoldConst("select append_trailing_char_if_absent('hello', ' ')")
+    // Expected Output: 'hello '
+
+    // Test Case 4: Empty string input
+    testFoldConst("select append_trailing_char_if_absent('', '!')")
+    // Expected Output: '!'
+
+    // Test Case 5: Append different character
+    testFoldConst("select append_trailing_char_if_absent('hello', '?')")
+    // Expected Output: 'hello?'
+
+    // Test Case 6: String ends with a different character
+    testFoldConst("select append_trailing_char_if_absent('hello?', '!')")
+    // Expected Output: 'hello?!'
+
+    // Edge and Unusual Usage Test Cases
+
+    // Test Case 7: Input is NULL
+    testFoldConst("select append_trailing_char_if_absent(NULL, '!')")
+    // Expected Output: NULL
+
+    // Test Case 8: Trailing character is NULL
+    testFoldConst("select append_trailing_char_if_absent('hello', NULL)")
+    // Expected Output: NULL
+
+    // Test Case 9: Empty trailing character
+//    testFoldConst("select append_trailing_char_if_absent('hello', '')")
+    // Expected Output: Error or no change depending on implementation
+
+    // Test Case 10: Trailing character is more than 1 character long
+//    testFoldConst("select append_trailing_char_if_absent('hello', 'ab')")
+    // Expected Output: Error
+
+    // Test Case 11: Input string is a number
+    testFoldConst("select append_trailing_char_if_absent(12345, '!')")
+    // Expected Output: Error or '12345!'
+
+    // Test Case 12: Trailing character is a number
+    testFoldConst("select append_trailing_char_if_absent('hello', '1')")
+    // Expected Output: 'hello1'
+
+    // Test Case 13: Input is a single character
+    testFoldConst("select append_trailing_char_if_absent('h', '!')")
+    // Expected Output: 'h!'
+
+    // Test Case 14: Unicode character as input and trailing character
+    testFoldConst("select append_trailing_char_if_absent('こんにちは', '!')")
+    // Expected Output: 'こんにちは!'
+
+    // Test Case 15: Multibyte character as trailing character
+//    testFoldConst("select append_trailing_char_if_absent('hello', '😊')")
+    // Expected Output: 'hello😊'
+
+    // Test Case 16: Long string input
+    testFoldConst("select append_trailing_char_if_absent('This is a very long string', '.')")
+    // Expected Output: 'This is a very long string.'
+
+    // Error Handling Test Cases
+
+    // Test Case 17: Invalid trailing character data type (numeric)
+    testFoldConst("select append_trailing_char_if_absent('hello', 1)")
+    // Expected Output: Error
+
+    // Test Case 18: Invalid input data type (integer)
+    testFoldConst("select append_trailing_char_if_absent(12345, '!')")
+    // Expected Output: Error or '12345!'
+
+    // Test Case 19: Non-ASCII characters
+    testFoldConst("select append_trailing_char_if_absent('Привет', '!')")
+    // Expected Output: 'Привет!'
+
+    // Test Case 20: Trailing character with whitespace
+    testFoldConst("select append_trailing_char_if_absent('hello', ' ')")
+    // Expected Output: 'hello '
+    testFoldConst("select DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY) + INTERVAL 3600 SECOND")
+
 }

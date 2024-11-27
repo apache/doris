@@ -81,6 +81,7 @@ public:
             : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     int64_t* valid_element_in_hash_tbl() { return &_shared_state->valid_element_in_hash_tbl; }
 
 private:
@@ -130,6 +131,8 @@ public:
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
+
+    bool require_shuffled_data_distribution() const override { return true; }
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
 

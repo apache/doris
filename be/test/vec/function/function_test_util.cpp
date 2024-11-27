@@ -30,6 +30,8 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time_v2.h"
@@ -97,6 +99,14 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
     case TypeIndex::BitMap:
         desc.type = doris::PrimitiveType::TYPE_OBJECT;
         type = std::make_shared<DataTypeBitMap>();
+        return 1;
+    case TypeIndex::IPv4:
+        desc.type = doris::PrimitiveType::TYPE_IPV4;
+        type = std::make_shared<DataTypeIPv4>();
+        return 1;
+    case TypeIndex::IPv6:
+        desc.type = doris::PrimitiveType::TYPE_IPV6;
+        type = std::make_shared<DataTypeIPv6>();
         return 1;
     case TypeIndex::UInt8:
         desc.type = doris::PrimitiveType::TYPE_BOOLEAN;
@@ -242,6 +252,12 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
     } else if (type.idx == TypeIndex::BitMap) {
         BitmapValue* bitmap = any_cast<BitmapValue*>(cell);
         column->insert_data((char*)bitmap, sizeof(BitmapValue));
+    } else if (type.is_ipv4()) {
+        auto value = any_cast<ut_type::IPV4>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_ipv6()) {
+        auto value = any_cast<ut_type::IPV6>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_uint8()) {
         auto value = any_cast<ut_type::BOOLEAN>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
@@ -364,7 +380,7 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
         }
 
         do {
-            fn->get_value(column);
+            fn->get_same_many_values(column, 1);
             fn->forward();
         } while (!fn->eos());
     }

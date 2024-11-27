@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
 import org.json.simple.JSONObject;
@@ -62,21 +61,26 @@ public class Diagnoser {
         // database
         Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
-            results.add(Lists.newArrayList("Database", "Not exist", ""));
+            boolean inRecycleBin = Env.getCurrentRecycleBin().isRecycleDatabase(tabletMeta.getDbId());
+            results.add(Lists.newArrayList("Database", inRecycleBin ? "In catalog recycle bin" : "Not exist", ""));
             return results;
         }
         results.add(Lists.newArrayList("Database", db.getFullName() + ": " + db.getId(), ""));
         // table
         OlapTable tbl = (OlapTable) db.getTableNullable(tabletMeta.getTableId());
         if (tbl == null) {
-            results.add(Lists.newArrayList("Table", "Not exist", ""));
+            boolean inRecycleBin = Env.getCurrentRecycleBin().isRecycleTable(tabletMeta.getDbId(),
+                    tabletMeta.getTableId());
+            results.add(Lists.newArrayList("Table", inRecycleBin ? "In catalog recycle bin" : "Not exist", ""));
             return results;
         }
         results.add(Lists.newArrayList("Table", tbl.getName() + ": " + tbl.getId(), ""));
         // partition
         Partition partition = tbl.getPartition(tabletMeta.getPartitionId());
         if (partition == null) {
-            results.add(Lists.newArrayList("Partition", "Not exist", ""));
+            boolean inRecycleBin = Env.getCurrentRecycleBin().isRecyclePartition(tabletMeta.getDbId(),
+                    tabletMeta.getTableId(), tabletMeta.getPartitionId());
+            results.add(Lists.newArrayList("Partition", inRecycleBin ? "In catalog recycle bin" : "Not exist", ""));
             return results;
         }
         results.add(Lists.newArrayList("Partition", partition.getName() + ": " + partition.getId(), ""));
@@ -154,9 +158,9 @@ public class Diagnoser {
                         + ", and is bad: " + (replica.isBad() ? "Yes" : "No")
                         + ", and is going to drop: " + (replica.isUserDrop() ? "Yes" : "No"));
             }
-            if (replica.getVersionCount() > Config.min_version_count_indicate_replica_compaction_too_slow) {
+            if (replica.tooBigVersionCount()) {
                 compactionErr.append("Replica on backend " + replica.getBackendId() + "'s version count is too high: "
-                        + replica.getVersionCount());
+                        + replica.getVisibleVersionCount());
             }
         }
         results.add(Lists.newArrayList("ReplicaBackendStatus", (backendErr.length() == 0

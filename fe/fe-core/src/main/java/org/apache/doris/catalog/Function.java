@@ -43,6 +43,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -876,6 +877,19 @@ public class Function implements Writable {
         aggFunction.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
         aggFunction.setReturnType(fnCall.getChildren().get(0).getType());
         fnCall.setType(fnCall.getChildren().get(0).getType());
+        return fnCall;
+    }
+
+    public static FunctionCallExpr convertForEachCombinator(FunctionCallExpr fnCall) {
+        Function aggFunction = fnCall.getFn();
+        aggFunction.setName(new FunctionName(aggFunction.getFunctionName().getFunction() + Expr.AGG_FOREACH_SUFFIX));
+        List<Type> argTypes = new ArrayList();
+        for (Type type : aggFunction.argTypes) {
+            argTypes.add(new ArrayType(type));
+        }
+        aggFunction.setArgs(argTypes);
+        aggFunction.setReturnType(new ArrayType(aggFunction.getReturnType(), fnCall.isNullable()));
+        aggFunction.setNullableMode(NullableMode.ALWAYS_NULLABLE);
         return fnCall;
     }
 }

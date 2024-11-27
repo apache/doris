@@ -282,7 +282,6 @@ public class ArithmeticExpr extends Expr {
         msg.node_type = TExprNodeType.ARITHMETIC_EXPR;
         if (!(type.isDecimalV2() || type.isDecimalV3())) {
             msg.setOpcode(op.getOpcode());
-            msg.setOutputColumn(outputColumn);
         }
     }
 
@@ -292,20 +291,6 @@ public class ArithmeticExpr extends Expr {
             return false;
         }
         return ((ArithmeticExpr) obj).opcode == opcode;
-    }
-
-    @Override
-    public void computeOutputColumn(Analyzer analyzer) {
-        super.computeOutputColumn(analyzer);
-
-        List<TupleId> tupleIds = Lists.newArrayList();
-        getIds(tupleIds, null);
-        Preconditions.checkArgument(tupleIds.size() == 1);
-
-        // for (Expr child : children) {
-        //     if (child.getOutputColumn() > analyzer.getTupleDesc(tupleIds.get(0)).getSlots().size()) {
-        //     }
-        // }
     }
 
     private Type findCommonType(Type t1, Type t2) {

@@ -44,12 +44,12 @@ namespace doris {
 namespace segment_v2 {
 
 template <FieldType Type>
-class BinaryPlainPageBuilder : public PageBuilder {
+class BinaryPlainPageBuilder : public PageBuilderHelper<BinaryPlainPageBuilder<Type>> {
 public:
-    BinaryPlainPageBuilder(const PageBuilderOptions& options)
-            : _size_estimate(0), _options(options) {
-        reset();
-    }
+    using Self = BinaryPlainPageBuilder<Type>;
+    friend class PageBuilderHelper<Self>;
+
+    Status init() override { return reset(); }
 
     bool is_page_full() override {
         bool ret = false;
@@ -77,7 +77,9 @@ public:
             }
             size_t offset = _buffer.size();
             _offsets.push_back(offset);
-            _buffer.append(src->data, src->size);
+            // This may need a large memory, should return error if could not allocated
+            // successfully, to avoid BE OOM.
+            RETURN_IF_CATCH_EXCEPTION(_buffer.append(src->data, src->size));
 
             _last_value_size = src->size;
             _size_estimate += src->size;
@@ -91,22 +93,25 @@ public:
         return Status::OK();
     }
 
-    OwnedSlice finish() override {
+    Status finish(OwnedSlice* slice) override {
         DCHECK(!_finished);
         _finished = true;
-        // Set up trailer
-        for (uint32_t _offset : _offsets) {
-            put_fixed32_le(&_buffer, _offset);
-        }
-        put_fixed32_le(&_buffer, _offsets.size());
-        if (_offsets.size() > 0) {
-            _copy_value_at(0, &_first_value);
-            _copy_value_at(_offsets.size() - 1, &_last_value);
-        }
-        return _buffer.build();
+        RETURN_IF_CATCH_EXCEPTION({
+            // Set up trailer
+            for (uint32_t _offset : _offsets) {
+                put_fixed32_le(&_buffer, _offset);
+            }
+            put_fixed32_le(&_buffer, _offsets.size());
+            if (_offsets.size() > 0) {
+                _copy_value_at(0, &_first_value);
+                _copy_value_at(_offsets.size() - 1, &_last_value);
+            }
+            *slice = _buffer.build();
+        });
+        return Status::OK();
     }
 
-    void reset() override {
+    Status reset() override {
         _offsets.clear();
         _buffer.clear();
         _buffer.reserve(_options.data_page_size == 0
@@ -115,6 +120,7 @@ public:
         _size_estimate = sizeof(uint32_t);
         _finished = false;
         _last_value_size = 0;
+        return Status::OK();
     }
 
     size_t count() const override { return _offsets.size(); }
@@ -149,6 +155,9 @@ public:
     inline Slice get(std::size_t idx) const { return (*this)[idx]; }
 
 private:
+    BinaryPlainPageBuilder(const PageBuilderOptions& options)
+            : _size_estimate(0), _options(options) {}
+
     void _copy_value_at(size_t idx, faststring* value) const {
         size_t value_size =
                 (idx < _offsets.size() - 1) ? _offsets[idx + 1] - _offsets[idx] : _last_value_size;
@@ -293,16 +302,23 @@ public:
         return Slice(&_data[start_offset], len);
     }
 
-    void get_dict_word_info(StringRef* dict_word_info) {
+    Status get_dict_word_info(StringRef* dict_word_info) {
         if (UNLIKELY(_num_elems <= 0)) {
-            return;
+            return Status::OK();
         }
 
         char* data_begin = (char*)&_data[0];
         char* offset_ptr = (char*)&_data[_offsets_pos];
 
         for (uint32_t i = 0; i < _num_elems; ++i) {
-            dict_word_info[i].data = data_begin + decode_fixed32_le((uint8_t*)offset_ptr);
+            uint32_t offset = decode_fixed32_le((uint8_t*)offset_ptr);
+            if (offset > _offsets_pos) {
+                return Status::Corruption(
+                        "file corruption: offsets pos beyonds data_size: {}, num_element: {}"
+                        ", offset_pos: {}, offset: {}",
+                        _data.size, _num_elems, _offsets_pos, offset);
+            }
+            dict_word_info[i].data = data_begin + offset;
             offset_ptr += sizeof(uint32_t);
         }
 
@@ -313,6 +329,7 @@ public:
 
         dict_word_info[_num_elems - 1].size =
                 (data_begin + _offsets_pos) - (char*)dict_word_info[_num_elems - 1].data;
+        return Status::OK();
     }
 
 private:

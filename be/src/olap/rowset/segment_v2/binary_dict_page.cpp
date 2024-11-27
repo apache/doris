@@ -45,17 +45,26 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _finished(false),
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
-          _encoding_type(DICT_ENCODING) {
+          _encoding_type(DICT_ENCODING) {}
+
+Status BinaryDictPageBuilder::init() {
     // initially use DICT_ENCODING
     // TODO: the data page builder type can be created by Factory according to user config
-    _data_page_builder.reset(new BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>(options));
+    PageBuilder* data_page_builder_ptr = nullptr;
+    RETURN_IF_ERROR(BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>::create(
+            &data_page_builder_ptr, _options));
+    _data_page_builder.reset(data_page_builder_ptr);
     PageBuilderOptions dict_builder_options;
     dict_builder_options.data_page_size =
             std::min(_options.data_page_size, _options.dict_page_size);
     dict_builder_options.is_dict_page = true;
-    _dict_builder.reset(
-            new BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(dict_builder_options));
-    reset();
+
+    PageBuilder* dict_builder_ptr = nullptr;
+    RETURN_IF_ERROR(BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>::create(
+            &dict_builder_ptr, dict_builder_options));
+    _dict_builder.reset(static_cast<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*>(
+            dict_builder_ptr));
+    return reset();
 }
 
 bool BinaryDictPageBuilder::is_page_full() {
@@ -133,7 +142,7 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
     }
 }
 
-OwnedSlice BinaryDictPageBuilder::finish() {
+Status BinaryDictPageBuilder::finish(OwnedSlice* slice) {
     if (VLOG_DEBUG_IS_ON && _encoding_type == DICT_ENCODING) {
         VLOG_DEBUG << "dict page size:" << _dict_builder->size();
     }
@@ -141,25 +150,31 @@ OwnedSlice BinaryDictPageBuilder::finish() {
     DCHECK(!_finished);
     _finished = true;
 
-    OwnedSlice data_slice = _data_page_builder->finish();
+    OwnedSlice data_slice;
+    RETURN_IF_ERROR(_data_page_builder->finish(&data_slice));
     // TODO(gaodayue) separate page header and content to avoid this copy
-    _buffer.append(data_slice.slice().data, data_slice.slice().size);
+    RETURN_IF_CATCH_EXCEPTION(
+            { _buffer.append(data_slice.slice().data, data_slice.slice().size); });
     encode_fixed32_le(&_buffer[0], _encoding_type);
-    return _buffer.build();
+    *slice = _buffer.build();
+    return Status::OK();
 }
 
-void BinaryDictPageBuilder::reset() {
+Status BinaryDictPageBuilder::reset() {
     _finished = false;
     _buffer.reserve(_options.data_page_size + BINARY_DICT_PAGE_HEADER_SIZE);
     _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
     if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-        _data_page_builder.reset(
-                new BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(_options));
+        PageBuilder* data_page_builder_ptr = nullptr;
+        RETURN_IF_ERROR(BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>::create(
+                &data_page_builder_ptr, _options));
+        _data_page_builder.reset(data_page_builder_ptr);
         _encoding_type = PLAIN_ENCODING;
     } else {
-        _data_page_builder->reset();
+        RETURN_IF_ERROR(_data_page_builder->reset());
     }
+    return Status::OK();
 }
 
 size_t BinaryDictPageBuilder::count() const {
@@ -171,8 +186,7 @@ uint64_t BinaryDictPageBuilder::size() const {
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
-    *dictionary_page = _dict_builder->finish();
-    return Status::OK();
+    return _dict_builder->finish(dictionary_page);
 }
 
 Status BinaryDictPageBuilder::get_first_value(void* value) const {

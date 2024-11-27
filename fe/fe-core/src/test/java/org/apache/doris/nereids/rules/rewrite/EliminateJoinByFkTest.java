@@ -54,6 +54,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 + "references pri(id1)");
         addConstraint("Alter table foreign_null add constraint f_not_null foreign key (id3)\n"
                 + "references pri(id1)");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     @Test
@@ -127,6 +128,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
     void testNullWithPredicate() throws Exception {
         String sql = "select pri.id1 from pri inner join foreign_null on pri.id1 = foreign_null.id3\n"
                 + "where pri.id1 = 1";
+
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()

@@ -62,6 +62,7 @@ public class DataStreamSink extends DataSink {
     protected TOlapTableLocationParam tabletSinkLocationParam = null;
     protected TupleDescriptor tabletSinkTupleDesc = null;
     protected long tabletSinkTxnId = -1;
+    protected List<Expr> tabletSinkExprs = null;
 
     public DataStreamSink() {
 
@@ -145,6 +146,10 @@ public class DataStreamSink extends DataSink {
         this.tabletSinkLocationParam = locationParam;
     }
 
+    public void setTabletSinkExprs(List<Expr> tabletSinkExprs) {
+        this.tabletSinkExprs = tabletSinkExprs;
+    }
+
     public void setTabletSinkTxnId(long txnId) {
         this.tabletSinkTxnId = txnId;
     }
@@ -223,6 +228,11 @@ public class DataStreamSink extends DataSink {
         }
         if (tabletSinkLocationParam != null) {
             tStreamSink.setTabletSinkLocation(tabletSinkLocationParam);
+        }
+        if (tabletSinkExprs != null) {
+            for (Expr expr : tabletSinkExprs) {
+                tStreamSink.addToTabletSinkExprs(expr.treeToThrift());
+            }
         }
         tStreamSink.setTabletSinkTxnId(tabletSinkTxnId);
         result.setStreamSink(tStreamSink);

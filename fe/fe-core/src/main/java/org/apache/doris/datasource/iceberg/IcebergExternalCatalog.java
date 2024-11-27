@@ -17,14 +17,20 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
+import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.transaction.TransactionManagerFactory;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.catalog.Catalog;
 
 import java.util.List;
+import java.util.Map;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
@@ -37,13 +43,10 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected String icebergCatalogType;
     protected Catalog catalog;
 
+    protected PreExecutionAuthenticator preExecutionAuthenticator;
+
     public IcebergExternalCatalog(long catalogId, String name, String comment) {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
-    }
-
-    @Override
-    protected void init() {
-        super.init();
     }
 
     // Create catalog based on catalog type
@@ -51,8 +54,11 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
+        preExecutionAuthenticator = new PreExecutionAuthenticator();
         initCatalog();
-        metadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
+        IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
+        transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
+        metadataOps = ops;
     }
 
     public Catalog getCatalog() {
@@ -75,5 +81,10 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         return metadataOps.listTableNames(dbName);
+    }
+
+    protected void initS3Param(Configuration conf) {
+        Map<String, String> properties = catalogProperty.getHadoopProperties();
+        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, PropertyConverter.getAWSCredentialsProviders(properties));
     }
 }

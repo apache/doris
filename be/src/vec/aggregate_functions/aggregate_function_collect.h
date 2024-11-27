@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 #include <string.h>
 
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <new>
@@ -300,6 +301,7 @@ template <typename T>
 struct AggregateFunctionArrayAggData {
     using ElementType = T;
     using ColVecType = ColumnVectorOrDecimal<ElementType>;
+    using Self = AggregateFunctionArrayAggData<T>;
     MutableColumnPtr column_data;
     ColVecType* nested_column = nullptr;
     NullMap* null_map = nullptr;
@@ -362,12 +364,56 @@ struct AggregateFunctionArrayAggData {
         }
         to_arr.get_offsets().push_back(to_nested_col.size());
     }
+
+    void write(BufferWritable& buf) const {
+        const size_t size = null_map->size();
+        write_binary(size, buf);
+
+        for (size_t i = 0; i < size; i++) {
+            write_binary(null_map->data()[i], buf);
+        }
+
+        for (size_t i = 0; i < size; i++) {
+            write_binary(nested_column->get_data()[i], buf);
+        }
+    }
+
+    void read(BufferReadable& buf) {
+        DCHECK(null_map);
+        DCHECK(null_map->empty());
+        size_t size = 0;
+        read_binary(size, buf);
+        null_map->resize(size);
+        nested_column->reserve(size);
+        for (size_t i = 0; i < size; i++) {
+            read_binary(null_map->data()[i], buf);
+        }
+
+        ElementType data_value;
+        for (size_t i = 0; i < size; i++) {
+            read_binary(data_value, buf);
+            nested_column->get_data().push_back(data_value);
+        }
+    }
+
+    void merge(const Self& rhs) {
+        const auto size = rhs.null_map->size();
+        null_map->resize(size);
+        nested_column->reserve(size);
+        for (size_t i = 0; i < size; i++) {
+            const auto null_value = rhs.null_map->data()[i];
+            const auto data_value = rhs.nested_column->get_data()[i];
+            null_map->data()[i] = null_value;
+            nested_column->get_data().push_back(data_value);
+        }
+    }
 };
 
 template <>
 struct AggregateFunctionArrayAggData<StringRef> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
+    using Self = AggregateFunctionArrayAggData<StringRef>;
     MutableColumnPtr column_data;
     ColVecType* nested_column = nullptr;
     NullMap* null_map = nullptr;
@@ -390,7 +436,7 @@ struct AggregateFunctionArrayAggData<StringRef> {
     void deserialize_and_merge(const IColumn& column, size_t row_num) {
         auto& to_arr = assert_cast<const ColumnArray&>(column);
         auto& to_nested_col = to_arr.get_data();
-        auto col_null = reinterpret_cast<const ColumnNullable*>(&to_nested_col);
+        auto col_null = assert_cast<const ColumnNullable*>(&to_nested_col);
         const auto& vec = assert_cast<const ColVecType&>(col_null->get_nested_column());
         auto start = to_arr.get_offsets()[row_num - 1];
         auto end = start + to_arr.get_offsets()[row_num] - to_arr.get_offsets()[row_num - 1];
@@ -416,6 +462,111 @@ struct AggregateFunctionArrayAggData<StringRef> {
             vec.insert_from(*nested_column, i);
         }
         to_arr.get_offsets().push_back(to_nested_col.size());
+    }
+
+    void write(BufferWritable& buf) const {
+        const size_t size = null_map->size();
+        write_binary(size, buf);
+        for (size_t i = 0; i < size; i++) {
+            write_binary(null_map->data()[i], buf);
+        }
+        for (size_t i = 0; i < size; i++) {
+            write_string_binary(nested_column->get_data_at(i), buf);
+        }
+    }
+    void read(BufferReadable& buf) {
+        DCHECK(null_map);
+        DCHECK(null_map->empty());
+        size_t size = 0;
+        read_binary(size, buf);
+        null_map->resize(size);
+        nested_column->reserve(size);
+        for (size_t i = 0; i < size; i++) {
+            read_binary(null_map->data()[i], buf);
+        }
+
+        StringRef s;
+        for (size_t i = 0; i < size; i++) {
+            read_string_binary(s, buf);
+            nested_column->insert_data(s.data, s.size);
+        }
+    }
+
+    void merge(const Self& rhs) {
+        const auto size = rhs.null_map->size();
+        null_map->resize(size);
+        nested_column->reserve(size);
+        for (size_t i = 0; i < size; i++) {
+            const auto null_value = rhs.null_map->data()[i];
+            auto s = rhs.nested_column->get_data_at(i);
+            null_map->data()[i] = null_value;
+            nested_column->insert_data(s.data, s.size);
+        }
+    }
+};
+
+template <>
+struct AggregateFunctionArrayAggData<void> {
+    using ElementType = StringRef;
+    using Self = AggregateFunctionArrayAggData<void>;
+    MutableColumnPtr column_data;
+
+    AggregateFunctionArrayAggData() {}
+
+    AggregateFunctionArrayAggData(const DataTypes& argument_types) {
+        DataTypePtr column_type = argument_types[0];
+        column_data = column_type->create_column();
+    }
+
+    void add(const IColumn& column, size_t row_num) { column_data->insert_from(column, row_num); }
+
+    void deserialize_and_merge(const IColumn& column, size_t row_num) {
+        auto& to_arr = assert_cast<const ColumnArray&>(column);
+        auto& to_nested_col = to_arr.get_data();
+        auto start = to_arr.get_offsets()[row_num - 1];
+        auto end = start + to_arr.get_offsets()[row_num] - to_arr.get_offsets()[row_num - 1];
+        for (auto i = start; i < end; ++i) {
+            column_data->insert_from(to_nested_col, i);
+        }
+    }
+
+    void reset() { column_data->clear(); }
+
+    void insert_result_into(IColumn& to) const {
+        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_nested_col = to_arr.get_data();
+        size_t num_rows = column_data->size();
+        for (size_t i = 0; i < num_rows; ++i) {
+            to_nested_col.insert_from(*column_data, i);
+        }
+        to_arr.get_offsets().push_back(to_nested_col.size());
+    }
+
+    void write(BufferWritable& buf) const {
+        const size_t size = column_data->size();
+        write_binary(size, buf);
+        for (size_t i = 0; i < size; i++) {
+            write_string_binary(column_data->get_data_at(i), buf);
+        }
+    }
+
+    void read(BufferReadable& buf) {
+        size_t size = 0;
+        read_binary(size, buf);
+        column_data->reserve(size);
+
+        StringRef s;
+        for (size_t i = 0; i < size; i++) {
+            read_string_binary(s, buf);
+            column_data->insert_data(s.data, s.size);
+        }
+    }
+
+    void merge(const Self& rhs) {
+        const auto size = rhs.column_data->size();
+        for (size_t i = 0; i < size; i++) {
+            column_data->insert_from(*rhs.column_data, i);
+        }
     }
 };
 
@@ -453,7 +604,8 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         if constexpr (ShowNull::value) {
-            if constexpr (IsDecimalNumber<typename Data::ElementType>) {
+            if constexpr (IsDecimalNumber<typename Data::ElementType> ||
+                          std::is_same_v<Data, AggregateFunctionArrayAggData<void>>) {
                 new (place) Data(argument_types);
             } else {
                 new (place) Data();
@@ -467,9 +619,7 @@ public:
         return std::make_shared<DataTypeArray>(make_nullable(return_type));
     }
 
-    bool allocates_memory_in_arena() const override { return ENABLE_ARENA; }
-
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         auto& data = this->data(place);
         if constexpr (HasLimit::value) {
@@ -491,25 +641,21 @@ public:
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena* arena) const override {
         auto& data = this->data(place);
-        auto& rhs_data = this->data(rhs);
+        const auto& rhs_data = this->data(rhs);
         if constexpr (ENABLE_ARENA) {
             data.merge(rhs_data, arena);
-        } else if constexpr (!ShowNull::value) {
+        } else {
             data.merge(rhs_data);
         }
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        if constexpr (!ShowNull::value) {
-            this->data(place).write(buf);
-        }
+        this->data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        if constexpr (!ShowNull::value) {
-            this->data(place).read(buf);
-        }
+        this->data(place).read(buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -552,12 +698,11 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
                                    const size_t num_rows) const override {
         if constexpr (ShowNull::value) {
             for (size_t i = 0; i != num_rows; ++i) {
-                this->data(places[i]).deserialize_and_merge(*assert_cast<const IColumn*>(column),
-                                                            i);
+                this->data(places[i] + offset).deserialize_and_merge(*column, i);
             }
         } else {
             return BaseHelper::deserialize_and_merge_vec(places, offset, rhs, column, arena,
@@ -592,13 +737,12 @@ public:
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
         if constexpr (ShowNull::value) {
             for (size_t i = 0; i != num_rows; ++i) {
                 if (places[i]) {
-                    this->data(places[i]).deserialize_and_merge(
-                            *assert_cast<const IColumn*>(column), i);
+                    this->data(places[i] + offset).deserialize_and_merge(*column, i);
                 }
             }
         } else {
@@ -630,11 +774,13 @@ public:
 
             for (size_t i = 0; i < num_rows; ++i) {
                 col_null->get_null_map_data().push_back(col_src.get_null_map_data()[i]);
-                if constexpr (std::is_same_v<StringRef, typename Data::ElementType>) {
+                if constexpr (std::is_same_v<Data, AggregateFunctionArrayAggData<StringRef>>) {
                     auto& vec = assert_cast<ColumnString&>(col_null->get_nested_column());
                     const auto& vec_src =
                             assert_cast<const ColumnString&>(col_src.get_nested_column());
                     vec.insert_from(vec_src, i);
+                } else if constexpr (std::is_same_v<Data, AggregateFunctionArrayAggData<void>>) {
+                    to_nested_col.insert_from(col_src.get_nested_column(), i);
                 } else {
                     using ColVecType = ColumnVectorOrDecimal<typename Data::ElementType>;
                     auto& vec = assert_cast<ColVecType&>(col_null->get_nested_column()).get_data();

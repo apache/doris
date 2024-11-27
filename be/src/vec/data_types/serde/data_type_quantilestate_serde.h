@@ -100,8 +100,8 @@ public:
         col.insert_value(val);
     }
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start,
-                               int end) const override {
+                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               const cctz::time_zone& ctz) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_column_to_arrow with type " + column.get_name());
     }
@@ -112,12 +112,14 @@ public:
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override {
+        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                 int row_idx, bool col_const,
+                                 const FormatOptions& options) const override {
+        return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
@@ -130,14 +132,15 @@ public:
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const) const;
+                                  int row_idx, bool col_const, const FormatOptions& options) const;
 };
 
 // QuantileState is binary data which is not shown by mysql
 template <bool is_binary_format>
 Status DataTypeQuantileStateSerDe::_write_column_to_mysql(const IColumn& column,
                                                           MysqlRowBuffer<is_binary_format>& result,
-                                                          int row_idx, bool col_const) const {
+                                                          int row_idx, bool col_const,
+                                                          const FormatOptions& options) const {
     auto& data_column = reinterpret_cast<const ColumnQuantileState&>(column);
 
     if (_return_object_as_string) {

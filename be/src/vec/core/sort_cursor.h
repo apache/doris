@@ -58,43 +58,16 @@ private:
     }
 };
 
-// Use `SharedHeapSortCursorBlockView` for `HeapSortCursorBlockView` instead of shared_ptr because there will be no
-// concurrent operation for `HeapSortCursorBlockView` and we don't need the lock inside shared_ptr
-class SharedHeapSortCursorBlockView {
-public:
-    SharedHeapSortCursorBlockView(HeapSortCursorBlockView&& reference)
-            : _ref_count(0), _reference(std::move(reference)) {}
-    SharedHeapSortCursorBlockView(const SharedHeapSortCursorBlockView&) = delete;
-    void unref() noexcept {
-        DCHECK_GT(_ref_count, 0);
-        _ref_count--;
-        if (_ref_count == 0) {
-            delete this;
-        }
-    }
-    void ref() noexcept { _ref_count++; }
-
-    HeapSortCursorBlockView& value() { return _reference; }
-
-    int ref_count() const { return _ref_count; }
-
-private:
-    ~SharedHeapSortCursorBlockView() noexcept = default;
-    int _ref_count;
-    HeapSortCursorBlockView _reference;
-};
+using HeapSortCursorBlockSPtr = std::shared_ptr<HeapSortCursorBlockView>;
 
 struct HeapSortCursorImpl {
 public:
-    HeapSortCursorImpl(int row_id, SharedHeapSortCursorBlockView* block_view)
-            : _row_id(row_id), _block_view(block_view) {
-        block_view->ref();
-    }
+    HeapSortCursorImpl(int row_id, HeapSortCursorBlockSPtr block_view)
+            : _row_id(row_id), _block_view(block_view) {}
 
     HeapSortCursorImpl(const HeapSortCursorImpl& other) {
         _row_id = other._row_id;
         _block_view = other._block_view;
-        _block_view->ref();
     }
 
     HeapSortCursorImpl(HeapSortCursorImpl&& other) {
@@ -109,19 +82,15 @@ public:
         return *this;
     }
 
-    ~HeapSortCursorImpl() {
-        if (_block_view) {
-            _block_view->unref();
-        }
-    }
+    ~HeapSortCursorImpl() = default;
 
     size_t row_id() const { return _row_id; }
 
-    const ColumnRawPtrs& sort_columns() const { return _block_view->value().sort_columns; }
+    const ColumnRawPtrs& sort_columns() const { return _block_view->sort_columns; }
 
-    const Block* block() const { return &_block_view->value().block; }
+    const Block* block() const { return &_block_view->block; }
 
-    const SortDescription& sort_desc() const { return _block_view->value().desc; }
+    const SortDescription& sort_desc() const { return _block_view->desc; }
 
     bool operator<(const HeapSortCursorImpl& rhs) const {
         for (size_t i = 0; i < sort_desc().size(); ++i) {
@@ -143,7 +112,7 @@ public:
 
 private:
     size_t _row_id;
-    SharedHeapSortCursorBlockView* _block_view;
+    HeapSortCursorBlockSPtr _block_view;
 };
 
 /** Cursor allows to compare rows in different blocks (and parts).
@@ -151,7 +120,8 @@ private:
   * It is used in priority queue.
   */
 struct MergeSortCursorImpl {
-    ColumnRawPtrs all_columns;
+    ENABLE_FACTORY_CREATOR(MergeSortCursorImpl);
+    std::shared_ptr<Block> block;
     ColumnRawPtrs sort_columns;
     SortDescription desc;
     size_t sort_columns_size = 0;
@@ -161,41 +131,34 @@ struct MergeSortCursorImpl {
     MergeSortCursorImpl() = default;
     virtual ~MergeSortCursorImpl() = default;
 
-    MergeSortCursorImpl(Block& block, const SortDescription& desc_)
-            : desc(desc_), sort_columns_size(desc.size()) {
-        reset(block);
+    MergeSortCursorImpl(std::shared_ptr<Block> block_, const SortDescription& desc_)
+            : block(block_), desc(desc_), sort_columns_size(desc.size()) {
+        reset();
     }
 
     MergeSortCursorImpl(const SortDescription& desc_)
-            : desc(desc_), sort_columns_size(desc.size()) {}
+            : block(Block::create_shared()), desc(desc_), sort_columns_size(desc.size()) {}
     bool empty() const { return rows == 0; }
 
     /// Set the cursor to the beginning of the new block.
-    void reset(Block& block) {
-        all_columns.clear();
+    void reset() {
         sort_columns.clear();
 
-        auto columns = block.get_columns_and_convert();
-        size_t num_columns = columns.size();
-
-        for (size_t j = 0; j < num_columns; ++j) {
-            all_columns.push_back(columns[j].get());
-        }
-
+        auto columns = block->get_columns_and_convert();
         for (size_t j = 0, size = desc.size(); j < size; ++j) {
             auto& column_desc = desc[j];
             size_t column_number = !column_desc.column_name.empty()
-                                           ? block.get_position_by_name(column_desc.column_name)
+                                           ? block->get_position_by_name(column_desc.column_name)
                                            : column_desc.column_number;
             sort_columns.push_back(columns[column_number].get());
         }
 
         pos = 0;
-        rows = all_columns[0]->size();
+        rows = block->rows();
     }
 
-    bool isFirst() const { return pos == 0; }
-    bool isLast() const { return pos + 1 >= rows; }
+    bool is_first() const { return pos == 0; }
+    bool is_last() const { return pos + 1 >= rows; }
     void next() { ++pos; }
 
     virtual bool has_next_block() { return false; }
@@ -205,11 +168,13 @@ struct MergeSortCursorImpl {
 using BlockSupplier = std::function<Status(Block*, bool* eos)>;
 
 struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
+    ENABLE_FACTORY_CREATOR(BlockSupplierSortCursorImpl);
     BlockSupplierSortCursorImpl(const BlockSupplier& block_supplier,
                                 const VExprContextSPtrs& ordering_expr,
                                 const std::vector<bool>& is_asc_order,
                                 const std::vector<bool>& nulls_first)
             : _ordering_expr(ordering_expr), _block_supplier(block_supplier) {
+        block = Block::create_shared();
         sort_columns_size = ordering_expr.size();
 
         desc.resize(ordering_expr.size());
@@ -226,21 +191,21 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     }
 
     bool has_next_block() override {
-        _block.clear();
+        block->clear();
         Status status;
         do {
-            status = _block_supplier(&_block, &_is_eof);
-        } while (_block.empty() && !_is_eof && status.ok());
+            status = _block_supplier(block.get(), &_is_eof);
+        } while (block->empty() && !_is_eof && status.ok());
         // If status not ok, upper callers could not detect whether it is eof or error.
         // So that fatal here, and should throw exception in the future.
-        if (status.ok() && !_block.empty()) {
+        if (status.ok() && !block->empty()) {
             if (_ordering_expr.size() > 0) {
                 for (int i = 0; status.ok() && i < desc.size(); ++i) {
                     // TODO yiguolei: throw exception if status not ok in the future
-                    status = _ordering_expr[i]->execute(&_block, &desc[i].column_number);
+                    status = _ordering_expr[i]->execute(block.get(), &desc[i].column_number);
                 }
             }
-            MergeSortCursorImpl::reset(_block);
+            MergeSortCursorImpl::reset();
             return status.ok();
         } else if (!status.ok()) {
             throw std::runtime_error(status.msg());
@@ -252,32 +217,21 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         if (_is_eof) {
             return nullptr;
         }
-        return &_block;
-    }
-
-    size_t columns_num() const { return all_columns.size(); }
-
-    Block create_empty_blocks() const {
-        size_t num_columns = columns_num();
-        MutableColumns columns(num_columns);
-        for (size_t i = 0; i < num_columns; ++i) {
-            columns[i] = all_columns[i]->clone_empty();
-        }
-        return _block.clone_with_columns(std::move(columns));
+        return block.get();
     }
 
     VExprContextSPtrs _ordering_expr;
-    Block _block;
     BlockSupplier _block_supplier {};
     bool _is_eof = false;
 };
 
 /// For easy copying.
 struct MergeSortCursor {
-    MergeSortCursorImpl* impl;
+    ENABLE_FACTORY_CREATOR(MergeSortCursor);
+    std::shared_ptr<MergeSortCursorImpl> impl;
 
-    MergeSortCursor(MergeSortCursorImpl* impl_) : impl(impl_) {}
-    MergeSortCursorImpl* operator->() const { return impl; }
+    MergeSortCursor(std::shared_ptr<MergeSortCursorImpl> impl_) : impl(impl_) {}
+    MergeSortCursorImpl* operator->() const { return impl.get(); }
 
     /// The specified row of this cursor is greater than the specified row of another cursor.
     int8_t greater_at(const MergeSortCursor& rhs, size_t lhs_pos, size_t rhs_pos) const {
@@ -317,10 +271,11 @@ struct MergeSortCursor {
 
 /// For easy copying.
 struct MergeSortBlockCursor {
-    MergeSortCursorImpl* impl = nullptr;
+    ENABLE_FACTORY_CREATOR(MergeSortBlockCursor);
+    std::shared_ptr<MergeSortCursorImpl> impl = nullptr;
 
-    MergeSortBlockCursor(MergeSortCursorImpl* impl_) : impl(impl_) {}
-    MergeSortCursorImpl* operator->() const { return impl; }
+    MergeSortBlockCursor(std::shared_ptr<MergeSortCursorImpl> impl_) : impl(impl_) {}
+    MergeSortCursorImpl* operator->() const { return impl.get(); }
 
     /// The specified row of this cursor is greater than the specified row of another cursor.
     int8_t less_at(const MergeSortBlockCursor& rhs, int rows) const {

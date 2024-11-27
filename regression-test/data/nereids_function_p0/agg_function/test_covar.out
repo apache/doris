@@ -10,3 +10,22 @@
 
 -- !sql --
 3.5
+
+-- !sql_input_nullable_without_key --
+3.5
+
+-- !sql_input_nullable_with_key --
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_input_non_nullable_without_key --
+3.5
+
+-- !sql_input_nullable_with_key --
+0.0
+0.0
+0.0
+0.0
+

@@ -31,11 +31,21 @@ public:
                       const TupleDescriptor* output_tuple_desc,
                       const RowDescriptor* output_row_descriptor,
                       const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
-                      int64_t limit_, int64_t max_bytes_in_blocks_queue,
-                      const int num_parallel_instances)
-            : vectorized::ScannerContext(state, parent, output_tuple_desc, output_row_descriptor,
-                                         scanners, limit_, max_bytes_in_blocks_queue,
-                                         num_parallel_instances) {}
+                      int64_t limit_, bool ignore_data_distribution)
+            : vectorized::ScannerContext(
+                      state, parent, output_tuple_desc, output_row_descriptor, scanners, limit_,
+                      ignore_data_distribution,
+                      /*non-pipeine & old pipeine does not process file scan operator seperatyly*/
+                      /*they use state->query_parallel_instance_num() as num_parallel_instances, see:
+                        _max_thread_num = _state->num_scanner_threads() > 0
+                              ? _state->num_scanner_threads()
+                              : config::doris_scanner_thread_pool_thread_num /
+                                        (_local_state ? num_parallel_instances
+                                                      : state->query_parallel_instance_num());
+                                            */
+                      // so we set is_file_scan_operator to true
+                      // so that _max_thread_num will be same like before for engine except for pipelineX
+                      true) {}
 };
 
 class PipXScannerContext final : public vectorized::ScannerContext {
@@ -46,10 +56,11 @@ public:
                        const TupleDescriptor* output_tuple_desc,
                        const RowDescriptor* output_row_descriptor,
                        const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
-                       int64_t limit_, int64_t max_bytes_in_blocks_queue,
-                       std::shared_ptr<pipeline::Dependency> dependency)
+                       int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency,
+                       bool ignore_data_distribution, bool is_file_scan_operator)
             : vectorized::ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners,
-                                         limit_, max_bytes_in_blocks_queue, 1, local_state) {
+                                         limit_, ignore_data_distribution, is_file_scan_operator,
+                                         local_state) {
         _dependency = dependency;
     }
 

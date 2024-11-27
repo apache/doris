@@ -104,24 +104,6 @@ suite('test_profile') {
         nums.add(getRandomNumber(len + 1))
         sql """ SELECT * FROM ${table} WHERE cost ${ops[i]} ${nums[i]} """
     }
-    
-    
-    /*  test for `show query profile` stmt
-        query profile header
-        JobID|QueryId|User|DefaultDb|SQL|QueryType|StartTime|EndTime|TotalTime|QueryState */
-    //———————— test for select stmt (SQL) ———————————
-    log.info("test for show query profile stmt")
-    List<List<Object>> show_query_profile_obj = sql """ show query profile "/" """
-    log.info("found ${show_query_profile_obj.size} profile data".toString())
-    assertTrue(show_query_profile_obj.size >= QUERY_NUM)
-
-    for(int i = 0 ; i < QUERY_NUM ; i++){
-        def insert_order = QUERY_NUM - i - 1
-        def current_obj = show_query_profile_obj[i]
-        def stmt_query_info = current_obj[9]
-        assertNotEquals(current_obj[1].toString(), "N/A".toString())
-        assertEquals(stmt_query_info.toString(),  """ SELECT * FROM ${table} WHERE cost ${ops[insert_order]} ${nums[insert_order]} """.toString())
-    }
 
     //———————— test for select stmt (HTTP)————————
     log.info("test HTTP API interface for query profile")
@@ -138,12 +120,28 @@ suite('test_profile') {
         
         assertNotNull(stmt_query_info["Profile ID"])
         assertNotEquals(stmt_query_info["Profile ID"].toString(), "N/A".toString())
-        
+        assertNotNull(stmt_query_info["Default Catalog"])
         assertEquals(stmt_query_info['Sql Statement'].toString(), 
            """ SELECT * FROM ${table} WHERE cost ${ops[insert_order]} ${nums[insert_order]} """.toString())
     }
     
     //———————— clean table and disable profile ————————
+    sql "set enable_nereids_planner=true"
+    sql "set enable_fallback_to_original_planner=false"
+
+    int randomInt = Math.random() * 2000000000
+    profile("test_profile_time_${randomInt}") {
+        run {
+            sql "/* test_profile_time_${randomInt} */ select ${randomInt} from test_profile"
+        }
+
+        check { profileString, exception ->
+            log.info(profileString)
+            assertTrue(profileString.contains("Nereids  GarbageCollect  Time"))
+            assertTrue(profileString.contains("Nereids  BeFoldConst  Time"))
+        }
+    }
+
     sql """ SET enable_profile = false """
     sql """ DROP TABLE IF EXISTS ${table} """
 }

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.List;
 
@@ -38,7 +39,7 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(logicalOlapScan())
-                .when(filter -> containsMatchExpression(filter.getExpressions()))
+                .when(filter -> ExpressionUtils.containsType(filter.getExpressions(), Match.class))
                 .then(this::checkChildren)
                 .toRule(RuleType.CHECK_MATCH_EXPRESSION);
     }
@@ -59,9 +60,5 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
             }
         }
         return filter;
-    }
-
-    private boolean containsMatchExpression(List<Expression> expressions) {
-        return expressions.stream().anyMatch(expr -> expr.anyMatch(Match.class::isInstance));
     }
 }

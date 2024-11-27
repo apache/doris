@@ -16,8 +16,6 @@
 // under the License.
 
 suite("test_array_element_at_and_slice", "p0") {
-    sql "set enable_nereids_planner=false;"
-
     // ============= array element_at =========
     // ubsan test
     qt_old_sql "SELECT 'array_element_at';"

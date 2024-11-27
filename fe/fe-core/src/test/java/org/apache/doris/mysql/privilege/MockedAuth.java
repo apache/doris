@@ -20,6 +20,7 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.VariableMgr;
 
 import mockit.Expectations;
 
@@ -32,7 +33,7 @@ public class MockedAuth {
                 minTimes = 0;
                 result = true;
 
-                accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
@@ -40,7 +41,7 @@ public class MockedAuth {
                 minTimes = 0;
                 result = true;
 
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
@@ -73,6 +74,10 @@ public class MockedAuth {
                 UserIdentity userIdentity = new UserIdentity(user, ip);
                 userIdentity.setIsAnalyzed();
                 result = userIdentity;
+
+                ctx.getSessionVariable();
+                minTimes = 0;
+                result = VariableMgr.newSessionVariable();
             }
         };
     }

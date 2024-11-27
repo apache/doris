@@ -40,6 +40,7 @@ suite("test_iceberg_table_stats", "p0,external,doris,external_docker,external_do
                 def retry = 0
                 def act = ""
                 while (retry < 10) {
+                    sql """ select * from ${table_name} """
                     def result = sql """ show table stats ${table_name} """
                     act = result[0][2]
                     if (act != "0") {
@@ -47,6 +48,10 @@ suite("test_iceberg_table_stats", "p0,external,doris,external_docker,external_do
                     }
                     Thread.sleep(2000)
                     retry++
+                }
+                if (cnt != act) {
+                    def result2 = sql """select * from ${table_name} order by 1 limit 10;"""
+                    print result2
                 }
                 assertEquals(act, cnt)
             }
@@ -57,6 +62,10 @@ suite("test_iceberg_table_stats", "p0,external,doris,external_docker,external_do
             assert_stats("sample_cow_parquet", "1000")
             assert_stats("sample_mor_orc", "1000")
             assert_stats("sample_mor_parquet", "1000")
+
+            // test catalog_meta_cache_statistics
+            sql """select * from information_schema.catalog_meta_cache_statistics;"""
+            sql """select * from information_schema.catalog_meta_cache_statistics where catalog_name="${catalog_name}";"""
 
         } finally {
         }

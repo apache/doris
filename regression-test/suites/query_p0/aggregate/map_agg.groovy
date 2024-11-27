@@ -63,7 +63,7 @@ suite("map_agg") {
           ) ENGINE=OLAP
           DUPLICATE KEY(`id`)
           COMMENT 'OLAP'
-          DISTRIBUTED BY HASH(`id`) BUCKETS 2
+          DISTRIBUTED BY HASH(`id`) BUCKETS 10
           PROPERTIES (
           "replication_allocation" = "tag.location.default: 1",
           "storage_format" = "V2",
@@ -279,4 +279,78 @@ suite("map_agg") {
             select userid, map_agg(subject,score) as map from test_map_agg_score group by userid
         ) a order by userid;
     """
+
+    sql "DROP TABLE IF EXISTS test_map_agg_multi;"
+    sql """
+        create table test_map_agg_multi (
+            data_time bigint,
+            mil int,
+            vin string,
+            car_type string,
+            month string,
+            day string
+        ) engine=olap
+        distributed by hash(data_time) buckets 10
+        properties("replication_num" = "1");
+    """
+    sql """
+        insert into test_map_agg_multi values (1, 1, 'abc', 'bc', '01', '01'), (2, 2, 'abc', 'bc', '01', '01');
+    """
+
+    qt_multi """
+        select
+            m1['1']
+            , m2['2']
+        from (
+            select
+                vin
+                , car_type
+                , map_agg(ts, mile) m1
+                , map_agg(mile, ts) m2
+            from (
+                 select
+                    vin
+                    , car_type
+                    , data_time as ts
+                    , mil as mile, month
+                    , day from test_map_agg_multi
+            )a
+            group by
+               car_type
+               , vin
+               , month
+               , day
+        ) t order by 1, 2;
+    """
+
+    sql "DROP TABLE IF EXISTS `test_map_agg_2`;"
+    sql """
+        CREATE TABLE `test_map_agg_2` (
+        `k1` int NULL,
+        `k2` int NULL,
+        `v1` text NULL,
+        `v2` text NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`, `k2`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 4
+        PROPERTIES ( 'replication_num' = '1');
+    """
+
+    sql """
+        insert into `test_map_agg_2` values
+            (    3 ,    1 , 'k'    , 'j'    ),
+            (    3 ,    2 , 'a'    , 'a3'   ),
+            (    5 ,    2 , 'a'    , 'a5'   ),
+            (    1 ,    1 , 'ee'   , 'nn'   ),
+            (    1 ,    1 , 'a'    , 'b'    ),
+            (    1 ,    2 , 'a'    , 'b'    ),
+            (    1 ,    3 , 'c'    , 'c'    ),
+            (    2 ,    1 , 'e'    , 'f'    ),
+            (    2 ,    2 , 'a'    , 'a2'   ),
+            (    4 ,    2 , 'b'    , 'bddd' ),
+            (    4 ,    2 , 'a'    , 'a4'   );
+    """
+
+    sql "set experimental_ignore_storage_data_distribution = 0;"
+    qt_test_dumplicate "select k2, m['b'] from (select k2, map_agg(v1, v2) m from `test_map_agg_2` group  by k2) a order by k2;"
  }

@@ -41,22 +41,32 @@ public class DLFCachedClientPool implements ClientPool<IMetaStoreClient, TExcept
     public DLFCachedClientPool(Configuration conf, Map<String, String> properties) {
         this.conf = conf;
         this.endpoint = conf.get("", "");
-        this.clientPoolSize =
-            PropertyUtil.propertyAsInt(
+        this.clientPoolSize = getClientPoolSize(properties);
+        this.evictionInterval = getEvictionInterval(properties);
+        initializeClientPoolCache();
+    }
+
+    private int getClientPoolSize(Map<String, String> properties) {
+        return PropertyUtil.propertyAsInt(
                 properties,
                 CatalogProperties.CLIENT_POOL_SIZE,
-                CatalogProperties.CLIENT_POOL_SIZE_DEFAULT);
-        this.evictionInterval =
-            PropertyUtil.propertyAsLong(
+                CatalogProperties.CLIENT_POOL_SIZE_DEFAULT
+        );
+    }
+
+    private long getEvictionInterval(Map<String, String> properties) {
+        return PropertyUtil.propertyAsLong(
                 properties,
                 CatalogProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS,
-                CatalogProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS_DEFAULT);
+                CatalogProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS_DEFAULT
+        );
+    }
 
+    private void initializeClientPoolCache() {
         if (clientPoolCache == null) {
             synchronized (clientPoolCacheLock) {
                 if (clientPoolCache == null) {
-                    clientPoolCache =
-                        Caffeine.newBuilder()
+                    clientPoolCache = Caffeine.newBuilder()
                             .expireAfterAccess(evictionInterval, TimeUnit.MILLISECONDS)
                             .removalListener((key, value, cause) -> ((DLFClientPool) value).close())
                             .build();
@@ -80,3 +90,4 @@ public class DLFCachedClientPool implements ClientPool<IMetaStoreClient, TExcept
         return clientPool().run(action, retry);
     }
 }
+

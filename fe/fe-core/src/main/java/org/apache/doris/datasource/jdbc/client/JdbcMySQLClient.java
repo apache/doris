@@ -22,7 +22,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -33,6 +35,8 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
@@ -54,29 +58,48 @@ public class JdbcMySQLClient extends JdbcClient {
                 String versionComment = rs.getString("Value");
                 isDoris = versionComment.toLowerCase().contains("doris");
             }
-        } catch (SQLException e) {
-            throw new JdbcClientException("Failed to determine MySQL Version Comment", e);
+        } catch (SQLException | JdbcClientException e) {
+            closeClient();
+            throw new JdbcClientException("Failed to initialize JdbcMySQLClient: %s", e.getMessage());
         } finally {
             close(rs, stmt, conn);
         }
     }
 
-    @Override
-    protected String getDatabaseQuery() {
-        return "SHOW DATABASES";
+    protected JdbcMySQLClient(JdbcClientConfig jdbcClientConfig, String dbType) {
+        super(jdbcClientConfig);
+        convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
+        this.dbType = dbType;
     }
 
     @Override
-    protected List<String> getSpecifiedDatabase(Connection conn) {
-        List<String> databaseNames = Lists.newArrayList();
+    protected void setJdbcDriverSystemProperties() {
+        super.setJdbcDriverSystemProperties();
+        System.setProperty("com.mysql.cj.disableAbandonedConnectionCleanup", "true");
+    }
+
+    @Override
+    public List<String> getDatabaseNameList() {
+        Connection conn = null;
+        ResultSet rs = null;
+        List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
-            databaseNames.add(conn.getCatalog());
+            conn = getConnection();
+            if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
+                String currentDatabase = conn.getCatalog();
+                remoteDatabaseNames.add(currentDatabase);
+            } else {
+                rs = conn.getMetaData().getCatalogs();
+                while (rs.next()) {
+                    remoteDatabaseNames.add(rs.getString("TABLE_CAT"));
+                }
+            }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get specified database name from jdbc", e);
+            throw new JdbcClientException("failed to get database name list from jdbc", e);
         } finally {
-            close(conn);
+            close(rs, conn);
         }
-        return databaseNames;
+        return filterDatabaseNames(remoteDatabaseNames);
     }
 
     @Override
@@ -112,63 +135,58 @@ public class JdbcMySQLClient extends JdbcClient {
      */
     @Override
     public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
-        Connection conn = getConnection();
+        Connection conn = null;
         ResultSet rs = null;
-        List<JdbcFieldSchema> tableSchema = com.google.common.collect.Lists.newArrayList();
+        List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
         String remoteDbName = getRemoteDatabaseName(localDbName);
         String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
+            conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
-            Map<String, String> mapFieldtoType = null;
-            while (rs.next()) {
-                JdbcFieldSchema field = new JdbcFieldSchema();
-                field.setColumnName(rs.getString("COLUMN_NAME"));
-                field.setDataType(rs.getInt("DATA_TYPE"));
 
-                // in mysql-jdbc-connector-8.0.*, TYPE_NAME of the HLL column in doris will be "UNKNOWN"
-                // in mysql-jdbc-connector-5.1.*, TYPE_NAME of the HLL column in doris will be "HLL"
-                // in mysql-jdbc-connector-8.0.*, TYPE_NAME of BITMAP column in doris will be "BIT"
-                // in mysql-jdbc-connector-5.1.*, TYPE_NAME of BITMAP column in doris will be "BITMAP"
-                field.setDataTypeName(rs.getString("TYPE_NAME"));
-                if (isDoris) {
-                    mapFieldtoType = getColumnsDataTypeUseQuery(localDbName, localTableName);
-                    field.setDataTypeName(mapFieldtoType.get(rs.getString("COLUMN_NAME")));
-                }
-                field.setColumnSize(rs.getInt("COLUMN_SIZE"));
-                field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
-                field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
-                /*
-                   Whether it is allowed to be NULL
-                   0 (columnNoNulls)
-                   1 (columnNullable)
-                   2 (columnNullableUnknown)
-                 */
-                field.setAllowNull(rs.getInt("NULLABLE") != 0);
-                field.setRemarks(rs.getString("REMARKS"));
-                field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
+            Map<String, String> mapFieldtoType = Maps.newHashMap();
+            if (isDoris) {
+                mapFieldtoType = getColumnsDataTypeUseQuery(remoteDbName, remoteTableName);
+            }
+
+            while (rs.next()) {
+                JdbcFieldSchema field = new JdbcFieldSchema(rs, mapFieldtoType);
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get jdbc columns info for table %.%s: %s",
-                    e, localDbName, localTableName, Util.getRootCauseMessage(e));
+            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }
         return tableSchema;
     }
 
+    protected String getCatalogName(Connection conn) throws SQLException {
+        return null;
+    }
+
+    protected Set<String> getFilterInternalDatabases() {
+        return ImmutableSet.<String>builder()
+                .add("information_schema")
+                .add("performance_schema")
+                .add("mysql")
+                .add("sys")
+                .build();
+    }
+
     @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         // For Doris type
         if (isDoris) {
-            return dorisTypeToDoris(fieldSchema.getDataTypeName().toUpperCase());
+            return dorisTypeToDoris(fieldSchema);
         }
         // For mysql type: "INT UNSIGNED":
-        // fieldSchema.getDataTypeName().split(" ")[0] == "INT"
-        // fieldSchema.getDataTypeName().split(" ")[1] == "UNSIGNED"
-        String[] typeFields = fieldSchema.getDataTypeName().split(" ");
+        // fieldSchema.getDataTypeName().orElse("unknown").split(" ")[0] == "INT"
+        // fieldSchema.getDataTypeName().orElse("unknown").split(" ")[1] == "UNSIGNED"
+        String[] typeFields = fieldSchema.getDataTypeName().orElse("unknown").split(" ");
         String mysqlType = typeFields[0];
         // For unsigned int, should extend the type.
         if (typeFields.length > 1 && "UNSIGNED".equals(typeFields[1])) {
@@ -183,8 +201,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 case "BIGINT":
                     return Type.LARGEINT;
                 case "DECIMAL": {
-                    int precision = fieldSchema.getColumnSize() + 1;
-                    int scale = fieldSchema.getDecimalDigits();
+                    int precision = fieldSchema.requiredColumnSize() + 1;
+                    int scale = fieldSchema.requiredDecimalDigits();
                     return createDecimalOrStringType(precision, scale);
                 }
                 case "DOUBLE":
@@ -221,7 +239,7 @@ public class JdbcMySQLClient extends JdbcClient {
             case "DATETIME": {
                 // mysql can support microsecond
                 // use columnSize to calculate the precision of timestamp/datetime
-                int columnSize = fieldSchema.getColumnSize();
+                int columnSize = fieldSchema.requiredColumnSize();
                 int scale = columnSize > 19 ? columnSize - 20 : 0;
                 if (scale > 6) {
                     scale = 6;
@@ -236,18 +254,18 @@ public class JdbcMySQLClient extends JdbcClient {
             case "DOUBLE":
                 return Type.DOUBLE;
             case "DECIMAL": {
-                int precision = fieldSchema.getColumnSize();
-                int scale = fieldSchema.getDecimalDigits();
+                int precision = fieldSchema.requiredColumnSize();
+                int scale = fieldSchema.requiredDecimalDigits();
                 return createDecimalOrStringType(precision, scale);
             }
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.columnSize);
+                charType.setLength(fieldSchema.requiredColumnSize());
                 return charType;
             case "VARCHAR":
-                return ScalarType.createVarcharType(fieldSchema.columnSize);
+                return ScalarType.createVarcharType(fieldSchema.getColumnSize().orElse(0));
             case "BIT":
-                if (fieldSchema.getColumnSize() == 1) {
+                if (fieldSchema.requiredColumnSize() == 1) {
                     return Type.BOOLEAN;
                 } else {
                     return ScalarType.createStringType();
@@ -281,34 +299,38 @@ public class JdbcMySQLClient extends JdbcClient {
     /**
      * get all columns like DatabaseMetaData.getColumns in mysql-jdbc-connector
      */
-    private Map<String, String> getColumnsDataTypeUseQuery(String dbName, String tableName) {
-        Connection conn = getConnection();
+    private Map<String, String> getColumnsDataTypeUseQuery(String remoteDbName, String remoteTableName) {
+        Connection conn = null;
+        Statement stmt = null;
         ResultSet resultSet = null;
-        Map<String, String> fieldtoType = Maps.newHashMap();
+        Map<String, String> fieldToType = Maps.newHashMap();
 
         StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
-        queryBuf.append(tableName);
+        queryBuf.append(remoteTableName);
         queryBuf.append(" FROM ");
-        queryBuf.append(dbName);
-        try (Statement stmt = conn.createStatement()) {
+        queryBuf.append(remoteDbName);
+        try {
+            conn = getConnection();
+            stmt = conn.createStatement();
             resultSet = stmt.executeQuery(queryBuf.toString());
             while (resultSet.next()) {
                 // get column name
                 String fieldName = resultSet.getString("Field");
                 // get original type name
                 String typeName = resultSet.getString("Type");
-                fieldtoType.put(fieldName, typeName);
+                fieldToType.put(fieldName, typeName);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get column list from jdbc for table %s:%s", tableName,
-                Util.getRootCauseMessage(e));
+            throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
+                    remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
         } finally {
-            close(resultSet, conn);
+            close(resultSet, stmt, conn);
         }
-        return fieldtoType;
+        return fieldToType;
     }
 
-    private Type dorisTypeToDoris(String type) {
+    private Type dorisTypeToDoris(JdbcFieldSchema fieldSchema) {
+        String type = fieldSchema.getDataTypeName().orElse("unknown").toUpperCase();
         if (type == null || type.isEmpty()) {
             return Type.UNSUPPORTED;
         }
@@ -318,7 +340,9 @@ public class JdbcMySQLClient extends JdbcClient {
         // For ARRAY type
         if (upperType.startsWith("ARRAY")) {
             String innerType = upperType.substring(6, upperType.length() - 1).trim();
-            Type arrayInnerType = dorisTypeToDoris(innerType);
+            JdbcFieldSchema innerFieldSchema = new JdbcFieldSchema(fieldSchema);
+            innerFieldSchema.setDataTypeName(Optional.of(innerType));
+            Type arrayInnerType = dorisTypeToDoris(innerFieldSchema);
             return ArrayType.create(arrayInnerType, true);
         }
 
@@ -345,9 +369,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 return Type.DOUBLE;
             case "DECIMAL":
             case "DECIMALV3": {
-                String[] params = upperType.substring(openParen + 1, upperType.length() - 1).split(",");
-                int precision = Integer.parseInt(params[0].trim());
-                int scale = Integer.parseInt(params[1].trim());
+                int precision = fieldSchema.requiredColumnSize();
+                int scale = fieldSchema.requiredDecimalDigits();
                 return createDecimalOrStringType(precision, scale);
             }
             case "DATE":
@@ -363,14 +386,16 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createDatetimeV2Type(scale);
             }
             case "CHAR":
-            case "VARCHAR": {
-                int length = Integer.parseInt(upperType.substring(openParen + 1, upperType.length() - 1));
-                return baseType.equals("CHAR")
-                    ? ScalarType.createCharType(length) : ScalarType.createVarcharType(length);
-            }
+            case "CHARACTER":
+                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
+                charType.setLength(fieldSchema.requiredColumnSize());
+                return charType;
+            case "VARCHAR":
+                return ScalarType.createVarcharType(fieldSchema.requiredColumnSize());
             case "STRING":
             case "TEXT":
             case "JSON":
+            case "JSONB":
                 return ScalarType.createStringType();
             case "HLL":
                 return ScalarType.createHllType();

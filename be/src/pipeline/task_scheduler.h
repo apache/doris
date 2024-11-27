@@ -30,7 +30,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "pipeline_task.h"
-#include "runtime/task_group/task_group.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -76,7 +76,7 @@ class TaskScheduler {
 public:
     TaskScheduler(ExecEnv* exec_env, std::shared_ptr<BlockedTaskScheduler> b_scheduler,
                   std::shared_ptr<TaskQueue> task_queue, std::string name,
-                  CgroupCpuCtl* cgroup_cpu_ctl)
+                  std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
             : _task_queue(std::move(task_queue)),
               _blocked_task_scheduler(std::move(b_scheduler)),
               _shutdown(false),
@@ -93,6 +93,8 @@ public:
 
     TaskQueue* task_queue() const { return _task_queue.get(); }
 
+    std::vector<int> thread_debug_info() { return _fix_thread_pool->debug_info(); }
+
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
     std::shared_ptr<TaskQueue> _task_queue;
@@ -100,7 +102,7 @@ private:
     std::shared_ptr<BlockedTaskScheduler> _blocked_task_scheduler;
     std::atomic<bool> _shutdown;
     std::string _name;
-    CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
+    std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
 
     void _do_work(size_t index);
 };

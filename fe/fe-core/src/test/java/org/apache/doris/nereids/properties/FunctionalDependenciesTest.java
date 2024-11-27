@@ -53,6 +53,7 @@ class FunctionalDependenciesTest extends TestWithFeService {
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     @Test
@@ -258,12 +259,12 @@ class FunctionalDependenciesTest extends TestWithFeService {
     @Test
     void testWindow() {
         Plan plan = PlanChecker.from(connectContext)
-                .analyze("select row_number() over(partition by id) from agg")
+                .analyze("select id, row_number() over(partition by id) from agg")
                 .rewrite()
                 .getPlan();
         System.out.println(plan.getLogicalProperties().getFunctionalDependencies());
         Assertions.assertTrue(plan.getLogicalProperties()
-                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(0)));
+                .getFunctionalDependencies().isUniformAndNotNull(plan.getOutput().get(1)));
 
         plan = PlanChecker.from(connectContext)
                 .analyze("select row_number() over(partition by name) from agg where name = '1'")

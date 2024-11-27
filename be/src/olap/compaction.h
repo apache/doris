@@ -91,6 +91,7 @@ protected:
     bool should_vertical_compaction();
     int64_t get_avg_segment_rows();
 
+    // Return true if do ordered data compaction successfully
     bool handle_ordered_data_compaction();
     Status do_compact_ordered_rowsets();
     bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs);
@@ -104,6 +105,7 @@ protected:
 private:
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
     void _load_segment_to_cache();
+    int64_t merge_way_num();
 
 protected:
     // the root tracker for this compaction

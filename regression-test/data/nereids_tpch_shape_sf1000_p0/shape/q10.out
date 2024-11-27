@@ -4,16 +4,16 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------PhysicalProject
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF2 o_orderkey->[l_orderkey]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF2 o_orderkey->[l_orderkey]
+------------------PhysicalProject
+--------------------filter((lineitem.l_returnflag = 'R'))
+----------------------PhysicalOlapScan[lineitem] apply RFs: RF2
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------filter((lineitem.l_returnflag = 'R'))
-------------------------PhysicalOlapScan[lineitem] apply RFs: RF2
---------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF1 n_nationkey->[c_nationkey]
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 o_custkey->[c_custkey]

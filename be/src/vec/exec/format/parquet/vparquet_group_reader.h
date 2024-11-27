@@ -29,7 +29,6 @@
 
 #include "io/fs/file_reader_writer_fwd.h"
 #include "vec/columns/column.h"
-#include "vec/common/allocator.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vparquet_column_reader.h"
@@ -63,7 +62,7 @@ namespace doris::vectorized {
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 
-class RowGroupReader {
+class RowGroupReader : public ProfileCollector {
 public:
     static const std::vector<int64_t> NO_DELETE;
 
@@ -95,6 +94,7 @@ public:
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
         std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
+        VExprContextSPtrs missing_columns_conjuncts;
         // lazy read missing columns or all missing columns
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
         // should turn off filtering by page index, lazy read and dict filter if having complex type
@@ -157,10 +157,18 @@ public:
                 const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
     Status next_batch(Block* block, size_t batch_size, size_t* read_rows, bool* batch_eof);
     int64_t lazy_read_filtered_rows() const { return _lazy_read_filtered_rows; }
+    int64_t predicate_filter_time() const { return _predicate_filter_time; }
 
     ParquetColumnReader::Statistics statistics();
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
     int64_t get_remaining_rows() { return _remaining_rows; }
+
+protected:
+    void _collect_profile_before_close() override {
+        if (_file_reader != nullptr) {
+            _file_reader->collect_profile_before_close();
+        }
+    }
 
 private:
     void _merge_read_ranges(std::vector<RowRange>& row_ranges);
@@ -204,6 +212,7 @@ private:
 
     const LazyReadContext& _lazy_read_ctx;
     int64_t _lazy_read_filtered_rows = 0;
+    int64_t _predicate_filter_time = 0;
     // If continuous batches are skipped, we can cache them to skip a whole page
     size_t _cached_filtered_rows = 0;
     std::unique_ptr<IColumn::Filter> _pos_delete_filter_ptr;

@@ -71,7 +71,7 @@ public:
 
     Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
                          size_t new_rowset_start_seg_id = 0,
-                         std::set<int32_t>* without_index_uids = nullptr) override;
+                         std::set<int64_t>* without_index_uids = nullptr) override;
 
     Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
@@ -94,9 +94,16 @@ public:
     Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
 
     Status get_segments_size(std::vector<size_t>* segments_size);
-    Status get_inverted_index_size_by_index_id(int64_t index_id, size_t* index_size);
+
+    Status get_inverted_index_size(size_t* index_size);
+    void clear_inverted_index_cache() override;
 
     [[nodiscard]] virtual Status add_to_binlog() override;
+
+    Status calc_local_file_crc(uint32_t* crc_value, int64_t* file_count);
+
+    Status show_nested_index_file(rapidjson::Value* rowset_value,
+                                  rapidjson::Document::AllocatorType& allocator);
 
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,

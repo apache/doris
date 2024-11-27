@@ -104,6 +104,7 @@ ColumnPtr select_index_impl(const Column& column, const IColumn& indexes, size_t
 
     if (indexes.size() < limit) {
         LOG(FATAL) << "Size of indexes is less than required.";
+        __builtin_unreachable();
     }
 
     if (auto* data_uint8 = detail::get_indexes_data<UInt8>(indexes)) {

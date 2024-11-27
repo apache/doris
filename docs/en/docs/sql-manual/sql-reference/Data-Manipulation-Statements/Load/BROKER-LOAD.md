@@ -107,7 +107,7 @@ WITH BROKER broker_name
     Specifies the file type, CSV, PARQUET and ORC formats are supported. Default is CSV.
 
   - `COMPRESS_TYPE AS`
-    Specifies the file compress type, GZ/LZO/BZ2/LZ4FRAME/DEFLATE/LZOP
+    Specifies the file compress type, GZ/LZO/BZ2/LZ4FRAME/DEFLATE/LZOP. Only valid in CSV or JSON format.
 
   - `column list`
 

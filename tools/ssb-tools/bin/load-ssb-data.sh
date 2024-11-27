@@ -397,3 +397,10 @@ end_time=$(date +%s)
 echo "End time: $(date)"
 
 echo "Finish load ssb data, Time taken: $((end_time - start_time)) seconds"
+
+start=$(date +%s)
+run_sql "analyze database ${DB} with full with sync;"
+end=$(date +%s)
+totalTime=$((end - start))
+echo "analyze database ${DB} with full with sync total time: ${totalTime} s"
+echo '============================================'

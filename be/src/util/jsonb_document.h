@@ -345,6 +345,22 @@ struct leg_info {
 
     ///type: 0 is member 1 is array
     unsigned int type;
+
+    bool to_string(std::string* str) const {
+        if (type == MEMBER_CODE) {
+            str->push_back(BEGIN_MEMBER);
+            str->append(leg_ptr, leg_len);
+            return true;
+        } else if (type == ARRAY_CODE) {
+            str->push_back(BEGIN_ARRAY);
+            std::string int_str = std::to_string(array_index);
+            str->append(int_str);
+            str->push_back(END_ARRAY);
+            return true;
+        } else {
+            return false;
+        }
+    }
 };
 
 class JsonbPath {
@@ -360,6 +376,19 @@ public:
 
     void add_leg_to_leg_vector(std::unique_ptr<leg_info> leg) {
         leg_vector.emplace_back(leg.release());
+    }
+
+    void pop_leg_from_leg_vector() { leg_vector.pop_back(); }
+
+    bool to_string(std::string* res) const {
+        res->push_back(SCOPE);
+        for (const auto& leg : leg_vector) {
+            auto valid = leg->to_string(res);
+            if (!valid) {
+                return false;
+            }
+        }
+        return true;
     }
 
     size_t get_leg_vector_size() { return leg_vector.size(); }
@@ -453,6 +482,7 @@ typedef std::underlying_type<JsonbType>::type JsonbTypeUnder;
  */
 class JsonbKeyValue {
 public:
+    // now we use sMaxKeyId to represent an empty key
     static const int sMaxKeyId = 65535;
     typedef uint16_t keyid_type;
 
@@ -498,7 +528,7 @@ public:
     bool isNull() const { return (type_ == JsonbType::T_Null); }
     bool isTrue() const { return (type_ == JsonbType::T_True); }
     bool isFalse() const { return (type_ == JsonbType::T_False); }
-    bool isInt() const { return isInt8() || isInt16() || isInt32() || isInt64(); }
+    bool isInt() const { return isInt8() || isInt16() || isInt32() || isInt64() || isInt128(); }
     bool isInt8() const { return (type_ == JsonbType::T_Int8); }
     bool isInt16() const { return (type_ == JsonbType::T_Int16); }
     bool isInt32() const { return (type_ == JsonbType::T_Int32); }

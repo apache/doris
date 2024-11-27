@@ -62,7 +62,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (arguments[0].get()->is_nullable()) {
+        if (arguments[0]->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeUInt8>());
         }
         return std::make_shared<DataTypeUInt8>();
@@ -70,9 +70,14 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
+    // Sleep function should not be executed during open stage, this will makes fragment prepare
+    // waiting too long, so we do not use default impl.
+    bool use_default_implementation_for_constants() const override { return false; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
+        const auto& argument_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
 
         auto res_column = ColumnUInt8::create();
 

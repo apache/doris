@@ -78,6 +78,9 @@ public class Role implements Writable, GsonPostProcessable {
 
     @SerializedName(value = "roleName")
     private String roleName;
+
+    @SerializedName(value = "comment")
+    private String comment;
     // Will be persisted
     @SerializedName(value = "tblPatternToPrivs")
     private Map<TablePattern, PrivBitSet> tblPatternToPrivs = Maps.newConcurrentMap();
@@ -110,7 +113,12 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     public Role(String roleName) {
+        this(roleName, "");
+    }
+
+    public Role(String roleName, String comment) {
         this.roleName = roleName;
+        this.comment = comment;
     }
 
     public Role(String roleName, TablePattern tablePattern, PrivBitSet privs) throws DdlException {
@@ -372,7 +380,9 @@ public class Role implements Writable, GsonPostProcessable {
 
     public boolean checkColPriv(String ctl, String db, String tbl, String col, PrivPredicate wanted) {
         Optional<Privilege> colPrivilege = wanted.getColPrivilege();
-        Preconditions.checkState(colPrivilege.isPresent(), "this privPredicate should not use checkColPriv:" + wanted);
+        if (!colPrivilege.isPresent()) {
+            throw new IllegalStateException("this privPredicate should not use checkColPriv:" + wanted);
+        }
         return checkTblPriv(ctl, db, tbl, wanted) || onlyCheckColPriv(ctl, db, tbl, col, colPrivilege.get());
     }
 
@@ -414,8 +424,8 @@ public class Role implements Writable, GsonPostProcessable {
             return true;
         }
         PrivBitSet savedPrivs = PrivBitSet.of();
-        // Workload groups do not support global usage_priv, so only global admin_priv and usage_priv are checked.
-        if (checkGlobalInternal(PrivPredicate.ADMIN, savedPrivs)
+        // usage priv not in global, but grant_priv may in global
+        if (checkGlobalInternal(wanted, savedPrivs)
                 || checkWorkloadGroupInternal(workloadGroupName, wanted, savedPrivs)) {
             return true;
         }
@@ -484,6 +494,14 @@ public class Role implements Writable, GsonPostProcessable {
         return workloadGroupPrivTable;
     }
 
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
+    }
+
     public boolean checkCanEnterCluster(String clusterName) {
         if (checkGlobalPriv(PrivPredicate.ALL)) {
             return true;
@@ -504,18 +522,7 @@ public class Role implements Writable, GsonPostProcessable {
         if (privs.isEmpty()) {
             return;
         }
-        // grant privs to user
-        switch (resourcePattern.getPrivLevel()) {
-            case GLOBAL:
-                grantGlobalPrivs(privs);
-                break;
-            case RESOURCE:
-                grantResourcePrivs(resourcePattern.getResourceName(), privs);
-                break;
-            default:
-                Preconditions.checkNotNull(null, resourcePattern.getPrivLevel());
-        }
-
+        grantResourcePrivs(resourcePattern.getResourceName(), privs);
     }
 
     private void grantPrivs(WorkloadGroupPattern workloadGroupPattern, PrivBitSet privs) throws DdlException {
@@ -630,19 +637,22 @@ public class Role implements Writable, GsonPostProcessable {
     public void revokePrivs(TablePattern tblPattern, PrivBitSet privs, Map<ColPrivilegeKey, Set<String>> colPrivileges,
             boolean errOnNonExist)
             throws DdlException {
-        PrivBitSet existingPriv = tblPatternToPrivs.get(tblPattern);
-        if (existingPriv == null) {
-            if (errOnNonExist) {
-                throw new DdlException(tblPattern + " does not exist in role " + roleName);
+        if (!colPrivileges.isEmpty()) {
+            revokeCols(colPrivileges);
+        } else {
+            PrivBitSet existingPriv = tblPatternToPrivs.get(tblPattern);
+            if (existingPriv == null) {
+                if (errOnNonExist) {
+                    throw new DdlException(tblPattern + " does not exist in role " + roleName);
+                }
+                return;
             }
-            return;
+            existingPriv.remove(privs);
+            if (existingPriv.isEmpty()) {
+                tblPatternToPrivs.remove(tblPattern);
+            }
+            revokePrivs(tblPattern, privs);
         }
-        existingPriv.remove(privs);
-        if (existingPriv.isEmpty()) {
-            tblPatternToPrivs.remove(tblPattern);
-        }
-        revokePrivs(tblPattern, privs);
-        revokeCols(colPrivileges);
     }
 
     private void revokeCols(Map<ColPrivilegeKey, Set<String>> colPrivileges) {
@@ -654,6 +664,12 @@ public class Role implements Writable, GsonPostProcessable {
                 colPrivMap.get(entry.getKey()).removeAll(entry.getValue());
                 if (CollectionUtils.isEmpty(colPrivMap.get(entry.getKey()))) {
                     colPrivMap.remove(entry.getKey());
+                    TablePattern tblPattern = new TablePattern(entry.getKey().getCtl(), entry.getKey().getDb(),
+                            entry.getKey().getTbl());
+                    PrivBitSet existingPriv = tblPatternToPrivs.get(tblPattern);
+                    if (existingPriv != null && existingPriv.isEmpty()) {
+                        tblPatternToPrivs.remove(tblPattern);
+                    }
                 }
             }
         }

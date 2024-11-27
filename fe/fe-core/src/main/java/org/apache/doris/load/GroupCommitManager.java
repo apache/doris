@@ -18,9 +18,16 @@
 package org.apache.doris.load;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.common.util.SlidingWindowCounter;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeResponse;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -28,17 +35,28 @@ import org.apache.doris.thrift.TStatusCode;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
 public class GroupCommitManager {
 
     private static final Logger LOG = LogManager.getLogger(GroupCommitManager.class);
 
     private Set<Long> blockedTableIds = new HashSet<>();
+
+    // Table id to BE id map. Only for group commit.
+    private Map<Long, Long> tableToBeMap = new ConcurrentHashMap<>();
+    // Table id to pressure map. Only for group commit.
+    private Map<Long, SlidingWindowCounter> tableToPressureMap = new ConcurrentHashMap<>();
 
     public boolean isBlock(long tableId) {
         return blockedTableIds.contains(tableId);
@@ -83,7 +101,7 @@ public class GroupCommitManager {
     /**
      * Check the wal before the endTransactionId is finished or not.
      */
-    public boolean isPreviousWalFinished(long tableId, List<Long> aliveBeIds) {
+    private boolean isPreviousWalFinished(long tableId, List<Long> aliveBeIds) {
         boolean empty = true;
         for (int i = 0; i < aliveBeIds.size(); i++) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(aliveBeIds.get(i));
@@ -114,7 +132,7 @@ public class GroupCommitManager {
         return size;
     }
 
-    public long getWalQueueSize(Backend backend, PGetWalQueueSizeRequest request) {
+    private long getWalQueueSize(Backend backend, PGetWalQueueSizeRequest request) {
         PGetWalQueueSizeResponse response = null;
         long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
         long size = 0;
@@ -163,4 +181,154 @@ public class GroupCommitManager {
         return size;
     }
 
+    public Backend selectBackendForGroupCommit(long tableId, ConnectContext context)
+            throws LoadException, DdlException {
+        // If a group commit request is sent to the follower FE, we will send this request to the master FE. master FE
+        // can select a BE and return this BE id to follower FE.
+        if (!Env.getCurrentEnv().isMaster()) {
+            try {
+                long backendId = new MasterOpExecutor(context)
+                        .getGroupCommitLoadBeId(tableId);
+                return Env.getCurrentSystemInfo().getBackend(backendId);
+            } catch (Exception e) {
+                throw new LoadException(e.getMessage());
+            }
+        } else {
+            // Master FE will select BE by itself.
+            return Env.getCurrentSystemInfo()
+                    .getBackend(selectBackendForGroupCommitInternal(tableId));
+        }
+    }
+
+    public long selectBackendForGroupCommitInternal(long tableId)
+            throws LoadException, DdlException {
+        // Understanding Group Commit and Backend Selection Logic
+        //
+        // Group commit is a server-side technique used for batching data imports.
+        // The primary purpose of group commit is to enhance import performance by
+        // reducing the number of versions created for high-frequency, small-batch imports.
+        // Without batching, each import operation creates a separate version, similar to a rowset in an LSM Tree,
+        // which can consume significant compaction resources and degrade system performance.
+        // By batching data, fewer versions are generated from the same amount of data,
+        // thus minimizing compaction and improving performance. For detailed usage,
+        // you can refer to the Group Commit Manual
+        // (https://doris.incubator.apache.org/docs/data-operate/import/group-commit-manual/) .
+        //
+        // The specific backend (BE) selection logic for group commits aims to
+        // direct data belonging to the same table to the same BE for batching.
+        // This is because group commit batches data imported to the same table
+        // on the same BE into a single version, which is then flushed periodically.
+        // For example, if data for the same table is distributed across three BEs,
+        // it will result in three versions.
+        // Conversely, if data for four different tables is directed to the same BE,
+        // it will create four versions. However,
+        // directing all data for the same table to a single BE will only produce one version.
+        //
+        // To optimize performance and avoid overloading a single BE, the strategy for selecting a BE works as follows:
+        //
+        // If a BE is already handling imports for table A and is not under significant load,
+        // the data is sent to this BE.
+        // If the BE is overloaded or if there is no existing record of a BE handling imports for table A,
+        // a BE is chosen at random. This BE is then recorded along with the mapping of table A and its load level.
+        // This approach ensures that group commits can effectively batch data together
+        // while managing the load on each BE efficiently.
+        return selectBackendForLocalGroupCommitInternal(tableId);
+    }
+
+    private long selectBackendForLocalGroupCommitInternal(long tableId) throws LoadException {
+        LOG.debug("group commit select be info, tableToBeMap {}, tableToPressureMap {}", tableToBeMap.toString(),
+                tableToPressureMap.toString());
+        Long cachedBackendId = getCachedBackend(tableId);
+        if (cachedBackendId != null) {
+            return cachedBackendId;
+        }
+
+        List<Backend> backends = new ArrayList<>((Env.getCurrentSystemInfo()).getAllBackends());
+        if (backends.isEmpty()) {
+            throw new LoadException("No alive backend");
+        }
+
+        // If the cached backend is not active or decommissioned, select a random new backend.
+        Long randomBackendId = getRandomBackend(tableId, backends);
+        if (randomBackendId != null) {
+            return randomBackendId;
+        }
+        List<String> backendsInfo = backends.stream()
+                .map(be -> "{ beId=" + be.getId() + ", alive=" + be.isAlive()
+                        + ", decommission=" + be.isDecommissioned() + " }")
+                .collect(Collectors.toList());
+        throw new LoadException("No suitable backend " + ", backends = " + backendsInfo);
+    }
+
+    @Nullable
+    private Long getCachedBackend(long tableId) {
+        OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
+        if (tableToBeMap.containsKey(tableId)) {
+            if (tableToPressureMap.get(tableId).get() < table.getGroupCommitDataBytes()) {
+                // There are multiple threads getting cached backends for the same table.
+                // Maybe one thread removes the tableId from the tableToBeMap.
+                // Another thread gets the same tableId but can not find this tableId.
+                // So another thread needs to get the random backend.
+                Long backendId = tableToBeMap.get(tableId);
+                if (backendId == null) {
+                    return null;
+                }
+                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+                if (backend != null && backend.isAlive() && !backend.isDecommissioned()) {
+                    return backend.getId();
+                } else {
+                    tableToBeMap.remove(tableId);
+                }
+            } else {
+                tableToBeMap.remove(tableId);
+            }
+        }
+        return null;
+    }
+
+    @Nullable
+    private Long getRandomBackend(long tableId, List<Backend> backends) {
+        OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
+        Collections.shuffle(backends);
+        for (Backend backend : backends) {
+            if (backend.isAlive() && !backend.isDecommissioned()) {
+                tableToBeMap.put(tableId, backend.getId());
+                tableToPressureMap.put(tableId,
+                        new SlidingWindowCounter(table.getGroupCommitIntervalMs() / 1000 + 1));
+                return backend.getId();
+            }
+        }
+        return null;
+    }
+
+    public void updateLoadData(long tableId, long receiveData) {
+        if (tableId == -1) {
+            LOG.warn("invalid table id: " + tableId);
+        }
+        if (!Env.getCurrentEnv().isMaster()) {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setThreadLocalInfo();
+            // set user to ADMIN_USER, so that we can get the proper resource tag
+            ctx.setQualifiedUser(Auth.ADMIN_USER);
+            ctx.setThreadLocalInfo();
+            try {
+                new MasterOpExecutor(ctx).updateLoadData(tableId, receiveData);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        } else {
+            updateLoadDataInternal(tableId, receiveData);
+        }
+    }
+
+    private void updateLoadDataInternal(long tableId, long receiveData) {
+        if (tableToPressureMap.containsKey(tableId)) {
+            tableToPressureMap.get(tableId).add(receiveData);
+            LOG.info("Update load data for table {}, receiveData {}, tablePressureMap {}", tableId, receiveData,
+                    tableToPressureMap.toString());
+        } else if (LOG.isDebugEnabled()) {
+            LOG.debug("can not find table id {}", tableId);
+        }
+    }
 }

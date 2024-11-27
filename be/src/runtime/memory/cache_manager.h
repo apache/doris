@@ -18,6 +18,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_policy.h"
@@ -29,23 +30,33 @@ namespace doris {
 // Hold the list of all caches, for prune when memory not enough or timing.
 class CacheManager {
 public:
-    static CacheManager* create_global_instance() {
-        CacheManager* res = new CacheManager();
-        return res;
-    }
+    static CacheManager* create_global_instance() { return new CacheManager(); }
     static CacheManager* instance() { return ExecEnv::GetInstance()->get_cache_manager(); }
 
-    std::list<CachePolicy*>::iterator register_cache(CachePolicy* cache) {
+    void register_cache(CachePolicy* cache) {
         std::lock_guard<std::mutex> l(_caches_lock);
-        return _caches.insert(_caches.end(), cache);
+        auto it = _caches.find(cache->type());
+        if (it != _caches.end()) {
+#ifdef BE_TEST
+            _caches.erase(it);
+#else
+            LOG(FATAL) << "Repeat register cache " << CachePolicy::type_string(cache->type());
+#endif // BE_TEST
+        }
+        _caches.insert({cache->type(), cache});
+        LOG(INFO) << "Register Cache " << CachePolicy::type_string(cache->type());
     }
 
-    void unregister_cache(std::list<CachePolicy*>::iterator it) {
+    void unregister_cache(CachePolicy::CacheType type) {
+#ifdef BE_TEST
+        return;
+#endif // BE_TEST
         std::lock_guard<std::mutex> l(_caches_lock);
+        auto it = _caches.find(type);
         if (it != _caches.end()) {
             _caches.erase(it);
-            it = _caches.end();
         }
+        LOG(INFO) << "Unregister Cache " << CachePolicy::type_string(type);
     }
 
     int64_t for_each_cache_prune_stale_wrap(std::function<void(CachePolicy* cache_policy)> func,
@@ -53,13 +64,12 @@ public:
 
     int64_t for_each_cache_prune_stale(RuntimeProfile* profile = nullptr);
 
-    int64_t for_each_cache_prune_all(RuntimeProfile* profile = nullptr);
-
-    void clear_once(CachePolicy::CacheType type);
+    // if force is true, regardless of the two prune interval and cache size, cache will be pruned this time.
+    int64_t for_each_cache_prune_all(RuntimeProfile* profile = nullptr, bool force = false);
+    int64_t cache_prune_all(CachePolicy::CacheType type, bool force = false);
 
     bool need_prune(int64_t* last_timestamp, const std::string& type) {
         int64_t now = UnixSeconds();
-        std::lock_guard<std::mutex> l(_caches_lock);
         if (now - *last_timestamp > config::cache_prune_interval_sec) {
             *last_timestamp = now;
             return true;
@@ -73,7 +83,7 @@ public:
 
 private:
     std::mutex _caches_lock;
-    std::list<CachePolicy*> _caches;
+    std::unordered_map<CachePolicy::CacheType, CachePolicy*> _caches;
     int64_t _last_prune_stale_timestamp = 0;
     int64_t _last_prune_all_timestamp = 0;
 };

@@ -20,38 +20,54 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.TableMetadata;
 
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class HiveTableMetadata implements TableMetadata {
-    private String dbName;
-    private String tableName;
-    private List<Column> columns;
-    private List<FieldSchema> partitionKeys;
-    private String inputFormat;
-    private String outputFormat;
-    private String serDe;
-    private Map<String, String> properties;
+    private final String dbName;
+    private final String tableName;
+    private final Optional<String> location;
+    private final List<Column> columns;
+    private final List<String> partitionKeys;
+    private final String fileFormat;
+    private final String comment;
+    private final Map<String, String> properties;
+    private List<String> bucketCols;
+    private int numBuckets;
     // private String viewSql;
 
     public HiveTableMetadata(String dbName,
                              String tblName,
+                             Optional<String> location,
                              List<Column> columns,
-                             List<FieldSchema> partitionKeys,
+                             List<String> partitionKeys,
                              Map<String, String> props,
-                             String inputFormat,
-                             String outputFormat,
-                             String serDe) {
+                             String fileFormat,
+                             String comment) {
+        this(dbName, tblName, location, columns, partitionKeys, new ArrayList<>(), 0, props, fileFormat, comment);
+    }
+
+    public HiveTableMetadata(String dbName, String tableName,
+                             Optional<String> location,
+                             List<Column> columns,
+                             List<String> partitionKeys,
+                             List<String> bucketCols,
+                             int numBuckets,
+                             Map<String, String> props,
+                             String fileFormat,
+                             String comment) {
         this.dbName = dbName;
-        this.tableName = tblName;
+        this.tableName = tableName;
         this.columns = columns;
         this.partitionKeys = partitionKeys;
-        this.inputFormat = inputFormat;
-        this.outputFormat = outputFormat;
-        this.serDe = serDe;
+        this.bucketCols = bucketCols;
+        this.numBuckets = numBuckets;
         this.properties = props;
+        this.fileFormat = fileFormat;
+        this.location = location;
+        this.comment = comment;
     }
 
     @Override
@@ -64,6 +80,14 @@ public class HiveTableMetadata implements TableMetadata {
         return tableName;
     }
 
+    public Optional<String> getLocation() {
+        return location;
+    }
+
+    public String getComment() {
+        return comment == null ? "" : comment;
+    }
+
     @Override
     public Map<String, String> getProperties() {
         return properties;
@@ -73,30 +97,44 @@ public class HiveTableMetadata implements TableMetadata {
         return columns;
     }
 
-    public List<FieldSchema> getPartitionKeys() {
+    public List<String> getPartitionKeys() {
         return partitionKeys;
     }
 
-    public String getInputFormat() {
-        return inputFormat;
+    public String getFileFormat() {
+        return fileFormat;
     }
 
-    public String getOutputFormat() {
-        return outputFormat;
+    public List<String> getBucketCols() {
+        return bucketCols;
     }
 
-    public String getSerDe() {
-        return serDe;
+    public int getNumBuckets() {
+        return numBuckets;
     }
 
     public static HiveTableMetadata of(String dbName,
                                        String tblName,
+                                       Optional<String> location,
                                        List<Column> columns,
-                                       List<FieldSchema> partitionKeys,
+                                       List<String> partitionKeys,
                                        Map<String, String> props,
-                                       String inputFormat,
-                                       String outputFormat, String serDe) {
-        return new HiveTableMetadata(dbName, tblName, columns, partitionKeys, props,
-                inputFormat, outputFormat, serDe);
+                                       String fileFormat,
+                                       String comment) {
+        return new HiveTableMetadata(dbName, tblName, location, columns, partitionKeys, props, fileFormat, comment);
+    }
+
+    public static HiveTableMetadata of(String dbName,
+                                       String tblName,
+                                       Optional<String> location,
+                                       List<Column> columns,
+                                       List<String> partitionKeys,
+                                       List<String> bucketCols,
+                                       int numBuckets,
+                                       Map<String, String> props,
+                                       String fileFormat,
+                                       String comment) {
+        return new HiveTableMetadata(dbName, tblName, location, columns, partitionKeys,
+                bucketCols, numBuckets, props, fileFormat, comment);
     }
 }

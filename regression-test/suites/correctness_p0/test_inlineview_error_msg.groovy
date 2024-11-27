@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_inlineview_error_msg") {
-    sql "set enable_nereids_planner=false"
     sql """
         drop table if exists tmp_can_drop_t1;
     """

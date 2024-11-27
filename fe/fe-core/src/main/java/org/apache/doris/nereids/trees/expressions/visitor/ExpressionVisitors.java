@@ -21,6 +21,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 
+import java.util.Map;
+
 /**
  * This is the factory for all ExpressionVisitor instance.
  * All children instance of DefaultExpressionVisitor or ExpressionVisitor for common usage
@@ -29,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 public class ExpressionVisitors {
 
     public static final ContainsAggregateChecker CONTAINS_AGGREGATE_CHECKER = new ContainsAggregateChecker();
+    public static final ExpressionMapReplacer EXPRESSION_MAP_REPLACER = new ExpressionMapReplacer();
 
     private static class ContainsAggregateChecker extends DefaultExpressionVisitor<Boolean, Void> {
         @Override
@@ -52,6 +55,24 @@ public class ExpressionVisitors {
         @Override
         public Boolean visitAggregateFunction(AggregateFunction aggregateFunction, Void context) {
             return true;
+        }
+    }
+
+    /**
+     * replace sub expr by Map
+     */
+    public static class ExpressionMapReplacer
+            extends DefaultExpressionRewriter<Map<Expression, Expression>> {
+
+        private ExpressionMapReplacer() {
+        }
+
+        @Override
+        public Expression visit(Expression expr, Map<Expression, Expression> replaceMap) {
+            if (replaceMap.containsKey(expr)) {
+                return replaceMap.get(expr);
+            }
+            return super.visit(expr, replaceMap);
         }
     }
 }

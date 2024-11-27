@@ -46,6 +46,9 @@ public class MetastoreEventFactory implements EventFactory {
                                                                            String catalogName) {
         Preconditions.checkNotNull(event.getEventType());
         MetastoreEventType metastoreEventType = MetastoreEventType.from(event.getEventType());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("catalogName = {}, Event = {}", catalogName, event.toString());
+        }
         switch (metastoreEventType) {
             case CREATE_TABLE:
                 return CreateTableEvent.getEvents(event, catalogName);

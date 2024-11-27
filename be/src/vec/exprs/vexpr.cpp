@@ -19,9 +19,11 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
+#include <boost/algorithm/string/split.hpp>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <stack>
@@ -31,7 +33,9 @@
 #include "common/status.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcase_expr.h"
@@ -40,7 +44,6 @@
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vlambda_function_call_expr.h"
@@ -101,7 +104,7 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         break;
     }
     case TYPE_DATETIMEV2: {
-        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node));
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node, precision, scale));
         break;
     }
     case TYPE_DATE: {
@@ -207,6 +210,7 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
         RETURN_IF_ERROR(i->prepare(state, row_desc, context));
     }
     --context->_depth_num;
+    _enable_inverted_index_query = state->query_options().enable_inverted_index_query;
     return Status::OK();
 }
 
@@ -279,6 +283,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::ARITHMETIC_EXPR:
         case TExprNodeType::BINARY_PRED:
+        case TExprNodeType::NULL_AWARE_BINARY_PRED:
         case TExprNodeType::FUNCTION_CALL:
         case TExprNodeType::COMPUTE_FUNCTION_CALL: {
             expr = VectorizedFnCall::create_shared(expr_node);
@@ -402,6 +407,39 @@ Status VExpr::create_expr_trees(const std::vector<TExpr>& texprs, VExprContextSP
         VExprContextSPtr ctx;
         RETURN_IF_ERROR(create_expr_tree(texpr, ctx));
         ctxs.push_back(ctx);
+    }
+    return Status::OK();
+}
+
+Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
+                                     const RowDescriptor& output_row_desc) {
+    if (ctxs.empty()) {
+        return Status::OK();
+    }
+    auto name_and_types = VectorizedUtils::create_name_and_data_types(output_row_desc);
+    if (ctxs.size() != name_and_types.size()) {
+        return Status::InternalError(
+                "output type size not match expr size {} , expected output size {} ", ctxs.size(),
+                name_and_types.size());
+    }
+    auto check_type_can_be_converted = [](DataTypePtr& from, DataTypePtr& to) -> bool {
+        if (to->equals(*from)) {
+            return true;
+        }
+        if (to->is_nullable() && !from->is_nullable()) {
+            return remove_nullable(to)->equals(*from);
+        }
+        return false;
+    };
+    for (int i = 0; i < ctxs.size(); i++) {
+        auto real_expr_type = ctxs[i]->root()->data_type();
+        auto&& [name, expected_type] = name_and_types[i];
+        if (!check_type_can_be_converted(real_expr_type, expected_type)) {
+            return Status::InternalError(
+                    "output type not match expr type  , col name {} , expected type {} , real type "
+                    "{}",
+                    name, expected_type->get_name(), real_expr_type->get_name());
+        }
     }
     return Status::OK();
 }
@@ -541,10 +579,10 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
                                    const FunctionBasePtr& function) const {
     if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-        // close failed will make system unstable. dont swallow it.
-        THROW_IF_ERROR(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        // `close_function_context` is called in VExprContext's destructor so do not throw exceptions here.
+        static_cast<void>(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            THROW_IF_ERROR(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+            static_cast<void>(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
         }
     }
 }
@@ -562,6 +600,151 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
     auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
     block->insert({std::move(column), _data_type, expr_name});
     return Status::OK();
+}
+
+Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
+                                       uint32_t segment_num_rows) {
+    // Pre-allocate vectors based on an estimated or known size
+    std::vector<segment_v2::InvertedIndexIterator*> iterators;
+    std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
+    std::vector<int> column_ids;
+    vectorized::ColumnsWithTypeAndName arguments;
+    VExprSPtrs children_exprs;
+
+    // Reserve space to avoid multiple reallocations
+    const size_t estimated_size = children().size();
+    iterators.reserve(estimated_size);
+    data_type_with_names.reserve(estimated_size);
+    column_ids.reserve(estimated_size);
+    children_exprs.reserve(estimated_size);
+
+    auto index_context = context->get_inverted_index_context();
+
+    // if child is cast expr, we need to ensure target data type is the same with storage data type.
+    // or they are all string type
+    // and if data type is array, we need to get the nested data type to ensure that.
+    for (const auto& child : children()) {
+        if (child->node_type() == TExprNodeType::CAST_EXPR) {
+            auto* cast_expr = assert_cast<VCastExpr*>(child.get());
+            DCHECK_EQ(cast_expr->children().size(), 1);
+            if (cast_expr->get_child(0)->is_slot_ref()) {
+                auto* column_slot_ref = assert_cast<VSlotRef*>(cast_expr->get_child(0).get());
+                auto column_id = column_slot_ref->column_id();
+                const auto* storage_name_type =
+                        context->get_inverted_index_context()
+                                ->get_storage_name_and_type_by_column_id(column_id);
+                auto storage_type = remove_nullable(storage_name_type->second);
+                auto target_type = cast_expr->get_target_type();
+                auto origin_primitive_type = storage_type->get_type_as_type_descriptor().type;
+                auto target_primitive_type = target_type->get_type_as_type_descriptor().type;
+                if (is_complex_type(storage_type)) {
+                    if (is_array(storage_type) && is_array(target_type)) {
+                        auto nested_storage_type =
+                                (assert_cast<const DataTypeArray*>(storage_type.get()))
+                                        ->get_nested_type();
+                        origin_primitive_type =
+                                nested_storage_type->get_type_as_type_descriptor().type;
+                        auto nested_target_type =
+                                (assert_cast<const DataTypeArray*>(target_type.get()))
+                                        ->get_nested_type();
+                        target_primitive_type =
+                                nested_target_type->get_type_as_type_descriptor().type;
+                    } else {
+                        continue;
+                    }
+                }
+                if (origin_primitive_type != TYPE_VARIANT &&
+                    (origin_primitive_type == target_primitive_type ||
+                     (is_string_type(target_primitive_type) &&
+                      is_string_type(origin_primitive_type)))) {
+                    children_exprs.emplace_back(expr_without_cast(child));
+                }
+            }
+        } else {
+            children_exprs.emplace_back(child);
+        }
+    }
+
+    if (children_exprs.empty()) {
+        return Status::OK(); // Early exit if no children to process
+    }
+
+    for (const auto& child : children_exprs) {
+        if (child->is_slot_ref()) {
+            auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
+            auto column_id = column_slot_ref->column_id();
+            auto* iter =
+                    context->get_inverted_index_context()->get_inverted_index_iterator_by_column_id(
+                            column_id);
+            //column does not have inverted index
+            if (iter == nullptr) {
+                continue;
+            }
+            const auto* storage_name_type =
+                    context->get_inverted_index_context()->get_storage_name_and_type_by_column_id(
+                            column_id);
+            if (storage_name_type == nullptr) {
+                auto err_msg = fmt::format(
+                        "storage_name_type cannot be found for column {} while in {} "
+                        "evaluate_inverted_index",
+                        column_id, expr_name());
+                LOG(ERROR) << err_msg;
+                return Status::InternalError(err_msg);
+            }
+            iterators.emplace_back(iter);
+            data_type_with_names.emplace_back(*storage_name_type);
+            column_ids.emplace_back(column_id);
+        } else if (child->is_literal()) {
+            auto* column_literal = assert_cast<VLiteral*>(child.get());
+            arguments.emplace_back(column_literal->get_column_ptr(),
+                                   column_literal->get_data_type(), column_literal->expr_name());
+        }
+    }
+
+    if (iterators.empty() || arguments.empty()) {
+        return Status::OK(); // Nothing to evaluate or no literals to compare against
+    }
+
+    auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
+    auto res = function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
+                                                 segment_num_rows, result_bitmap);
+    if (!res.ok()) {
+        return res;
+    }
+    if (!result_bitmap.is_empty()) {
+        index_context->set_inverted_index_result_for_expr(this, result_bitmap);
+        for (int column_id : column_ids) {
+            index_context->set_true_for_inverted_index_status(this, column_id);
+        }
+        // set fast_execute when expr evaluated by inverted index correctly
+        _can_fast_execute = true;
+    }
+    return Status::OK();
+}
+
+bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
+                         int* result_column_id) {
+    if (context->get_inverted_index_context() &&
+        context->get_inverted_index_context()->get_inverted_index_result_column().contains(this)) {
+        size_t num_columns_without_result = block->columns();
+        // prepare a column to save result
+        auto result_column =
+                context->get_inverted_index_context()->get_inverted_index_result_column()[this];
+        if (_data_type->is_nullable()) {
+            block->insert(
+                    {ColumnNullable::create(result_column, ColumnUInt8::create(block->rows(), 0)),
+                     _data_type, expr_name()});
+        } else {
+            block->insert({result_column, _data_type, expr_name()});
+        }
+        *result_column_id = num_columns_without_result;
+        return true;
+    }
+    return false;
+}
+
+bool VExpr::equals(const VExpr& other) {
+    return false;
 }
 
 } // namespace doris::vectorized

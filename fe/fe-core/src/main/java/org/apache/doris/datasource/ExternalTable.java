@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -25,9 +24,7 @@ import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
@@ -40,7 +37,7 @@ import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
-import com.google.common.collect.Sets;
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import org.apache.commons.lang3.NotImplementedException;
@@ -50,13 +47,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -86,7 +80,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected long dbId;
     protected boolean objectCreated;
     protected ExternalCatalog catalog;
-    protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
     /**
      * No args constructor for persist.
@@ -133,102 +126,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
-    public void readLock() {
-        this.rwLock.readLock().lock();
-    }
-
-    @Override
-    public boolean tryReadLock(long timeout, TimeUnit unit) {
-        try {
-            return this.rwLock.readLock().tryLock(timeout, unit);
-        } catch (InterruptedException e) {
-            LOG.warn("failed to try read lock at table[" + name + "]", e);
-            return false;
-        }
-    }
-
-    @Override
-    public void readUnlock() {
-        this.rwLock.readLock().unlock();
-    }
-
-    @Override
-    public void writeLock() {
-        this.rwLock.writeLock().lock();
-    }
-
-    @Override
-    public boolean writeLockIfExist() {
-        writeLock();
-        return true;
-    }
-
-    @Override
-    public boolean tryWriteLock(long timeout, TimeUnit unit) {
-        try {
-            return this.rwLock.writeLock().tryLock(timeout, unit);
-        } catch (InterruptedException e) {
-            LOG.warn("failed to try write lock at table[" + name + "]", e);
-            return false;
-        }
-    }
-
-    @Override
-    public void writeUnlock() {
-        this.rwLock.writeLock().unlock();
-    }
-
-    @Override
-    public boolean isWriteLockHeldByCurrentThread() {
-        return this.rwLock.writeLock().isHeldByCurrentThread();
-    }
-
-    @Override
-    public <E extends Exception> void writeLockOrException(E e) throws E {
-        writeLock();
-    }
-
-    @Override
-    public void writeLockOrDdlException() throws DdlException {
-        writeLockOrException(new DdlException("unknown table, tableName=" + name,
-                                        ErrorCode.ERR_BAD_TABLE_ERROR));
-    }
-
-    @Override
-    public void writeLockOrMetaException() throws MetaNotFoundException {
-        writeLockOrException(new MetaNotFoundException("unknown table, tableName=" + name,
-                                        ErrorCode.ERR_BAD_TABLE_ERROR));
-    }
-
-    @Override
-    public void writeLockOrAlterCancelException() throws AlterCancelException {
-        writeLockOrException(new AlterCancelException("unknown table, tableName=" + name,
-                                        ErrorCode.ERR_BAD_TABLE_ERROR));
-    }
-
-    @Override
-    public boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException {
-        return tryWriteLockOrException(timeout, unit, new MetaNotFoundException("unknown table, tableName=" + name,
-                                        ErrorCode.ERR_BAD_TABLE_ERROR));
-    }
-
-    @Override
-    public <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E {
-        if (tryWriteLock(timeout, unit)) {
-            return true;
-        }
-        return false;
-    }
-
-    @Override
-    public boolean tryWriteLockIfExist(long timeout, TimeUnit unit) {
-        if (tryWriteLock(timeout, unit)) {
-            return true;
-        }
-        return false;
-    }
-
-    @Override
     public long getId() {
         return id;
     }
@@ -246,7 +143,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public List<Column> getFullSchema() {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        return cache.getSchema(dbName, name);
+        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(dbName, name);
+        return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
     }
 
     @Override
@@ -263,7 +161,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     public List<Column> getBaseSchema(boolean full) {
         return getFullSchema();
     }
-
 
     @Override
     public void setNewFullSchema(List<Column> newSchema) {
@@ -303,9 +200,23 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
             makeSureInitialized();
         } catch (Exception e) {
             LOG.warn("Failed to initialize table {}.{}.{}", catalog.getName(), dbName, name, e);
-            return 0;
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         // All external table should get external row count from cache.
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache().getCachedRowCount(catalog.getId(), dbId, id);
+    }
+
+    @Override
+    public long getCachedRowCount() {
+        // Return -1 if uninitialized.
+        // Before this, for uninitialized tables, we would call makeSureInitialized(), just like the implementation of
+        // ExternalTable.getRowCount(), but this is not very meaningful and time-consuming.
+        // The getCachedRowCount() function is only used when `show table` and querying `information_schema.tables`.
+        if (!isObjectCreated()) {
+            return -1;
+        }
+        // getExtMetaCacheMgr().getRowCountCache().getCachedRowCount() is an asynchronous non-blocking operation.
+        // For tables that are not in the cache, it will load asynchronously and return -1.
         return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache().getCachedRowCount(catalog.getId(), dbId, id);
     }
 
@@ -315,7 +226,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * This is called by ExternalRowCountCache to load row count cache.
      */
     public long fetchRowCount() {
-        return 0;
+        return UNKNOWN_ROW_COUNT;
     }
 
     @Override
@@ -391,12 +302,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      *
      * @return
      */
-    public List<Column> initSchemaAndUpdateTime() {
+    public Optional<SchemaCacheValue> initSchemaAndUpdateTime() {
         schemaUpdateTime = System.currentTimeMillis();
         return initSchema();
     }
 
-    public List<Column> initSchema() {
+    public Optional<SchemaCacheValue> initSchema() {
         throw new NotImplementedException("implement in sub class");
     }
 
@@ -417,7 +328,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
-        rwLock = new ReentrantReadWriteLock(true);
         objectCreated = false;
     }
 
@@ -426,11 +336,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         if (tblStats == null) {
             return true;
         }
-        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
+        if (!tblStats.analyzeColumns().containsAll(getColumnIndexPairs(
+                getBaseSchema()
                 .stream()
                 .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                 .map(Column::getName)
-                .collect(Collectors.toSet()))) {
+                .collect(Collectors.toSet())))) {
             return true;
         }
         return System.currentTimeMillis()
@@ -438,16 +349,26 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
-    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
-        HashSet<String> partitions = Sets.newHashSet();
-        // TODO: Find a way to collect external table partitions that need to be analyzed.
-        partitions.add("Dummy Partition");
-        return getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                .collect(Collectors.toMap(Column::getName, k -> partitions));
+    public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+        List<Pair<String, String>> ret = Lists.newArrayList();
+        for (String column : columns) {
+            Column col = getColumn(column);
+            if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
+                continue;
+            }
+            // External table put table name as index name.
+            ret.add(Pair.of(String.valueOf(name), column));
+        }
+        return ret;
     }
 
     @Override
     public List<Long> getChunkSizes() {
         throw new NotImplementedException("getChunkSized not implemented");
+    }
+
+    protected Optional<SchemaCacheValue> getSchemaCacheValue() {
+        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+        return cache.getSchemaValue(dbName, name);
     }
 }

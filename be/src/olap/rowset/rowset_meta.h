@@ -242,6 +242,12 @@ public:
         return num_segments() > 1 && is_singleton_delta() && segments_overlap() != NONOVERLAPPING;
     }
 
+    bool produced_by_compaction() const {
+        return has_version() &&
+               (start_version() < end_version() ||
+                (start_version() == end_version() && segments_overlap() == NONOVERLAPPING));
+    }
+
     // get the compaction score of this rowset.
     // if segments are overlapping, the score equals to the number of segments,
     // otherwise, score is 1.
@@ -254,6 +260,21 @@ public:
             CHECK(score > 0);
         }
         return score;
+    }
+
+    uint32_t get_merge_way_num() const {
+        uint32_t way_num = 0;
+        if (!is_segments_overlapping()) {
+            if (num_segments() == 0) {
+                way_num = 0;
+            } else {
+                way_num = 1;
+            }
+        } else {
+            way_num = num_segments();
+            CHECK(way_num > 0);
+        }
+        return way_num;
     }
 
     void get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) const {
@@ -303,6 +324,12 @@ public:
     void set_tablet_schema(const TabletSchemaPB& tablet_schema);
 
     const TabletSchemaSPtr& tablet_schema() { return _schema; }
+
+    void set_compaction_level(int64_t compaction_level) {
+        _rowset_meta_pb.set_compaction_level(compaction_level);
+    }
+
+    int64_t compaction_level() { return _rowset_meta_pb.compaction_level(); }
 
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;

@@ -353,9 +353,9 @@ protected:
         RowIdConversion rowid_conversion;
         stats.rowid_conversion = &rowid_conversion;
         if (is_vertical_merger) {
-            s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
-                                               tablet_schema, input_rs_readers,
-                                               output_rs_writer.get(), 10000000, &stats);
+            s = Merger::vertical_merge_rowsets(
+                    tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema, input_rs_readers,
+                    output_rs_writer.get(), 10000000, num_segments, &stats);
         } else {
             s = Merger::vmerge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION, tablet_schema,
                                        input_rs_readers, output_rs_writer.get(), &stats);
@@ -452,7 +452,12 @@ protected:
                     int64_t c1 = j * rows_per_segment + n;
                     // There are 500 rows of data overlap between rowsets
                     if (i > 0) {
-                        c1 += i * num_segments * rows_per_segment - 500;
+                        if (is_overlap) {
+                            // There are 500 rows of data overlap between rowsets
+                            c1 -= 500;
+                        } else {
+                            ++c1;
+                        }
                     }
                     if (is_overlap && j > 0) {
                         // There are 10 rows of data overlap between segments

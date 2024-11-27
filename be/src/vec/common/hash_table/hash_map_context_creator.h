@@ -55,14 +55,23 @@ void get_hash_map_context_fixed(Variant& variant, size_t size, bool has_nullable
 template <template <typename... Args> typename HashMap, template <typename> typename Hash,
           typename... Mapped, typename Variant>
 bool try_get_hash_map_context_fixed(Variant& variant, const VExprContextSPtrs& expr_ctxs) {
+    std::vector<DataTypePtr> data_types;
+    for (const auto& ctx : expr_ctxs) {
+        data_types.emplace_back(ctx->root()->data_type());
+    }
+    return try_get_hash_map_context_fixed<HashMap, Hash, Mapped...>(variant, data_types);
+}
+
+template <template <typename... Args> typename HashMap, template <typename> typename Hash,
+          typename... Mapped, typename Variant>
+bool try_get_hash_map_context_fixed(Variant& variant, const std::vector<DataTypePtr>& data_types) {
     Sizes key_sizes;
 
     bool use_fixed_key = true;
     bool has_null = false;
     size_t key_byte_size = 0;
 
-    for (auto ctx : expr_ctxs) {
-        const auto& data_type = ctx->root()->data_type();
+    for (const auto& data_type : data_types) {
         if (!data_type->have_maximum_size_of_value()) {
             use_fixed_key = false;
             break;
@@ -73,7 +82,7 @@ bool try_get_hash_map_context_fixed(Variant& variant, const VExprContextSPtrs& e
         key_byte_size += key_sizes.back();
     }
 
-    size_t bitmap_size = has_null ? get_bitmap_size(expr_ctxs.size()) : 0;
+    size_t bitmap_size = has_null ? get_bitmap_size(data_types.size()) : 0;
     if (bitmap_size + key_byte_size > sizeof(UInt256)) {
         use_fixed_key = false;
     }

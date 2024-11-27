@@ -40,6 +40,6 @@ public class JdbcIdentifierMapping extends IdentifierMapping {
 
     @Override
     protected void loadColumnNames(String localDbName, String localTableName) {
-        jdbcClient.getJdbcColumnsInfo(localDbName, localTableName);
+        jdbcClient.getColumnsFromJdbc(localDbName, localTableName);
     }
 }

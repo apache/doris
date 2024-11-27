@@ -19,74 +19,73 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_nested_types_insert_into_with_unique_table", "p0") {
     sql 'use regression_test_datatype_p0_nested_types'
-    sql 'set enable_nereids_planner=false'
-    
+
     // test action for scala to array with scala type
     //  current we support char family to insert nested type
     // mor table test
     test {
         sql "insert into tbl_array_nested_types_mor (c_bool) select c_bool from tbl_scalar_types_dup"
-        exception "java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type BOOLEAN to target type=ARRAY<BOOLEAN>"
+        exception "java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type boolean to target type=array<boolean>"
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=ARRAY<TINYINT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type tinyint to target type=array<tinyint>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=ARRAY<SMALLINT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type smallint to target type=array<smallint>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=ARRAY<INT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type int to target type=array<int>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=ARRAY<LARGEINT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type largeint to target type=array<largeint>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor (c_float) select c_float from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type FLOAT to target type=ARRAY<FLOAT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type float to target type=array<float>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor (c_double) select c_double from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DOUBLE to target type=ARRAY<DOUBLE>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type double to target type=array<double>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor (c_decimal) select c_decimal from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=ARRAY<DECIMALV3(20, 3)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=array<decimalv3(20,3)>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor (c_decimalv3) select c_decimalv3 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=ARRAY<DECIMALV3(20, 3)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=array<decimalv3(20,3)>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor (c_date) select c_date from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=ARRAY<DATEV2>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=array<datev2>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor (c_datetime) select c_datetime from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<DATETIMEV2(0)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=array<datetimev2(0)>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor (c_datev2) select c_datev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=ARRAY<DATEV2>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=array<datev2>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor (c_datetimev2) select c_datetimev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<DATETIMEV2(0)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=array<datetimev2(0)>")
     }
 
     test {
@@ -109,67 +108,67 @@ suite("test_nested_types_insert_into_with_unique_table", "p0") {
     // test action for scala to array with array-scala type
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_bool) select c_bool from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type BOOLEAN to target type=ARRAY<ARRAY<BOOLEAN>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type boolean to target type=array<array<boolean>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=ARRAY<ARRAY<TINYINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type tinyint to target type=array<array<tinyint>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=ARRAY<ARRAY<SMALLINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type smallint to target type=array<array<smallint>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=ARRAY<ARRAY<INT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type int to target type=array<array<int>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=ARRAY<ARRAY<LARGEINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type largeint to target type=array<array<largeint>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_float) select c_float from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type FLOAT to target type=ARRAY<ARRAY<FLOAT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type float to target type=array<array<float>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_double) select c_double from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DOUBLE to target type=ARRAY<ARRAY<DOUBLE>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type double to target type=array<array<double>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_decimal) select c_decimal from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=ARRAY<ARRAY<DECIMALV3(20, 3)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=array<array<decimalv3(20,3)>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_decimalv3) select c_decimalv3 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=ARRAY<ARRAY<DECIMALV3(20, 3)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=array<array<decimalv3(20,3)>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_date) select c_date from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=ARRAY<ARRAY<DATEV2>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=array<array<datev2>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_datetime) select c_datetime from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<ARRAY<DATETIMEV2(0)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=array<array<datetimev2(0)>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_datev2) select c_datev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=ARRAY<ARRAY<DATEV2>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=array<array<datev2>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mor2 (c_datetimev2) select c_datetimev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<ARRAY<DATETIMEV2(0)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=array<array<datetimev2(0)>>")
     }
 
     test {
@@ -193,67 +192,67 @@ suite("test_nested_types_insert_into_with_unique_table", "p0") {
     // test action for scala to map with map-scala-scala type
     test {
         sql "insert into tbl_map_types_mor (c_bool) select c_bool from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type BOOLEAN to target type=MAP<BOOLEAN,BOOLEAN>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type boolean to target type=map<boolean,boolean>")
     }
 
     test {
         sql "insert into tbl_map_types_mor (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=MAP<TINYINT,TINYINT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type tinyint to target type=map<tinyint,tinyint>")
     }
 
     test {
         sql "insert into tbl_map_types_mor (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=MAP<SMALLINT,SMALLINT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type smallint to target type=map<smallint,smallint>")
     }
 
     test {
         sql "insert into tbl_map_types_mor (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=MAP<INT,INT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type int to target type=map<int,int>")
     }
 
     test {
         sql "insert into tbl_map_types_mor (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=MAP<LARGEINT,LARGEINT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type largeint to target type=map<largeint,largeint>")
     }
 
     test {
         sql "insert into tbl_map_types_mor (c_float) select c_float from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type FLOAT to target type=MAP<FLOAT,FLOAT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type float to target type=map<float,float>")
     }
 
     test {
         sql "insert into tbl_map_types_mor (c_double) select c_double from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DOUBLE to target type=MAP<DOUBLE,DOUBLE>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type double to target type=map<double,double>")
     }
 
     test {
         sql "insert into tbl_map_types_mor (c_decimal) select c_decimal from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=MAP<DECIMALV3(20, 3),DECIMALV3(20, 3)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=map<decimalv3(20,3),decimalv3(20,3)>")
     }
 
     test {
         sql "insert into tbl_map_types_mor (c_decimalv3) select c_decimalv3 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=MAP<DECIMALV3(20, 3),DECIMALV3(20, 3)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=map<decimalv3(20,3),decimalv3(20,3)>")
     }
 
     test {
         sql "insert into tbl_map_types_mor (c_date) select c_date from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=MAP<DATEV2,DATEV2>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=map<datev2,datev2>")
     }
 
     test {
         sql "insert into tbl_map_types_mor (c_datetime) select c_datetime from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=MAP<DATETIMEV2(0),DATETIMEV2(0)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=map<datetimev2(0),datetimev2(0)>")
     }
 
     test {
         sql "insert into tbl_map_types_mor (c_datev2) select c_datev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=MAP<DATEV2,DATEV2>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=map<datev2,datev2>")
     }
 
     test {
         sql "insert into tbl_map_types_mor (c_datetimev2) select c_datetimev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=MAP<DATETIMEV2(0),DATETIMEV2(0)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=map<datetimev2(0),datetimev2(0)>")
     }
 
     test {
@@ -276,67 +275,67 @@ suite("test_nested_types_insert_into_with_unique_table", "p0") {
     // test action for scala to array with map-scala-scala type
     test {
         sql "insert into tbl_array_map_types_mor (c_bool) select c_bool from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type BOOLEAN to target type=ARRAY<MAP<BOOLEAN,BOOLEAN>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type boolean to target type=array<map<boolean,boolean>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mor (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=ARRAY<MAP<TINYINT,TINYINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type tinyint to target type=array<map<tinyint,tinyint>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mor (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=ARRAY<MAP<SMALLINT,SMALLINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type smallint to target type=array<map<smallint,smallint>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mor (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=ARRAY<MAP<INT,INT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type int to target type=array<map<int,int>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mor (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=ARRAY<MAP<LARGEINT,LARGEINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type largeint to target type=array<map<largeint,largeint>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mor (c_float) select c_float from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type FLOAT to target type=ARRAY<MAP<FLOAT,FLOAT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type float to target type=array<map<float,float>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mor (c_double) select c_double from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DOUBLE to target type=ARRAY<MAP<DOUBLE,DOUBLE>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type double to target type=array<map<double,double>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mor (c_decimal) select c_decimal from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=ARRAY<MAP<DECIMALV3(20, 3),DECIMALV3(20, 3)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=array<map<decimalv3(20,3),decimalv3(20,3)>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mor (c_decimalv3) select c_decimalv3 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=ARRAY<MAP<DECIMALV3(20, 3),DECIMALV3(20, 3)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=array<map<decimalv3(20,3),decimalv3(20,3)>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mor (c_date) select c_date from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=ARRAY<MAP<DATEV2,DATEV2>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=array<map<datev2,datev2>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mor (c_datetime) select c_datetime from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<MAP<DATETIMEV2(0),DATETIMEV2(0)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=array<map<datetimev2(0),datetimev2(0)>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mor (c_datev2) select c_datev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=ARRAY<MAP<DATEV2,DATEV2>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=array<map<datev2,datev2>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mor (c_datetimev2) select c_datetimev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<MAP<DATETIMEV2(0),DATETIMEV2(0)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=array<map<datetimev2(0),datetimev2(0)>>")
     }
 
     test {
@@ -360,67 +359,67 @@ suite("test_nested_types_insert_into_with_unique_table", "p0") {
     // test action for scala to array with array-scala type
     test {
         sql "insert into tbl_map_array_types_mor (c_bool) select c_bool from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type BOOLEAN to target type=MAP<BOOLEAN,ARRAY<BOOLEAN>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type boolean to target type=map<boolean,array<boolean>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mor (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=MAP<TINYINT,ARRAY<TINYINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type tinyint to target type=map<tinyint,array<tinyint>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mor (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=MAP<SMALLINT,ARRAY<SMALLINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type smallint to target type=map<smallint,array<smallint>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mor (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=MAP<INT,ARRAY<INT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type int to target type=map<int,array<int>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mor (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=MAP<LARGEINT,ARRAY<LARGEINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type largeint to target type=map<largeint,array<largeint>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mor (c_float) select c_float from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type FLOAT to target type=MAP<FLOAT,ARRAY<FLOAT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type float to target type=map<float,array<float>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mor (c_double) select c_double from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DOUBLE to target type=MAP<DOUBLE,ARRAY<DOUBLE>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type double to target type=map<double,array<double>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mor (c_decimal) select c_decimal from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=MAP<DECIMALV3(20, 3),ARRAY<DECIMALV3(20, 3)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=map<decimalv3(20,3),array<decimalv3(20,3)>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mor (c_decimalv3) select c_decimalv3 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=MAP<DECIMALV3(20, 3),ARRAY<DECIMALV3(20, 3)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=map<decimalv3(20,3),array<decimalv3(20,3)>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mor (c_date) select c_date from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=MAP<DATEV2,ARRAY<DATEV2>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=map<datev2,array<datev2>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mor (c_datetime) select c_datetime from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=MAP<DATETIMEV2(0),ARRAY<DATETIMEV2(0)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=map<datetimev2(0),array<datetimev2(0)>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mor (c_datev2) select c_datev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=MAP<DATEV2,ARRAY<DATEV2>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=map<datev2,array<datev2>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mor (c_datetimev2) select c_datetimev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=MAP<DATETIMEV2(0),ARRAY<DATETIMEV2(0)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=map<datetimev2(0),array<datetimev2(0)>>")
     }
 
     test {
@@ -444,67 +443,67 @@ suite("test_nested_types_insert_into_with_unique_table", "p0") {
     // mow table test
     test {
         sql "insert into tbl_array_nested_types_mow (c_bool) select c_bool from tbl_scalar_types_dup"
-        exception "java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type BOOLEAN to target type=ARRAY<BOOLEAN>"
+        exception "java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type boolean to target type=array<boolean>"
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=ARRAY<TINYINT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type tinyint to target type=array<tinyint>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=ARRAY<SMALLINT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type smallint to target type=array<smallint>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=ARRAY<INT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type int to target type=array<int>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=ARRAY<LARGEINT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type largeint to target type=array<largeint>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow (c_float) select c_float from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type FLOAT to target type=ARRAY<FLOAT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type float to target type=array<float>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow (c_double) select c_double from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DOUBLE to target type=ARRAY<DOUBLE>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type double to target type=array<double>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow (c_decimal) select c_decimal from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=ARRAY<DECIMALV3(20, 3)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=array<decimalv3(20,3)>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow (c_decimalv3) select c_decimalv3 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=ARRAY<DECIMALV3(20, 3)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=array<decimalv3(20,3)>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow (c_date) select c_date from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=ARRAY<DATEV2>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=array<datev2>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow (c_datetime) select c_datetime from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<DATETIMEV2(0)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=array<datetimev2(0)>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow (c_datev2) select c_datev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=ARRAY<DATEV2>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=array<datev2>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow (c_datetimev2) select c_datetimev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<DATETIMEV2(0)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=array<datetimev2(0)>")
     }
 
     test {
@@ -527,67 +526,67 @@ suite("test_nested_types_insert_into_with_unique_table", "p0") {
     // test action for scala to array with array-scala type
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_bool) select c_bool from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type BOOLEAN to target type=ARRAY<ARRAY<BOOLEAN>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type boolean to target type=array<array<boolean>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=ARRAY<ARRAY<TINYINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type tinyint to target type=array<array<tinyint>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=ARRAY<ARRAY<SMALLINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type smallint to target type=array<array<smallint>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=ARRAY<ARRAY<INT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type int to target type=array<array<int>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=ARRAY<ARRAY<LARGEINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type largeint to target type=array<array<largeint>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_float) select c_float from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type FLOAT to target type=ARRAY<ARRAY<FLOAT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type float to target type=array<array<float>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_double) select c_double from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DOUBLE to target type=ARRAY<ARRAY<DOUBLE>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type double to target type=array<array<double>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_decimal) select c_decimal from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=ARRAY<ARRAY<DECIMALV3(20, 3)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=array<array<decimalv3(20,3)>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_decimalv3) select c_decimalv3 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=ARRAY<ARRAY<DECIMALV3(20, 3)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=array<array<decimalv3(20,3)>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_date) select c_date from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=ARRAY<ARRAY<DATEV2>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=array<array<datev2>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_datetime) select c_datetime from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<ARRAY<DATETIMEV2(0)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=array<array<datetimev2(0)>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_datev2) select c_datev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=ARRAY<ARRAY<DATEV2>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=array<array<datev2>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_mow2 (c_datetimev2) select c_datetimev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<ARRAY<DATETIMEV2(0)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=array<array<datetimev2(0)>>")
     }
 
     test {
@@ -611,67 +610,67 @@ suite("test_nested_types_insert_into_with_unique_table", "p0") {
     // test action for scala to map with map-scala-scala type
     test {
         sql "insert into tbl_map_types_mow (c_bool) select c_bool from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type BOOLEAN to target type=MAP<BOOLEAN,BOOLEAN>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type boolean to target type=map<boolean,boolean>")
     }
 
     test {
         sql "insert into tbl_map_types_mow (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=MAP<TINYINT,TINYINT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type tinyint to target type=map<tinyint,tinyint>")
     }
 
     test {
         sql "insert into tbl_map_types_mow (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=MAP<SMALLINT,SMALLINT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type smallint to target type=map<smallint,smallint>")
     }
 
     test {
         sql "insert into tbl_map_types_mow (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=MAP<INT,INT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type int to target type=map<int,int>")
     }
 
     test {
         sql "insert into tbl_map_types_mow (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=MAP<LARGEINT,LARGEINT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type largeint to target type=map<largeint,largeint>")
     }
 
     test {
         sql "insert into tbl_map_types_mow (c_float) select c_float from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type FLOAT to target type=MAP<FLOAT,FLOAT>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type float to target type=map<float,float>")
     }
 
     test {
         sql "insert into tbl_map_types_mow (c_double) select c_double from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DOUBLE to target type=MAP<DOUBLE,DOUBLE>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type double to target type=map<double,double>")
     }
 
     test {
         sql "insert into tbl_map_types_mow (c_decimal) select c_decimal from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=MAP<DECIMALV3(20, 3),DECIMALV3(20, 3)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=map<decimalv3(20,3),decimalv3(20,3)>")
     }
 
     test {
         sql "insert into tbl_map_types_mow (c_decimalv3) select c_decimalv3 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=MAP<DECIMALV3(20, 3),DECIMALV3(20, 3)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=map<decimalv3(20,3),decimalv3(20,3)>")
     }
 
     test {
         sql "insert into tbl_map_types_mow (c_date) select c_date from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=MAP<DATEV2,DATEV2>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=map<datev2,datev2>")
     }
 
     test {
         sql "insert into tbl_map_types_mow (c_datetime) select c_datetime from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=MAP<DATETIMEV2(0),DATETIMEV2(0)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=map<datetimev2(0),datetimev2(0)>")
     }
 
     test {
         sql "insert into tbl_map_types_mow (c_datev2) select c_datev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=MAP<DATEV2,DATEV2>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=map<datev2,datev2>")
     }
 
     test {
         sql "insert into tbl_map_types_mow (c_datetimev2) select c_datetimev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=MAP<DATETIMEV2(0),DATETIMEV2(0)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=map<datetimev2(0),datetimev2(0)>")
     }
 
     test {
@@ -694,67 +693,67 @@ suite("test_nested_types_insert_into_with_unique_table", "p0") {
     // test action for scala to array with map-scala-scala type
     test {
         sql "insert into tbl_array_map_types_mow (c_bool) select c_bool from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type BOOLEAN to target type=ARRAY<MAP<BOOLEAN,BOOLEAN>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type boolean to target type=array<map<boolean,boolean>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mow (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=ARRAY<MAP<TINYINT,TINYINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type tinyint to target type=array<map<tinyint,tinyint>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mow (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=ARRAY<MAP<SMALLINT,SMALLINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type smallint to target type=array<map<smallint,smallint>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mow (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=ARRAY<MAP<INT,INT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type int to target type=array<map<int,int>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mow (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=ARRAY<MAP<LARGEINT,LARGEINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type largeint to target type=array<map<largeint,largeint>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mow (c_float) select c_float from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type FLOAT to target type=ARRAY<MAP<FLOAT,FLOAT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type float to target type=array<map<float,float>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mow (c_double) select c_double from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DOUBLE to target type=ARRAY<MAP<DOUBLE,DOUBLE>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type double to target type=array<map<double,double>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mow (c_decimal) select c_decimal from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=ARRAY<MAP<DECIMALV3(20, 3),DECIMALV3(20, 3)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=array<map<decimalv3(20,3),decimalv3(20,3)>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mow (c_decimalv3) select c_decimalv3 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=ARRAY<MAP<DECIMALV3(20, 3),DECIMALV3(20, 3)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=array<map<decimalv3(20,3),decimalv3(20,3)>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mow (c_date) select c_date from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=ARRAY<MAP<DATEV2,DATEV2>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=array<map<datev2,datev2>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mow (c_datetime) select c_datetime from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<MAP<DATETIMEV2(0),DATETIMEV2(0)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=array<map<datetimev2(0),datetimev2(0)>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mow (c_datev2) select c_datev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=ARRAY<MAP<DATEV2,DATEV2>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=array<map<datev2,datev2>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_mow (c_datetimev2) select c_datetimev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<MAP<DATETIMEV2(0),DATETIMEV2(0)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=array<map<datetimev2(0),datetimev2(0)>>")
     }
 
     test {
@@ -778,67 +777,67 @@ suite("test_nested_types_insert_into_with_unique_table", "p0") {
     // test action for scala to array with array-scala type
     test {
         sql "insert into tbl_map_array_types_mow (c_bool) select c_bool from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type BOOLEAN to target type=MAP<BOOLEAN,ARRAY<BOOLEAN>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type boolean to target type=map<boolean,array<boolean>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mow (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=MAP<TINYINT,ARRAY<TINYINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type tinyint to target type=map<tinyint,array<tinyint>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mow (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=MAP<SMALLINT,ARRAY<SMALLINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type smallint to target type=map<smallint,array<smallint>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mow (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=MAP<INT,ARRAY<INT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type int to target type=map<int,array<int>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mow (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=MAP<LARGEINT,ARRAY<LARGEINT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type largeint to target type=map<largeint,array<largeint>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mow (c_float) select c_float from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type FLOAT to target type=MAP<FLOAT,ARRAY<FLOAT>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type float to target type=map<float,array<float>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mow (c_double) select c_double from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DOUBLE to target type=MAP<DOUBLE,ARRAY<DOUBLE>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type double to target type=map<double,array<double>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mow (c_decimal) select c_decimal from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=MAP<DECIMALV3(20, 3),ARRAY<DECIMALV3(20, 3)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=map<decimalv3(20,3),array<decimalv3(20,3)>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mow (c_decimalv3) select c_decimalv3 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DECIMALV3(20, 3) to target type=MAP<DECIMALV3(20, 3),ARRAY<DECIMALV3(20, 3)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type decimalv3(20,3) to target type=map<decimalv3(20,3),array<decimalv3(20,3)>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mow (c_date) select c_date from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=MAP<DATEV2,ARRAY<DATEV2>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=map<datev2,array<datev2>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mow (c_datetime) select c_datetime from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=MAP<DATETIMEV2(0),ARRAY<DATETIMEV2(0)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=map<datetimev2(0),array<datetimev2(0)>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mow (c_datev2) select c_datev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATEV2 to target type=MAP<DATEV2,ARRAY<DATEV2>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datev2 to target type=map<datev2,array<datev2>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_mow (c_datetimev2) select c_datetimev2 from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=MAP<DATETIMEV2(0),ARRAY<DATETIMEV2(0)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type datetimev2(0) to target type=map<datetimev2(0),array<datetimev2(0)>>")
     }
 
     test {

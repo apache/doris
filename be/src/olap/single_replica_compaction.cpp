@@ -17,6 +17,8 @@
 
 #include "olap/single_replica_compaction.h"
 
+#include <curl/curl.h>
+
 #include "common/logging.h"
 #include "gen_cpp/Types_constants.h"
 #include "gen_cpp/internal_service.pb.h"
@@ -37,6 +39,7 @@
 #include "task/engine_clone_task.h"
 #include "util/brpc_client_cache.h"
 #include "util/doris_metrics.h"
+#include "util/security.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/trace.h"
 
@@ -56,41 +59,19 @@ Status SingleReplicaCompaction::prepare_compact() {
         return Status::Error<CUMULATIVE_INVALID_PARAMETERS, false>("_tablet init failed");
     }
 
-    std::unique_lock<std::mutex> lock_cumu(_tablet->get_cumulative_compaction_lock(),
-                                           std::try_to_lock);
-    if (!lock_cumu.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
-                "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
-    }
-    std::unique_lock<std::mutex> lock_base(_tablet->get_base_compaction_lock(), std::try_to_lock);
-    if (!lock_base.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
-                "another base compaction is running. tablet={}", _tablet->tablet_id());
-    }
-
-    // 1. pick rowsets to compact
-    RETURN_IF_ERROR(pick_rowsets_to_compact());
-    if (_input_rowsets.size() == 1) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("_input_rowsets.size() is 1");
-    }
-
+    // Single replica compaction does not require picking _input_rowsets
+    // _input_rowsets depends on the fetched _output_version
     return Status::OK();
 }
 
 Status SingleReplicaCompaction::pick_rowsets_to_compact() {
-    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_single_replica_compaction();
-    if (candidate_rowsets.empty()) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("candidate_rowsets is empty");
-    }
-    _input_rowsets.clear();
-    for (const auto& rowset : candidate_rowsets) {
-        _input_rowsets.emplace_back(rowset);
-    }
-
     return Status::OK();
 }
 
 Status SingleReplicaCompaction::execute_compact_impl() {
+    if (!_tablet->should_fetch_from_peer()) {
+        return Status::Aborted("compaction should be performed locally");
+    }
     std::unique_lock<std::mutex> lock_cumu(_tablet->get_cumulative_compaction_lock(),
                                            std::try_to_lock);
     if (!lock_cumu.owns_lock()) {
@@ -106,10 +87,9 @@ Status SingleReplicaCompaction::execute_compact_impl() {
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
-    // 2. do single replica compaction
+    // do single replica compaction
     RETURN_IF_ERROR(_do_single_replica_compaction());
 
-    // 3. set state to success
     _state = CompactionState::SUCCESS;
 
     return Status::OK();
@@ -124,9 +104,12 @@ Status SingleReplicaCompaction::_do_single_replica_compaction() {
 }
 
 Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
+    DBUG_EXECUTE_IF("do_single_compaction_return_ok", { return Status::OK(); });
     TReplicaInfo addr;
     std::string token;
     //  1. get peer replica info
+    DBUG_EXECUTE_IF("single_compaction_failed_get_peer",
+                    { return Status::Aborted("tablet don't have peer replica"); });
     if (!StorageEngine::instance()->get_peer_replica_info(_tablet->tablet_id(), &addr, &token)) {
         LOG(WARNING) << _tablet->tablet_id() << " tablet don't have peer replica";
         return Status::Aborted("tablet don't have peer replica");
@@ -139,8 +122,7 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
     Version proper_version;
     // 3. find proper version to fetch
     if (!_find_rowset_to_fetch(peer_versions, &proper_version)) {
-        LOG(WARNING) << _tablet->tablet_id() << " tablet don't need to fetch, no matched version";
-        return Status::Aborted("no matched version to fetch");
+        return Status::Cancelled("no matched versions for single replica compaction");
     }
 
     // 4. fetch compaction result
@@ -156,6 +138,8 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
     } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
         _tablet->set_last_full_compaction_success_time(UnixMillis());
     }
+
+    _tablet->set_last_fetched_version(_output_rowset->version());
 
     int64_t current_max_version;
     {
@@ -183,6 +167,8 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
 
 Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
         const TReplicaInfo& addr, std::vector<Version>* peer_versions) {
+    DBUG_EXECUTE_IF("single_compaction_failed_get_peer_versions",
+                    { return Status::Aborted("tablet failed get peer versions"); });
     PGetTabletVersionsRequest request;
     request.set_tablet_id(_tablet->tablet_id());
     PGetTabletVersionsResponse response;
@@ -190,23 +176,19 @@ Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr.host,
                                                                              addr.brpc_port);
     if (stub == nullptr) {
-        LOG(WARNING) << "get rowset versions from peer: get rpc stub failed, host = " << addr.host
-                     << " port = " << addr.brpc_port;
-        return Status::Cancelled("get rpc stub failed");
+        return Status::Aborted("get rpc stub failed, host={}, port={}", addr.host, addr.brpc_port);
     }
 
     brpc::Controller cntl;
     stub->get_tablet_rowset_versions(&cntl, &request, &response, nullptr);
     if (cntl.Failed()) {
-        LOG(WARNING) << "open brpc connection to " << addr.host << " failed: " << cntl.ErrorText();
-        return Status::Cancelled("open brpc connection failed");
+        return Status::Aborted("open brpc connection failed");
     }
     if (response.status().status_code() != 0) {
-        LOG(WARNING) << "peer " << addr.host << " don't have tablet " << _tablet->tablet_id();
-        return Status::Cancelled("peer don't have tablet");
+        return Status::Aborted("peer don't have tablet");
     }
     if (response.versions_size() == 0) {
-        return Status::Cancelled("no peer version");
+        return Status::Aborted("no peer version");
     }
     for (int i = 0; i < response.versions_size(); ++i) {
         (*peer_versions)
@@ -217,10 +199,8 @@ Status SingleReplicaCompaction::_get_rowset_verisons_from_peer(
 
 bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& peer_versions,
                                                     Version* proper_version) {
-    //  get local versions
-    std::vector<Version> local_versions = _tablet->get_all_versions();
-    std::sort(local_versions.begin(), local_versions.end(),
-              [](const Version& left, const Version& right) { return left.first < right.first; });
+    //  already sorted
+    std::vector<Version> local_versions = _tablet->get_all_local_versions();
     for (const auto& v : local_versions) {
         VLOG_CRITICAL << _tablet->tablet_id() << " tablet local version: " << v.first << " - "
                       << v.second;
@@ -271,13 +251,24 @@ bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& 
     }
     if (find) {
         //  4. reset input rowsets
-        auto rs_iter = _input_rowsets.begin();
-        while (rs_iter != _input_rowsets.end()) {
-            if ((*proper_version).contains((*rs_iter)->version())) {
-                ++rs_iter;
-                continue;
+        _input_rowsets.clear();
+        _tablet->traverse_rowsets([this, &proper_version](const auto& rs) {
+            // only need rowset in proper_version
+            if (rs->is_local() && proper_version->contains(rs->version())) {
+                this->_input_rowsets.emplace_back(rs);
             }
-            rs_iter = _input_rowsets.erase(rs_iter);
+        });
+        std::sort(_input_rowsets.begin(), _input_rowsets.end(), Rowset::comparator);
+        DCHECK_EQ(_input_rowsets.front()->start_version(), proper_version->first);
+        DCHECK_EQ(_input_rowsets.back()->end_version(), proper_version->second);
+        if (_input_rowsets.front()->start_version() != proper_version->first ||
+            _input_rowsets.back()->end_version() != proper_version->second) {
+            LOG(WARNING) << fmt::format(
+                    "single compaction input rowsets error, tablet_id={}, input rowset = [{}-{}], "
+                    "remote rowset = {}",
+                    _tablet->tablet_id(), _input_rowsets.front()->start_version(),
+                    _input_rowsets.back()->end_version(), proper_version->to_string());
+            return false;
         }
         for (auto& rowset : _input_rowsets) {
             _input_rowsets_size += rowset->data_disk_size();
@@ -366,6 +357,8 @@ Status SingleReplicaCompaction::_make_snapshot(const std::string& ip, int port, 
         if (snapshot_path->at(snapshot_path->length() - 1) != '/') {
             snapshot_path->append("/");
         }
+        DBUG_EXECUTE_IF("single_compaction_failed_make_snapshot",
+                        { return Status::InternalError("failed snapshot"); });
     } else {
         return Status::InternalError("success snapshot without snapshot path");
     }
@@ -382,7 +375,7 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     // then it will try to clone from BE 2, but it will find the file 1 already exist, but file 1 with same
     // name may have different versions.
     VLOG_DEBUG << "single replica compaction begin to download files, remote path="
-               << _mask_token(remote_url_prefix) << " local_path=" << local_path;
+               << mask_token(remote_url_prefix) << " local_path=" << local_path;
     RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(local_path));
     RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(local_path));
 
@@ -413,6 +406,11 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     uint64_t total_file_size = 0;
     MonotonicStopWatch watch;
     watch.start();
+    auto curl = std::unique_ptr<CURL, decltype(&curl_easy_cleanup)>(curl_easy_init(),
+                                                                    &curl_easy_cleanup);
+    if (!curl) {
+        return Status::InternalError("single compaction init curl failed");
+    }
     for (auto& file_name : file_name_list) {
         auto remote_file_url = remote_url_prefix + file_name;
 
@@ -443,20 +441,22 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
         std::string local_file_path = local_path + file_name;
 
         LOG(INFO) << "single replica compaction begin to download file from: "
-                  << _mask_token(remote_file_url) << " to: " << local_file_path
+                  << mask_token(remote_file_url) << " to: " << local_file_path
                   << ". size(B): " << file_size << ", timeout(s): " << estimate_timeout;
 
-        auto download_cb = [this, &remote_file_url, estimate_timeout, &local_file_path,
+        auto download_cb = [&remote_file_url, estimate_timeout, &local_file_path,
                             file_size](HttpClient* client) {
             RETURN_IF_ERROR(client->init(remote_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
             RETURN_IF_ERROR(client->download(local_file_path));
 
+            DBUG_EXECUTE_IF("single_compaction_failed_download_file",
+                            { return Status::InternalError("failed to download file"); });
             // Check file length
             uint64_t local_file_size = std::filesystem::file_size(local_file_path);
             if (local_file_size != file_size) {
                 LOG(WARNING) << "download file length error"
-                             << ", remote_path=" << _mask_token(remote_file_url)
+                             << ", remote_path=" << mask_token(remote_file_url)
                              << ", file_size=" << file_size
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
@@ -572,20 +572,20 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
             for (auto& file : linked_success_files) {
                 paths.emplace_back(file);
             }
-            static_cast<void>(io::global_local_filesystem()->batch_delete(paths));
+            RETURN_IF_ERROR(io::global_local_filesystem()->batch_delete(paths));
         }
     }
     // clear clone dir
     std::filesystem::path clone_dir_path(clone_dir);
-    std::filesystem::remove_all(clone_dir_path);
+    std::error_code ec;
+    std::filesystem::remove_all(clone_dir_path, ec);
+    if (ec) {
+        LOG(WARNING) << "failed to remove=" << clone_dir_path << " msg=" << ec.message();
+        return Status::IOError("failed to remove {}, due to {}", clone_dir, ec.message());
+    }
     LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
               << ", tablet=" << _tablet->tablet_id() << ", clone_dir=" << clone_dir;
     return res;
-}
-
-std::string SingleReplicaCompaction::_mask_token(const std::string& str) {
-    std::regex pattern("token=[\\w|-]+");
-    return regex_replace(str, pattern, "token=******");
 }
 
 } // namespace doris

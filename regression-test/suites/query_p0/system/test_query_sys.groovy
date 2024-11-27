@@ -42,6 +42,8 @@ suite("test_query_sys", "query,p0") {
     sql "select pi();"
     sql "select e();"
     sql "select sleep(2);"
+    sql "select last_query_id();"
+    sql "select LAST_QUERY_ID();"
 
     // INFORMATION_SCHEMA
     sql "SELECT table_name FROM INFORMATION_SCHEMA.TABLES where table_schema=\"test_query_db\" and TABLE_TYPE = \"BASE TABLE\" order by table_name"

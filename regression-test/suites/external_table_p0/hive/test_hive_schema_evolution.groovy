@@ -53,12 +53,17 @@ suite("test_hive_schema_evolution", "p0,external,hive,external_docker,external_d
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
 
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String catalog_name = "test_hive_schema_evolution"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "test_${hivePrefix}_schema_evolution"
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",

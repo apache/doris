@@ -55,7 +55,7 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
     // if io task failed, just return error status to
     // end the query
     if (!_writer_status.ok()) {
-        return _writer_status;
+        return _writer_status.status();
     }
 
     if (_dependency && _is_finished()) {
@@ -90,40 +90,50 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
 Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
     // Should set to false here, to
     _writer_thread_closed = false;
+    if (_finish_dependency) {
+        _finish_dependency->block();
+    }
     // This is a async thread, should lock the task ctx, to make sure runtimestate and profile
     // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
-    if (state->get_query_ctx() && state->get_query_ctx()->get_non_pipe_exec_thread_pool()) {
-        ThreadPool* pool_ptr = state->get_query_ctx()->get_non_pipe_exec_thread_pool();
-        RETURN_IF_ERROR(pool_ptr->submit_func([this, state, profile, task_ctx]() {
-            auto task_lock = task_ctx.lock();
-            if (task_lock == nullptr) {
-                _writer_thread_closed = true;
-                return;
-            }
-            this->process_block(state, profile);
-        }));
-    } else {
-        RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-                [this, state, profile, task_ctx]() {
-                    auto task_lock = task_ctx.lock();
-                    if (task_lock == nullptr) {
-                        _writer_thread_closed = true;
-                        return;
-                    }
-                    this->process_block(state, profile);
-                }));
-    }
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
+            [this, state, profile, task_ctx]() {
+                auto task_lock = task_ctx.lock();
+                if (task_lock == nullptr) {
+                    return;
+                }
+                this->process_block(state, profile);
+            }));
     return Status::OK();
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
+    SCOPED_ATTACH_TASK(state);
     if (auto status = open(state, profile); !status.ok()) {
         force_close(status);
     }
 
+    if (state && state->get_query_ctx() && state->get_query_ctx()->workload_group()) {
+        if (auto cg_ctl_sptr =
+                    state->get_query_ctx()->workload_group()->get_cgroup_cpu_ctl_wptr().lock()) {
+            Status ret = cg_ctl_sptr->add_thread_to_cgroup();
+            if (ret.ok()) {
+                std::string wg_tname =
+                        "asyc_wr_" + state->get_query_ctx()->workload_group()->name();
+                Thread::set_self_name(wg_tname);
+            }
+        }
+    }
+
     if (_writer_status.ok()) {
         while (true) {
+            ThreadCpuStopWatch cpu_time_stop_watch;
+            cpu_time_stop_watch.start();
+            Defer defer {[&]() {
+                if (state && state->get_query_ctx()) {
+                    state->get_query_ctx()->update_wg_cpu_adder(cpu_time_stop_watch.elapsed_time());
+                }
+            }};
             if (!_eos && _data_queue.empty() && _writer_status.ok()) {
                 std::unique_lock l(_m);
                 while (!_eos && _data_queue.empty() && _writer_status.ok()) {
@@ -141,7 +151,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             auto status = write(*block);
             if (!status.ok()) [[unlikely]] {
                 std::unique_lock l(_m);
-                _writer_status = status;
+                _writer_status.update(status);
                 if (_dependency && _is_finished()) {
                     _dependency->set_ready();
                 }
@@ -152,25 +162,44 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         }
     }
 
-    // If the last block is sent successfuly, then call finish to clear the buffer or commit
-    // transactions.
-    // Using lock to make sure the writer status is not modified
-    // There is a unique ptr err_msg in Status, if it is modified, the unique ptr
-    // maybe released. And it will core because use after free.
-    std::lock_guard l(_m);
+    bool need_finish = false;
+    {
+        // If the last block is sent successfuly, then call finish to clear the buffer or commit
+        // transactions.
+        // Using lock to make sure the writer status is not modified
+        // There is a unique ptr err_msg in Status, if it is modified, the unique ptr
+        // maybe released. And it will core because use after free.
+        std::lock_guard l(_m);
+        if (_writer_status.ok() && _eos) {
+            need_finish = true;
+        }
+    }
     // eos only means the last block is input to the queue and there is no more block to be added,
     // it is not sure that the block is written to stream.
-    if (_writer_status.ok() && _eos) {
-        _writer_status = finish(state);
+    if (need_finish) {
+        // Should not call finish in lock because it may hang, and it will lock _m too long.
+        // And get_writer_status will also need this lock, it will block pipeline exec thread.
+        Status st = finish(state);
+        _writer_status.update(st);
     }
+    Status st = Status::OK();
+    { st = _writer_status.status(); }
 
-    Status close_st = close(_writer_status);
-    // If it is already failed before, then not update the write status so that we could get
-    // the real reason.
-    if (_writer_status.ok()) {
-        _writer_status = close_st;
+    Status close_st = close(st);
+    {
+        // If it is already failed before, then not update the write status so that we could get
+        // the real reason.
+        std::lock_guard l(_m);
+        if (_writer_status.ok()) {
+            _writer_status.update(close_st);
+        }
+        _writer_thread_closed = true;
     }
-    _writer_thread_closed = true;
+    // should set _finish_dependency first, as close function maybe blocked by wait_close of execution_timeout
+    _set_ready_to_finish();
+}
+
+void AsyncResultWriter::_set_ready_to_finish() {
     if (_finish_dependency) {
         _finish_dependency->set_ready();
     }
@@ -190,7 +219,7 @@ Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_bloc
 
 void AsyncResultWriter::force_close(Status s) {
     std::lock_guard l(_m);
-    _writer_status = s;
+    _writer_status.update(s);
     if (_dependency && _is_finished()) {
         _dependency->set_ready();
     }

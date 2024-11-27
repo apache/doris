@@ -118,7 +118,7 @@ private:
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
-    virtual ~Rowset() = default;
+    virtual ~Rowset();
 
     // Open all segment files in this rowset and load necessary metadata.
     // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
@@ -132,6 +132,8 @@ public:
 
     const RowsetMetaSharedPtr& rowset_meta() const { return _rowset_meta; }
 
+    void merge_rowset_meta(const RowsetMeta& other);
+
     bool is_pending() const { return _is_pending; }
 
     bool is_local() const { return _rowset_meta->is_local(); }
@@ -144,7 +146,8 @@ public:
     int64_t start_version() const { return rowset_meta()->version().first; }
     int64_t end_version() const { return rowset_meta()->version().second; }
     size_t index_disk_size() const { return rowset_meta()->index_disk_size(); }
-    size_t data_disk_size() const { return rowset_meta()->total_disk_size(); }
+    size_t data_disk_size() const { return rowset_meta()->data_disk_size(); }
+    size_t total_disk_size() const { return rowset_meta()->total_disk_size(); }
     bool empty() const { return rowset_meta()->empty(); }
     bool zero_num_rows() const { return rowset_meta()->num_rows() == 0; }
     size_t num_rows() const { return rowset_meta()->num_rows(); }
@@ -163,6 +166,8 @@ public:
     int64_t newest_write_timestamp() const { return rowset_meta()->newest_write_timestamp(); }
     bool is_segments_overlapping() const { return rowset_meta()->is_segments_overlapping(); }
     KeysType keys_type() { return _schema->keys_type(); }
+    RowsetStatePB rowset_meta_state() const { return rowset_meta()->rowset_state(); }
+    bool produced_by_compaction() const { return rowset_meta()->produced_by_compaction(); }
 
     // remove all files in this rowset
     // TODO should we rename the method to remove_files() to be more specific?
@@ -205,7 +210,7 @@ public:
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
     virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
                                  size_t new_rowset_start_seg_id = 0,
-                                 std::set<int32_t>* without_index_uids = nullptr) = 0;
+                                 std::set<int64_t>* without_index_uids = nullptr) = 0;
 
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
@@ -271,7 +276,9 @@ public:
         _rowset_meta->get_segments_key_bounds(segments_key_bounds);
         return Status::OK();
     }
-    bool min_key(std::string* min_key) {
+
+    // min key of the first segment
+    bool first_key(std::string* min_key) {
         KeyBoundsPB key_bounds;
         bool ret = _rowset_meta->get_first_segment_key_bound(&key_bounds);
         if (!ret) {
@@ -280,7 +287,9 @@ public:
         *min_key = key_bounds.min_key();
         return true;
     }
-    bool max_key(std::string* max_key) {
+
+    // max key of the last segment
+    bool last_key(std::string* max_key) {
         KeyBoundsPB key_bounds;
         bool ret = _rowset_meta->get_last_segment_key_bound(&key_bounds);
         if (!ret) {
@@ -301,6 +310,9 @@ public:
 
     // set skip index compaction next time
     void set_skip_index_compaction(int32_t column_id) { skip_index_compaction.insert(column_id); }
+
+    virtual void clear_inverted_index_cache() { LOG(INFO) << "should not reach here"; }
+    void clear_cache();
 
 protected:
     friend class RowsetFactory;

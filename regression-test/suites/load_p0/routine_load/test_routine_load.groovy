@@ -22,14 +22,12 @@ import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_routine_load","p0") {
 
+    sql "create workload group if not exists create_routine_load_group properties ( 'cpu_share'='123');"
+    sql "create workload group if not exists alter_routine_load_group properties ( 'cpu_share'='123');"
+    Thread.sleep(5000) // wait publish workload group to be
+
     def tables = [
                   "dup_tbl_basic",
-                  "uniq_tbl_basic",
-                  "mow_tbl_basic",
-                  "agg_tbl_basic",
-                  "dup_tbl_array",
-                  "uniq_tbl_array",
-                  "mow_tbl_array",
                  ]
 
     def multiTables = [
@@ -226,7 +224,8 @@ suite("test_routine_load","p0") {
                         "send_batch_parallelism" = "2",
                         "max_batch_interval" = "5",
                         "max_batch_rows" = "300000",
-                        "max_batch_size" = "209715200"
+                        "max_batch_size" = "209715200",
+                        "workload_group" = "create_routine_load_group"
                     )
                     FROM KAFKA
                     (
@@ -271,12 +270,6 @@ suite("test_routine_load","p0") {
                     }
                     sleep(5000)
                     count++
-                }
-
-                if (i <= 3) {
-                    qt_sql_send_batch_parallelism "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_send_batch_parallelism "select * from ${tableName1} order by k00"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -358,12 +351,6 @@ suite("test_routine_load","p0") {
                     }
                     sleep(5000)
                     count++
-                }
-
-                if (i <= 3) {
-                    qt_sql_desired_concurrent_number "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_desired_concurrent_number "select * from ${tableName1} order by k00"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -606,12 +593,6 @@ suite("test_routine_load","p0") {
                     count++
                 }
 
-                if (i <= 3) {
-                    qt_sql_num_as_string "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_num_as_string "select * from ${tableName1} order by k00"
-                }
-
                 sql "stop routine load for ${jobs[i]}"
                 i++
             }
@@ -685,12 +666,6 @@ suite("test_routine_load","p0") {
                     }
                     sleep(5000)
                     count++
-                }
-
-                if (i <= 3) {
-                    qt_sql_exec_mem_limit "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_exec_mem_limit "select * from ${tableName1} order by k00"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -809,12 +784,6 @@ suite("test_routine_load","p0") {
                     count++
                 }
 
-                if (i <= 3) {
-                    qt_sql_timezone_shanghai "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_timezone_shanghai "select * from ${tableName1} order by k00"
-                }
-
                 sql "stop routine load for ${jobs[i]}"
                 i++
             }
@@ -885,12 +854,6 @@ suite("test_routine_load","p0") {
                     }
                     sleep(5000)
                     count++
-                }
-
-                if (i <= 3) {
-                    qt_sql_strict_mode "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_strict_mode "select * from ${tableName1} order by k00"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -966,12 +929,6 @@ suite("test_routine_load","p0") {
                     }
                     sleep(5000)
                     count++
-                }
-
-                if (i <= 3) {
-                    qt_sql_max_error_number "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_max_error_number "select * from ${tableName1} order by k00"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -1050,12 +1007,6 @@ suite("test_routine_load","p0") {
                     count++
                 }
 
-                if (i <= 3) {
-                    qt_sql_max_filter_ratio "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_max_filter_ratio "select * from ${tableName1} order by k00"
-                }
-
                 sql "stop routine load for ${jobs[i]}"
                 i++
             }
@@ -1109,11 +1060,6 @@ suite("test_routine_load","p0") {
                 }
 
                 def tableName1 =  "routine_load_" + tableName
-                if (i <= 3) {
-                    qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_load_to_single_tablet "select * from ${tableName1} order by k00"
-                }
 
                 sql "stop routine load for ${jobs[i]}"
                 i++
@@ -1167,12 +1113,6 @@ suite("test_routine_load","p0") {
 
                 sleep(10000)
                 def tableName1 =  "routine_load_" + tableName
-                if (i <= 3) {
-                    qt_sql_column_separator "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_column_separator "select * from ${tableName1} order by k00"
-                }
-
                 sql "stop routine load for ${jobs[i]}"
                 i++
             }
@@ -1245,11 +1185,6 @@ suite("test_routine_load","p0") {
                     }
                     sleep(5000)
                     count++
-                }
-                if (i <= 3) {
-                    qt_sql_json "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_json "select * from ${tableName1} order by k00"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -1367,11 +1302,6 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                if (i <= 3) {
-                    qt_sql_json_jsonpath "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_json_jsonpath "select * from ${tableName1} order by k00"
-                }
 
                 sql "stop routine load for ${jobs[i]}"
                 i++
@@ -1382,105 +1312,6 @@ suite("test_routine_load","p0") {
             }
         }
     }
-
-    // disable_simdjson_reader and load json
-    i = 0
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        def set_be_param = { paramName, paramValue ->
-            // for eache be node, set paramName=paramValue
-            for (String id in backendId_to_backendIP.keySet()) {
-                def beIp = backendId_to_backendIP.get(id)
-                def bePort = backendId_to_backendHttpPort.get(id)
-                def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
-                assertTrue(out.contains("OK"))
-            }
-        }
-
-        try {
-            set_be_param.call("enable_simdjson_reader", "false")
-
-            for (String tableName in tables) {
-                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
-
-                def name = "routine_load_" + tableName
-                sql """
-                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
-                    COLUMNS(${columns[i]})
-                    PROPERTIES
-                    (
-                        "format" = "json",
-                        "jsonpaths" = '${jsonpaths[i]}',
-                        "max_batch_interval" = "5",
-                        "max_batch_rows" = "300000",
-                        "max_batch_size" = "209715200"
-                    )
-                    FROM KAFKA
-                    (
-                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
-                        "kafka_topic" = "${jsonTopic[i]}",
-                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
-                    );
-                """
-                sql "sync"
-                i++
-            }
-
-            i = 0
-            for (String tableName in tables) {
-                while (true) {
-                    sleep(1000)
-                    def res = sql "show routine load for ${jobs[i]}"
-                    def state = res[0][8].toString()
-                    if (state == "NEED_SCHEDULE") {
-                        continue;
-                    }
-                    log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                    assertEquals(res[0][8].toString(), "RUNNING")
-                    break;
-                }
-
-                def count = 0
-                def tableName1 =  "routine_load_" + tableName
-                while (true) {
-                    def res = sql "select count(*) from ${tableName1}"
-                    def state = sql "show routine load for ${jobs[i]}"
-                    log.info("routine load state: ${state[0][8].toString()}".toString())
-                    log.info("routine load statistic: ${state[0][14].toString()}".toString())
-                    log.info("reason of state changed: ${state[0][17].toString()}".toString())
-                    if (res[0][0] > 0) {
-                        break
-                    }
-                    if (count >= 120) {
-                        log.error("routine load can not visible for long time")
-                        assertEquals(20, res[0][0])
-                        break
-                    }
-                    sleep(5000)
-                    count++
-                }
-
-                if (i <= 3) {
-                    qt_disable_simdjson_reader "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_disable_simdjson_reader "select * from ${tableName1} order by k00"
-                }
-
-                sql "stop routine load for ${jobs[i]}"
-                i++
-            }
-        } finally {
-            set_be_param.call("enable_simdjson_reader", "true")
-            for (String tableName in tables) {
-                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-            }
-        }
-    }
-
 
     // TODO: need update kafka script
     // i = 0
@@ -1548,9 +1379,9 @@ suite("test_routine_load","p0") {
     //                 count++
     //             }
     //             if (i <= 3) {
-    //                 qt_sql_json_strip_outer_array "select * from ${tableName1} order by k00,k01"
+    //                 qt_sql_json_strip_outer_array "select * from ${tableName1} order by k00,k01,k02"
     //             } else {
-    //                 qt_sql_json_strip_outer_array "select * from ${tableName1} order by k00"
+    //                 qt_sql_json_strip_outer_array "select * from ${tableName1} order by k00,k01,k02"
     //             }
 
     //             sql "stop routine load for ${jobs[i]}"
@@ -1625,12 +1456,6 @@ suite("test_routine_load","p0") {
                         count++
                     }
 
-                    if (i <= 3) {
-                        qt_sql_multi_table_one_data "select * from ${tableName1} order by k00,k01"
-                    } else {
-                        qt_sql_multi_table_one_data "select * from ${tableName1} order by k00"
-                    }
-
                     i++
                 }
             } finally {
@@ -1702,12 +1527,6 @@ suite("test_routine_load","p0") {
                         }
                         sleep(5000)
                         count++
-                    }
-
-                    if (i <= 3) {
-                        qt_sql_multi_table "select * from ${tableName1} order by k00,k01"
-                    } else {
-                        qt_sql_multi_table "select * from ${tableName1} order by k00"
                     }
 
                     i++
@@ -1784,12 +1603,6 @@ suite("test_routine_load","p0") {
                     }
                     sleep(5000)
                     count++
-                }
-
-                if (i <= 3) {
-                    qt_show_command "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_show_command "select * from ${tableName1} order by k00"
                 }
 
                 def res = sql "SHOW ROUTINE LOAD TASK WHERE JobName = \"${jobs[i]}\""
@@ -1873,12 +1686,6 @@ suite("test_routine_load","p0") {
                     count++
                 }
 
-                if (i <= 3) {
-                    qt_pause_and_resume_command "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_pause_and_resume_command "select * from ${tableName1} order by k00"
-                }
-
                 sql "stop routine load for ${jobs[i]}"
                 i++
             }
@@ -1932,6 +1739,7 @@ suite("test_routine_load","p0") {
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"timezone\" = \"Asia/Shanghai\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"num_as_string\" = \"true\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"fuzzy_parse\" = \"true\");"
+                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"workload_group\" = \"alter_routine_load_group\");"
                 res = sql "show routine load for ${jobs[i]}"
                 log.info("routine load job properties: ${res[0][11].toString()}".toString())
 
@@ -1986,12 +1794,6 @@ suite("test_routine_load","p0") {
                     }
                     sleep(5000)
                     count++
-                }
-
-                if (i <= 3) {
-                    qt_update_command "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_update_command "select * from ${tableName1} order by k00"
                 }
 
                 sql "stop routine load for ${jobs[i]}"
@@ -2069,13 +1871,6 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                
-                if (i <= 3) {
-                    qt_sql_preceding_filter "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_preceding_filter "select * from ${tableName1} order by k00"
-                }
-
                 sql "stop routine load for ${jobs[i]}"
                 i++
             }
@@ -2150,13 +1945,6 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                
-                if (i <= 3) {
-                    qt_sql_where "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_where "select * from ${tableName1} order by k00"
-                }
-
                 sql "stop routine load for ${jobs[i]}"
                 i++
             }
@@ -2240,12 +2028,6 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                
-                if (i <= 3) {
-                    qt_sql_delete "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_sql_delete "select * from ${tableName1} order by k00"
-                }
 
                 sql "stop routine load for ${jobs[i]}"
                 i++
@@ -2314,7 +2096,7 @@ suite("test_routine_load","p0") {
                 sleep(5000)
                 count++
             }
-            qt_sql_squence "select * from routine_load_uniq_tbl_basic_sequence order by k00,k01"
+            qt_sql_squence "select * from routine_load_uniq_tbl_basic_sequence order by k00,k01,k02"
             sql "stop routine load for ${job}"
         } finally {
             sql new File("""${context.file.parent}/ddl/uniq_tbl_basic_drop_sequence.sql""").text

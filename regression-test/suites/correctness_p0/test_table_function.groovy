@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_table_function") {
-    sql """set enable_nereids_planner=false"""
     sql """
         drop table if exists t_table_function;
     """

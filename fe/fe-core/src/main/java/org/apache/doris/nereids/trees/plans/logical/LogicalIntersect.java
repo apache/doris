@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.ExprFdItem;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -39,7 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * Logical Intersect.
@@ -119,24 +119,38 @@ public class LogicalIntersect extends LogicalSetOperation {
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+    public void computeUnique(Builder fdBuilder) {
         for (Plan child : children) {
-            builder.addFunctionalDependencies(
+            fdBuilder.addUniqueSlot(
                     child.getLogicalProperties().getFunctionalDependencies());
-            replaceSlotInFuncDeps(builder, child.getOutput(), outputSupplier.get());
+            replaceSlotInFuncDeps(fdBuilder, child.getOutput(), getOutput());
         }
         if (qualifier == Qualifier.DISTINCT) {
-            builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
+            fdBuilder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        builder.addFdItems(fdItems);
-        return builder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
+    public void computeUniform(Builder fdBuilder) {
+        for (Plan child : children) {
+            fdBuilder.addUniformSlot(
+                    child.getLogicalProperties().getFunctionalDependencies());
+            replaceSlotInFuncDeps(fdBuilder, child.getOutput(), getOutput());
+        }
+    }
+
+    @Override
+    public void computeEqualSet(Builder fdBuilder) {
+        for (Plan child : children) {
+            fdBuilder.addEqualSet(
+                    child.getLogicalProperties().getFunctionalDependencies());
+            replaceSlotInFuncDeps(fdBuilder, child.getOutput(), getOutput());
+        }
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems() {
+        Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
         ImmutableSet<SlotReference> exprs = output.stream()

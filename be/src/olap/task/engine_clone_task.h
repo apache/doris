@@ -32,7 +32,6 @@
 
 namespace doris {
 class DataDir;
-class MemTrackerLimiter;
 class TCloneReq;
 class TMasterInfo;
 class TTabletInfo;
@@ -57,6 +56,8 @@ public:
                     vector<TTabletInfo>* tablet_infos);
     ~EngineCloneTask() {}
 
+    bool is_new_tablet() const { return _is_new_tablet; }
+
 private:
     Status _do_clone();
 
@@ -73,7 +74,7 @@ private:
                                         const vector<Version>& missing_versions,
                                         bool* allow_incremental_clone);
 
-    Status _set_tablet_info(bool is_new_tablet);
+    Status _set_tablet_info();
 
     // Download tablet files from
     Status _download_files(DataDir* data_dir, const std::string& remote_url_prefix,
@@ -86,8 +87,6 @@ private:
 
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
 
-    std::string _mask_token(const std::string& str);
-
 private:
     const TCloneReq& _clone_req;
     vector<TTabletInfo>* _tablet_infos = nullptr;
@@ -95,8 +94,8 @@ private:
     const TMasterInfo& _master_info;
     int64_t _copy_size;
     int64_t _copy_time_ms;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     std::vector<PendingRowsetGuard> _pending_rs_guards;
+    bool _is_new_tablet = false;
 }; // EngineTask
 
 } // namespace doris

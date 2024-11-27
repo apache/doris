@@ -32,14 +32,14 @@ import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-
-import java.util.HashSet;
 
 /**
  * syntax:
@@ -60,6 +60,7 @@ import java.util.HashSet;
  * quantity { DAY | HOUR | MINUTE |
  * WEEK | SECOND }
  */
+@Deprecated
 @Slf4j
 public class CreateJobStmt extends DdlStmt {
 
@@ -83,17 +84,13 @@ public class CreateJobStmt extends DdlStmt {
 
     private final String comment;
 
+    private String jobName;
+
     public static final String CURRENT_TIMESTAMP_STRING = "current_timestamp";
     private JobExecuteType executeType;
 
     // exclude job name prefix, which is used by inner job
     private static final String excludeJobNamePrefix = "inner_";
-
-    private static final ImmutableSet<Class<? extends DdlStmt>> supportStmtSuperClass
-            = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class)
-            .build();
-
-    private static final HashSet<String> supportStmtClassNamesCache = new HashSet<>(16);
 
     public CreateJobStmt(LabelName labelName, JobExecuteType executeType, String onceJobStartTimestamp,
                          Long interval, String intervalTimeUnit,
@@ -116,7 +113,6 @@ public class CreateJobStmt extends DdlStmt {
         labelName.analyze(analyzer);
         String dbName = labelName.getDbName();
         Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
-        analyzerSqlStmt();
         // check its insert stmt,currently only support insert stmt
         //todo when support other stmt,need to check stmt type and generate jobInstance
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
@@ -126,6 +122,7 @@ public class CreateJobStmt extends DdlStmt {
         if (null != onceJobStartTimestamp) {
             if (onceJobStartTimestamp.equalsIgnoreCase(CURRENT_TIMESTAMP_STRING)) {
                 jobExecutionConfiguration.setImmediate(true);
+                timerDefinition.setStartTimeMs(System.currentTimeMillis());
             } else {
                 timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(onceJobStartTimestamp));
             }
@@ -147,6 +144,8 @@ public class CreateJobStmt extends DdlStmt {
         if (null != startsTimeStamp) {
             if (startsTimeStamp.equalsIgnoreCase(CURRENT_TIMESTAMP_STRING)) {
                 jobExecutionConfiguration.setImmediate(true);
+                //To avoid immediate re-scheduling, set the start time of the timer 100ms before the current time.
+                timerDefinition.setStartTimeMs(System.currentTimeMillis());
             } else {
                 timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(startsTimeStamp));
             }
@@ -155,11 +154,12 @@ public class CreateJobStmt extends DdlStmt {
             timerDefinition.setEndTimeMs(TimeUtils.timeStringToLong(endsTimeStamp));
         }
         checkJobName(labelName.getLabelName());
+        this.jobName = labelName.getLabelName();
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
         String originStmt = getOrigStmt().originStmt;
-        String executeSql = parseExecuteSql(originStmt);
+        String executeSql = parseExecuteSql(originStmt, jobName, comment);
+        analyzerSqlStmt(executeSql);
         // create job use label name as its job name
-        String jobName = labelName.getLabelName();
         InsertJob job = new InsertJob(jobName,
                 JobStatus.RUNNING,
                 labelName.getDbName(),
@@ -186,32 +186,44 @@ public class CreateJobStmt extends DdlStmt {
         }
     }
 
-    private void checkStmtSupport() throws AnalysisException {
-        if (supportStmtClassNamesCache.contains(doStmt.getClass().getSimpleName())) {
-            return;
-        }
-        for (Class<? extends DdlStmt> clazz : supportStmtSuperClass) {
-            if (clazz.isAssignableFrom(doStmt.getClass())) {
-                supportStmtClassNamesCache.add(doStmt.getClass().getSimpleName());
-                return;
+    private void analyzerSqlStmt(String sql) throws UserException {
+        NereidsParser parser = new NereidsParser();
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        if (logicalPlan instanceof InsertIntoTableCommand) {
+            InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) logicalPlan;
+            try {
+                insertIntoTableCommand.initPlan(ConnectContext.get(), ConnectContext.get().getExecutor());
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage());
             }
-        }
-        throw new AnalysisException("Not support " + doStmt.getClass().getSimpleName() + " type in job");
-    }
 
-    private void analyzerSqlStmt() throws UserException {
-        checkStmtSupport();
-        doStmt.analyze(analyzer);
+        } else {
+            throw new AnalysisException("Not support this sql : " + sql);
+        }
     }
 
     /**
      * parse execute sql from create job stmt
      * Some stmt not implement toSql method,so we need to parse sql from originStmt
      */
-    private String parseExecuteSql(String sql) throws AnalysisException {
+    private static String parseExecuteSql(String sql, String jobName, String comment) throws AnalysisException {
         String lowerCaseSql = sql.toLowerCase();
-        int executeSqlIndex = lowerCaseSql.indexOf(" do ");
-        String executeSql = sql.substring(executeSqlIndex + 4).trim();
+        String lowerCaseJobName = jobName.toLowerCase();
+        // Find the end position of the job name in the SQL statement.
+        int jobNameEndIndex = lowerCaseSql.indexOf(lowerCaseJobName) + lowerCaseJobName.length();
+        String subSqlStmt = lowerCaseSql.substring(jobNameEndIndex);
+        String originSubSqlStmt = sql.substring(jobNameEndIndex);
+        // If the comment is not empty, extract the SQL statement from the end position of the comment.
+        if (StringUtils.isNotBlank(comment)) {
+
+            String lowerCaseComment = comment.toLowerCase();
+            int splitDoIndex = subSqlStmt.indexOf(lowerCaseComment) + lowerCaseComment.length();
+            subSqlStmt = subSqlStmt.substring(splitDoIndex);
+            originSubSqlStmt = originSubSqlStmt.substring(splitDoIndex);
+        }
+        // Find the position of the "do" keyword and extract the execution SQL statement from this position.
+        int executeSqlIndex = subSqlStmt.indexOf("do");
+        String executeSql = originSubSqlStmt.substring(executeSqlIndex + 2).trim();
         if (StringUtils.isBlank(executeSql)) {
             throw new AnalysisException("execute sql has invalid format");
         }

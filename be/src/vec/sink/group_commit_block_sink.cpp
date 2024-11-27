@@ -50,7 +50,6 @@ GroupCommitBlockSink::~GroupCommitBlockSink() {
     if (_load_block_queue) {
         _remove_estimated_wal_bytes();
         _load_block_queue->remove_load_id(_load_id);
-        _load_block_queue->group_commit_load_count.fetch_add(1);
     }
 }
 
@@ -168,13 +167,25 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
         for (int index = 0; index < rows; index++) {
             _vpartition->find_partition(block.get(), index, _partitions[index]);
         }
+        bool stop_processing = false;
         for (int row_index = 0; row_index < rows; row_index++) {
             if (_partitions[row_index] == nullptr) [[unlikely]] {
                 _filter_bitmap.Set(row_index, true);
                 LOG(WARNING) << "no partition for this tuple. tuple="
                              << block->dump_data(row_index, 1);
+                RETURN_IF_ERROR(state->append_error_msg_to_file(
+                        []() -> std::string { return ""; },
+                        [&]() -> std::string {
+                            fmt::memory_buffer buf;
+                            fmt::format_to(buf, "no partition for this tuple. tuple=\n{}",
+                                           block->dump_data(row_index, 1));
+                            return fmt::to_string(buf);
+                        },
+                        &stop_processing));
+                _has_filtered_rows = true;
+                state->update_num_rows_load_filtered(1);
+                state->update_num_rows_load_total(-1);
             }
-            _has_filtered_rows = true;
         }
     }
 
@@ -217,7 +228,7 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
         for (auto i = 0; i < block->rows(); i++) {
             selector.emplace_back(i);
         }
-        block->append_to_block_by_selector(cur_mutable_block.get(), selector);
+        RETURN_IF_ERROR(block->append_to_block_by_selector(cur_mutable_block.get(), selector));
     }
     std::shared_ptr<vectorized::Block> output_block = vectorized::Block::create_shared();
     output_block->swap(cur_mutable_block->to_block());
@@ -245,7 +256,7 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
         if (_state->exec_env()->wal_mgr()->is_running()) {
             RETURN_IF_ERROR(_state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
                     _db_id, _table_id, _base_schema_version, load_id, _load_block_queue,
-                    _state->be_exec_version()));
+                    _state->be_exec_version(), _state->query_mem_tracker()));
             if (_group_commit_mode == TGroupCommitMode::ASYNC_MODE) {
                 size_t estimated_wal_bytes =
                         _calculate_estimated_wal_bytes(is_blocks_contain_all_load_data);
@@ -276,18 +287,20 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
     _is_block_appended = true;
     _blocks.clear();
     DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.get_wal_back_pressure_msg", {
-        if (_load_block_queue) {
-            _remove_estimated_wal_bytes();
-            _load_block_queue->remove_load_id(_load_id);
-        }
-        if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
-                    std ::chrono ::seconds(60)) == std ::future_status ::ready) {
-            auto st = ExecEnv::GetInstance()->group_commit_mgr()->debug_future.get();
-            ExecEnv::GetInstance()->group_commit_mgr()->debug_promise = std::promise<Status>();
-            ExecEnv::GetInstance()->group_commit_mgr()->debug_future =
-                    ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.get_future();
-            LOG(INFO) << "debug future output: " << st.to_string();
-            RETURN_IF_ERROR(st);
+        if (dp->param<int64_t>("table_id", -1) == _table_id) {
+            if (_load_block_queue) {
+                _remove_estimated_wal_bytes();
+                _load_block_queue->remove_load_id(_load_id);
+            }
+            if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
+                        std ::chrono ::seconds(60)) == std ::future_status ::ready) {
+                auto st = ExecEnv::GetInstance()->group_commit_mgr()->debug_future.get();
+                ExecEnv::GetInstance()->group_commit_mgr()->debug_promise = std::promise<Status>();
+                ExecEnv::GetInstance()->group_commit_mgr()->debug_future =
+                        ExecEnv::GetInstance()->group_commit_mgr()->debug_promise.get_future();
+                LOG(INFO) << "debug future output: " << st.to_string();
+                RETURN_IF_ERROR(st);
+            }
         }
     });
     return Status::OK();

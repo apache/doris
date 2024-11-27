@@ -119,6 +119,8 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
     _is_first_phase = tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase;
     _agg_data = std::make_unique<AggregatedDataVariants>();
     _agg_arena_pool = std::make_unique<Arena>();
+    _intermediate_tuple_desc = descs.get_tuple_descriptor(_intermediate_tuple_id);
+    _output_tuple_desc = descs.get_tuple_descriptor(_output_tuple_id);
 }
 
 AggregationNode::~AggregationNode() = default;
@@ -250,8 +252,6 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _hash_table_input_counter = ADD_COUNTER(runtime_profile(), "HashTableInputCount", TUnit::UNIT);
     _max_row_size_counter = ADD_COUNTER(runtime_profile(), "MaxRowSizeInBytes", TUnit::UNIT);
     COUNTER_SET(_max_row_size_counter, (int64_t)0);
-    _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
-    _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
 
@@ -415,7 +415,7 @@ Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
     // this could cause unable to get JVM
     if (_probe_expr_ctxs.empty()) {
         // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
-        RETURN_IF_CATCH_EXCEPTION(static_cast<void>(_create_agg_status(_agg_data->without_key)));
+        RETURN_IF_ERROR(_create_agg_status(_agg_data->without_key));
         _agg_data_created_without_key = true;
     }
 
@@ -509,7 +509,7 @@ Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_b
     }
     if (eos) {
         if (_spill_context.has_data) {
-            static_cast<void>(_try_spill_disk(true));
+            RETURN_IF_ERROR(_try_spill_disk(true));
             RETURN_IF_ERROR(_spill_context.prepare_for_reading());
         }
         _can_read = true;
@@ -555,11 +555,10 @@ Status AggregationNode::_create_agg_status(AggregateDataPtr data) {
     return Status::OK();
 }
 
-Status AggregationNode::_destroy_agg_status(AggregateDataPtr data) {
+void AggregationNode::_destroy_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->function()->destroy(data + _offsets_of_aggregate_states[i]);
     }
-    return Status::OK();
 }
 
 Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* block, bool* eos) {
@@ -698,7 +697,7 @@ void AggregationNode::_close_without_key() {
     //but finally call close to destory agg data, if agg data has bitmapValue
     //will be core dump, it's not initialized
     if (_agg_data_created_without_key) {
-        static_cast<void>(_destroy_agg_status(_agg_data->without_key));
+        _destroy_agg_status(_agg_data->without_key);
         _agg_data_created_without_key = false;
     }
     release_tracker();
@@ -795,7 +794,7 @@ Status AggregationNode::_reset_hash_table() {
 
                 hash_table.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        static_cast<void>(_destroy_agg_status(mapped));
+                        _destroy_agg_status(mapped);
                         mapped = nullptr;
                     }
                 });
@@ -1133,7 +1132,7 @@ Status AggregationNode::_spill_hash_table(HashTableCtxType& agg_method, HashTabl
         for (size_t j = 0; j < partitioned_indices.size(); ++j) {
             if (partitioned_indices[j] != i) {
                 if (length > 0) {
-                    mutable_block.add_rows(&block, begin, length);
+                    RETURN_IF_ERROR(mutable_block.add_rows(&block, begin, length));
                 }
                 length = 0;
                 continue;
@@ -1146,7 +1145,7 @@ Status AggregationNode::_spill_hash_table(HashTableCtxType& agg_method, HashTabl
         }
 
         if (length > 0) {
-            mutable_block.add_rows(&block, begin, length);
+            RETURN_IF_ERROR(mutable_block.add_rows(&block, begin, length));
         }
 
         CHECK_EQ(mutable_block.rows(), blocks_rows[i]);
@@ -1509,16 +1508,12 @@ void AggregationNode::_close_with_serialized_key() {
                 auto& data = *agg_method.hash_table;
                 data.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        static_cast<void>(_destroy_agg_status(mapped));
+                        _destroy_agg_status(mapped);
                         mapped = nullptr;
                     }
                 });
                 if (data.has_null_key_data()) {
-                    auto st = _destroy_agg_status(
-                            data.template get_null_key_data<AggregateDataPtr>());
-                    if (!st) {
-                        throw Exception(st.code(), st.to_string());
-                    }
+                    _destroy_agg_status(data.template get_null_key_data<AggregateDataPtr>());
                 }
             },
             _agg_data->method_variant);

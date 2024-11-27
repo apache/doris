@@ -74,7 +74,8 @@ void TabletMigrationAction::handle(HttpRequest* req) {
                         }
                         _migration_tasks[current_task] = "submitted";
                     }
-                    auto st = _migration_thread_pool->submit_func([&, dest_disk, current_task]() {
+                    auto st = _migration_thread_pool->submit_func([&, tablet, dest_store,
+                                                                   current_task]() {
                         {
                             std::unique_lock<std::mutex> lock(_migration_status_mutex);
                             _migration_tasks[current_task] = "running";
@@ -224,6 +225,7 @@ Status TabletMigrationAction::_execute_tablet_migration(TabletSharedPtr tablet,
     int32_t schema_hash = tablet->schema_hash();
     string dest_disk = dest_store->path();
     EngineStorageMigrationTask engine_task(tablet, dest_store);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     Status res = engine_task.execute();
     if (!res.ok()) {
         LOG(WARNING) << "tablet migrate failed. tablet_id=" << tablet_id

@@ -19,6 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.Privilege;
@@ -33,6 +35,7 @@ import org.apache.commons.collections.MapUtils;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 // REVOKE STMT
 // revoke privilege from some user, this is an administrator operation.
@@ -116,6 +119,10 @@ public class RevokeStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
+        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
+            throw new AnalysisException("Revoke is prohibited when Ranger is enabled.");
+        }
+
         if (userIdent != null) {
             userIdent.analyze();
         } else {
@@ -147,13 +154,17 @@ public class RevokeStmt extends DdlStmt {
 
         // Revoke operation obey the same rule as Grant operation. reuse the same method
         if (tblPattern != null) {
-            GrantStmt.checkTablePrivileges(privileges, role, tblPattern, colPrivileges);
+            GrantStmt.checkTablePrivileges(privileges, tblPattern, colPrivileges);
         } else if (resourcePattern != null) {
-            GrantStmt.checkResourcePrivileges(privileges, role, resourcePattern);
+            GrantStmt.checkResourcePrivileges(privileges, resourcePattern);
         } else if (workloadGroupPattern != null) {
-            GrantStmt.checkWorkloadGroupPrivileges(privileges, role, workloadGroupPattern);
+            GrantStmt.checkWorkloadGroupPrivileges(privileges, workloadGroupPattern);
         } else if (roles != null) {
             GrantStmt.checkRolePrivileges();
+            if (roles.stream().map(String::toLowerCase).collect(Collectors.toList()).contains("admin")
+                    && userIdent.isAdminUser()) {
+                ErrorReport.reportAnalysisException("Unsupported operation");
+            }
         }
     }
 

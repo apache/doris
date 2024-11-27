@@ -28,6 +28,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/field.h"
@@ -80,20 +81,25 @@ ColumnPtr IDataType::create_column_const_with_default_value(size_t size) const {
 }
 
 size_t IDataType::get_size_of_value_in_memory() const {
-    LOG(FATAL) << fmt::format("Value of type {} in memory is not of fixed size.", get_name());
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Value of type {} in memory is not of fixed size.", get_name());
     return 0;
 }
 
 void IDataType::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    LOG(FATAL) << fmt::format("Data type {} to_string not implement.", get_name());
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Data type {} to_string ostr not implement.", get_name());
 }
 
 std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
-    LOG(FATAL) << fmt::format("Data type {} to_string not implement.", get_name());
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Data type {} to_string not implement.", get_name());
     return "";
 }
 Status IDataType::from_string(ReadBuffer& rb, IColumn* column) const {
-    LOG(FATAL) << fmt::format("Data type {} from_string not implement.", get_name());
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Data type {} from_string not implement.", get_name());
+
     return Status::OK();
 }
 
@@ -180,7 +186,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
     case TypeIndex::TimeV2:
         return PGenericType::TIMEV2;
     default:
-        LOG(FATAL) << fmt::format("could not mapping type {} to pb type", data_type->get_type_id());
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "could not mapping type {} to pb type",
+                               data_type->get_type_id());
         return PGenericType::UNKNOWN;
     }
 }

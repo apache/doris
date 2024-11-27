@@ -21,9 +21,10 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 
 /**
@@ -44,34 +45,66 @@ public class ImmutableEqualSet<T> {
      * Builder for ImmutableEqualSet.
      */
     public static class Builder<T> {
-        private final Map<T, T> parent = new HashMap<>();
-        private final Map<T, Integer> size = new HashMap<>();
+        private Map<T, T> parent;
+
+        Builder(Map<T, T> parent) {
+            this.parent = parent;
+        }
+
+        public Builder() {
+            this(new LinkedHashMap<>());
+        }
+
+        public Builder(ImmutableEqualSet<T> equalSet) {
+            this(new LinkedHashMap<>(equalSet.root));
+        }
+
+        /**
+         * replace all key value according replace map
+         */
+        public void replace(Map<T, T> replaceMap) {
+            Map<T, T> newMap = new LinkedHashMap<>();
+            for (Entry<T, T> entry : parent.entrySet()) {
+                newMap.put(replaceMap.getOrDefault(entry.getKey(), entry.getKey()),
+                        replaceMap.getOrDefault(entry.getValue(), entry.getValue()));
+            }
+            parent = newMap;
+        }
 
         /**
          * Add a equal pair
          */
         public void addEqualPair(T a, T b) {
+            if (!parent.containsKey(a)) {
+                parent.put(a, a);
+            }
+            if (!parent.containsKey(b)) {
+                parent.put(b, b);
+            }
             T root1 = findRoot(a);
             T root2 = findRoot(b);
             if (root1 != root2) {
-                parent.put(b, root1);
-                findRoot(b);
+                parent.put(root1, root2);
             }
+        }
+
+        public void addEqualSet(ImmutableEqualSet<T> equalSet) {
+            this.parent.putAll(equalSet.root);
         }
 
         private T findRoot(T a) {
-            parent.putIfAbsent(a, a); // Ensure that the element is added
-            size.putIfAbsent(a, 1); // Initialize size to 1
-
-            if (!parent.get(a).equals(a)) {
-                parent.put(a, findRoot(parent.get(a))); // Path compression
+            if (a.equals(parent.get(a))) {
+                return parent.get(a);
             }
-            return parent.get(a);
+            return findRoot(parent.get(a));
         }
 
         public ImmutableEqualSet<T> build() {
-            parent.keySet().forEach(this::findRoot);
-            return new ImmutableEqualSet<>(parent);
+            ImmutableMap.Builder<T, T> foldMapBuilder = new ImmutableMap.Builder<>();
+            for (T k : parent.keySet()) {
+                foldMapBuilder.put(k, findRoot(k));
+            }
+            return new ImmutableEqualSet<>(foldMapBuilder.build());
         }
     }
 
@@ -102,5 +135,17 @@ public class ImmutableEqualSet<T> {
 
     public Set<T> getAllItemSet() {
         return ImmutableSet.copyOf(root.keySet());
+    }
+
+    public boolean isEqual(T l, T r) {
+        if (!root.containsKey(l) || !root.containsKey(r)) {
+            return false;
+        }
+        return root.get(l) == root.get(r);
+    }
+
+    @Override
+    public String toString() {
+        return root.toString();
     }
 }

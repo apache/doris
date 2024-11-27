@@ -23,6 +23,7 @@
 #include <memory>
 
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/raw_value.h"
 #include "runtime/type_limit.h"
 #include "util/string_parser.hpp"
@@ -207,6 +208,109 @@ TEST(DecimalTest, hash) {
         EXPECT_EQ(hash_val, 12345);
         hash_val = hash_op(dec4);
         EXPECT_EQ(hash_val, 12344);
+    }
+}
+
+TEST(DecimalTest, to_string) {
+    {
+        Decimal32 dec(999999999);
+        auto dec_str = dec.to_string(9, 0);
+        EXPECT_EQ(dec_str, "999999999");
+        dec_str = dec.to_string(9, 6);
+        EXPECT_EQ(dec_str, "999.999999");
+        dec_str = dec.to_string(9, 9);
+        EXPECT_EQ(dec_str, "0.999999999");
+
+        dec_str = dec.to_string(8, 0);
+        EXPECT_EQ(dec_str, "99999999");
+        dec_str = dec.to_string(8, 6);
+        EXPECT_EQ(dec_str, "99.999999");
+        dec_str = dec.to_string(8, 8);
+        EXPECT_EQ(dec_str, "0.99999999");
+
+        dec_str = dec.to_string(10, 0);
+        EXPECT_EQ(dec_str, "999999999");
+        dec_str = dec.to_string(10, 6);
+        EXPECT_EQ(dec_str, "999.999999");
+        dec_str = dec.to_string(10, 9);
+        EXPECT_EQ(dec_str, "0.999999999");
+    }
+    {
+        Decimal32 dec(-999999999);
+        auto dec_str = dec.to_string(9, 0);
+        EXPECT_EQ(dec_str, "-999999999");
+        dec_str = dec.to_string(9, 6);
+        EXPECT_EQ(dec_str, "-999.999999");
+        dec_str = dec.to_string(9, 9);
+        EXPECT_EQ(dec_str, "-0.999999999");
+
+        dec_str = dec.to_string(8, 0);
+        EXPECT_EQ(dec_str, "-99999999");
+        dec_str = dec.to_string(8, 6);
+        EXPECT_EQ(dec_str, "-99.999999");
+        dec_str = dec.to_string(8, 8);
+        EXPECT_EQ(dec_str, "-0.99999999");
+
+        dec_str = dec.to_string(10, 0);
+        EXPECT_EQ(dec_str, "-999999999");
+        dec_str = dec.to_string(10, 6);
+        EXPECT_EQ(dec_str, "-999.999999");
+        dec_str = dec.to_string(10, 9);
+        EXPECT_EQ(dec_str, "-0.999999999");
+    }
+    {
+        std::string val_str("999999999999999999999999999999"); // 30 digits
+        StringParser::ParseResult parse_result;
+        Decimal128V3 dec = StringParser::string_to_decimal<TYPE_DECIMAL128I>(
+                val_str.data(), val_str.size(), val_str.size(), 0, &parse_result);
+        EXPECT_EQ(parse_result, StringParser::ParseResult::PARSE_SUCCESS);
+        auto dec_str = dec.to_string(30, 0);
+        EXPECT_EQ(dec_str, "999999999999999999999999999999");
+        dec_str = dec.to_string(30, 6);
+        EXPECT_EQ(dec_str, "999999999999999999999999.999999");
+        dec_str = dec.to_string(30, 30);
+        EXPECT_EQ(dec_str, "0.999999999999999999999999999999");
+
+        dec_str = dec.to_string(20, 0);
+        EXPECT_EQ(dec_str, "99999999999999999999");
+        dec_str = dec.to_string(20, 6);
+        EXPECT_EQ(dec_str, "99999999999999.999999");
+        dec_str = dec.to_string(20, 20);
+        EXPECT_EQ(dec_str, "0.99999999999999999999");
+    }
+    {
+        std::string val_str("-999999999999999999999999999999"); // 30 digits
+        StringParser::ParseResult parse_result;
+        Decimal128V3 dec = StringParser::string_to_decimal<TYPE_DECIMAL128I>(
+                val_str.data(), val_str.size(), val_str.size(), 0, &parse_result);
+        EXPECT_EQ(parse_result, StringParser::ParseResult::PARSE_SUCCESS);
+        auto dec_str = dec.to_string(30, 0);
+        EXPECT_EQ(dec_str, "-999999999999999999999999999999");
+        dec_str = dec.to_string(30, 6);
+        EXPECT_EQ(dec_str, "-999999999999999999999999.999999");
+        dec_str = dec.to_string(30, 30);
+        EXPECT_EQ(dec_str, "-0.999999999999999999999999999999");
+
+        dec_str = dec.to_string(20, 0);
+        EXPECT_EQ(dec_str, "-99999999999999999999");
+        dec_str = dec.to_string(20, 6);
+        EXPECT_EQ(dec_str, "-99999999999999.999999");
+        dec_str = dec.to_string(20, 20);
+        EXPECT_EQ(dec_str, "-0.99999999999999999999");
+    }
+
+    {
+        Decimal256 dec(type_limit<vectorized::Decimal256>::max());
+        // Decimal256 dec_min(type_limit<vectorized::Decimal256>::min());
+        auto dec_str = dec.to_string(76, 0);
+        EXPECT_EQ(dec_str,
+                  "9999999999999999999999999999999999999999999999999999999999999999999999999999");
+        dec_str = dec.to_string(76, 6);
+        EXPECT_EQ(dec_str,
+                  "9999999999999999999999999999999999999999999999999999999999999999999999.999999");
+        dec_str = dec.to_string(76, 76);
+        EXPECT_EQ(dec_str,
+                  "0.9999999999999999999999999999999999999999999999999999999999999999999999999999");
     }
 }
 } // namespace doris::vectorized

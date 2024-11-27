@@ -53,8 +53,10 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import mockit.Injectable;
 import mockit.Mocked;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -65,6 +67,7 @@ import org.junit.Test;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class GlobalTransactionMgrTest {
@@ -77,7 +80,8 @@ public class GlobalTransactionMgrTest {
     private static Env masterEnv;
     private static Env slaveEnv;
 
-    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
+    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(
+            TransactionState.TxnSourceType.FE, 0, "localfe", System.currentTimeMillis());
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
@@ -169,7 +173,7 @@ public class GlobalTransactionMgrTest {
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
-                transTablets);
+                transTablets, null);
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
         // check status is committed
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
@@ -209,7 +213,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo2);
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, transTablets);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
+                transTablets, null);
 
         // follower catalog replay the transaction
         transactionState = fakeEditLog.getTransaction(transactionId);
@@ -230,7 +235,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo3);
         try {
-            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2, transTablets);
+            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
+                    transTablets, null);
             Assert.fail();
         } catch (TabletQuorumFailedException e) {
             transactionState = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, transactionId2);
@@ -259,7 +265,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2, transTablets);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
+                transTablets, null);
         transactionState = fakeEditLog.getTransaction(transactionId2);
         // check status is commit
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
@@ -323,7 +330,9 @@ public class GlobalTransactionMgrTest {
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, Lists.newArrayList(1L), 1L, "label", null,
-                LoadJobSourceType.ROUTINE_LOAD_TASK, new TxnCoordinator(TxnSourceType.BE, "be1"), routineLoadJob.getId(),
+                LoadJobSourceType.ROUTINE_LOAD_TASK,
+                new TxnCoordinator(TxnSourceType.BE, 0, "be1", System.currentTimeMillis()),
+                routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
         masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
@@ -395,7 +404,9 @@ public class GlobalTransactionMgrTest {
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, Lists.newArrayList(1L), 1L, "label", null,
-                LoadJobSourceType.ROUTINE_LOAD_TASK, new TxnCoordinator(TxnSourceType.BE, "be1"), routineLoadJob.getId(),
+                LoadJobSourceType.ROUTINE_LOAD_TASK,
+                new TxnCoordinator(TxnSourceType.BE, 0, "be1", System.currentTimeMillis()),
+                routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
         masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
@@ -460,7 +471,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo3);
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, transTablets);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
+                transTablets, null);
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         slaveTransMgr.replayUpsertTransactionState(transactionState);
@@ -469,7 +481,10 @@ public class GlobalTransactionMgrTest {
                         CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3));
         transactionState.getPublishVersionTasks()
                 .get(CatalogTestUtil.testBackendId1).getErrorTablets().add(CatalogTestUtil.testTabletId1);
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId);
+        Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
+        Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId,
+                partitionVisibleVersions, backendPartitions);
         transactionState = fakeEditLog.getTransaction(transactionId);
         Assert.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
         // check replica version
@@ -488,6 +503,14 @@ public class GlobalTransactionMgrTest {
             }
 
         }
+
+        Assert.assertEquals(ImmutableMap.of(testPartition.getId(), CatalogTestUtil.testStartVersion + 1),
+                partitionVisibleVersions);
+        Set<Long> partitionIds = Sets.newHashSet(testPartition.getId());
+        Assert.assertEquals(partitionIds, backendPartitions.get(CatalogTestUtil.testBackendId1));
+        Assert.assertEquals(partitionIds, backendPartitions.get(CatalogTestUtil.testBackendId2));
+        Assert.assertEquals(partitionIds, backendPartitions.get(CatalogTestUtil.testBackendId3));
+
         // slave replay new state and compare catalog
         slaveTransMgr.replayUpsertTransactionState(transactionState);
         Assert.assertTrue(CatalogTestUtil.compareCatalog(masterEnv, slaveEnv));
@@ -514,7 +537,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo2);
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, transTablets);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
+                transTablets, null);
 
         // follower catalog replay the transaction
         transactionState = fakeEditLog.getTransaction(transactionId);
@@ -530,8 +554,13 @@ public class GlobalTransactionMgrTest {
         // backend2 publish failed
         transactionState.getPublishVersionTasks()
                 .get(CatalogTestUtil.testBackendId2).getErrorTablets().add(CatalogTestUtil.testTabletId1);
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId);
+        Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
+        Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId,
+                partitionVisibleVersions, backendPartitions);
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
+        Assert.assertTrue(partitionVisibleVersions.isEmpty());
+        Assert.assertTrue(backendPartitions.isEmpty());
         Replica replica1 = tablet.getReplicaById(CatalogTestUtil.testReplicaId1);
         Replica replica2 = tablet.getReplicaById(CatalogTestUtil.testReplicaId2);
         Replica replica3 = tablet.getReplicaById(CatalogTestUtil.testReplicaId3);
@@ -549,7 +578,8 @@ public class GlobalTransactionMgrTest {
         backend2SuccTablets.put(CatalogTestUtil.testTabletId1, 0L);
         transactionState.getPublishVersionTasks()
                 .get(CatalogTestUtil.testBackendId2).setSuccTablets(backend2SuccTablets);
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId);
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId,
+                partitionVisibleVersions, backendPartitions);
         Assert.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
         Assert.assertEquals(CatalogTestUtil.testStartVersion + 1, replica1.getVersion());
         Assert.assertEquals(CatalogTestUtil.testStartVersion + 1, replica2.getVersion());
@@ -577,7 +607,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo3);
         try {
-            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2, transTablets);
+            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
+                    transTablets, null);
             Assert.fail();
         } catch (TabletQuorumFailedException e) {
             transactionState = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, transactionId2);
@@ -593,7 +624,8 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2, transTablets);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
+                transTablets, null);
         transactionState = fakeEditLog.getTransaction(transactionId2);
         // check status is commit
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
@@ -614,7 +646,8 @@ public class GlobalTransactionMgrTest {
         DatabaseTransactionMgrTest.setTransactionFinishPublish(transactionState,
                 Lists.newArrayList(CatalogTestUtil.testBackendId1,
                         CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3));
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId2);
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId2,
+                partitionVisibleVersions, backendPartitions);
         Assert.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
         Assert.assertEquals(CatalogTestUtil.testStartVersion + 2, replica1.getVersion());
         Assert.assertEquals(CatalogTestUtil.testStartVersion + 2, replica2.getVersion());

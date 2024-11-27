@@ -106,9 +106,9 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
             }
             if (conjunctsChanged) {
                 return filter.withConjuncts(conjuncts.stream().collect(ImmutableSet.toImmutableSet()))
-                        .withChildren(join.withJoinType(newJoinType, join.getJoinReorderContext()));
+                        .withChildren(join.withJoinTypeAndContext(newJoinType, join.getJoinReorderContext()));
             }
-            return filter.withChildren(join.withJoinType(newJoinType, join.getJoinReorderContext()));
+            return filter.withChildren(join.withJoinTypeAndContext(newJoinType, join.getJoinReorderContext()));
         }).toRule(RuleType.ELIMINATE_OUTER_JOIN);
     }
 

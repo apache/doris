@@ -65,7 +65,6 @@ public class OdbcCatalogResource extends Resource {
     @SerializedName(value = "configs")
     private Map<String, String> configs;
 
-    // only for deep copy
     public OdbcCatalogResource() {
         super();
     }

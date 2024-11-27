@@ -45,13 +45,13 @@ VARIANT类型
 
 |    | 存储空间   |
 |--------------|------------|
-| 预定义静态列 | 24.329 GB  |
-| variant 类型    | 24.296 GB  |
-| json 类型             | 46.730 GB  |
+| 预定义静态列 | 12.618 GB  |
+| variant 类型    | 12.718 GB |
+| json 类型             | 35.711 GB   |
    
    
 
-**节省约 50%存储容量**
+**节省约 65%存储容量**
 
 | 查询次数        | 预定义静态列 | variant 类型 | json 类型        |
 |----------------|--------------|--------------|-----------------|
@@ -88,12 +88,20 @@ CREATE TABLE IF NOT EXISTS ${table_name} (
     INDEX idx_var(v) USING INVERTED [PROPERTIES("parser" = "english|unicode|chinese")] [COMMENT 'your comment']
 )
 table_properties;
+
+-- 在v列创建bloom filter
+CREATE TABLE IF NOT EXISTS ${table_name} (
+    k BIGINT,
+    v VARIANT
+)
+...
+properties("replication_num" = "1", "bloom_filter_columns" = "v");
 ```
 
 **查询语法**
 
 ``` sql
--- 使用 v['a']['b'] 形式例如
+-- 使用 v['a']['b'] 形式如下，v['properties']['title']类型是Variant
 SELECT v['properties']['title'] from ${table_name}
 ```
 
@@ -288,7 +296,7 @@ mysql> SELECT
     ->     cast(repo['name'] as text) as repo_name, count() AS stars
     -> FROM github_events
     -> WHERE type = 'WatchEvent'
-    -> GROUP BY stars 
+    -> GROUP BY repo_name 
     -> ORDER BY stars DESC LIMIT 5;
 +--------------------------+-------+
 | repo_name                | stars |
@@ -359,8 +367,8 @@ VARIANT 动态列与预定义静态列几乎一样高效。处理诸如日志之
 其它限制如下：
 
 - 目前不支持 Aggregate 模型
-- VARIANT 列只能创建倒排索引
-- **推荐使用 RANDOM 模式， 写入性能更高效**
+- VARIANT 列只能创建倒排索引或者bloom filter来加速过滤
+- **推荐使用 RANDOM 模式和[Group Commit](https://doris.apache.org/zh-CN/docs/dev/data-operate/import/import-way/group-commit-manual/)模式， 写入性能更高效**
 - 日期、decimal 等非标准 JSON 类型会被默认推断成字符串类型，所以尽可能从 VARIANT 中提取出来，用静态类型，性能更好
 - 2 维及其以上的数组列存化会被存成 JSONB 编码，性能不如原生数组
 - 不支持作为主键或者排序键

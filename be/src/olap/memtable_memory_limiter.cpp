@@ -38,7 +38,6 @@ bvar::Status<int64_t> g_memtable_flush_memory("mm_limiter_mem_flush", 0);
 bvar::Status<int64_t> g_memtable_load_memory("mm_limiter_mem_load", 0);
 bvar::Status<int64_t> g_load_hard_mem_limit("mm_limiter_limit_hard", 0);
 bvar::Status<int64_t> g_load_soft_mem_limit("mm_limiter_limit_soft", 0);
-bvar::Status<int64_t> g_orphan_memory("mm_limiter_mem_orphan", 0);
 
 // Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
@@ -63,8 +62,10 @@ Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
             _load_hard_mem_limit * config::load_process_safe_mem_permit_percent / 100;
     g_load_hard_mem_limit.set_value(_load_hard_mem_limit);
     g_load_soft_mem_limit.set_value(_load_soft_mem_limit);
-    _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD,
-                                                       "MemTableMemoryLimiter");
+    _memtable_tracker_set =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "MemTableTrackerSet");
+    _mem_tracker = std::make_unique<MemTracker>("AllMemTableMemory",
+                                                ExecEnv::GetInstance()->details_mem_tracker_set());
     REGISTER_HOOK_METRIC(memtable_memory_limiter_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
     _log_timer.start();
@@ -76,19 +77,17 @@ void MemTableMemoryLimiter::register_writer(std::weak_ptr<MemTableWriter> writer
     _writers.push_back(writer);
 }
 
-int64_t MemTableMemoryLimiter::_avail_mem_lack() {
+bool MemTableMemoryLimiter::_sys_avail_mem_less_than_warning_water_mark() {
     // reserve a small amount of memory so we do not trigger MinorGC
-    auto reserved_mem = doris::MemInfo::sys_mem_available_low_water_mark();
-    auto avail_mem_lack =
-            doris::MemInfo::sys_mem_available_warning_water_mark() - MemInfo::sys_mem_available();
-    return avail_mem_lack + reserved_mem;
+    return doris::GlobalMemoryArbitrator::sys_mem_available() <
+           doris::MemInfo::sys_mem_available_warning_water_mark() +
+                   config::memtable_limiter_reserved_memory_bytes;
 }
 
-int64_t MemTableMemoryLimiter::_proc_mem_extra() {
+bool MemTableMemoryLimiter::_process_used_mem_more_than_soft_mem_limit() {
     // reserve a small amount of memory so we do not trigger MinorGC
-    auto reserved_mem = doris::MemInfo::sys_mem_available_low_water_mark();
-    auto proc_mem_extra = MemInfo::proc_mem_no_allocator_cache() - MemInfo::soft_mem_limit();
-    return proc_mem_extra + reserved_mem;
+    return GlobalMemoryArbitrator::process_memory_usage() >
+           MemInfo::soft_mem_limit() - config::memtable_limiter_reserved_memory_bytes;
 }
 
 bool MemTableMemoryLimiter::_soft_limit_reached() {
@@ -96,8 +95,9 @@ bool MemTableMemoryLimiter::_soft_limit_reached() {
 }
 
 bool MemTableMemoryLimiter::_hard_limit_reached() {
-    return _mem_tracker->consumption() >= _load_hard_mem_limit || _avail_mem_lack() >= 0 ||
-           _proc_mem_extra() >= 0;
+    return _mem_tracker->consumption() >= _load_hard_mem_limit ||
+           _sys_avail_mem_less_than_warning_water_mark() ||
+           _process_used_mem_more_than_soft_mem_limit();
 }
 
 bool MemTableMemoryLimiter::_load_usage_low() {
@@ -123,7 +123,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
             _write_mem_usage * config::memtable_hard_limit_active_percent / 100) {
             _flush_active_memtables(_write_mem_usage / 20);
         }
-        if (!_hard_limit_reached()) {
+        if (!_hard_limit_reached() || _load_usage_low()) {
             break;
         }
         auto st = _hard_limit_end_cond.wait_for(l, std::chrono::milliseconds(1000));
@@ -221,14 +221,16 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
 
     _last_limit = limit;
     _log_timer.reset();
-    LOG(INFO) << ss.str() << ", process mem: " << PerfCounters::get_vm_rss_str()
-              << " (without allocator cache: "
-              << PrettyPrinter::print_bytes(MemInfo::proc_mem_no_allocator_cache())
-              << "), load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
-              << ", memtable writers num: " << _writers.size()
-              << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
-              << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
-              << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
+    // if not exist load task, this log should not be printed.
+    if (_mem_usage != 0) {
+        LOG(INFO) << fmt::format(
+                "{}, {}, load mem: {}, memtable writers num: {} (active: {}, write: {}, flush: {})",
+                ss.str(), GlobalMemoryArbitrator::process_memory_used_details_str(),
+                PrettyPrinter::print_bytes(_mem_tracker->consumption()), _writers.size(),
+                PrettyPrinter::print_bytes(_active_mem_usage),
+                PrettyPrinter::print_bytes(_write_mem_usage),
+                PrettyPrinter::print_bytes(_flush_mem_usage));
+    }
 }
 
 void MemTableMemoryLimiter::_refresh_mem_tracker() {
@@ -257,8 +259,7 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     g_memtable_flush_memory.set_value(_flush_mem_usage);
     g_memtable_load_memory.set_value(_mem_usage);
     VLOG_DEBUG << "refreshed mem_tracker, num writers: " << _writers.size();
-    THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(), _mem_tracker.get());
-    g_orphan_memory.set_value(ExecEnv::GetInstance()->orphan_mem_tracker()->consumption());
+    _mem_tracker->set_consumption(_mem_usage);
     if (!_hard_limit_reached()) {
         _hard_limit_end_cond.notify_all();
     }

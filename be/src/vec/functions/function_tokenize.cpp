@@ -26,6 +26,7 @@
 #include "CLucene/StdHeader.h"
 #include "CLucene/config/repl_wchar.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -37,7 +38,7 @@ namespace doris::vectorized {
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
     boost::regex pattern(
-            R"delimiter((?:'([^']*)'|"([^"]*)"|([^,]*))\s*=\s*(?:'([^']*)'|"([^"]*)"|([^,]*)))delimiter");
+            R"delimiter((?:'([^']*)'|"([^"]*)"|([^, ]*))\s*=\s*(?:'([^']*)'|"([^"]*)"|([^, ]*)))delimiter");
     boost::smatch matches;
 
     std::string::const_iterator searchStart(str.cbegin());
@@ -139,6 +140,12 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             }
             inverted_index_ctx.parser_type = get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(properties));
+            if (inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
+                return Status::Error<doris::ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                        "unsupported parser type. currently, only 'english', 'chinese', and "
+                        "'unicode' analyzers are supported.");
+            }
+
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
             inverted_index_ctx.char_filter_map =
                     get_parser_char_filter_map_from_properties(properties);
@@ -151,6 +158,9 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
                 return Status::Error<doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                         "inverted index create analyzer failed: {}", e.what());
             }
+            doris::segment_v2::FullTextIndexReader::setup_analyzer_lowercase(analyzer, properties);
+            doris::segment_v2::FullTextIndexReader::setup_analyzer_use_stopwords(analyzer,
+                                                                                 properties);
 
             inverted_index_ctx.analyzer = analyzer.get();
             _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column, dest_offsets,

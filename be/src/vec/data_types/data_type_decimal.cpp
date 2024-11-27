@@ -64,8 +64,13 @@ std::string DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num)
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    auto value = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
-    return value.to_string(scale);
+    if constexpr (!IsDecimalV2<T>) {
+        auto value = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
+        return value.to_string(scale);
+    } else {
+        auto value = (DecimalV2Value)assert_cast<const ColumnType&>(*ptr).get_element(row_num);
+        return value.to_string(get_format_scale());
+    }
 }
 
 template <typename T>
@@ -81,9 +86,14 @@ void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
         ostr.write(str.data(), str.size());
     } else {
         auto value = (DecimalV2Value)assert_cast<const ColumnType&>(*ptr).get_element(row_num);
-        auto str = value.to_string(scale);
+        auto str = value.to_string(get_format_scale());
         ostr.write(str.data(), str.size());
     }
+}
+
+template <typename T>
+std::string DataTypeDecimal<T>::to_string(const T& value) const {
+    return value.to_string(scale);
 }
 
 template <typename T>
@@ -214,7 +224,7 @@ bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
     res->value = StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type()>(
             str.c_str(), str.size(), precision, scale, &result);
-    return result == StringParser::PARSE_SUCCESS;
+    return result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW;
 }
 
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {

@@ -80,7 +80,10 @@ EnginePublishVersionTask::EnginePublishVersionTask(
           _error_tablet_ids(error_tablet_ids),
           _succ_tablets(succ_tablets),
           _discontinuous_version_tablets(discontinuous_version_tablets),
-          _table_id_to_num_delta_rows(table_id_to_num_delta_rows) {}
+          _table_id_to_num_delta_rows(table_id_to_num_delta_rows) {
+    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "TabletPublishTxnTask");
+}
 
 void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
     std::lock_guard<std::mutex> lck(_tablet_ids_mutex);
@@ -105,6 +108,20 @@ Status EnginePublishVersionTask::execute() {
                     .tag("txn_id", transaction_id)
                     .tag("wait ms", wait);
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+        }
+    });
+    DBUG_EXECUTE_IF("EnginePublishVersionTask::execute.enable_spin_wait", {
+        auto token = dp->param<std::string>("token", "invalid_token");
+        while (DebugPoints::instance()->is_enable("EnginePublishVersionTask::execute.block")) {
+            auto block_dp = DebugPoints::instance()->get_debug_point(
+                    "EnginePublishVersionTask::execute.block");
+            if (block_dp) {
+                auto pass_token = block_dp->param<std::string>("pass_token", "");
+                if (pass_token == token) {
+                    break;
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     });
     std::unique_ptr<ThreadPoolToken> token =
@@ -214,16 +231,22 @@ Status EnginePublishVersionTask::execute() {
                         int64_t missed_txn_id =
                                 StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
                                         tablet->tablet_id(), missed_version);
-                        auto msg = fmt::format(
-                                "uniq key with merge-on-write version not continuous, "
-                                "missed version={}, it's transaction_id={}, current publish "
-                                "version={}, tablet_id={}, transaction_id={}",
-                                missed_version, missed_txn_id, version.second, tablet->tablet_id(),
-                                _publish_version_req.transaction_id);
-                        if (first_time_update) {
-                            LOG(INFO) << msg;
-                        } else {
-                            LOG_EVERY_SECOND(INFO) << msg;
+                        bool need_log =
+                                (config::publish_version_gap_logging_threshold < 0 ||
+                                 max_version + config::publish_version_gap_logging_threshold >=
+                                         version.second);
+                        if (need_log) {
+                            auto msg = fmt::format(
+                                    "uniq key with merge-on-write version not continuous, "
+                                    "missed version={}, it's transaction_id={}, current publish "
+                                    "version={}, tablet_id={}, transaction_id={}",
+                                    missed_version, missed_txn_id, version.second,
+                                    tablet->tablet_id(), _publish_version_req.transaction_id);
+                            if (first_time_update) {
+                                LOG(INFO) << msg;
+                            } else {
+                                LOG_EVERY_SECOND(INFO) << msg;
+                            }
                         }
                     };
                     // The versions during the schema change period need to be also continuous
@@ -243,8 +266,12 @@ Status EnginePublishVersionTask::execute() {
             }
 
             auto rowset_meta_ptr = rowset->rowset_meta();
-            tablet_id_to_num_delta_rows.insert(
-                    {rowset_meta_ptr->tablet_id(), rowset_meta_ptr->num_rows()});
+            auto tablet_id = rowset_meta_ptr->tablet_id();
+            if (_publish_version_req.base_tablet_ids.contains(tablet_id)) {
+                // exclude delta rows in rollup tablets
+                tablet_id_to_num_delta_rows.insert(
+                        {rowset_meta_ptr->tablet_id(), rowset_meta_ptr->num_rows()});
+            }
 
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
                     this, tablet, rowset, partition_id, transaction_id, version, tablet_info);
@@ -348,12 +375,15 @@ TabletPublishTxnTask::TabletPublishTxnTask(EnginePublishVersionTask* engine_task
           _partition_id(partition_id),
           _transaction_id(transaction_id),
           _version(version),
-          _tablet_info(tablet_info) {
+          _tablet_info(tablet_info),
+          _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "TabletPublishTxnTask")) {
     _stats.submit_time_us = MonotonicMicros();
 }
 
 void TabletPublishTxnTask::handle() {
     std::shared_lock migration_rlock(_tablet->get_migration_lock(), std::chrono::seconds(5));
+    SCOPED_ATTACH_TASK(_mem_tracker);
     if (!migration_rlock.owns_lock()) {
         _result = Status::Error<TRY_LOCK_FAILED, false>("got migration_rlock failed");
         LOG(WARNING) << "failed to publish version. tablet_id=" << _tablet_info.tablet_id
@@ -404,6 +434,7 @@ void TabletPublishTxnTask::handle() {
 
 void AsyncTabletPublishTask::handle() {
     std::shared_lock migration_rlock(_tablet->get_migration_lock(), std::chrono::seconds(5));
+    SCOPED_ATTACH_TASK(_mem_tracker);
     if (!migration_rlock.owns_lock()) {
         LOG(WARNING) << "failed to publish version. tablet_id=" << _tablet->tablet_id()
                      << ", txn_id=" << _transaction_id << ", got migration_rlock failed";

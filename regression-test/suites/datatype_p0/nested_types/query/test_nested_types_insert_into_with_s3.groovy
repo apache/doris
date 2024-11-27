@@ -22,7 +22,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_nested_types_insert_into_with_s3", "p0") {
     sql 'use regression_test_datatype_p0_nested_types'
-    sql 'set enable_nereids_planner=false'
     sql 'set max_allowed_packet=4194304'
 
     String ak = getS3AK()

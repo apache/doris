@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -42,10 +41,6 @@ public class EliminateGroupByKey extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalAggregate(logicalProject()).then(agg -> {
-            Set<Integer> enableNereidsRules = ConnectContext.get().getSessionVariable().getEnableNereidsRules();
-            if (!enableNereidsRules.contains(RuleType.ELIMINATE_GROUP_BY_KEY.type())) {
-                return null;
-            }
             LogicalPlan childPlan = agg.child();
             List<FdItem> uniqueFdItems = new ArrayList<>();
             List<FdItem> nonUniqueFdItems = new ArrayList<>();

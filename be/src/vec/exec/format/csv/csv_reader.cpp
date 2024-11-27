@@ -78,9 +78,11 @@ void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>
                            splitted_values);
         value_start_offset = idx + _value_sep_len;
     }
-    // process the last column
-    process_value_func(data, value_start_offset, line.size - value_start_offset, _trimming_char,
-                       splitted_values);
+    if (line.size >= value_start_offset) {
+        // process the last column
+        process_value_func(data, value_start_offset, line.size - value_start_offset, _trimming_char,
+                           splitted_values);
+    }
 }
 
 void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
@@ -170,6 +172,23 @@ void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* 
     } else {
         _split_field_multi_char(line, splitted_values);
     }
+}
+
+void HiveCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
+    const char* data = line.data;
+    const size_t size = line.size;
+    size_t value_start = 0;
+    for (size_t i = 0; i < size; ++i) {
+        if (data[i] == _value_sep[0]) {
+            // hive will escape the field separator in string
+            if (_escape_char != 0 && i > 0 && data[i - 1] == _escape_char) {
+                continue;
+            }
+            process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
+            value_start = i + _value_sep_len;
+        }
+    }
+    process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
 }
 
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
@@ -341,10 +360,10 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_attributes.text_params.mapkv_delimiter.size() == 0) {
         switch (_text_serde_type) {
         case TTextSerdeType::JSON_TEXT_SERDE:
-            _options.collection_delim = ':';
+            _options.map_key_delim = ':';
             break;
         case TTextSerdeType::HIVE_TEXT_SERDE:
-            _options.collection_delim = '\003';
+            _options.map_key_delim = '\003';
             break;
         default:
             break;
@@ -352,6 +371,12 @@ Status CsvReader::init_reader(bool is_load) {
     } else {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
     }
+
+    if (_params.file_attributes.text_params.__isset.null_format) {
+        _options.null_format = _params.file_attributes.text_params.null_format.data();
+        _options.null_len = _params.file_attributes.text_params.null_format.length();
+    }
+
     _use_nullable_string_opt.resize(_file_slot_descs.size());
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
@@ -368,17 +393,26 @@ Status CsvReader::init_reader(bool is_load) {
     _options.converted_from_string = _trim_double_quotes;
     _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
 
+    if (_state != nullptr) {
+        _keep_cr = _state->query_options().keep_carriage_return;
+    }
+
     std::shared_ptr<TextLineReaderContextIf> text_line_reader_ctx;
     if (_enclose == 0) {
-        text_line_reader_ctx =
-                std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length);
-
-        _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
-                _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
+        text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
+                _line_delimiter, _line_delimiter_length, _keep_cr);
+        if (_text_serde_type == TTextSerdeType::HIVE_TEXT_SERDE) {
+            _fields_splitter = std::make_unique<HiveCsvTextFieldSplitter>(
+                    _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1,
+                    _escape);
+        } else {
+            _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
+                    _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
+        }
     } else {
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-                _file_slot_descs.size() - 1, _enclose, _escape);
+                _file_slot_descs.size() - 1, _enclose, _escape, _keep_cr);
 
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
                 _trim_tailing_spaces, !_not_trim_enclose,
@@ -483,7 +517,10 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 continue;
             }
             if (size == 0) {
-                // Read empty row, just continue
+                if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
+                    ++rows;
+                }
+                // Read empty line, continue
                 continue;
             }
 
@@ -516,7 +553,10 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 continue;
             }
             if (size == 0) {
-                // Read empty row, just continue
+                if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
+                    RETURN_IF_ERROR(_fill_empty_line(block, columns, &rows));
+                }
+                // Read empty line, continue
                 continue;
             }
 
@@ -571,72 +611,11 @@ Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
 }
 
 Status CsvReader::_create_decompressor() {
-    CompressType compress_type;
     if (_file_compress_type != TFileCompressType::UNKNOWN) {
-        switch (_file_compress_type) {
-        case TFileCompressType::PLAIN:
-            compress_type = CompressType::UNCOMPRESSED;
-            break;
-        case TFileCompressType::GZ:
-            compress_type = CompressType::GZIP;
-            break;
-        case TFileCompressType::LZO:
-        case TFileCompressType::LZOP:
-            compress_type = CompressType::LZOP;
-            break;
-        case TFileCompressType::BZ2:
-            compress_type = CompressType::BZIP2;
-            break;
-        case TFileCompressType::LZ4FRAME:
-            compress_type = CompressType::LZ4FRAME;
-            break;
-        case TFileCompressType::LZ4BLOCK:
-            compress_type = CompressType::LZ4BLOCK;
-            break;
-        case TFileCompressType::DEFLATE:
-            compress_type = CompressType::DEFLATE;
-            break;
-        case TFileCompressType::SNAPPYBLOCK:
-            compress_type = CompressType::SNAPPYBLOCK;
-            break;
-        default:
-            return Status::InternalError<false>("unknown compress type: {}", _file_compress_type);
-        }
+        RETURN_IF_ERROR(Decompressor::create_decompressor(_file_compress_type, &_decompressor));
     } else {
-        switch (_file_format_type) {
-        case TFileFormatType::FORMAT_PROTO:
-            [[fallthrough]];
-        case TFileFormatType::FORMAT_CSV_PLAIN:
-            compress_type = CompressType::UNCOMPRESSED;
-            break;
-        case TFileFormatType::FORMAT_CSV_GZ:
-            compress_type = CompressType::GZIP;
-            break;
-        case TFileFormatType::FORMAT_CSV_BZ2:
-            compress_type = CompressType::BZIP2;
-            break;
-        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-            compress_type = CompressType::LZ4FRAME;
-            break;
-        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
-            compress_type = CompressType::LZ4BLOCK;
-            break;
-        case TFileFormatType::FORMAT_CSV_LZOP:
-            compress_type = CompressType::LZOP;
-            break;
-        case TFileFormatType::FORMAT_CSV_DEFLATE:
-            compress_type = CompressType::DEFLATE;
-            break;
-        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
-            compress_type = CompressType::SNAPPYBLOCK;
-            break;
-        default:
-            return Status::InternalError<false>("unknown format type: {}", _file_format_type);
-        }
+        RETURN_IF_ERROR(Decompressor::create_decompressor(_file_format_type, &_decompressor));
     }
-    Decompressor* decompressor;
-    RETURN_IF_ERROR(Decompressor::create_decompressor(compress_type, &decompressor));
-    _decompressor.reset(decompressor);
 
     return Status::OK();
 }
@@ -645,7 +624,7 @@ template <bool from_json>
 Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
     auto& null_column = assert_cast<ColumnNullable&>(column);
     if (!(from_json && _options.converted_from_string && slice.trim_double_quotes())) {
-        if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+        if (slice.compare(Slice(_options.null_format, _options.null_len)) == 0) {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
         }
@@ -717,6 +696,21 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     }
     ++(*rows);
 
+    return Status::OK();
+}
+
+Status CsvReader::_fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns,
+                                   size_t* rows) {
+    for (int i = 0; i < _file_slot_descs.size(); ++i) {
+        IColumn* col_ptr = columns[i];
+        if (!_is_load) {
+            col_ptr = const_cast<IColumn*>(
+                    block->get_by_position(_file_slot_idx_map[i]).column.get());
+        }
+        auto& null_column = assert_cast<ColumnNullable&>(*col_ptr);
+        null_column.insert_data(nullptr, 0);
+    }
+    ++(*rows);
     return Status::OK();
 }
 
@@ -916,20 +910,24 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
     }
 
+    if (_state != nullptr) {
+        _keep_cr = _state->query_options().keep_carriage_return;
+    }
+
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
     std::shared_ptr<TextLineReaderContextIf> text_line_reader_ctx;
     if (_enclose == 0) {
-        text_line_reader_ctx =
-                std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length);
+        text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
+                _line_delimiter, _line_delimiter_length, _keep_cr);
         _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
                 _trim_tailing_spaces, _trim_double_quotes, _value_separator,
                 _value_separator_length);
     } else {
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-                _file_slot_descs.size() - 1, _enclose, _escape);
+                _file_slot_descs.size() - 1, _enclose, _escape, _keep_cr);
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
                 _trim_tailing_spaces, false,
                 std::static_pointer_cast<EncloseCsvLineReaderContext>(text_line_reader_ctx),

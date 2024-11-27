@@ -35,7 +35,7 @@ public class MarkedCountDownLatch<K, V> extends CountDownLatch {
         marks = HashMultimap.create();
     }
 
-    public void addMark(K key, V value) {
+    public synchronized void addMark(K key, V value) {
         marks.put(key, value);
     }
 
@@ -47,11 +47,25 @@ public class MarkedCountDownLatch<K, V> extends CountDownLatch {
         return false;
     }
 
+    public synchronized boolean markedCountDownWithStatus(K key, V value, Status status) {
+        // update status first before countDown.
+        // so that the waiting thread will get the correct status.
+        if (st.ok()) {
+            st = status;
+        }
+
+        if (marks.remove(key, value)) {
+            super.countDown();
+            return true;
+        }
+        return false;
+    }
+
     public synchronized List<Entry<K, V>> getLeftMarks() {
         return Lists.newArrayList(marks.entries());
     }
 
-    public Status getStatus() {
+    public synchronized Status getStatus() {
         return st;
     }
 

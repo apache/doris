@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -44,7 +45,8 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /** TableValuedFunction */
-public abstract class TableValuedFunction extends BoundFunction implements UnaryExpression, CustomSignature {
+public abstract class TableValuedFunction extends BoundFunction
+        implements UnaryExpression, CustomSignature {
 
     protected final Supplier<TableValuedFunctionIf> catalogFunctionCache = Suppliers.memoize(this::toCatalogFunction);
     protected final Supplier<FunctionGenTable> tableCache = Suppliers.memoize(() -> {
@@ -53,7 +55,9 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
         } catch (AnalysisException e) {
             throw e;
         } catch (Throwable t) {
-            throw new AnalysisException("Can not build FunctionGenTable by " + this + ": " + t.getMessage(), t);
+            // Do not print the whole stmt, it is too long and may contain sensitive information
+            throw new AnalysisException(
+                    "Can not build FunctionGenTable '" + this.getName() + "'. error: " + t.getMessage(), t);
         }
     });
 
@@ -98,6 +102,10 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
         return tableCache.get();
     }
 
+    public final void checkAuth(ConnectContext ctx) {
+        getCatalogFunction().checkAuth(ctx);
+    }
+
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitTableValuedFunction(this, context);
@@ -131,5 +139,10 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public boolean isDeterministic() {
+        return false;
     }
 }

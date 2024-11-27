@@ -21,6 +21,7 @@ import org.apache.hudi.HoodieBaseRelation.convertToAvroSchema
 import org.apache.hudi.avro.HoodieAvroUtils
 import org.apache.hudi.common.model.HoodieLogFile
 import org.apache.hudi.{DataSourceReadOptions, HoodieMergeOnReadFileSplit, HoodieTableSchema}
+import org.apache.spark.paths.SparkPath
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.PartitionedFile
@@ -74,13 +75,13 @@ class MORSnapshotSplitReader(override val split: HoodieSplit) extends BaseSplitR
       getFileSplit())
   }
 
-  private def getFileSplit(): HoodieMergeOnReadFileSplit = {
+  protected def getFileSplit(): HoodieMergeOnReadFileSplit = {
     val logFiles = split.deltaFilePaths.map(new HoodieLogFile(_))
       .sorted(Ordering.comparatorToOrdering(HoodieLogFile.getLogFileComparator)).toList
     val partitionedBaseFile = if (split.dataFilePath.isEmpty) {
       None
     } else {
-      Some(PartitionedFile(getPartitionColumnsAsInternalRow(), split.dataFilePath, 0, split.dataFileLength))
+      Some(PartitionedFile(getPartitionColumnsAsInternalRow(), SparkPath.fromPathString(split.dataFilePath), 0, split.dataFileLength))
     }
     HoodieMergeOnReadFileSplit(partitionedBaseFile, logFiles)
   }

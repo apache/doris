@@ -151,7 +151,7 @@ export function AdhocContentResult(props) {
                             ...getELe(resStatus)
                         }
                         {/* <Row>
-                            <Col span={2}>结果表:</Col>
+                            <Col span={2}>结果表：</Col>
                             <FlatBtn onClick={() => queryResultTable()}>
                                 临时表
                             </FlatBtn>
@@ -159,7 +159,7 @@ export function AdhocContentResult(props) {
                     </Card>
                     <div
                         className="ant-table ant-table-small ant-table-bordered"
-                        style={{marginTop: 10}}
+                        style={{marginTop: 10, width: '100%', overflowX: 'scroll'}}
                     >
                         <div className="ant-table-container">
                             <div className='ant-table-content'>

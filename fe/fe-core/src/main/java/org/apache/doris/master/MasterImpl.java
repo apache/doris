@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.DeleteJob;
 import org.apache.doris.load.loadv2.SparkLoadJob;
@@ -86,11 +87,13 @@ public class MasterImpl {
         // check task status
         // retry task by report process
         TStatus taskStatus = request.getTaskStatus();
+        TTaskType taskType = request.getTaskType();
+        long signature = request.getSignature();
         if (LOG.isDebugEnabled()) {
             LOG.debug("get task report: {}", request);
         }
 
-        if (taskStatus.getStatusCode() != TStatusCode.OK) {
+        if (taskStatus.getStatusCode() != TStatusCode.OK && taskType != TTaskType.PUBLISH_VERSION) {
             LOG.warn("finish task reports bad. request: {}", request);
         }
 
@@ -109,8 +112,6 @@ public class MasterImpl {
         }
 
         long backendId = backend.getId();
-        TTaskType taskType = request.getTaskType();
-        long signature = request.getSignature();
 
         AgentTask task = AgentTaskQueue.getTask(backendId, taskType, signature);
         if (task == null) {
@@ -128,16 +129,25 @@ public class MasterImpl {
         } else {
             if (taskStatus.getStatusCode() != TStatusCode.OK) {
                 task.failed();
+                if (taskType == TTaskType.PUBLISH_VERSION) {
+                    boolean needLog = (Config.publish_version_task_failed_log_threshold < 0
+                            || task.getFailedTimes() <= Config.publish_version_task_failed_log_threshold);
+                    if (needLog) {
+                        LOG.warn("finish task reports bad. request: {}", request);
+                    }
+                }
                 String errMsg = "task type: " + taskType + ", status_code: " + taskStatus.getStatusCode().toString()
                         + (taskStatus.isSetErrorMsgs() ? (", status_message: " + taskStatus.getErrorMsgs()) : "")
                         + ", backendId: " + backend + ", signature: " + signature;
                 task.setErrorMsg(errMsg);
+                task.setErrorCode(taskStatus.getStatusCode());
                 // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
                         && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION
                         && taskType != TTaskType.CREATE && taskType != TTaskType.UPDATE_TABLET_META_INFO
-                        && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE) {
+                        && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE
+                        && taskType != TTaskType.REALTIME_PUSH) {
                     return result;
                 }
             }
@@ -150,7 +160,6 @@ public class MasterImpl {
                     finishCreateReplica(task, request);
                     break;
                 case REALTIME_PUSH:
-                    checkHasTabletInfo(request);
                     Preconditions.checkState(request.isSetReportVersion());
                     finishRealtimePush(task, request);
                     break;
@@ -295,16 +304,32 @@ public class MasterImpl {
         }
     }
 
-    private void finishRealtimePush(AgentTask task, TFinishTaskRequest request) {
-        List<TTabletInfo> finishTabletInfos = request.getFinishTabletInfos();
-        Preconditions.checkState(finishTabletInfos != null && !finishTabletInfos.isEmpty());
-
+    private void finishRealtimePush(AgentTask task, TFinishTaskRequest request) throws Exception {
         PushTask pushTask = (PushTask) task;
 
         long dbId = pushTask.getDbId();
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
         long transactionId = ((PushTask) task).getTransactionId();
+
+        if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+            if (pushTask.getPushType() == TPushType.DELETE) {
+                // we don't need to retry if the returned status code is DELETE_INVALID_CONDITION
+                // or DELETE_INVALID_PARAMETERS
+                // note that they will be converted to TStatusCode.INVALID_ARGUMENT when being sent from be to fe
+                if (request.getTaskStatus().getStatusCode() == TStatusCode.INVALID_ARGUMENT) {
+                    pushTask.countDownToZero(request.getTaskStatus().getStatusCode(),
+                            task.getBackendId() + ": " + request.getTaskStatus().getErrorMsgs().toString());
+                    AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
+                    LOG.warn("finish push replica error: {}", request.getTaskStatus().getErrorMsgs().toString());
+                }
+            }
+            return;
+        }
+
+        checkHasTabletInfo(request);
+        List<TTabletInfo> finishTabletInfos = request.getFinishTabletInfos();
+
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
@@ -409,6 +434,9 @@ public class MasterImpl {
         } catch (MetaNotFoundException e) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error", e);
+            if (pushTask.getPushType() == TPushType.DELETE) {
+                pushTask.countDownLatch(backendId, pushTabletId);
+            }
         } finally {
             olapTable.writeUnlock();
         }
@@ -516,6 +544,11 @@ public class MasterImpl {
     private void finishClone(AgentTask task, TFinishTaskRequest request) {
         CloneTask cloneTask = (CloneTask) task;
         if (cloneTask.getTaskVersion() == CloneTask.VERSION_2) {
+            if (request.isSetReportVersion()) {
+                long reportVersion = request.getReportVersion();
+                Env.getCurrentSystemInfo().updateBackendReportVersion(
+                        task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
+            }
             Env.getCurrentEnv().getTabletScheduler().finishCloneTask(cloneTask, request);
         } else {
             LOG.warn("invalid clone task, ignore it. {}", task);

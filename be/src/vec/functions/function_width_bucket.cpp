@@ -28,6 +28,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -71,6 +72,12 @@ public:
                 block.get_by_position(arguments[3]).column->convert_to_full_column_if_const();
         int64_t num_buckets = num_buckets_ptr->get_int(0);
 
+        if (num_buckets <= 0) {
+            return Status::InternalError(
+                    "The desired number({}) of buckets must be a positive integer value.",
+                    num_buckets);
+        }
+
         auto nested_column_ptr = ColumnInt64::create(input_rows_count, 0);
         DataTypePtr expr_type = block.get_by_position(arguments[0]).type;
 
@@ -86,12 +93,10 @@ private:
     void _execute(const IColumn& expr_column, const IColumn& min_value_column,
                   const IColumn& max_value_column, const int64_t num_buckets,
                   IColumn& nested_column) const {
-        const ColumnType& expr_column_concrete = reinterpret_cast<const ColumnType&>(expr_column);
-        const ColumnType& min_value_column_concrete =
-                reinterpret_cast<const ColumnType&>(min_value_column);
-        const ColumnType& max_value_column_concrete =
-                reinterpret_cast<const ColumnType&>(max_value_column);
-        ColumnInt64& nested_column_concrete = reinterpret_cast<ColumnInt64&>(nested_column);
+        const auto& expr_column_concrete = assert_cast<const ColumnType&>(expr_column);
+        const auto& min_value_column_concrete = assert_cast<const ColumnType&>(min_value_column);
+        const auto& max_value_column_concrete = assert_cast<const ColumnType&>(max_value_column);
+        auto& nested_column_concrete = assert_cast<ColumnInt64&>(nested_column);
 
         size_t input_rows_count = expr_column.size();
 

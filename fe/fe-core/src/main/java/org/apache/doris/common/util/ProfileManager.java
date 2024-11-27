@@ -21,12 +21,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.MultiProfileTreeBuilder;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -104,6 +106,9 @@ public class ProfileManager {
     // record the order of profiles by queryId
     private Deque<String> queryIdDeque;
     private Map<String, ProfileElement> queryIdToProfileMap; // from QueryId to RuntimeProfile
+    // Sometimes one Profile is related with multiple execution profiles(Brokerload), so that
+    // execution profile's query id is not related with Profile's query id.
+    private Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
 
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
@@ -122,23 +127,61 @@ public class ProfileManager {
         writeLock = lock.writeLock();
         queryIdDeque = new LinkedList<>();
         queryIdToProfileMap = new ConcurrentHashMap<>();
+        queryIdToExecutionProfiles = Maps.newHashMap();
     }
 
-    public ProfileElement createElement(Profile profile) {
+    private ProfileElement createElement(Profile profile) {
         ProfileElement element = new ProfileElement(profile);
         element.infoStrings.putAll(profile.getSummaryProfile().getAsInfoStings());
-        MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile.getRootProfile());
-        try {
-            builder.build();
-        } catch (Exception e) {
-            element.errMsg = e.getMessage();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to build profile tree", e);
-            }
-            return element;
-        }
-        element.builder = builder;
+        // Not init builder any more, we will not maintain it since 2.1.0, because the structure
+        // assume that the execution profiles structure is already known before execution. But in
+        // PipelineX Engine, it will changed during execution.
         return element;
+    }
+
+    public void addExecutionProfile(ExecutionProfile executionProfile) {
+        if (executionProfile == null) {
+            return;
+        }
+        writeLock.lock();
+        try {
+            if (queryIdToExecutionProfiles.containsKey(executionProfile.getQueryId())) {
+                return;
+            }
+            queryIdToExecutionProfiles.put(executionProfile.getQueryId(), executionProfile);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Add execution profile {} to profile manager",
+                        DebugUtil.printId(executionProfile.getQueryId()));
+            }
+            // This branch has two purposes:
+            // 1. discard profile collecting if its collection not finished in 5 seconds after query finished.
+            // 2. prevent execution profile from leakage. If we have too many execution profiles in memory,
+            // we will remove execution profiles of query that has finished in 5 seconds ago.
+            if (queryIdToExecutionProfiles.size() > 2 * Config.max_query_profile_num) {
+                List<ExecutionProfile> finishOrExpireExecutionProfiles = Lists.newArrayList();
+                for (ExecutionProfile tmpProfile : queryIdToExecutionProfiles.values()) {
+                    boolean queryFinishedLongEnough = tmpProfile.getQueryFinishTime() > 0
+                            && System.currentTimeMillis() - tmpProfile.getQueryFinishTime()
+                            > Config.profile_async_collect_expire_time_secs * 1000;
+
+                    if (queryFinishedLongEnough) {
+                        finishOrExpireExecutionProfiles.add(tmpProfile);
+                    }
+                }
+                StringBuilder stringBuilder = new StringBuilder();
+                for (ExecutionProfile tmp : finishOrExpireExecutionProfiles) {
+                    stringBuilder.append(DebugUtil.printId(tmp.getQueryId())).append(",");
+                    queryIdToExecutionProfiles.remove(tmp.getQueryId());
+                }
+                LOG.warn("Remove expired execution profiles {}", stringBuilder.toString());
+            }
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    public ExecutionProfile getExecutionProfile(TUniqueId queryId) {
+        return this.queryIdToExecutionProfiles.get(queryId);
     }
 
     public void pushProfile(Profile profile) {
@@ -148,14 +191,13 @@ public class ProfileManager {
 
         ProfileElement element = createElement(profile);
         // 'insert into' does have job_id, put all profiles key with query_id
-        String key = element.infoStrings.get(SummaryProfile.PROFILE_ID);
+        String key = element.profile.getSummaryProfile().getProfileId();
         // check when push in, which can ensure every element in the list has QUERY_ID column,
         // so there is no need to check when remove element from list.
         if (Strings.isNullOrEmpty(key)) {
             LOG.warn("the key or value of Map is null, "
                     + "may be forget to insert 'QUERY_ID' or 'JOB_ID' column into infoStrings");
         }
-
         writeLock.lock();
         // a profile may be updated multiple times in queryIdToProfileMap,
         // and only needs to be inserted into the queryIdDeque for the first time.
@@ -163,10 +205,40 @@ public class ProfileManager {
         try {
             if (!queryIdDeque.contains(key)) {
                 if (queryIdDeque.size() >= Config.max_query_profile_num) {
-                    queryIdToProfileMap.remove(queryIdDeque.getFirst());
+                    ProfileElement profileElementRemoved = queryIdToProfileMap.remove(queryIdDeque.getFirst());
+                    // If the Profile object is removed from manager, then related execution profile is also useless.
+                    if (profileElementRemoved != null) {
+                        StringBuilder sb = new StringBuilder();
+                        for (ExecutionProfile executionProfile : profileElementRemoved.profile.getExecutionProfiles()) {
+                            sb.append(DebugUtil.printId(executionProfile.getQueryId())).append(",");
+                            this.queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
+                        }
+                        LOG.warn("Remove expired profile {}, execution profiles {},"
+                                    + " queryIdDeque size {}, profile count {},"
+                                    + " execution profile count {} max_query_profile_num {}",
+                                    profileElementRemoved.profile.getSummaryProfile().getProfileId(),
+                                    sb.toString(), queryIdDeque.size(), queryIdToProfileMap.size(),
+                                    queryIdToExecutionProfiles.size(), Config.max_query_profile_num);
+                    }
+
                     queryIdDeque.removeFirst();
                 }
                 queryIdDeque.addLast(key);
+            }
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    public void removeProfile(String profileId) {
+        writeLock.lock();
+        try {
+            ProfileElement profileElementRemoved = queryIdToProfileMap.remove(profileId);
+            // If the Profile object is removed from manager, then related execution profile is also useless.
+            if (profileElementRemoved != null) {
+                for (ExecutionProfile executionProfile : profileElementRemoved.profile.getExecutionProfiles()) {
+                    this.queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
+                }
             }
         } finally {
             writeLock.unlock();
@@ -216,6 +288,10 @@ public class ProfileManager {
         } finally {
             readLock.unlock();
         }
+    }
+
+    public String getLastQueryId() {
+        return queryIdDeque.getLast();
     }
 
     public String getProfileBrief(String queryID) {

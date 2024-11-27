@@ -54,6 +54,7 @@ struct TCell {
   3: optional i64 longVal
   4: optional double doubleVal
   5: optional string stringVal
+  6: optional bool isNull
   // add type: date datetime
 }
 

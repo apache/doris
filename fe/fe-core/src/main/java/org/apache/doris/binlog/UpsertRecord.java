@@ -42,6 +42,9 @@ public class UpsertRecord {
 
             @SerializedName(value = "version")
             public long version;
+
+            @SerializedName(value = "isTempPartition")
+            public boolean isTemp;
         }
 
         @SerializedName(value = "partitionRecords")
@@ -60,6 +63,7 @@ public class UpsertRecord {
             partitionRecord.partitionId = partitionCommitInfo.getPartitionId();
             partitionRecord.range = partitionCommitInfo.getPartitionRange();
             partitionRecord.version = partitionCommitInfo.getVersion();
+            partitionRecord.isTemp = partitionCommitInfo.isTempPartition();
             partitionRecords.add(partitionRecord);
         }
 

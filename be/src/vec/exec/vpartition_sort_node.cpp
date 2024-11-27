@@ -228,7 +228,6 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
     SCOPED_TIMER(_exec_timer);
     auto current_rows = input_block->rows();
     if (current_rows > 0) {
-        child_input_rows = child_input_rows + current_rows;
         if (UNLIKELY(_partition_exprs_num == 0)) {
             if (UNLIKELY(_value_places.empty())) {
                 _value_places.push_back(_pool->add(
@@ -240,8 +239,8 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             //just simply use partition num to check
             //if is TWO_PHASE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.
             if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
-                _num_partition > config::partition_topn_partition_threshold &&
-                child_input_rows < 10000 * _num_partition) {
+                _num_partition > state->partition_topn_max_partitions() &&
+                child_input_rows < state->partition_topn_per_partition_rows() * _num_partition) {
                 {
                     std::lock_guard<std::mutex> lock(_buffer_mutex);
                     _blocks_buffer.push(std::move(*input_block));
@@ -250,6 +249,7 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
                 RETURN_IF_ERROR(_split_block_by_partition(input_block, eos));
                 RETURN_IF_CANCELLED(state);
                 input_block->clear_column_data();
+                child_input_rows = child_input_rows + current_rows;
             }
         }
     }
@@ -263,8 +263,6 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             _value_places[i]->create_or_reset_sorter_state();
             auto sorter = std::ref(_value_places[i]->_partition_topn_sorter);
 
-            DCHECK(child(0)->row_desc().num_materialized_slots() ==
-                   _value_places[i]->_blocks.back()->columns());
             //get blocks from every partition, and sorter get those data.
             for (const auto& block : _value_places[i]->_blocks) {
                 RETURN_IF_ERROR(sorter.get()->append_block(block.get()));

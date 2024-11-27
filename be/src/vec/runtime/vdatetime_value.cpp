@@ -42,8 +42,6 @@
 
 namespace doris {
 
-static constexpr int s_days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", nullptr};
 
@@ -55,6 +53,15 @@ uint8_t mysql_week_mode(uint32_t mode) {
         mode ^= WEEK_FIRST_WEEKDAY;
     }
     return mode;
+}
+
+static bool check_space(char ch) {
+    // \t, \n, \v, \f, \r are 9~13, respectively.
+    return UNLIKELY(ch == ' ' || (ch >= 9 && ch <= 13));
+}
+
+static bool check_date_punct(char ch) {
+    return UNLIKELY(!(isdigit(ch) || isalpha(ch)));
 }
 
 static bool time_zone_begins(const char* ptr, const char* end) {
@@ -73,8 +80,10 @@ bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, 
 }
 
 bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
-    if (month == 2 && day == 29 && doris::is_leap(year)) return false;
-    if (year > 9999 || month == 0 || month > 12 || day > s_days_in_month[month] || day == 0) {
+    if (month == 2 && day == 29 && doris::is_leap(year)) {
+        return false;
+    }
+    if (year > 9999 || month == 0 || month > 12 || day > S_DAYS_IN_MONTH[month] || day == 0) {
         return true;
     }
     return false;
@@ -104,7 +113,7 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
 
     _neg = false;
     // Skip space character
-    while (ptr < end && isspace(*ptr)) {
+    while (ptr < end && check_space(*ptr)) {
         ptr++;
     }
     if (ptr == end || !isdigit(*ptr)) {
@@ -202,8 +211,8 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
             continue;
         }
         // escape separator
-        while (ptr < end && (ispunct(*ptr) || isspace(*ptr))) {
-            if (isspace(*ptr)) {
+        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
+            if (check_space(*ptr)) {
                 if (((1 << field_idx) & allow_space_mask) == 0) {
                     return false;
                 }
@@ -520,8 +529,8 @@ bool VecDateTimeValue::get_date_from_daynr(uint64_t daynr) {
         }
     }
     month = 1;
-    while (days_of_year > s_days_in_month[month]) {
-        days_of_year -= s_days_in_month[month];
+    while (days_of_year > S_DAYS_IN_MONTH[month]) {
+        days_of_year -= S_DAYS_IN_MONTH[month];
         month++;
     }
     day = days_of_year + leap_day;
@@ -529,7 +538,7 @@ bool VecDateTimeValue::get_date_from_daynr(uint64_t daynr) {
     if (check_range(year, month, day, 0, 0, 0, _type)) {
         return false;
     }
-    set_time(year, month, day, _hour, _minute, _second);
+    unchecked_set_time(year, month, day, _hour, _minute, _second);
     return true;
 }
 
@@ -545,6 +554,7 @@ bool VecDateTimeValue::from_date_daynr(uint64_t daynr) {
     return true;
 }
 
+/// @return: tail
 static char* int_to_str(uint64_t val, char* to) {
     char buf[64];
     char* ptr = buf;
@@ -557,7 +567,6 @@ static char* int_to_str(uint64_t val, char* to) {
     while (ptr > buf) {
         *to++ = *--ptr;
     }
-
     return to;
 }
 
@@ -568,18 +577,17 @@ static char* append_string(const char* from, char* to) {
     return to;
 }
 
-static char* append_with_prefix(const char* str, int str_len, char prefix, int full_len, char* to) {
-    int len = (str_len > full_len) ? str_len : full_len;
-    len -= str_len;
-    while (len-- > 0) {
-        // push prefix;
+static char* append_with_prefix(const char* str, int str_len, char prefix, int target_len,
+                                char* to) {
+    // full_len is the lower bound. if less, use prefix to pad. if greater, accept all.
+    int diff = target_len - str_len;
+    // use prefix to pad
+    while (diff-- > 0) { // won't be INT_MIN. it's ok
         *to++ = prefix;
     }
-    while (str_len-- > 0) {
-        *to++ = *str++;
-    }
 
-    return to;
+    memcpy(to, str, str_len);
+    return to + str_len;
 }
 
 int VecDateTimeValue::compute_format_len(const char* format, int len) {
@@ -675,10 +683,12 @@ char* write_four_digits_to_string(int number, char* dst) {
     return dst + 4;
 }
 
-bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) const {
+bool VecDateTimeValue::to_format_string_conservative(const char* format, int len, char* to,
+                                                     int max_valid_length) const {
     if (check_range(_year, _month, _day, _hour, _minute, _second, _type)) {
         return false;
     }
+    char* const begin = to; // to check written bytes
     char buf[64];
     char* cursor = buf;
     char* pos = nullptr;
@@ -687,6 +697,9 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
     char ch = '\0';
 
     while (ptr < end) {
+        if (to - begin + SAFE_FORMAT_STRING_MARGIN > max_valid_length) [[unlikely]] {
+            return false;
+        }
         if (*ptr != '%' || (ptr + 1) == end) {
             *to++ = *ptr++;
             continue;
@@ -934,6 +947,7 @@ bool VecDateTimeValue::to_format_string(const char* format, int len, char* to) c
             break;
         }
         default:
+            // put it literal
             *to++ = ch;
             break;
         }
@@ -1230,7 +1244,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
     while (ptr < end && val < val_end) {
         // Skip space character
-        while (val < val_end && isspace(*val)) {
+        while (val < val_end && check_space(*val)) {
             val++;
         }
         if (val >= val_end) {
@@ -1495,7 +1509,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
             default:
                 return false;
             }
-        } else if (!isspace(*ptr)) {
+        } else if (!check_space(*ptr)) {
             if (*ptr != *val) {
                 return false;
             }
@@ -1679,8 +1693,8 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
             return false;
         }
         _month = (months % 12) + 1;
-        if (_day > s_days_in_month[_month]) {
-            _day = s_days_in_month[_month];
+        if (_day > S_DAYS_IN_MONTH[_month]) {
+            _day = S_DAYS_IN_MONTH[_month];
             if (_month == 2 && doris::is_leap(_year)) {
                 _day++;
             }
@@ -1798,8 +1812,8 @@ VecDateTimeValue VecDateTimeValue::local_time() {
     return value;
 }
 
-void VecDateTimeValue::set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-                                uint32_t minute, uint32_t second) {
+void VecDateTimeValue::unchecked_set_time(uint32_t year, uint32_t month, uint32_t day,
+                                          uint32_t hour, uint32_t minute, uint32_t second) {
     _year = year;
     _month = month;
     _day = day;
@@ -1880,10 +1894,10 @@ bool VecDateTimeValue::datetime_trunc() {
 template <typename T>
 void VecDateTimeValue::create_from_date_v2(DateV2Value<T>& value, TimeType type) {
     if constexpr (std::is_same_v<T, DateV2ValueType>) {
-        this->set_time(value.year(), value.month(), value.day(), 0, 0, 0);
+        this->unchecked_set_time(value.year(), value.month(), value.day(), 0, 0, 0);
     } else {
-        this->set_time(value.year(), value.month(), value.day(), value.hour(), value.minute(),
-                       value.second());
+        this->unchecked_set_time(value.year(), value.month(), value.day(), value.hour(),
+                                 value.minute(), value.second());
     }
     this->set_type(type);
     this->_neg = 0;
@@ -1931,11 +1945,13 @@ bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uin
     if (only_time_part) {
         return false;
     }
-    if (year < MIN_YEAR || year > MAX_YEAR) {
+    if (year > MAX_YEAR) {
         return true;
     }
-    if (month == 2 && day == 29 && doris::is_leap(year)) return false;
-    if (month == 0 || month > 12 || day > s_days_in_month[month] || day == 0) {
+    if (month == 2 && day == 29 && doris::is_leap(year)) {
+        return false;
+    }
+    if (month == 0 || month > 12 || day > S_DAYS_IN_MONTH[month] || day == 0) {
         return true;
     }
     return false;
@@ -1960,7 +1976,7 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
             date_val[1] += 1;
             carry_bits[2] = true;
         }
-    } else if (date_val[2] == s_days_in_month[date_val[1]] + 1 && carry_bits[3]) {
+    } else if (date_val[2] == S_DAYS_IN_MONTH[date_val[1]] + 1 && carry_bits[3]) {
         date_val[2] = 1;
         date_val[1] += 1;
         carry_bits[2] = true;
@@ -1976,28 +1992,29 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, nullptr);
+bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/,
+                                   bool convert_zero) {
+    return from_date_str_base(date_str, len, scale, nullptr, convert_zero);
 }
-// when we parse
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
-                                   const cctz::time_zone& local_time_zone, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, &local_time_zone);
+                                   const cctz::time_zone& local_time_zone, int scale /* = -1*/,
+                                   bool convert_zero) {
+    return from_date_str_base(date_str, len, scale, &local_time_zone, convert_zero);
 }
+// if local_time_zone is null, only be able to parse time without timezone
 template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
-                                        const cctz::time_zone* local_time_zone) {
+                                        const cctz::time_zone* local_time_zone, bool convert_zero) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
     const static int allow_space_mask = 4 | 64;
     uint32_t date_val[MAX_DATE_PARTS] = {0};
     int32_t date_len[MAX_DATE_PARTS] = {0};
-    bool carry_bits[MAX_DATE_PARTS] = {false};
 
     // Skip space character
-    while (ptr < end && isspace(*ptr)) {
+    while (ptr < end && check_space(*ptr)) {
         ptr++;
     }
     if (ptr == end || !isdigit(*ptr)) {
@@ -2028,46 +2045,77 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
     int field_idx = 0;
     int field_len = year_len;
     long sec_offset = 0;
+    bool need_use_timezone = false;
+
     while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS) {
         const char* start = ptr;
         int temp_val = 0;
         bool scan_to_delim = (!is_interval_format) && (field_idx != 6);
-        while (ptr < end && isdigit(*ptr) && (scan_to_delim || field_len--)) { // field_len <= 6
-            temp_val = temp_val * 10 + (*ptr++ - '0');
+        while (ptr < end && isdigit(*ptr) && (scan_to_delim || field_len--)) { // field_len <= 7
+            temp_val = temp_val * 10 + (*ptr - '0');
+            ptr++;
         }
+
+        if (ptr == start) {
+            return false;
+        }
+
         if (field_idx == 6) {
-            // Microsecond
-            const auto ms_part = ptr - start;
-            temp_val *= int_exp10(std::max(0L, 6 - ms_part));
             if constexpr (is_datetime) {
+                // round of microseconds
+                // 1. normalize to 7 digits for rounding
+                // 2. rounding
+                // 3. nomalize to 6 digits for storage
                 if (scale >= 0) {
-                    if (scale == 6 && ms_part >= 6) {
-                        if (ptr <= end && isdigit(*ptr) && *ptr >= '5') {
-                            temp_val += 1;
-                        }
+                    // do normalization
+                    const auto ms_digit_count = ptr - start;
+                    const auto normalizer = int_exp10(std::abs(7 - ms_digit_count));
+                    temp_val *= normalizer;
+
+                    // check round
+                    const auto rounder = int_exp10(std::abs(7 - scale));
+                    const auto reminder = temp_val % rounder;
+                    temp_val -= reminder;
+
+                    if (reminder >= 5 * normalizer) {
+                        temp_val += rounder;
+                    }
+
+                    // truncate to 6 digits
+                    if (temp_val == int_exp10(7)) {
+                        temp_val = 0;
+                        sec_offset += 1;
                     } else {
-                        const int divisor = int_exp10(6 - scale);
-                        int remainder = temp_val % divisor;
-                        temp_val /= divisor;
-                        if (scale < 6 && std::abs(remainder) >= (divisor >> 1)) {
-                            temp_val += 1;
-                        }
-                        temp_val *= divisor;
-                        if (temp_val == 1000000L) {
-                            temp_val = 0;
-                            date_val[field_idx - 1] += 1;
-                            carry_bits[field_idx] = true;
-                        }
+                        temp_val /= 10;
                     }
                 }
+
+                // move ptr to start of timezone or end
+                while (ptr < end && isdigit(*ptr)) {
+                    ptr++;
+                }
+            } else {
+                // Microsecond
+                const auto ms_part = ptr - start;
+                temp_val *= int_exp10(std::max(0L, 6 - ms_part));
             }
         }
+
         // Impossible
         if (temp_val > 999999L) {
             return false;
         }
+
         date_val[field_idx] = temp_val;
-        date_len[field_idx] = ptr - start;
+
+        if (field_idx == 6) {
+            // select cast("2020-01-01 12:00:00.12345" as Datetime(4))
+            // ptr - start will be 5, but scale is 4
+            date_len[field_idx] = std::min(static_cast<int>(ptr - start), scale);
+        } else {
+            date_len[field_idx] = ptr - start;
+        }
+
         field_len = 2;
 
         if (ptr == end) {
@@ -2082,23 +2130,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             if (local_time_zone == nullptr) {
                 return false;
             }
-            auto get_tz_offset = [&](const std::string& str_tz,
-                                     const cctz::time_zone* local_time_zone) -> long {
-                cctz::time_zone given_tz {};
-                if (!TimezoneUtils::find_cctz_time_zone(str_tz, given_tz)) {
-                    throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
-                }
-                auto given = cctz::convert(cctz::civil_second {}, given_tz);
-                auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
-                // these two values is absolute time. so they are negative. need to use (-local) - (-given)
-                return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
-            };
-            try {
-                sec_offset = get_tz_offset(std::string {ptr, end},
-                                           local_time_zone); // use the whole remain string
-            } catch ([[maybe_unused]] Exception& e) {
-                return false; // invalid format
-            }
+            need_use_timezone = true;
             field_idx++;
             break;
         }
@@ -2114,7 +2146,14 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         if (field_idx == 5) {
             if (*ptr == '.') {
                 ptr++;
-                field_len = 6;
+                // for datetime, we need to discard the fraction part
+                // that beyond the scale + 1, and scale + 1 digit will
+                // be used to round the fraction part
+                if constexpr (is_datetime) {
+                    field_len = std::min(7, scale + 1);
+                } else {
+                    field_len = 6;
+                }
             } else if (isdigit(*ptr)) {
                 field_idx++;
                 break;
@@ -2123,8 +2162,8 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             continue;
         }
         // escape separator
-        while (ptr < end && (ispunct(*ptr) || isspace(*ptr))) {
-            if (isspace(*ptr)) {
+        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
+            if (check_space(*ptr)) {
                 if (((1 << field_idx) & allow_space_mask) == 0) {
                     return false;
                 }
@@ -2136,6 +2175,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         }
         field_idx++;
     }
+
     int num_field = field_idx;
     if (!is_interval_format) {
         year_len = date_len[0];
@@ -2156,13 +2196,50 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         return false;
     }
     if (is_invalid(date_val[0], date_val[1], date_val[2], 0, 0, 0, 0)) {
-        return false;
+        if (date_val[0] == 0 && date_val[1] == 0 && date_val[2] == 0 && convert_zero) {
+            date_val[1] = 1;
+            date_val[2] = 1;
+        } else {
+            return false;
+        }
     }
-    format_datetime(date_val, carry_bits);
+
+    if (need_use_timezone) {
+        cctz::time_zone given_tz {};
+        if (!TimezoneUtils::find_cctz_time_zone(std::string {ptr, end}, given_tz)) {
+            return false; // invalid format
+        }
+        auto given = cctz::convert(cctz::civil_second {}, given_tz);
+        auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
+        // these two values is absolute time. so they are negative. need to use (-local) - (-given)
+        sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+    }
+
+    // In check_range_and_set_time, for Date type the time part will be truncated. So if the timezone offset should make
+    // rounding to date part, it would be lost. To avoid this, we use a Datetime type to do these calc. It will save the
+    // time part and apply the offset. Then convert to Date type back.
+    // see https://github.com/apache/doris/pull/33553 for more details.
+    if constexpr (!is_datetime) {
+        if (sec_offset) {
+            DateV2Value<DateTimeV2ValueType> tmp;
+            if (!tmp.check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3],
+                                              date_val[4], date_val[5], date_val[6])) {
+                return false;
+            }
+            if (!tmp.date_add_interval<TimeUnit::SECOND>(
+                        TimeInterval {TimeUnit::SECOND, sec_offset, false})) {
+                return false;
+            }
+            this->assign_from(tmp);
+            return true;
+        }
+    }
+
     if (!check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
                                   date_val[5], date_val[6])) {
         return false;
     }
+
     return sec_offset ? date_add_interval<TimeUnit::SECOND>(
                                 TimeInterval {TimeUnit::SECOND, sec_offset, false})
                       : true;
@@ -2218,7 +2295,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
     auto [year, month, day, hour, minute, second, microsecond] = std::tuple {0, 0, 0, 0, 0, 0, 0};
     while (ptr < end && val < val_end) {
         // Skip space character
-        while (val < val_end && isspace(*val)) {
+        while (val < val_end && check_space(*val)) {
             val++;
         }
         if (val >= val_end) {
@@ -2738,7 +2815,7 @@ bool date_day_offset_dict::get_dict_init() {
 date_day_offset_dict::date_day_offset_dict() {
     DateV2Value<DateV2ValueType> d;
     // Init days before epoch.
-    d.set_time(1969, 12, 31, 0, 0, 0, 0);
+    d.unchecked_set_time(1969, 12, 31, 0, 0, 0, 0);
     for (int i = 0; i < DAY_BEFORE_EPOCH; ++i) {
         DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH - i - 1] = d;
         DATE_DAY_OFFSET_DICT[d.year() - START_YEAR][d.month() - 1][d.day() - 1] =
@@ -2746,7 +2823,7 @@ date_day_offset_dict::date_day_offset_dict() {
         d -= 1;
     }
     // Init epoch day.
-    d.set_time(1970, 1, 1, 0, 0, 0, 0);
+    d.unchecked_set_time(1970, 1, 1, 0, 0, 0, 0);
     DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH] = d;
     DATE_DAY_OFFSET_DICT[d.year() - START_YEAR][d.month() - 1][d.day() - 1] =
             calc_daynr(d.year(), d.month(), d.day());
@@ -2778,7 +2855,7 @@ uint32_t DateV2Value<T>::set_date_uint32(uint32_t int_val) {
     if (is_invalid(conv.dt.year(), conv.dt.month(), conv.dt.day(), 0, 0, 0, 0)) {
         return 0;
     }
-    this->set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), 0, 0, 0, 0);
+    this->unchecked_set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), 0, 0, 0, 0);
 
     return int_val;
 }
@@ -2795,8 +2872,8 @@ uint64_t DateV2Value<T>::set_datetime_uint64(uint64_t int_val) {
                    conv.dt.second(), conv.dt.microsecond())) {
         return 0;
     }
-    this->set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), conv.dt.hour(), conv.dt.minute(),
-                   conv.dt.second(), conv.dt.microsecond());
+    this->unchecked_set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), conv.dt.hour(),
+                             conv.dt.minute(), conv.dt.second(), conv.dt.microsecond());
 
     return int_val;
 }
@@ -2862,8 +2939,8 @@ bool DateV2Value<T>::get_date_from_daynr(uint64_t daynr) {
             }
         }
         month = 1;
-        while (days_of_year > s_days_in_month[month]) {
-            days_of_year -= s_days_in_month[month];
+        while (days_of_year > S_DAYS_IN_MONTH[month]) {
+            days_of_year -= S_DAYS_IN_MONTH[month];
             month++;
         }
         day = days_of_year + leap_day;
@@ -2874,14 +2951,17 @@ bool DateV2Value<T>::get_date_from_daynr(uint64_t daynr) {
         }
     }
 
-    set_time(year, month, day, this->hour(), this->minute(), this->second(), this->microsecond());
+    unchecked_set_time(year, month, day, this->hour(), this->minute(), this->second(),
+                       this->microsecond());
     return true;
 }
 
 template <typename T>
 template <TimeUnit unit, typename TO>
 bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value) {
-    if (!is_valid_date()) return false;
+    if (!is_valid_date()) {
+        return false;
+    }
 
     int sign = interval.is_neg ? -1 : 1;
 
@@ -2917,33 +2997,31 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value
         if (!to_value.get_date_from_daynr(day_nr)) {
             return false;
         }
-        to_value.set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, microseconds);
+        PROPAGATE_FALSE(to_value.check_range_and_set_time(
+                0, 0, 0, seconds / 3600, (seconds / 60) % 60, seconds % 60, microseconds, true));
     } else if constexpr (unit == YEAR) {
         // This only change year information
-        to_value.template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ + interval.year);
-        if (to_value.year() > 9999) {
-            return false;
-        }
+        PROPAGATE_FALSE(to_value.template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ +
+                                                                        interval.year));
         if (date_v2_value_.month_ == 2 && date_v2_value_.day_ == 29 &&
             !doris::is_leap(to_value.year())) {
-            to_value.template set_time_unit<TimeUnit::DAY>(28);
+            // add year. so if from Leap Year to Equal Year, use last day of Feb(29 to 28)
+            PROPAGATE_FALSE(to_value.template set_time_unit<TimeUnit::DAY>(28));
         }
     } else if constexpr (unit == QUARTER || unit == MONTH || unit == YEAR_MONTH) {
         // This will change month and year information, maybe date.
         int64_t months = date_v2_value_.year_ * 12 + date_v2_value_.month_ - 1 +
                          12 * interval.year + interval.month;
-        to_value.template set_time_unit<TimeUnit::YEAR>(months / 12);
         if (months < 0) {
             return false;
         }
-        if (to_value.year() > MAX_YEAR) {
-            return false;
-        }
-        to_value.template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);
-        if (date_v2_value_.day_ > s_days_in_month[to_value.month()]) {
-            date_v2_value_.day_ = s_days_in_month[to_value.month()];
+        PROPAGATE_FALSE(to_value.template set_time_unit<TimeUnit::YEAR>(months / 12));
+        PROPAGATE_FALSE(to_value.template set_time_unit<TimeUnit::MONTH>((months % 12) + 1));
+        if (date_v2_value_.day_ > S_DAYS_IN_MONTH[to_value.month()]) {
+            date_v2_value_.day_ = S_DAYS_IN_MONTH[to_value.month()];
             if (to_value.month() == 2 && doris::is_leap(to_value.year())) {
-                to_value.template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1);
+                PROPAGATE_FALSE(
+                        to_value.template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1));
             }
         }
     }
@@ -2954,7 +3032,9 @@ template <typename T>
 template <TimeUnit unit, bool need_check>
 bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
     if constexpr (need_check) {
-        if (!is_valid_date()) return false;
+        if (!is_valid_date()) {
+            return false;
+        }
     }
 
     int sign = interval.is_neg ? -1 : 1;
@@ -2992,34 +3072,33 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
             return false;
         }
         if constexpr (is_datetime) {
-            this->set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, microseconds);
+            PROPAGATE_FALSE(this->check_range_and_set_time(0, 0, 0, seconds / 3600,
+                                                           (seconds / 60) % 60, seconds % 60,
+                                                           microseconds, true));
         }
     } else if constexpr (unit == YEAR) {
         // This only change year information
-        this->template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ + interval.year);
-        if (this->year() > 9999) {
-            return false;
-        }
+        PROPAGATE_FALSE(
+                this->template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ + interval.year));
         if (date_v2_value_.month_ == 2 && date_v2_value_.day_ == 29 &&
             !doris::is_leap(this->year())) {
-            this->template set_time_unit<TimeUnit::DAY>(28);
+            // add year. so if from Leap Year to Equal Year, use last day of Feb(29 to 28)
+            PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::DAY>(28));
         }
     } else if constexpr (unit == QUARTER || unit == MONTH || unit == YEAR_MONTH) {
         // This will change month and year information, maybe date.
         int64_t months = date_v2_value_.year_ * 12 + date_v2_value_.month_ - 1 +
                          12 * interval.year + interval.month;
-        this->template set_time_unit<TimeUnit::YEAR>(months / 12);
         if (months < 0) {
             return false;
         }
-        if (this->year() > MAX_YEAR) {
-            return false;
-        }
-        this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);
-        if (date_v2_value_.day_ > s_days_in_month[this->month()]) {
-            date_v2_value_.day_ = s_days_in_month[this->month()];
+        PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::YEAR>(months / 12));
+        PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1));
+        if (date_v2_value_.day_ > S_DAYS_IN_MONTH[this->month()]) {
+            date_v2_value_.day_ = S_DAYS_IN_MONTH[this->month()];
             if (this->month() == 2 && doris::is_leap(this->year())) {
-                this->template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1);
+                PROPAGATE_FALSE(
+                        this->template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1));
             }
         }
     }
@@ -3044,17 +3123,18 @@ bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
             return false;
         }
         if constexpr (is_datetime) {
-            this->set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, 0);
+            PROPAGATE_FALSE(this->check_range_and_set_time(
+                    0, 0, 0, seconds / 3600, (seconds / 60) % 60, seconds % 60, 0, true));
         }
     } else if constexpr (unit == YEAR) {
-        this->set_time(0, 1, 1, 0, 0, 0, 0);
-        this->template set_time_unit<TimeUnit::YEAR>(interval.year);
+        this->unchecked_set_time(0, 1, 1, 0, 0, 0, 0);
+        PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::YEAR>(interval.year));
     } else if constexpr (unit == MONTH) {
         // This will change month and year information, maybe date.
-        this->set_time(0, 1, 1, 0, 0, 0, 0);
+        this->unchecked_set_time(0, 1, 1, 0, 0, 0, 0);
         int64_t months = 12 * interval.year + interval.month;
-        this->template set_time_unit<TimeUnit::YEAR>(months / 12);
-        this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);
+        PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::YEAR>(months / 12));
+        PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1));
     }
     return true;
 }
@@ -3231,7 +3311,7 @@ bool DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
                               ctz);
         timestamp->first = tp.time_since_epoch().count();
         timestamp->second = date_v2_value_.microsecond_;
-    } else {
+    } else { // just make compiler happy
     }
     return true;
 }
@@ -3256,7 +3336,7 @@ void DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz
 
     // there's no overflow check since it's hot path
 
-    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(), 0);
+    unchecked_set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(), 0);
 }
 
 template <typename T>
@@ -3280,8 +3360,8 @@ void DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
 
     const auto tp = cctz::convert(t, ctz);
 
-    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
-             timestamp.second);
+    unchecked_set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
+                       timestamp.second);
 }
 
 template <typename T>
@@ -3309,8 +3389,8 @@ void DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
         scale = 6;
     }
 
-    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
-             nano_seconds / int_exp10(9 - scale) * int_exp10(6 - scale));
+    unchecked_set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
+                       nano_seconds / int_exp10(9 - scale) * int_exp10(6 - scale));
 }
 
 template <typename T>
@@ -3331,8 +3411,8 @@ const char* DateV2Value<T>::day_name() const {
 }
 
 template <typename T>
-void DateV2Value<T>::set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
-                              uint8_t minute, uint8_t second, uint32_t microsecond) {
+void DateV2Value<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
+                                        uint8_t minute, uint8_t second, uint32_t microsecond) {
     date_v2_value_.year_ = year;
     date_v2_value_.month_ = month;
     date_v2_value_.day_ = day;
@@ -3345,7 +3425,8 @@ void DateV2Value<T>::set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t
 }
 
 template <typename T>
-void DateV2Value<T>::set_time(uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond) {
+void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint8_t second,
+                                        uint32_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.hour_ = hour;
         date_v2_value_.minute_ = minute;
@@ -3353,6 +3434,7 @@ void DateV2Value<T>::set_time(uint8_t hour, uint8_t minute, uint8_t second, uint
         date_v2_value_.microsecond_ = microsecond;
     } else {
         LOG(FATAL) << "Invalid operation 'set_time' for date!";
+        __builtin_unreachable();
     }
 }
 
@@ -3362,14 +3444,17 @@ void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
         date_v2_value_.microsecond_ = microsecond;
     } else {
         LOG(FATAL) << "Invalid operation 'set_microsecond' for date!";
+        __builtin_unreachable();
     }
 }
 
 template <typename T>
-bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) const {
+bool DateV2Value<T>::to_format_string_conservative(const char* format, int len, char* to,
+                                                   int max_valid_length) const {
     if (is_invalid(year(), month(), day(), hour(), minute(), second(), microsecond())) {
         return false;
     }
+    char* const begin = to; // to check written bytes
     char buf[64];
     char* pos = nullptr;
     char* cursor = buf;
@@ -3378,6 +3463,9 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
     char ch = '\0';
 
     while (ptr < end) {
+        if (to - begin + SAFE_FORMAT_STRING_MARGIN > max_valid_length) [[unlikely]] {
+            return false;
+        }
         if (*ptr != '%' || (ptr + 1) == end) {
             *to++ = *ptr++;
             continue;
@@ -3611,6 +3699,7 @@ bool DateV2Value<T>::to_format_string(const char* format, int len, char* to) con
             break;
         }
         default:
+            // put it literal
             *to++ = ch;
             break;
         }

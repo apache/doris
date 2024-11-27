@@ -38,22 +38,24 @@ suite ("test_dup_mv_year") {
 
     createMV "create materialized view k12y as select k1,year(k2) from d_table;"
 
-    explain {
-        sql("select k1,year(k2) from d_table order by k1;")
-        contains "(k12y)"
-    }
+    sql """analyze table d_table with sync;"""
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_success("select k1,year(k2) from d_table order by k1;", "k12y")
     qt_select_mv "select k1,year(k2) from d_table order by k1;"
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_success("select k1,year(k2) from d_table order by k1;", "k12y")
 
     createMV "create materialized view k13y as select k1,year(k3) from d_table;"
 
     sql "insert into d_table select 4,'2033-12-31','2033-12-31 01:02:03';"
-    Thread.sleep(1000)
 
     qt_select_star "select * from d_table order by k1;"
 
-    explain {
-        sql("select year(k3) from d_table order by k1;")
-        contains "(k13y)"
-    }
+    mv_rewrite_success("select year(k3) from d_table order by k1;", "k13y")
     qt_select_mv_sub "select year(k3) from d_table order by k1;"
+
+    sql """set enable_stats=false;"""
+    mv_rewrite_success("select year(k3) from d_table order by k1;", "k13y")
 }

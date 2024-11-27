@@ -146,6 +146,12 @@ public:
         element.column = element.column->convert_to_full_column_if_const();
     }
 
+    void replace_if_overflow() {
+        for (auto& ele : data) {
+            ele.column = std::move(*ele.column).mutate()->convert_column_if_overflow();
+        }
+    }
+
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
 
@@ -196,6 +202,8 @@ public:
     /// Approximate number of bytes in memory - for profiling and limits.
     size_t bytes() const;
 
+    std::string columns_bytes() const;
+
     /// Approximate number of allocated bytes in memory - for profiling and limits.
     size_t allocated_bytes() const;
 
@@ -215,7 +223,7 @@ public:
 
     void set_columns(const Columns& columns);
     Block clone_with_columns(const Columns& columns) const;
-    Block clone_without_columns() const;
+    Block clone_without_columns(const std::vector<int>* column_offset = nullptr) const;
 
     /** Get empty columns with the same types as in block. */
     MutableColumns clone_empty_columns() const;
@@ -233,6 +241,9 @@ public:
     void clear();
     void swap(Block& other) noexcept;
     void swap(Block&& other) noexcept;
+
+    // Shuffle columns in place based on the result_column_ids
+    void shuffle_columns(const std::vector<int>& result_column_ids);
 
     // Default column size = -1 means clear all column in block
     // Else clear column [0, column_size) delete column [column_size, data.size)
@@ -253,13 +264,19 @@ public:
     /** Get block data in string. */
     std::string dump_data(size_t begin = 0, size_t row_limit = 100) const;
 
+    static std::string dump_column(ColumnPtr col, DataTypePtr type) {
+        ColumnWithTypeAndName type_name {col, type, ""};
+        Block b {type_name};
+        return b.dump_data(0, b.rows());
+    }
+
     /** Get one line data from block, only use in load data */
     std::string dump_one_line(size_t row, int column_end) const;
 
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
-    void append_to_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
+    Status append_to_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
     // need exception safety
     static void filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
@@ -374,6 +391,11 @@ public:
     // return string contains use_count() of each columns
     // for debug purpose.
     std::string print_use_count();
+
+    // remove tmp columns in block
+    // in inverted index apply logic, in order to optimize query performance,
+    // we built some temporary columns into block
+    void erase_tmp_columns() noexcept;
 
 private:
     void erase_impl(size_t position);
@@ -507,6 +529,31 @@ public:
     }
 
     template <typename T>
+    [[nodiscard]] Status merge_ignore_overflow(T&& block) {
+        RETURN_IF_CATCH_EXCEPTION(return merge_impl_ignore_overflow(block););
+    }
+
+    // only use for join. call ignore_overflow to prevent from throw exception in join
+    template <typename T>
+    [[nodiscard]] Status merge_impl_ignore_overflow(T&& block) {
+        if (_columns.size() != block.columns()) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "Merge block not match, self:[columns: {}, types: {}], input:[columns: {}, "
+                    "types: {}], ",
+                    dump_names(), dump_types(), block.dump_names(), block.dump_types());
+        }
+        for (int i = 0; i < _columns.size(); ++i) {
+            DCHECK(_data_types[i]->equals(*block.get_by_position(i).type))
+                    << " target type: " << _data_types[i]->get_name()
+                    << " src type: " << block.get_by_position(i).type->get_name();
+            _columns[i]->insert_range_from_ignore_overflow(
+                    *block.get_by_position(i).column->convert_to_full_column_if_const().get(), 0,
+                    block.rows());
+        }
+        return Status::OK();
+    }
+
+    template <typename T>
     [[nodiscard]] Status merge_impl(T&& block) {
         // merge is not supported in dynamic block
         if (_columns.size() == 0 && _data_types.size() == 0) {
@@ -526,8 +573,9 @@ public:
         } else {
             if (_columns.size() != block.columns()) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "Merge block not match, self:[{}], input:[{}], ", dump_types(),
-                        block.dump_types());
+                        "Merge block not match, self:[columns: {}, types: {}], input:[columns: {}, "
+                        "types: {}], ",
+                        dump_names(), dump_types(), block.dump_names(), block.dump_types());
             }
             for (int i = 0; i < _columns.size(); ++i) {
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
@@ -562,9 +610,11 @@ public:
     void swap(MutableBlock&& other) noexcept;
 
     void add_row(const Block* block, int row);
-    void add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end);
-    void add_rows(const Block* block, size_t row_begin, size_t length);
-    void add_rows(const Block* block, std::vector<int64_t> rows);
+    // Batch add row should return error status if allocate memory failed.
+    Status add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end,
+                    const std::vector<int>* column_offset = nullptr);
+    Status add_rows(const Block* block, size_t row_begin, size_t length);
+    Status add_rows(const Block* block, std::vector<int64_t> rows);
 
     /// remove the column with the specified name
     void erase(const String& name);

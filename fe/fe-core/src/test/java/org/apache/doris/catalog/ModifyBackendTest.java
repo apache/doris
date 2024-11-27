@@ -31,6 +31,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Maps;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -82,9 +83,11 @@ public class ModifyBackendTest {
                 + "buckets 3 properties(\n" + "\"replication_num\" = \"1\"\n" + ");";
         CreateTableStmt createStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+                "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
+                        + "or maybe all be on same host."
+                        + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
                         + "Create failed replications:\n"
-                        + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
+                        + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: HDD",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt));
 
         createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n" + "buckets 3 properties(\n"
@@ -151,9 +154,13 @@ public class ModifyBackendTest {
         String partName = tbl.getPartitionNames().stream().findFirst().get();
         String wrongAlterStr = "alter table test.tbl4 modify partition " + partName
                 + " set ('replication_allocation' = 'tag.location.zonex:1')";
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = "
-                        + "errCode = 2, detailMessage = Failed to find enough backend, "
-                        + "please check the replication num,replication tag and storage medium and avail capacity of backends.\n"
+        Map<Tag, Short> allocMap = Maps.newHashMap();
+        allocMap.put(Tag.create(Tag.TYPE_LOCATION, "zonex"), (short) 1);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2,"
+                        + " detailMessage = Failed to find enough backend, "
+                        + "please check the replication num,replication tag and storage medium and avail capacity of backends "
+                        + "or maybe all be on same host."
+                        + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap)) + "\n"
                         + "Create failed replications:\n"
                         + "replication tag: {\"location\" : \"zonex\"}, replication num: 1, storage medium: null",
                 () -> UtFrameUtils.parseAndAnalyzeStmt(wrongAlterStr, connectContext));

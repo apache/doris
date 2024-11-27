@@ -66,34 +66,52 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
     Status status;
     ClientConnection<T> client(_s_exec_env->get_client_cache<T>(), address, timeout_ms, &status);
     if (!status.ok()) {
-        LOG(WARNING) << "Connect frontend failed, address=" << address << ", status=" << status;
+        LOG(WARNING) << "Connect frontend failed, address=" << ip << ":" << port
+                     << ", status=" << status;
         return status;
     }
     try {
         try {
             callback(client);
         } catch (apache::thrift::transport::TTransportException& e) {
+#ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "retrying call frontend service after "
-                         << config::thrift_client_retry_interval_ms << " ms, address=" << address
-                         << ", reason=" << e.what();
+                         << config::thrift_client_retry_interval_ms << " ms, address=" << ip << ":"
+                         << port << ", reason=" << e.what();
+#else
+            std::cerr << "retrying call frontend service after "
+                      << config::thrift_client_retry_interval_ms << " ms, address=" << ip << ":"
+                      << port << ", reason=" << e.what() << std::endl;
+#endif
             std::this_thread::sleep_for(
                     std::chrono::milliseconds(config::thrift_client_retry_interval_ms));
             status = client.reopen(timeout_ms);
             if (!status.ok()) {
-                LOG(WARNING) << "client reopen failed. address=" << address
+#ifndef ADDRESS_SANITIZER
+                LOG(WARNING) << "client reopen failed. address=" << ip << ":" << port
                              << ", status=" << status;
+#else
+                std::cerr << "client reopen failed. address=" << ip << ":" << port
+                          << ", status=" << status << std::endl;
+#endif
                 return status;
             }
             callback(client);
         }
     } catch (apache::thrift::TException& e) {
-        LOG(WARNING) << "call frontend service failed, address=" << address
+#ifndef ADDRESS_SANITIZER
+        LOG(WARNING) << "call frontend service failed, address=" << ip << ":" << port
                      << ", reason=" << e.what();
+#else
+        std::cerr << "call frontend service failed, address=" << ip << ":" << port
+                  << ", reason=" << e.what() << std::endl;
+#endif
         std::this_thread::sleep_for(
                 std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
         // just reopen to disable this connection
         static_cast<void>(client.reopen(timeout_ms));
-        return Status::RpcError("failed to call frontend service, reason: {}", e.what());
+        return Status::RpcError("failed to call frontend service, FE address={}:{}, reason: {}", ip,
+                                port, e.what());
     }
     return Status::OK();
 }

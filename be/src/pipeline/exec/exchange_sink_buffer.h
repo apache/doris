@@ -25,6 +25,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -47,6 +48,7 @@ using InstanceLoId = int64_t;
 
 namespace pipeline {
 class Dependency;
+class ExchangeSinkLocalState;
 } // namespace pipeline
 
 namespace vectorized {
@@ -177,6 +179,7 @@ public:
             LOG(FATAL) << "brpc callback error: " << exp.what();
         } catch (...) {
             LOG(FATAL) << "brpc callback error.";
+            __builtin_unreachable();
         }
     }
     int64_t start_rpc_time;
@@ -198,8 +201,8 @@ template <typename Parent>
 class ExchangeSinkBuffer : public HasTaskExecutionCtx {
 public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
-                       RuntimeState* state);
-    ~ExchangeSinkBuffer();
+                       RuntimeState* state, ExchangeSinkLocalState* parent = nullptr);
+    ~ExchangeSinkBuffer() = default;
     void register_sink(TUniqueId);
 
     Status add_block(TransmitInfo<Parent>&& request);
@@ -207,13 +210,17 @@ public:
     bool can_write() const;
     bool is_pending_finish();
     void close();
-    void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
+    void update_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
     void set_dependency(std::shared_ptr<Dependency> queue_dependency,
                         std::shared_ptr<Dependency> finish_dependency) {
         _queue_dependency = queue_dependency;
         _finish_dependency = finish_dependency;
+    }
+
+    void set_broadcast_dependency(std::shared_ptr<Dependency> broadcast_dependency) {
+        _broadcast_dependency = broadcast_dependency;
     }
 
     void set_should_stop() {
@@ -246,7 +253,16 @@ private:
     // Number of busy channels;
     std::atomic<int> _busy_channels = 0;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
-    phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
+    struct RpcInstanceStatistics {
+        RpcInstanceStatistics(InstanceLoId id) : inst_lo_id(id) {}
+        InstanceLoId inst_lo_id;
+        int64_t rpc_count = 0;
+        int64_t max_time = 0;
+        int64_t min_time = INT64_MAX;
+        int64_t sum_time = 0;
+    };
+    std::vector<std::shared_ptr<RpcInstanceStatistics>> _instance_to_rpc_stats_vec;
+    phmap::flat_hash_map<InstanceLoId, RpcInstanceStatistics*> _instance_to_rpc_stats;
     phmap::flat_hash_map<InstanceLoId, ExchangeRpcContext> _instance_to_rpc_ctx;
 
     std::atomic<bool> _is_finishing;
@@ -266,14 +282,16 @@ private:
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
     inline bool _is_receiver_eof(InstanceLoId id);
+    inline void _turn_off_channel(InstanceLoId id, bool cleanup = false);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
-    static constexpr int QUEUE_CAPACITY_FACTOR = 64;
-    std::shared_ptr<Dependency> _queue_dependency;
-    std::shared_ptr<Dependency> _finish_dependency;
-    std::atomic<bool> _should_stop {false};
+    std::shared_ptr<Dependency> _queue_dependency = nullptr;
+    std::shared_ptr<Dependency> _finish_dependency = nullptr;
+    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
+    std::atomic<bool> _should_stop = false;
+    ExchangeSinkLocalState* _parent = nullptr;
 };
 
 } // namespace pipeline

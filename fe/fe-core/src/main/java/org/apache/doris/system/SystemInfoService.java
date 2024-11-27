@@ -417,11 +417,11 @@ public class SystemInfoService {
     }
 
     // return num of backends that from different hosts
-    public int getBackendNumFromDiffHosts(boolean aliveOnly) {
+    public int getStorageBackendNumFromDiffHosts(boolean aliveOnly) {
         Set<String> hosts = Sets.newHashSet();
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         for (Backend backend : idToBackend.values()) {
-            if (aliveOnly && !backend.isAlive()) {
+            if ((aliveOnly && !backend.isAlive()) || backend.isComputeNode()) {
                 continue;
             }
             hosts.add(backend.getHost());
@@ -485,7 +485,7 @@ public class SystemInfoService {
      * @return return the selected backend ids group by tag.
      * @throws DdlException
      */
-    public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
+    public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
             TStorageMedium storageMedium, boolean isStorageMediumSpecified,
             boolean isOnlyForCheck)
@@ -520,6 +520,7 @@ public class SystemInfoService {
                 List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
                 // first time empty, retry with different storage medium
                 // if only for check, no need to retry different storage medium to get backend
+                TStorageMedium originalStorageMedium = storageMedium;
                 if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified && !isOnlyForCheck) {
                     storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
                     builder.setStorageMedium(storageMedium);
@@ -534,10 +535,10 @@ public class SystemInfoService {
                 }
                 // after retry different storage medium, it's still empty
                 if (beIds.isEmpty()) {
-                    LOG.error("failed backend(s) for policy:" + policy);
+                    LOG.error("failed backend(s) for policy: {} real medium {}", policy, originalStorageMedium);
                     String errorReplication = "replication tag: " + entry.getKey()
                             + ", replication num: " + entry.getValue()
-                            + ", storage medium: " + storageMedium;
+                            + ", storage medium: " + originalStorageMedium;
                     failedEntries.add(errorReplication);
                 } else {
                     chosenBackendIds.put(entry.getKey(), beIds);
@@ -548,13 +549,26 @@ public class SystemInfoService {
             if (!failedEntries.isEmpty()) {
                 String failedMsg = Joiner.on("\n").join(failedEntries);
                 throw new DdlException("Failed to find enough backend, please check the replication num,"
-                        + "replication tag and storage medium and avail capacity of backends.\n"
+                        + "replication tag and storage medium and avail capacity of backends "
+                        + "or maybe all be on same host." + getDetailsForCreateReplica(replicaAlloc) + "\n"
                         + "Create failed replications:\n" + failedMsg);
             }
         }
 
         Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
-        return chosenBackendIds;
+        return Pair.of(chosenBackendIds, storageMedium);
+    }
+
+    public String getDetailsForCreateReplica(ReplicaAllocation replicaAlloc) {
+        StringBuilder sb = new StringBuilder(" Backends details: ");
+        for (Tag tag : replicaAlloc.getAllocMap().keySet()) {
+            sb.append("backends with tag ").append(tag).append(" is ");
+            sb.append(idToBackendRef.values().stream().filter(be -> be.getLocationTag() == tag)
+                    .map(Backend::getDetailsForCreateReplica)
+                    .collect(Collectors.toList()));
+            sb.append(", ");
+        }
+        return sb.toString();
     }
 
     /**

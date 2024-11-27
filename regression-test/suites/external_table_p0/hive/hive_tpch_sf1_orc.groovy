@@ -846,10 +846,17 @@ order by
         q22()
     }
 
-    String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String hms_port = context.config.otherConfigs.get("hms_port")
-        String catalog_name = "test_catalog_hive_orc"
+    // String enabled = context.config.otherConfigs.get("enableHiveTest")
+    // cost too much time in p0, disable it temporary
+    String enabled = "false";
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+    
+    for (String hivePrefix : ["hive2", "hive3"]) {
+        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String catalog_name = "test_catalog_${hivePrefix}_orc"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         sql """drop catalog if exists ${catalog_name}"""

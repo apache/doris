@@ -77,6 +77,11 @@ enum TExprNodeType {
 
   IPV4_LITERAL,
   IPV6_LITERAL
+
+  // only used in runtime filter
+  // to prevent push to storage layer
+  NULL_AWARE_IN_PRED,
+  NULL_AWARE_BINARY_PRED,
 }
 
 //enum TAggregationOp {
@@ -154,6 +159,8 @@ struct TMatchPredicate {
   1: required string parser_type;
   2: required string parser_mode;
   3: optional map<string, string> char_filter_map;
+  4: optional bool parser_lowercase = true;
+  5: optional string parser_stopwords = "";
 }
 
 struct TLiteralPredicate {
@@ -184,6 +191,11 @@ struct TColumnRef {
 
 struct TStringLiteral {
   1: required string value;
+}
+
+struct TNullableStringLiteral {
+  1: optional string value;
+  2: optional bool is_null = false;
 }
 
 struct TJsonLiteral {
@@ -255,6 +267,7 @@ struct TExprNode {
   33: optional TMatchPredicate match_predicate
   34: optional TIPv4Literal ipv4_literal
   35: optional TIPv6Literal ipv6_literal
+  36: optional string label // alias name, a/b in `select xxx as a, count(1) as b`
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

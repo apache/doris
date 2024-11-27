@@ -37,7 +37,7 @@ public enum AggregateType {
     NONE("NONE"),
     BITMAP_UNION("BITMAP_UNION"),
     QUANTILE_UNION("QUANTILE_UNION"),
-    GENERIC_AGGREGATION("GENERIC_AGGREGATION");
+    GENERIC("GENERIC");
 
     private static EnumMap<AggregateType, EnumSet<PrimitiveType>> compatibilityMap;
 

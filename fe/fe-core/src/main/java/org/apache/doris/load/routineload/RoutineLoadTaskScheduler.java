@@ -101,11 +101,15 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         try {
             // This step will be blocked when queue is empty
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.take();
-            if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime()
-                    < routineLoadTaskInfo.getTimeoutMs()) {
-                // try to delay scheduling this task for 'timeout', to void too many failure
-                needScheduleTasksQueue.addLast(routineLoadTaskInfo);
-                return;
+            // try to delay scheduling tasks that are perceived as Eof to MaxBatchInterval
+            // to avoid to much small transaction
+            if (routineLoadTaskInfo.getIsEof()) {
+                RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
+                if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime()
+                        < routineLoadJob.getMaxBatchIntervalS()) {
+                    needScheduleTasksQueue.addLast(routineLoadTaskInfo);
+                    return;
+                }
             }
             scheduleOneTask(routineLoadTaskInfo);
         } catch (Exception e) {
@@ -130,6 +134,9 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         }
 
         try {
+            if (routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).isFinal()) {
+                return;
+            }
             // check if topic has more data to consume
             if (!routineLoadTaskInfo.hasMoreDataToConsume()) {
                 needScheduleTasksQueue.addLast(routineLoadTaskInfo);
@@ -299,7 +306,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     // try to allocate a task to BE which has idle slot.
-    // 1. First is to check if the previous allocated BE is available. If yes, allocate task to previous BE.
+    // 1. First is to check if the previous allocated BE has more than half of available slots.
+    //    If yes, allocate task to previous BE.
     // 2. If not, try to find a better one with most idle slots.
     // return true if allocate successfully. return false if failed.
     // throw exception if unrecoverable errors happen.

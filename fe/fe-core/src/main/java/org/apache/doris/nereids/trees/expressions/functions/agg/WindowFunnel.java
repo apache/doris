@@ -46,7 +46,11 @@ public class WindowFunnel extends AggregateFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE)
+                    .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT,
+                            BooleanType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE)
                     .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, DateTimeType.INSTANCE, BooleanType.INSTANCE)
+
     );
 
     /**

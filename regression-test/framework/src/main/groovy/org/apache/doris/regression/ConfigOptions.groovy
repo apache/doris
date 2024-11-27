@@ -49,6 +49,7 @@ class ConfigOptions {
     static Option pluginOpt
     static Option sslCertificateOpt
     static Option imageOpt
+    static Option noKillDockerOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
     static Option groupsOpt
@@ -65,6 +66,8 @@ class ConfigOptions {
     static Option stopWhenFailOpt
     static Option timesOpt
     static Option withOutLoadDataOpt
+    static Option runNonConcurrentOpt
+    static Option caseNamePrefixOpt
     static Option dryRunOpt
 
     static CommandLine initCommands(String[] args) {
@@ -180,6 +183,12 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("image")
                 .desc("the docker image")
+                .build()
+
+        noKillDockerOpt = Option.builder("noKillDocker")
+                .required(false)
+                .hasArg(false)
+                .desc("don't kill docker containers")
                 .build()
 
         suiteOpt = Option.builder("s")
@@ -376,6 +385,18 @@ class ConfigOptions {
                 .longOpt("withOutLoadData")
                 .desc("do not run load.groovy to reload data to Doris.")
                 .build()
+        runNonConcurrentOpt = Option.builder("runNonConcurrent")
+                .required(false)
+                .hasArg(true)
+                .desc("whether run non-concurrent tests")
+                .build()
+        caseNamePrefixOpt = Option.builder("cnp")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("caseNamePrefix")
+                .desc("add prefix to each case name")
+                .build()
         dryRunOpt = Option.builder("dryRun")
                 .required(false)
                 .hasArg(false)
@@ -392,6 +413,7 @@ class ConfigOptions {
                 .addOption(pluginOpt)
                 .addOption(sslCertificateOpt)
                 .addOption(imageOpt)
+                .addOption(noKillDockerOpt)
                 .addOption(confOpt)
                 .addOption(suiteOpt)
                 .addOption(excludeSuiteOpt)
@@ -418,6 +440,8 @@ class ConfigOptions {
                 .addOption(stopWhenFailOpt)
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
+                .addOption(runNonConcurrentOpt)
+                .addOption(caseNamePrefixOpt)
                 .addOption(dryRunOpt)
 
         CommandLine cmd = new DefaultParser().parse(options, args, true)

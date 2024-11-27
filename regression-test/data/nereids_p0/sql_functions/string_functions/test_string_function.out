@@ -171,6 +171,30 @@ ab d
 1,123.40
 
 -- !sql --
+1.12
+
+-- !sql_decimal32 --
+1.12
+
+-- !sql_decimal64 --
+1.12
+
+-- !sql_decimal64 --
+1.12
+
+-- !sql_decimal128 --
+1.12
+
+-- !sql_decimal128 --
+1.12
+
+-- !sql_float64 --
+1.13
+
+-- !sql_float64 --
+1.13
+
+-- !sql --
 true
 
 -- !sql --
@@ -361,4 +385,64 @@ tNEW-STRorigin str
 
 -- !sql --
 d***is
+
+-- !sub_replace_utf8_sql1 --
+你a世界
+
+-- !sub_replace_utf8_sql2 --
+你ab界
+
+-- !sub_replace_utf8_sql3 --
+你ab
+
+-- !sub_replace_utf8_sql4 --
+你abcd我界
+
+-- !sub_replace_utf8_sql5 --
+\N
+
+-- !sub_replace_utf8_sql6 --
+大家世界
+
+-- !sub_replace_utf8_sql7 --
+你大家114514
+
+-- !sub_replace_utf8_sql8 --
+\N
+
+-- !sub_replace_utf8_sql9 --
+\N
+
+-- !sub_replace_utf8_sql10 --
+\N
+
+-- !sub_replace_utf8_sql1 --
+你a世界
+
+-- !sub_replace_utf8_sql2 --
+你ab界
+
+-- !sub_replace_utf8_sql3 --
+你ab
+
+-- !sub_replace_utf8_sql4 --
+你abcd我界
+
+-- !sub_replace_utf8_sql5 --
+\N
+
+-- !sub_replace_utf8_sql6 --
+大家世界
+
+-- !sub_replace_utf8_sql7 --
+你大家114514
+
+-- !sub_replace_utf8_sql8 --
+\N
+
+-- !sub_replace_utf8_sql9 --
+\N
+
+-- !sub_replace_utf8_sql10 --
+\N
 

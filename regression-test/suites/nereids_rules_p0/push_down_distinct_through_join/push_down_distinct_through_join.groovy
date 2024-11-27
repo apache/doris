@@ -49,22 +49,19 @@ suite("push_down_distinct_through_join") {
     sql "insert into t values (9, 3, null)"
     sql "insert into t values (10, null, null)"
 
-    sql "SET ENABLE_NEREIDS_RULES=push_down_distinct_through_join"
-
     qt_basic_not """
-        explain shape plan select distinct * from (select t1.id from t t1 join t t2 on t1.id = t2.id) t;
+        explain shape plan select /*+ USE_CBO_RULE(push_down_distinct_through_join) */ distinct * from (select t1.id from t t1 join t t2 on t1.id = t2.id) t;
     """
 
     qt_basic """
-        explain shape plan select distinct * from (select t1.id from t t1 join t t2 on t1.id = t2.id join t t3 on t1.id = t3.id) t;
+        explain shape plan select /*+ USE_CBO_RULE(push_down_distinct_through_join) */ distinct * from (select t1.id from t t1 join t t2 on t1.id = t2.id join t t3 on t1.id = t3.id) t;
     """
 
     order_qt_basic_sql """
-        select distinct * from (select t1.id from t t1 join t t2 on t1.id = t2.id join t t3 on t1.id = t3.id) t;
+        select /*+ USE_CBO_RULE(push_down_distinct_through_join) */ distinct * from (select t1.id from t t1 join t t2 on t1.id = t2.id join t t3 on t1.id = t3.id) t;
     """
 
-    sql "SET ENABLE_NEREIDS_RULES=''"
     order_qt_basic_sql_disable """
-        select distinct * from (select t1.id from t t1 join t t2 on t1.id = t2.id join t t3 on t1.id = t3.id) t;
+        select /*+ USE_CBO_RULE(no_push_down_distinct_through_join) */ distinct * from (select t1.id from t t1 join t t2 on t1.id = t2.id join t t3 on t1.id = t3.id) t;
     """
 }

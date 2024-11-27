@@ -37,6 +37,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
+import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -52,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -62,7 +64,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
 
     // Concurrency control is delegated by Auth, so not concurrentMap
     @SerializedName(value = "roles")
-    private Map<String, Role> roles = Maps.newHashMap();
+    private ConcurrentMap<String, Role> roles = Maps.newConcurrentMap();
 
     public RoleManager() {
         roles.put(Role.OPERATOR.getRoleName(), Role.OPERATOR);
@@ -150,6 +152,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
             }
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
+            info.add(role.getComment());
             info.add(Joiner.on(", ").join(Env.getCurrentEnv().getAuth().getRoleUsers(role.getRoleName())));
             Map<PrivLevel, String> infoMap =
                     Stream.concat(
@@ -173,7 +176,8 @@ public class RoleManager implements Writable, GsonPostProcessable {
                                 }
                             }, (s1, s2) -> s1 + " " + s2
                     ));
-            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE)
+            Stream.of(PrivLevel.GLOBAL, PrivLevel.CATALOG, PrivLevel.DATABASE, PrivLevel.TABLE, PrivLevel.RESOURCE,
+                            PrivLevel.WORKLOAD_GROUP)
                     .forEach(level -> {
                         String infoItem = infoMap.get(level);
                         if (Strings.isNullOrEmpty(infoItem)) {
@@ -182,6 +186,31 @@ public class RoleManager implements Writable, GsonPostProcessable {
                         info.add(infoItem);
                     });
             results.add(info);
+        }
+    }
+
+    public void getRoleWorkloadGroupPrivs(List<List<String>> result, Set<String> limitedRole) {
+        for (Role role : roles.values()) {
+            if (ClusterNamespace.getNameFromFullName(role.getRoleName()).startsWith(DEFAULT_ROLE_PREFIX)) {
+                continue;
+            }
+
+            if (limitedRole != null && !limitedRole.contains(role.getRoleName())) {
+                continue;
+            }
+            String isGrantable = role.checkGlobalPriv(PrivPredicate.ADMIN) ? "YES" : "NO";
+
+            for (Map.Entry<WorkloadGroupPattern, PrivBitSet> entry : role.getWorkloadGroupPatternToPrivs().entrySet()) {
+                List<String> row = Lists.newArrayList();
+                row.add(role.getRoleName());
+                row.add(entry.getKey().getworkloadGroupName());
+                if (StringUtils.isEmpty(entry.getValue().toString())) {
+                    continue;
+                }
+                row.add(entry.getValue().toString());
+                row.add(isGrantable);
+                result.add(row);
+            }
         }
     }
 
@@ -267,7 +296,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
 
     // should be removed after version 3.0
     private void removeClusterPrefix() {
-        Map<String, Role> newRoles = Maps.newHashMap();
+        ConcurrentMap<String, Role> newRoles = Maps.newConcurrentMap();
         for (Map.Entry<String, Role> entry : roles.entrySet()) {
             String roleName = ClusterNamespace.getNameFromFullName(entry.getKey());
             newRoles.put(roleName, entry.getValue());

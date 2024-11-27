@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_create_view") {
-
+    sql "SET enable_nereids_planner=false"
     sql """DROP TABLE IF EXISTS count_distinct"""
     sql """
         CREATE TABLE IF NOT EXISTS count_distinct
@@ -42,6 +42,7 @@ suite("test_create_view") {
         "dynamic_partition.buckets" = "3"
         );
     """
+    sql "drop view if exists test_count_distinct"
     sql """
     CREATE VIEW IF NOT EXISTS test_count_distinct
     (
@@ -203,4 +204,34 @@ suite("test_create_view") {
       view_column_name_test
     """
     qt_test_view_6 """ SHOW VIEW FROM view_column_name_test;"""
+
+    sql """ drop view if exists xxx;"""
+    sql """CREATE VIEW
+            `xxx` COMMENT 'VIEW' AS
+            WITH
+            CHENGBENJIA AS (
+                SELECT
+                RN
+                FROM
+                (
+                    SELECT
+                    row_number() OVER (
+                        PARTITION BY `A`.`timestamp`,
+                        `A`.`type`
+                        ORDER BY
+                        CAST(
+                            concat(
+                            CAST(`A`.`error_msg` AS VARCHAR(*)),
+                            CAST(`A`.`remark` AS VARCHAR(*))
+                            ) AS INT
+                        ) DESC NULLS LAST
+                    ) AS `RN`
+                    FROM
+                    view_column_name_test A
+                ) A
+            )
+            SELECT
+            * from CHENGBENJIA;"""
+    sql """select * from xxx;"""
+    sql """ drop view if exists xxx;"""
 }

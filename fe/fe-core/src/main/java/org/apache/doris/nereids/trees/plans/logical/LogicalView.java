@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -36,7 +37,6 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /** LogicalView */
 public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
@@ -82,11 +82,6 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
     }
 
     @Override
-    public LogicalProperties getLogicalProperties() {
-        return child().getLogicalProperties();
-    }
-
-    @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalView(view, child());
     }
@@ -125,21 +120,40 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
 
     @Override
     public List<Slot> computeOutput() {
-        return child().getOutput();
+        List<Slot> childOutput = child().getOutput();
+        ImmutableList.Builder<Slot> currentOutput = ImmutableList.builder();
+        List<String> fullQualifiers = this.view.getFullQualifiers();
+        for (int i = 0; i < childOutput.size(); i++) {
+            Slot originSlot = childOutput.get(i);
+            Slot qualified = originSlot
+                    .withQualifier(fullQualifiers);
+            currentOutput.add(qualified);
+        }
+        return currentOutput.build();
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        return ((LogicalPlan) child()).computeFuncDeps(outputSupplier);
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        return ((LogicalPlan) child()).computeFdItems(outputSupplier);
+    public ImmutableSet<FdItem> computeFdItems() {
+        return ((LogicalPlan) child()).computeFdItems();
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new LogicalView<>(view, (LogicalPlan) children.get(0));
+    }
+
+    @Override
+    public void computeUnique(Builder fdBuilder) {
+        fdBuilder.addUniqueSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    public void computeUniform(Builder fdBuilder) {
+        fdBuilder.addUniformSlot(child(0).getLogicalProperties().getFunctionalDependencies());
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        fdBuilder.addEqualSet(child(0).getLogicalProperties().getFunctionalDependencies());
     }
 }

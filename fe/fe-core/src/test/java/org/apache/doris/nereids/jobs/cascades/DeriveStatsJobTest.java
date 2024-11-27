@@ -20,6 +20,8 @@ package org.apache.doris.nereids.jobs.cascades;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
@@ -61,6 +63,9 @@ public class DeriveStatsJobTest {
 
     @Test
     public void testExecute() throws Exception {
+        FeConstants.runningUnitTest = true;
+        MockedAuth.mockedConnectContext(context, "root", "192.168.1.1");
+
         LogicalOlapScan olapScan = constructOlapSCan();
         LogicalAggregate agg = constructAgg(olapScan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(agg);

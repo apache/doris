@@ -19,6 +19,7 @@
 
 #include <event2/bufferevent.h>
 #include <event2/http.h>
+#include <gen_cpp/FrontendService_types.h>
 
 #include <string>
 #include <vector>
@@ -27,10 +28,13 @@
 #include "common/status.h"
 #include "http/action/adjust_log_level.h"
 #include "http/action/adjust_tracing_dump.h"
+#include "http/action/calc_file_crc_action.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
+#include "http/action/clear_cache_action.h"
 #include "http/action/compaction_action.h"
+#include "http/action/compaction_score_action.h"
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"
 #include "http/action/download_action.h"
@@ -39,6 +43,7 @@
 #include "http/action/health_action.h"
 #include "http/action/http_stream.h"
 #include "http/action/jeprofile_actions.h"
+#include "http/action/load_stream_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
 #include "http/action/pad_rowset_action.h"
@@ -48,6 +53,7 @@
 #include "http/action/report_action.h"
 #include "http/action/reset_rpc_channel_action.h"
 #include "http/action/restore_tablet_action.h"
+#include "http/action/show_nested_index_file_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
 #include "http/action/stream_load_2pc.h"
@@ -177,10 +183,28 @@ Status HttpService::start() {
     HealthAction* health_action = _pool.add(new HealthAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
-    // Register BE health action
+    // Clear cache action
+    ClearCacheAction* clear_cache_action = _pool.add(new ClearCacheAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/clear_cache/{type}",
+                                      clear_cache_action);
+
+    // Dump all running pipeline tasks
     PipelineTaskAction* pipeline_task_action = _pool.add(new PipelineTaskAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks",
                                       pipeline_task_action);
+
+    // Dump all running pipeline tasks which has been running for more than {duration} seconds
+    LongPipelineTaskAction* long_pipeline_task_action = _pool.add(new LongPipelineTaskAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks/{duration}",
+                                      long_pipeline_task_action);
+
+    // Register BE LoadStream action
+    LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/load_streams", load_stream_action);
+
+    QueryPipelineTaskAction* query_pipeline_task_action = _pool.add(new QueryPipelineTaskAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/query_pipeline_tasks/{query_id}",
+                                      query_pipeline_task_action);
 
     // Register Tablets Info action
     TabletsInfoAction* tablets_info_action =
@@ -240,6 +264,12 @@ Status HttpService::start() {
     SnapshotAction* snapshot_action =
             _pool.add(new SnapshotAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
+
+    CompactionScoreAction* compaction_score_action =
+            _pool.add(new CompactionScoreAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN,
+                                                _env->get_storage_engine()->tablet_manager()));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
+                                      compaction_score_action);
 #endif
 
     // 2 compaction actions
@@ -309,6 +339,15 @@ Status HttpService::start() {
     ReportAction* report_disk_action = _pool.add(new ReportAction(
             _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_DISK_STATE"));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/disk", report_disk_action);
+
+    CalcFileCrcAction* calc_crc_action =
+            _pool.add(new CalcFileCrcAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
+
+    ShowNestedIndexFileAction* show_nested_index_file_action = _pool.add(
+            new ShowNestedIndexFileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/show_nested_index_file",
+                                      show_nested_index_file_action);
 
     ReportAction* report_task_action = _pool.add(
             new ReportAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_TASK"));

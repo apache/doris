@@ -101,15 +101,29 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     const auto& local_tablet = arg->local_tablet;
     const auto& local_tablet_uid = local_tablet->tablet_uid();
 
+    std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER, fmt::format("IngestBinlog#TxnId={}", txn_id));
+    SCOPED_ATTACH_TASK(mem_tracker);
+
     auto& request = arg->request;
 
     TStatus tstatus;
+    std::vector<std::string> download_success_files;
     Defer defer {[=, &tstatus, ingest_binlog_tstatus = arg->tstatus]() {
         LOG(INFO) << "ingest binlog. result: " << apache::thrift::ThriftDebugString(tstatus);
         if (tstatus.status_code != TStatusCode::OK) {
             // abort txn
             StorageEngine::instance()->txn_manager()->abort_txn(partition_id, txn_id,
                                                                 local_tablet_id, local_tablet_uid);
+            // delete all successfully downloaded files
+            LOG(WARNING) << "will delete downloaded success files due to error " << tstatus;
+            std::vector<io::Path> paths;
+            for (const auto& file : download_success_files) {
+                paths.emplace_back(file);
+                LOG(WARNING) << "will delete downloaded success file " << file << " due to error";
+            }
+            static_cast<void>(io::global_local_filesystem()->batch_delete(paths));
+            LOG(WARNING) << "done delete downloaded success files due to error " << tstatus;
         }
 
         if (ingest_binlog_tstatus) {
@@ -146,10 +160,25 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     }
 
     std::vector<std::string> binlog_info_parts = strings::Split(binlog_info, ":");
-    // TODO(Drogon): check binlog info content is right
-    DCHECK(binlog_info_parts.size() == 2);
-    const std::string& remote_rowset_id = binlog_info_parts[0];
-    int64_t num_segments = std::stoll(binlog_info_parts[1]);
+    if (binlog_info_parts.size() != 2) {
+        status = Status::RuntimeError("failed to parse binlog info into 2 parts: {}", binlog_info);
+        LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
+                     << ", status=" << status.to_string();
+        status.to_thrift(&tstatus);
+        return;
+    }
+    std::string remote_rowset_id = std::move(binlog_info_parts[0]);
+    int64_t num_segments = -1;
+    try {
+        num_segments = std::stoll(binlog_info_parts[1]);
+    } catch (std::exception& e) {
+        status = Status::RuntimeError("failed to parse num segments from binlog info {}: {}",
+                                      binlog_info, e.what());
+        LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
+                     << ", status=" << status;
+        status.to_thrift(&tstatus);
+        return;
+    }
 
     // Step 4: get rowset meta
     auto get_rowset_meta_url = fmt::format(
@@ -226,7 +255,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
 
     // Step 5.2: check data capacity
     uint64_t total_size = std::accumulate(segment_file_sizes.begin(), segment_file_sizes.end(),
-                                          0); // NOLINT(bugprone-fold-init-type)
+                                          0ULL); // NOLINT(bugprone-fold-init-type)
     if (!local_tablet->can_add_binlog(total_size)) {
         LOG(WARNING) << "failed to add binlog, no enough space, total_size=" << total_size
                      << ", tablet=" << local_tablet->tablet_id();
@@ -238,7 +267,8 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     // Step 5.3: get all segment files
     for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
         auto segment_file_size = segment_file_sizes[segment_index];
-        auto get_segment_file_url = segment_file_urls[segment_index];
+        auto get_segment_file_url =
+                fmt::format("{}&acquire_md5=true", segment_file_urls[segment_index]);
 
         uint64_t estimate_timeout =
                 segment_file_size / config::download_low_speed_limit_kbps / 1024;
@@ -251,10 +281,17 @@ void _ingest_binlog(IngestBinlogArg* arg) {
         LOG(INFO) << fmt::format("download segment file from {} to {}", get_segment_file_url,
                                  local_segment_path);
         auto get_segment_file_cb = [&get_segment_file_url, &local_segment_path, segment_file_size,
-                                    estimate_timeout](HttpClient* client) {
+                                    estimate_timeout, &download_success_files](HttpClient* client) {
             RETURN_IF_ERROR(client->init(get_segment_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
             RETURN_IF_ERROR(client->download(local_segment_path));
+            download_success_files.push_back(local_segment_path);
+
+            std::string remote_file_md5;
+            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+            LOG(INFO) << "download segment file to " << local_segment_path
+                      << ", remote md5: " << remote_file_md5
+                      << ", remote size: " << segment_file_size;
 
             std::error_code ec;
             // Check file length
@@ -264,13 +301,32 @@ void _ingest_binlog(IngestBinlogArg* arg) {
                 return Status::IOError("can't retrive file_size of {}, due to {}",
                                        local_segment_path, ec.message());
             }
+
             if (local_file_size != segment_file_size) {
                 LOG(WARNING) << "download file length error"
                              << ", get_segment_file_url=" << get_segment_file_url
                              << ", file_size=" << segment_file_size
                              << ", local_file_size=" << local_file_size;
-                return Status::InternalError("downloaded file size is not equal");
+                return Status::RuntimeError(
+                        "downloaded file size is not equal, local={}, remote={}", local_file_size,
+                        segment_file_size);
             }
+
+            if (!remote_file_md5.empty()) { // keep compatibility
+                std::string local_file_md5;
+                RETURN_IF_ERROR(
+                        io::global_local_filesystem()->md5sum(local_segment_path, &local_file_md5));
+                if (local_file_md5 != remote_file_md5) {
+                    LOG(WARNING) << "download file md5 error"
+                                 << ", get_segment_file_url=" << get_segment_file_url
+                                 << ", remote_file_md5=" << remote_file_md5
+                                 << ", local_file_md5=" << local_file_md5;
+                    return Status::RuntimeError(
+                            "download file md5 is not equal, local={}, remote={}", local_file_md5,
+                            remote_file_md5);
+                }
+            }
+
             return io::global_local_filesystem()->permission(local_segment_path,
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
@@ -284,8 +340,179 @@ void _ingest_binlog(IngestBinlogArg* arg) {
         }
     }
 
-    // Step 6: create rowset && calculate delete bitmap && commit
-    // Step 6.1: create rowset
+    // Step 6: get all segment index files
+    // Step 6.1: get all segment index files size
+    std::vector<std::string> segment_index_file_urls;
+    std::vector<uint64_t> segment_index_file_sizes;
+    std::vector<std::string> segment_index_file_names;
+    auto tablet_schema = rowset_meta->tablet_schema();
+    if (tablet_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
+        for (const auto& index : tablet_schema->indexes()) {
+            if (index.index_type() != IndexType::INVERTED) {
+                continue;
+            }
+            auto index_id = index.index_id();
+            for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+                auto get_segment_index_file_size_url = fmt::format(
+                        "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
+                        "}",
+                        binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
+                        remote_rowset_id, segment_index, index_id);
+                uint64_t segment_index_file_size;
+                auto get_segment_index_file_size_cb =
+                        [&get_segment_index_file_size_url,
+                         &segment_index_file_size](HttpClient* client) {
+                            RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
+                            client->set_timeout_ms(kMaxTimeoutMs);
+                            RETURN_IF_ERROR(client->head());
+                            return client->get_content_length(&segment_index_file_size);
+                        };
+                auto index_file = InvertedIndexDescriptor::inverted_index_file_path(
+                        local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index,
+                        index_id, index.get_index_suffix());
+                segment_index_file_names.push_back(index_file);
+
+                status = HttpClient::execute_with_retry(max_retry, 1,
+                                                        get_segment_index_file_size_cb);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to get segment file size from "
+                                 << get_segment_index_file_size_url
+                                 << ", status=" << status.to_string();
+                    status.to_thrift(&tstatus);
+                    return;
+                }
+
+                segment_index_file_sizes.push_back(segment_index_file_size);
+                segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
+            }
+        }
+    } else {
+        for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+            if (tablet_schema->has_inverted_index()) {
+                auto get_segment_index_file_size_url = fmt::format(
+                        "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}&segment_index_id={"
+                        "}",
+                        binlog_api_url, "get_segment_index_file", request.remote_tablet_id,
+                        remote_rowset_id, segment_index, -1);
+                uint64_t segment_index_file_size;
+                auto get_segment_index_file_size_cb =
+                        [&get_segment_index_file_size_url,
+                         &segment_index_file_size](HttpClient* client) {
+                            RETURN_IF_ERROR(client->init(get_segment_index_file_size_url));
+                            client->set_timeout_ms(kMaxTimeoutMs);
+                            RETURN_IF_ERROR(client->head());
+                            return client->get_content_length(&segment_index_file_size);
+                        };
+                auto local_segment_path = BetaRowset::segment_file_path(
+                        local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
+                auto index_file = InvertedIndexDescriptor::get_index_file_name(local_segment_path);
+                segment_index_file_names.push_back(index_file);
+
+                status = HttpClient::execute_with_retry(max_retry, 1,
+                                                        get_segment_index_file_size_cb);
+                if (!status.ok()) {
+                    LOG(WARNING) << "failed to get segment file size from "
+                                 << get_segment_index_file_size_url
+                                 << ", status=" << status.to_string();
+                    status.to_thrift(&tstatus);
+                    return;
+                }
+
+                segment_index_file_sizes.push_back(segment_index_file_size);
+                segment_index_file_urls.push_back(std::move(get_segment_index_file_size_url));
+            }
+        }
+    }
+
+    // Step 6.2: check data capacity
+    uint64_t total_index_size =
+            std::accumulate(segment_index_file_sizes.begin(), segment_index_file_sizes.end(),
+                            0ULL); // NOLINT(bugprone-fold-init-type)
+    if (!local_tablet->can_add_binlog(total_index_size)) {
+        LOG(WARNING) << "failed to add binlog, no enough space, total_index_size="
+                     << total_index_size << ", tablet=" << local_tablet->tablet_id();
+        status = Status::InternalError("no enough space");
+        status.to_thrift(&tstatus);
+        return;
+    }
+
+    // Step 6.3: get all segment index files
+    DCHECK(segment_index_file_sizes.size() == segment_index_file_names.size());
+    DCHECK(segment_index_file_names.size() == segment_index_file_urls.size());
+    for (int64_t i = 0; i < segment_index_file_urls.size(); ++i) {
+        auto segment_index_file_size = segment_index_file_sizes[i];
+        auto get_segment_index_file_url =
+                fmt::format("{}&acquire_md5=true", segment_index_file_urls[i]);
+
+        uint64_t estimate_timeout =
+                segment_index_file_size / config::download_low_speed_limit_kbps / 1024;
+        if (estimate_timeout < config::download_low_speed_time) {
+            estimate_timeout = config::download_low_speed_time;
+        }
+
+        auto local_segment_index_path = segment_index_file_names[i];
+        LOG(INFO) << fmt::format("download segment index file from {} to {}",
+                                 get_segment_index_file_url, local_segment_index_path);
+        auto get_segment_index_file_cb = [&get_segment_index_file_url, &local_segment_index_path,
+                                          segment_index_file_size, estimate_timeout,
+                                          &download_success_files](HttpClient* client) {
+            RETURN_IF_ERROR(client->init(get_segment_index_file_url));
+            client->set_timeout_ms(estimate_timeout * 1000);
+            RETURN_IF_ERROR(client->download(local_segment_index_path));
+            download_success_files.push_back(local_segment_index_path);
+
+            std::string remote_file_md5;
+            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+
+            std::error_code ec;
+            // Check file length
+            uint64_t local_index_file_size =
+                    std::filesystem::file_size(local_segment_index_path, ec);
+            if (ec) {
+                LOG(WARNING) << "download index file error" << ec.message();
+                return Status::IOError("can't retrive file_size of {}, due to {}",
+                                       local_segment_index_path, ec.message());
+            }
+            if (local_index_file_size != segment_index_file_size) {
+                LOG(WARNING) << "download index file length error"
+                             << ", get_segment_index_file_url=" << get_segment_index_file_url
+                             << ", index_file_size=" << segment_index_file_size
+                             << ", local_index_file_size=" << local_index_file_size;
+                return Status::RuntimeError(
+                        "downloaded index file size is not equal, local={}, remote={}",
+                        local_index_file_size, segment_index_file_size);
+            }
+
+            if (!remote_file_md5.empty()) { // keep compatibility
+                std::string local_file_md5;
+                RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(local_segment_index_path,
+                                                                      &local_file_md5));
+                if (local_file_md5 != remote_file_md5) {
+                    LOG(WARNING) << "download file md5 error"
+                                 << ", get_segment_index_file_url=" << get_segment_index_file_url
+                                 << ", remote_file_md5=" << remote_file_md5
+                                 << ", local_file_md5=" << local_file_md5;
+                    return Status::RuntimeError(
+                            "download file md5 is not equal, local={}, remote={}", local_file_md5,
+                            remote_file_md5);
+                }
+            }
+
+            return io::global_local_filesystem()->permission(local_segment_index_path,
+                                                             io::LocalFileSystem::PERMS_OWNER_RW);
+        };
+
+        status = HttpClient::execute_with_retry(max_retry, 1, get_segment_index_file_cb);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to get segment index file from " << get_segment_index_file_url
+                         << ", status=" << status.to_string();
+            status.to_thrift(&tstatus);
+            return;
+        }
+    }
+
+    // Step 7: create rowset && calculate delete bitmap && commit
+    // Step 7.1: create rowset
     RowsetSharedPtr rowset;
     status = RowsetFactory::create_rowset(local_tablet->tablet_schema(),
                                           local_tablet->tablet_path(), rowset_meta, &rowset);
@@ -300,7 +527,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
         return;
     }
 
-    // Step 6.2 calculate delete bitmap before commit
+    // Step 7.2 calculate delete bitmap before commit
     auto calc_delete_bitmap_token =
             StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(local_tablet_id);
@@ -336,7 +563,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
         static_cast<void>(calc_delete_bitmap_token->wait());
     }
 
-    // Step 6.3: commit txn
+    // Step 7.3: commit txn
     Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
             local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
             rowset_meta->txn_id(), rowset_meta->tablet_id(), local_tablet->tablet_uid(),
@@ -414,7 +641,8 @@ Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentPara
     if (!exec_params.fragment.__isset.output_sink) {
         return Status::InternalError("missing sink in plan fragment");
     }
-    return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params);
+    return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params,
+                                                         QuerySource::INTERNAL_FRONTEND);
 }
 
 void BackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
@@ -679,11 +907,6 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
     }
 }
 
-void BackendService::clean_trash() {
-    static_cast<void>(StorageEngine::instance()->start_trash_sweep(nullptr, true));
-    static_cast<void>(StorageEngine::instance()->notify_listener("REPORT_DISK_STATE"));
-}
-
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
     StorageEngine::instance()->tablet_manager()->get_all_tablets_storage_format(&result);
 }
@@ -887,4 +1110,5 @@ void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
         break;
     }
 }
+
 } // namespace doris

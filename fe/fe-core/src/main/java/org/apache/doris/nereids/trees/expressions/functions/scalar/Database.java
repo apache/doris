@@ -51,4 +51,9 @@ public class Database extends ScalarFunction
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitDatabase(this, context);
     }
+
+    @Override
+    public boolean isDeterministic() {
+        return false;
+    }
 }

@@ -147,6 +147,7 @@ public:
 
     virtual void change_cache_type(const Key& key, size_t offset, CacheType new_type,
                                    std::lock_guard<std::mutex>& cache_lock) = 0;
+    virtual std::map<std::string, double> get_stats() = 0;
 
     static std::string_view cache_type_to_string(CacheType type);
     static CacheType string_to_cache_type(const std::string& str);
@@ -167,7 +168,8 @@ protected:
     mutable std::mutex _mutex;
 
     virtual bool try_reserve(const Key& key, const CacheContext& context, size_t offset,
-                             size_t size, std::lock_guard<std::mutex>& cache_lock) = 0;
+                             size_t size, std::lock_guard<std::mutex>& cache_lock,
+                             bool skip_round_check) = 0;
 
     virtual void remove(FileBlockSPtr file_segment, std::lock_guard<std::mutex>& cache_lock,
                         std::lock_guard<std::mutex>& segment_lock) = 0;

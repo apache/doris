@@ -51,6 +51,7 @@ namespace pipeline {
 
 class PipelineFragmentContext : public TaskExecutionContext {
 public:
+    ENABLE_FACTORY_CREATOR(PipelineFragmentContext);
     // Callback to report execution status of plan fragment.
     // 'profile' is the cumulative profile, 'done' indicates whether the execution
     // is done or still continuing.
@@ -59,6 +60,7 @@ public:
     // because they take locks.
     using report_status_callback = std::function<Status(
             const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
+    PipelineFragmentContext() = default;
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
                             int fragment_id, int backend_num,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
@@ -69,6 +71,8 @@ public:
 
     bool is_timeout(const VecDateTimeValue& now) const;
 
+    int timeout_second() const { return _timeout; }
+
     PipelinePtr add_pipeline();
 
     PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
@@ -76,10 +80,6 @@ public:
     TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
 
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
-
-    virtual RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId /*fragment_instance_id*/) {
-        return _runtime_state->local_runtime_filter_mgr();
-    }
 
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
     // should be protected by lock?
@@ -89,13 +89,13 @@ public:
 
     Status prepare(const doris::TPipelineFragmentParams& request, size_t idx);
 
-    virtual Status prepare(const doris::TPipelineFragmentParams& request) {
+    virtual Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool) {
         return Status::InternalError("Pipeline fragment context do not implement prepare");
     }
 
     virtual Status submit();
 
-    virtual void close_if_prepare_failed();
+    virtual void close_if_prepare_failed(Status st);
     virtual void close_sink();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
@@ -110,10 +110,9 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
-    void close_a_pipeline();
+    virtual void close_a_pipeline(PipelineId pipeline_id);
 
-    virtual void add_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
+    virtual void clear_finished_tasks() {}
 
     virtual Status send_report(bool);
 
@@ -139,6 +138,8 @@ public:
     virtual std::string debug_string();
 
     uint64_t create_time() const { return _create_time; }
+
+    uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
 protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
@@ -169,7 +170,7 @@ protected:
     int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
-    int _total_tasks = 0;
+    std::atomic<int> _total_tasks = 0;
 
     int32_t _next_operator_builder_id = 10000;
 

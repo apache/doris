@@ -58,6 +58,8 @@ public:
 private:
     void _init_profile();
 
+    Status _set_options(const TSerdeDialect::type& serde_dialect);
+
     template <PrimitiveType type, bool is_nullable>
     Status _add_one_column(const ColumnPtr& column_ptr, std::unique_ptr<TFetchDataResult>& result,
                            std::vector<MysqlRowBuffer<is_binary_format>>& rows_buffer,
@@ -65,6 +67,8 @@ private:
                            const DataTypes& sub_types = DataTypes());
     int _add_one_cell(const ColumnPtr& column_ptr, size_t row_idx, const DataTypePtr& type,
                       MysqlRowBuffer<is_binary_format>& buffer, int scale = -1);
+
+    Status _write_one_block(Block& block);
 
     BufferControlBlock* _sinker = nullptr;
 
@@ -90,7 +94,7 @@ private:
 
     uint64_t _bytes_sent = 0;
 
-    bool _enable_faster_float_convert = false;
+    DataTypeSerDe::FormatOptions _options;
 };
 } // namespace vectorized
 } // namespace doris

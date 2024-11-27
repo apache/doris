@@ -241,8 +241,7 @@ public abstract class AlterHandler extends MasterDaemon {
                     task.getSignature(), replica, task.getVersion());
             boolean versionChanged = false;
             if (replica.getVersion() < task.getVersion()) {
-                replica.updateVersionInfo(task.getVersion(), replica.getDataSize(), replica.getRemoteDataSize(),
-                        replica.getRowCount());
+                replica.updateVersion(task.getVersion());
                 versionChanged = true;
             }
 
@@ -269,6 +268,7 @@ public abstract class AlterHandler extends MasterDaemon {
             alterJob.replay(alterJob);
             alterJobsV2.put(alterJob.getJobId(), alterJob);
         } else {
+            existingJob.failedTabletBackends = alterJob.failedTabletBackends;
             existingJob.replay(alterJob);
         }
     }

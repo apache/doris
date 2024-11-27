@@ -17,16 +17,21 @@
 
 #include "result_sink_operator.h"
 
+#include <fmt/format.h>
+#include <sys/select.h>
+
 #include <memory>
 
-#include "common/object_pool.h"
+#include "common/config.h"
 #include "exec/rowid_fetcher.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
+#include "util/arrow/row_batch.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/sink/varrow_flight_result_writer.h"
 #include "vec/sink/vmysql_result_writer.h"
 #include "vec/sink/vresult_sink.h"
 
@@ -53,18 +58,30 @@ bool ResultSinkOperator::can_write() {
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
     auto fragment_instance_id = state->fragment_instance_id();
-    // create sender
-    std::shared_ptr<BufferControlBlock> sender = nullptr;
-    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-            state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
-            state->execution_timeout()));
+
     _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
     _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
+
+    // create sender
+    auto& p = _parent->cast<ResultSinkOperatorX>();
+    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+            state->fragment_instance_id(), p._result_sink_buffer_size_rows, &_sender, true, state));
     ((PipBufferControlBlock*)_sender.get())->set_dependency(_dependency->shared_from_this());
+
+    _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
+    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
+    }
+    if (p._sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+        std::shared_ptr<arrow::Schema> arrow_schema;
+        RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
+                                                        state->timezone()));
+        _sender->register_arrow_schema(arrow_schema);
+    }
     return Status::OK();
 }
 
@@ -73,16 +90,23 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ResultSinkOperatorX>();
-    _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
-    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
-    }
     // create writer based on sink type
     switch (p._sink_type) {
-    case TResultSinkType::MYSQL_PROTOCAL:
-        _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter(
+    case TResultSinkType::MYSQL_PROTOCAL: {
+        if (state->mysql_row_binary_format()) {
+            _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<true>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
+        } else {
+            _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter<false>(
+                    _sender.get(), _output_vexpr_ctxs, _profile));
+        }
+        break;
+    }
+    case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
+        _writer.reset(new (std::nothrow) vectorized::VArrowFlightResultWriter(
                 _sender.get(), _output_vexpr_ctxs, _profile));
         break;
+    }
     default:
         return Status::InternalError("Unknown result sink type");
     }
@@ -99,6 +123,11 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& r
         _sink_type = TResultSinkType::MYSQL_PROTOCAL;
     } else {
         _sink_type = sink.type;
+    }
+    if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+        _result_sink_buffer_size_rows = config::arrow_flight_result_sink_buffer_size_rows;
+    } else {
+        _result_sink_buffer_size_rows = vectorized::RESULT_SINK_BUFFER_SIZE;
     }
     _fetch_option = sink.fetch_option;
     _name = "ResultSink";
@@ -173,6 +202,11 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
             // close file writer failed, should return this error to client
             final_status = st;
         }
+
+        VLOG_NOTICE << fmt::format(
+                "Query {} result sink closed with status {} and has written {} rows",
+                print_id(state->query_id()), final_status.to_string_no_stack(),
+                _writer->get_written_rows());
     }
 
     // close sender, this is normal path end
@@ -180,7 +214,7 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
         if (_writer) {
             _sender->update_return_rows(_writer->get_written_rows());
         }
-        static_cast<void>(_sender->close(final_status));
+        RETURN_IF_ERROR(_sender->close(final_status));
     }
     state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,

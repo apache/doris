@@ -35,9 +35,11 @@ import org.apache.doris.proto.InternalService.KeyTuple;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.rpc.TCustomProtocolFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TStatusCode;
@@ -69,8 +71,10 @@ public class PointQueryExec implements CoordInterface {
     // ByteString serialized for prepared statement
     private ByteString serializedDescTable;
     private ByteString serializedOutputExpr;
+    private ByteString serializedQueryOptions;
     private ArrayList<Expr> outputExprs;
     private DescriptorTable descriptorTable;
+    private TQueryOptions queryOptions;
     private long tabletID = 0;
     private long timeoutMs = Config.point_query_timeout_ms; // default 10s
 
@@ -85,6 +89,8 @@ public class PointQueryExec implements CoordInterface {
     // using this ID to find for this prepared statement
     private UUID cacheID;
 
+    private final int maxMsgSizeOfResultReceiver;
+
     private OlapScanNode getPlanRoot() {
         List<PlanFragment> fragments = planner.getFragments();
         PlanFragment fragment = fragments.get(0);
@@ -96,7 +102,7 @@ public class PointQueryExec implements CoordInterface {
         return planRoot;
     }
 
-    public PointQueryExec(Planner planner, Analyzer analyzer) {
+    public PointQueryExec(Planner planner, Analyzer analyzer, int maxMessageSize) {
         // init from planner
         this.planner = planner;
         List<PlanFragment> fragments = planner.getFragments();
@@ -105,6 +111,7 @@ public class PointQueryExec implements CoordInterface {
         this.equalPredicats = planRoot.getPointQueryEqualPredicates();
         this.descriptorTable = planRoot.getDescTable();
         this.outputExprs = fragment.getOutputExprs();
+        this.queryOptions = planner.getQueryOptions();
 
         PrepareStmt prepareStmt = analyzer == null ? null : analyzer.getPrepareStmt();
         if (prepareStmt != null && prepareStmt.getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
@@ -112,11 +119,13 @@ public class PointQueryExec implements CoordInterface {
             this.cacheID = prepareStmt.getID();
             this.serializedDescTable = prepareStmt.getSerializedDescTable();
             this.serializedOutputExpr = prepareStmt.getSerializedOutputExprs();
-            this.isBinaryProtocol = prepareStmt.isBinaryProtocol();
+            this.isBinaryProtocol = true;
+            this.serializedQueryOptions = prepareStmt.getSerializedQueryOptions();
         } else {
             // TODO
             // planner.getDescTable().toThrift();
         }
+        this.maxMsgSizeOfResultReceiver = maxMessageSize;
     }
 
     void setScanRangeLocations() throws Exception {
@@ -160,13 +169,7 @@ public class PointQueryExec implements CoordInterface {
     }
 
     @Override
-    public int getInstanceTotalNum() {
-        // TODO
-        return 1;
-    }
-
-    @Override
-    public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
+    public void cancel(Types.PPlanFragmentCancelReason cancelReason, String errorMsg) {
         // Do nothing
     }
 
@@ -193,7 +196,7 @@ public class PointQueryExec implements CoordInterface {
             if (tryCount >= maxTry) {
                 break;
             }
-            status.setStatus(Status.OK);
+            status.updateStatus(TStatusCode.OK, "");
         } while (true);
         // handle status code
         if (!status.ok()) {
@@ -240,12 +243,17 @@ public class PointQueryExec implements CoordInterface {
                 serializedOutputExpr = ByteString.copyFrom(
                         new TSerializer().serialize(exprList));
             }
+            if (serializedQueryOptions == null) {
+                serializedQueryOptions = ByteString.copyFrom(
+                        new TSerializer().serialize(queryOptions));
+            }
 
             InternalService.PTabletKeyLookupRequest.Builder requestBuilder
                         = InternalService.PTabletKeyLookupRequest.newBuilder()
                             .setTabletId(tabletID)
                             .setDescTbl(serializedDescTable)
                             .setOutputExpr(serializedOutputExpr)
+                            .setQueryOptions(serializedQueryOptions)
                             .setIsBinaryRow(isBinaryProtocol);
             if (cacheID != null) {
                 InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
@@ -262,7 +270,7 @@ public class PointQueryExec implements CoordInterface {
                 long currentTs = System.currentTimeMillis();
                 if (currentTs >= timeoutTs) {
                     LOG.warn("fetch result timeout {}", backend.getBrpcAddress());
-                    status.setStatus("query timeout");
+                    status.updateStatus(TStatusCode.INTERNAL_ERROR, "query timeout");
                     return null;
                 }
                 try {
@@ -271,35 +279,35 @@ public class PointQueryExec implements CoordInterface {
                     // continue to get result
                     LOG.info("future get interrupted Exception");
                     if (isCancel) {
-                        status.setStatus(Status.CANCELLED);
+                        status.updateStatus(TStatusCode.CANCELLED, "cancelled");
                         return null;
                     }
                 } catch (TimeoutException e) {
                     futureResponse.cancel(true);
                     LOG.warn("fetch result timeout {}, addr {}", timeoutTs - currentTs, backend.getBrpcAddress());
-                    status.setStatus("query timeout");
+                    status.updateStatus(TStatusCode.INTERNAL_ERROR, "query timeout");
                     return null;
                 }
             }
         } catch (RpcException e) {
             LOG.warn("fetch result rpc exception {}, e {}", backend.getBrpcAddress(), e);
-            status.setRpcStatus(e.getMessage());
+            status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
             SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
             return null;
         } catch (ExecutionException e) {
             LOG.warn("fetch result execution exception {}, addr {}", e, backend.getBrpcAddress());
             if (e.getMessage().contains("time out")) {
                 // if timeout, we set error code to TIMEOUT, and it will not retry querying.
-                status.setStatus(new Status(TStatusCode.TIMEOUT, e.getMessage()));
+                status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
             } else {
-                status.setRpcStatus(e.getMessage());
+                status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
                 SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
             }
             return null;
         }
-        TStatusCode code = TStatusCode.findByValue(pResult.getStatus().getStatusCode());
-        if (code != TStatusCode.OK) {
-            status.setPstatus(pResult.getStatus());
+        Status resultStatus = new Status(pResult.getStatus());
+        if (resultStatus.getErrorCode() != TStatusCode.OK) {
+            status.updateStatus(resultStatus.getErrorCode(), resultStatus.getErrorMsg());
             return null;
         }
 
@@ -310,15 +318,24 @@ public class PointQueryExec implements CoordInterface {
         } else if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
             byte[] serialResult = pResult.getRowBatch().toByteArray();
             TResultBatch resultBatch = new TResultBatch();
-            TDeserializer deserializer = new TDeserializer();
-            deserializer.deserialize(resultBatch, serialResult);
+            TDeserializer deserializer = new TDeserializer(
+                    new TCustomProtocolFactory(this.maxMsgSizeOfResultReceiver));
+            try {
+                deserializer.deserialize(resultBatch, serialResult);
+            } catch (TException e) {
+                if (e.getMessage().contains("MaxMessageSize reached")) {
+                    throw new TException("MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
+                } else {
+                    throw e;
+                }
+            }
             rowBatch.setBatch(resultBatch);
             rowBatch.setEos(true);
             return rowBatch;
         }
 
         if (isCancel) {
-            status.setStatus(Status.CANCELLED);
+            status.updateStatus(TStatusCode.CANCELLED, "cancelled");
         }
         return rowBatch;
     }

@@ -55,6 +55,7 @@ import java.util.Set;
  */
 public class Column implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
+    // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
@@ -62,6 +63,8 @@ public class Column implements Writable, GsonPostProcessable {
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
+    // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     private static final String COLUMN_STRUCT_CHILDREN = "field";
     private static final String COLUMN_AGG_ARGUMENT_CHILDREN = "argument";
@@ -128,9 +131,6 @@ public class Column implements Writable, GsonPostProcessable {
     @SerializedName(value = "uniqueId")
     private int uniqueId;
 
-    @SerializedName(value = "genericAggregationName")
-    private String genericAggregationName;
-
     @SerializedName(value = "clusterKeyId")
     private int clusterKeyId = -1;
 
@@ -192,6 +192,12 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
+                  String defaultValue, String comment, boolean visible, int colUniqueId) {
+        this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, visible, null, colUniqueId, null,
+                false, null);
+    }
+
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef,
             int colUniqueId, String realDefaultValue) {
         this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, visible, defaultValueExprDef,
@@ -244,8 +250,8 @@ public class Column implements Writable, GsonPostProcessable {
                 c.setIsAllowNull(aggState.getSubTypeNullables().get(i));
                 addChildrenColumn(c);
             }
-            this.genericAggregationName = aggState.getFunctionName();
-            this.aggregationType = AggregateType.GENERIC_AGGREGATION;
+            this.isAllowNull = false;
+            this.aggregationType = AggregateType.GENERIC;
         }
     }
 
@@ -286,7 +292,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
         this.defineExpr = column.getDefineExpr();
-        this.defineName = column.getDefineName();
+        this.defineName = column.getRealDefineName();
         this.hasOnUpdateDefaultValue = column.hasOnUpdateDefaultValue;
         this.onUpdateDefaultValueExprDef = column.onUpdateDefaultValueExprDef;
         this.clusterKeyId = column.getClusterKeyId();
@@ -331,6 +337,12 @@ public class Column implements Writable, GsonPostProcessable {
             return defineName;
         }
         return name;
+    }
+
+    // In order for the copy constructor to get the real defineName value.
+    // getDefineName() cannot meet this requirement
+    public String getRealDefineName() {
+        return defineName;
     }
 
     public void setName(String newName) {
@@ -449,11 +461,7 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public String getAggregationString() {
-        if (getAggregationType() == AggregateType.GENERIC_AGGREGATION) {
-            return getGenericAggregationString();
-        } else {
-            return getAggregationType().name();
-        }
+        return getAggregationType().name();
     }
 
     public boolean isAggregated() {
@@ -490,6 +498,9 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public Expr getDefaultValueExpr() throws AnalysisException {
+        if (defaultValue == null) {
+            return null;
+        }
         StringLiteral defaultValueLiteral = new StringLiteral(defaultValue);
         if (getDataType() == PrimitiveType.VARCHAR) {
             return defaultValueLiteral;
@@ -640,6 +651,11 @@ public class Column implements Writable, GsonPostProcessable {
             throw new DdlException("Dest column name is empty");
         }
 
+        // now nested type can only support change order
+        if (type.isComplexType() && !type.equals(other.type)) {
+            throw new DdlException("Can not change " + type + " to " + other);
+        }
+
         if (!ColumnType.isSchemaChangeAllowed(type, other.type)) {
             throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
         }
@@ -658,7 +674,7 @@ public class Column implements Writable, GsonPostProcessable {
             }
         }
 
-        if (this.aggregationType != other.aggregationType) {
+        if (!Objects.equals(this.aggregationType, other.aggregationType)) {
             throw new DdlException("Can not change aggregation type");
         }
 
@@ -764,22 +780,6 @@ public class Column implements Writable, GsonPostProcessable {
         return toSql(isUniqueTable, false);
     }
 
-    public String getGenericAggregationString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(genericAggregationName).append("(");
-        for (int i = 0; i < children.size(); i++) {
-            if (i != 0) {
-                sb.append(", ");
-            }
-            sb.append(children.get(i).getType().toSql());
-            if (children.get(i).isAllowNull()) {
-                sb.append(" NULL");
-            }
-        }
-        sb.append(")");
-        return sb.toString();
-    }
-
     public String toSql(boolean isUniqueTable, boolean isCompatible) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
@@ -791,11 +791,9 @@ public class Column implements Writable, GsonPostProcessable {
         } else {
             sb.append(typeStr);
         }
-        if (aggregationType == AggregateType.GENERIC_AGGREGATION) {
-            sb.append(" ").append(getGenericAggregationString());
-        } else if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
+        if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
                 && !isAggregationTypeImplicit) {
-            sb.append(" ").append(aggregationType.name());
+            sb.append(" ").append(aggregationType.toSql());
         }
         if (isAllowNull) {
             sb.append(" NULL");
@@ -810,6 +808,11 @@ public class Column implements Writable, GsonPostProcessable {
                 sb.append(" DEFAULT ").append(defaultValue).append("");
             } else {
                 sb.append(" DEFAULT \"").append(defaultValue).append("\"");
+            }
+        }
+        if (getDataType() == PrimitiveType.BITMAP && defaultValue != null) {
+            if (defaultValueExprDef != null) {
+                sb.append(" DEFAULT ").append(defaultValueExprDef.getExprName()).append("");
             }
         }
         if (hasOnUpdateDefaultValue) {
@@ -884,14 +887,14 @@ public class Column implements Writable, GsonPostProcessable {
                 && Objects.equals(realDefaultValue, other.realDefaultValue)
                 && clusterKeyId == other.clusterKeyId;
 
-        if (!ok) {
-            LOG.info("this column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
+        if (!ok && LOG.isDebugEnabled()) {
+            LOG.debug("this column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
                             + "isKey {}, isAllowNull {}, datatype {}, strlen {}, precision {}, scale {}, visible {} "
                             + "children {}, realDefaultValue {}, clusterKeyId {}",
                     name, getDefaultValue(), aggregationType, isAggregationTypeImplicit, isKey, isAllowNull,
                     getDataType(), getStrLen(), getPrecision(), getScale(), visible, children, realDefaultValue,
                     clusterKeyId);
-            LOG.info("other column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
+            LOG.debug("other column: name {} default value {} aggregationType {} isAggregationTypeImplicit {} "
                             + "isKey {}, isAllowNull {}, datatype {}, strlen {}, precision {}, scale {}, visible {}, "
                             + "children {}, realDefaultValue {}, clusterKeyId {}",
                     other.name, other.getDefaultValue(), other.aggregationType, other.isAggregationTypeImplicit,
@@ -1025,5 +1028,11 @@ public class Column implements Writable, GsonPostProcessable {
     public boolean isMaterializedViewColumn() {
         return getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
                 || getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+    }
+
+    public void setDefaultValueInfo(Column refColumn) {
+        this.defaultValue = refColumn.defaultValue;
+        this.defaultValueExprDef = refColumn.defaultValueExprDef;
+        this.realDefaultValue = refColumn.realDefaultValue;
     }
 }

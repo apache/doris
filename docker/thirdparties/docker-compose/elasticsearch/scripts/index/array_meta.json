@@ -16,8 +16,7 @@
         "c_datetime",
         "c_keyword",
         "c_text",
-        "c_ip",
-        "c_person"
+        "c_ip"
       ]
     }
   }

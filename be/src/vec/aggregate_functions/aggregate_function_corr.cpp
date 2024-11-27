@@ -68,18 +68,29 @@ struct CorrMoment {
     }
 
     T get() const {
-        if ((m0 * x2 - x1 * x1) * (m0 * y2 - y1 * y1) == 0) [[unlikely]] {
+        // avoid float error(silent nan) when x or y is constant
+        if (m0 * x2 <= x1 * x1 || m0 * y2 <= y1 * y1) [[unlikely]] {
             return 0;
         }
         return (m0 * xy - x1 * y1) / sqrt((m0 * x2 - x1 * x1) * (m0 * y2 - y1 * y1));
     }
 
     static String name() { return "corr"; }
+
+    void reset() {
+        m0 = {};
+        x1 = {};
+        y1 = {};
+        xy = {};
+        x2 = {};
+        y2 = {};
+    }
 };
 
 AggregateFunctionPtr create_aggregate_corr_function(const std::string& name,
                                                     const DataTypes& argument_types,
-                                                    const bool result_is_nullable) {
+                                                    const bool result_is_nullable,
+                                                    const AggregateFunctionAttr& attr) {
     assert_binary(name, argument_types);
     return create_with_two_basic_numeric_types<CorrMoment>(argument_types[0], argument_types[1],
                                                            argument_types, result_is_nullable);

@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
 
+import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -62,19 +63,17 @@ public class PushDownFilterThroughPartitionTopN extends OneRewriteRuleFactory {
             // PushdownFilterThroughWindow
             Builder<Expression> bottomConjunctsBuilder = ImmutableSet.builder();
             Builder<Expression> upperConjunctsBuilder = ImmutableSet.builder();
-            for (Expression expr : filter.getConjuncts()) {
-                boolean pushed = false;
-                Set<Slot> exprInputSlots = expr.getInputSlots();
-                for (Expression partitionKey : partitionTopN.getPartitionKeys()) {
-                    if (partitionKey instanceof SlotReference
-                            && exprInputSlots.size() == 1
-                            && partitionKey.getInputSlots().containsAll(exprInputSlots)) {
-                        bottomConjunctsBuilder.add(expr);
-                        pushed = true;
-                        break;
-                    }
+            Set<SlotReference> partitionKeySlots = new HashSet<>();
+            for (Expression partitionKey : partitionTopN.getPartitionKeys()) {
+                if (partitionKey instanceof SlotReference) {
+                    partitionKeySlots.add((SlotReference) partitionKey);
                 }
-                if (!pushed) {
+            }
+            for (Expression expr : filter.getConjuncts()) {
+                Set<Slot> exprInputSlots = expr.getInputSlots();
+                if (partitionKeySlots.containsAll(exprInputSlots)) {
+                    bottomConjunctsBuilder.add(expr);
+                } else {
                     upperConjunctsBuilder.add(expr);
                 }
             }

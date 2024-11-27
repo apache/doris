@@ -56,6 +56,9 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
+        if (killed) {
+            return;
+        }
         if (isTableLevelTask) {
             getTableStats();
         } else {
@@ -130,6 +133,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
                 params.put("rowCount", "ROUND(count(1) * ${scaleFactor})");
             } else {
                 sb.append(DUJ1_ANALYZE_TEMPLATE);
+                params.put("subStringColName", getStringTypeColName(col));
                 params.put("dataSizeFunction", getDataSizeFunction(col, true));
                 params.put("ndvFunction", getNdvFunction("ROUND(SUM(t1.count) * ${scaleFactor})"));
                 params.put("rowCount", "ROUND(SUM(t1.count) * ${scaleFactor})");

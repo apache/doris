@@ -416,7 +416,7 @@ To connect to the Hive Metastore with Ranger permission verification enabled, yo
 
 	```sql
 	"access_controller.properties.ranger.service.name" = "hive",
-	"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+	"access_controller.class" = "org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveAccessControllerFactory",
 	```
 
 	> Note:

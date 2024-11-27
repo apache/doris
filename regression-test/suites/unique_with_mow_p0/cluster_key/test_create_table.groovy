@@ -22,153 +22,8 @@ suite("test_create_table") {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 
-
-    // mor unique table with cluster keys
     test {
         sql """
-            CREATE TABLE `$tableName` (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(26) NOT NULL COMMENT "",
-                    `c_address` varchar(41) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            UNIQUE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_address`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1",
-                    "enable_unique_key_merge_on_write" = "false"
-             );
-        """
-        // test mor table
-        exception "Cluster keys only support unique keys table which enabled enable_unique_key_merge_on_write"
-    }
-
-    // mor unique table with cluster keys
-    test {
-        sql """
-            CREATE TABLE `$tableName` (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(26) NOT NULL COMMENT "",
-                    `c_address` varchar(41) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            UNIQUE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_address`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1",
-                    "enable_unique_key_merge_on_write" = "false"
-             );
-        """
-        exception "Cluster keys only support unique keys table which enabled enable_unique_key_merge_on_write"
-    }
-
-    // mow unique table with invalid cluster keys
-    test {
-        sql """
-            CREATE TABLE `$tableName` (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(26) NOT NULL COMMENT "",
-                    `c_address` varchar(41) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            UNIQUE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_addresses`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1",
-                    "enable_unique_key_merge_on_write" = "true"
-             );
-        """
-        exception "Key cluster column[c_addresses] doesn't exist"
-    }
-
-    // mow unique table with duplicate cluster keys
-    test {
-        sql """
-            CREATE TABLE `$tableName` (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(26) NOT NULL COMMENT "",
-                    `c_address` varchar(41) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            UNIQUE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_address`, `c_name`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1",
-                    "enable_unique_key_merge_on_write" = "true"
-             );
-        """
-        exception "Duplicate cluster key column[c_name]"
-    }
-
-    // mow unique table with same cluster and unique keys
-    test {
-        sql """
-            CREATE TABLE `$tableName` (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(26) NOT NULL COMMENT "",
-                    `c_address` varchar(41) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            UNIQUE KEY (`c_custkey`)
-            CLUSTER BY (`c_custkey`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1",
-                    "enable_unique_key_merge_on_write" = "true"
-             );
-        """
-        exception "Unique keys and cluster keys should be different"
-    }
-
-    // mow unique table with short key is part of unique keys
-    test {
-        sql """
-            CREATE TABLE `$tableName` (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_age` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(26) NOT NULL COMMENT "",
-                    `c_address` varchar(41) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            UNIQUE KEY (`c_custkey`, `c_age`,  `c_name`)
-            CLUSTER BY (`c_custkey`, `c_age`,  `c_address`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1",
-                    "enable_unique_key_merge_on_write" = "true",
-                    "short_key" = "2"
-             );
-        """
-        exception "2 short keys is a part of unique keys"
-    }
-
-    // mow unique table with short key is part of unique keys
-    test {
-        sql """
-            CREATE TABLE `$tableName` (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_age` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(100) NOT NULL COMMENT "",
-                    `c_address` varchar(100) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            UNIQUE KEY (`c_custkey`, `c_age`,  `c_name`, `c_address`)
-            CLUSTER BY (`c_custkey`, `c_age`,  `c_name`, `c_city`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1",
-                    "enable_unique_key_merge_on_write" = "true"
-             );
-        """
-        exception "3 short keys is a part of unique keys"
-    }
-
-    // success to create mow unique table with cluster keys
-    sql """
         CREATE TABLE `$tableName` (
                 `c_custkey` int(11) NOT NULL COMMENT "",
                 `c_name` varchar(26) NOT NULL COMMENT "",
@@ -182,47 +37,27 @@ suite("test_create_table") {
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true"
         );
-    """
-
-    sql """set enable_nereids_planner=false;"""
-    // duplicate table with cluster keys
-    test {
-        sql """
-            CREATE TABLE `$tableName` (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(26) NOT NULL COMMENT "",
-                    `c_address` varchar(41) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            DUPLICATE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_address`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1"
-             );
         """
-        exception "Syntax error"
+        exception "Cluster key is not supported"
     }
 
-    sql """set enable_nereids_planner=true;"""
-    sql """set enable_nereids_dml=true;"""
-    sql """set enable_fallback_to_original_planner=false;"""
-    // duplicate table with cluster keys
+    sql """set enable_nereids_planner=false;"""
     test {
         sql """
-            CREATE TABLE `$tableName` (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(26) NOT NULL COMMENT "",
-                    `c_address` varchar(41) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            DUPLICATE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_address`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1"
-             );
+        CREATE TABLE `$tableName` (
+                `c_custkey` int(11) NOT NULL COMMENT "",
+                `c_name` varchar(26) NOT NULL COMMENT "",
+                `c_address` varchar(41) NOT NULL COMMENT "",
+                `c_city` varchar(11) NOT NULL COMMENT ""
+        )
+        UNIQUE KEY (`c_custkey`)
+        CLUSTER BY (`c_name`, `c_city`, `c_address`)
+        DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        );
         """
-        exception "Cluster keys only support unique keys table"
+        exception "Cluster key is not supported"
     }
 }

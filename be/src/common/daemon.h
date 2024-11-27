@@ -42,9 +42,10 @@ private:
     void memory_gc_thread();
     void memtable_memory_limiter_tracker_refresh_thread();
     void calculate_metrics_thread();
-    void block_spill_gc_thread();
     void je_purge_dirty_pages_thread() const;
+    void cache_prune_stale_thread();
     void report_runtime_query_statistics_thread();
+    void wg_weighted_memory_ratio_refresh_thread();
 
     CountDownLatch _stop_background_threads_latch;
     std::vector<scoped_refptr<Thread>> _threads;

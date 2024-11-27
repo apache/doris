@@ -89,7 +89,7 @@ public:
     }
 
     template <typename Data, typename Key>
-    ALWAYS_INLINE FindResult find_key_with_hash(Data& data, size_t hash_value, Key key) {
+    ALWAYS_INLINE FindResult find_key_with_hash(Data& data, size_t i, Key key, size_t hash_value) {
         return find_key_impl(key, hash_value, data);
     }
 

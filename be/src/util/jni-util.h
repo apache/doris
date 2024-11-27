@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "jni_md.h"
+#include "util/defer_op.h"
 #include "util/thrift_util.h"
 
 #ifdef USE_HADOOP_HDFS
@@ -37,11 +38,24 @@ extern "C" JNIEnv* getJNIEnv(void);
 namespace doris {
 class JniUtil;
 
-#define RETURN_ERROR_IF_EXC(env)                                     \
-    do {                                                             \
-        jthrowable exc = (env)->ExceptionOccurred();                 \
-        if (exc != nullptr) return JniUtil::GetJniExceptionMsg(env); \
+#define RETURN_ERROR_IF_EXC(env)                     \
+    do {                                             \
+        if (env->ExceptionCheck()) [[unlikely]]      \
+            return JniUtil::GetJniExceptionMsg(env); \
     } while (false)
+
+#define JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(type, result, env, func) \
+    type result = env->func;                                                \
+    DEFER(env->DeleteLocalRef(result));                                     \
+    RETURN_ERROR_IF_EXC(env)
+
+#define JNI_CALL_METHOD_CHECK_EXCEPTION(type, result, env, func) \
+    type result = env->func;                                     \
+    RETURN_ERROR_IF_EXC(env)
+
+//In order to reduce the potential risks caused by not handling exceptions,
+// you need to refer to  https://docs.oracle.com/javase/8/docs/technotes/guides/jni/spec/functions.html
+// to confirm whether the jni method will throw an exception.
 
 class JniUtil {
 public:
@@ -52,11 +66,22 @@ public:
     static Status GetJNIEnv(JNIEnv** env) {
         if (tls_env_) {
             *env = tls_env_;
-            return Status::OK();
+        } else {
+            Status status = GetJNIEnvSlowPath(env);
+            if (!status.ok()) {
+                return status;
+            }
         }
-        return GetJNIEnvSlowPath(env);
+        if (*env == nullptr) {
+            return Status::RuntimeError("Failed to get JNIEnv: it is nullptr.");
+        }
+        return Status::OK();
     }
 
+    //jclass is generally a local reference.
+    //Method ID and field ID values are forever.
+    //If you want to use the jclass across multiple threads or multiple calls into the JNI code you need
+    // to create a global reference to it with GetGlobalClassRef().
     static Status GetGlobalClassRef(JNIEnv* env, const char* class_str,
                                     jclass* class_ref) WARN_UNUSED_RESULT;
 

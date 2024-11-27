@@ -33,6 +33,7 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         createTable("create table t1 (\n"
                 + "    k1 int,\n"
                 + "    k2 int,\n"

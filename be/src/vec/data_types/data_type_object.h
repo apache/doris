@@ -27,8 +27,10 @@
 
 #include <memory>
 #include <ostream>
+#include <sstream>
 #include <string>
 
+#include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "serde/data_type_object_serde.h"
@@ -78,12 +80,14 @@ public:
 
     Field get_field(const TExprNode& node) const override {
         if (node.__isset.string_literal) {
-            return node.string_literal.value;
+            return Field(node.string_literal.value);
         }
         if (node.node_type == TExprNodeType::NULL_LITERAL) {
-            return Field();
+            return {};
         }
-        LOG(FATAL) << "Unkown literal " << node;
+        std::stringstream error_string;
+        node.printTo(error_string);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unkown literal {}", error_string.str());
         return {};
     }
 

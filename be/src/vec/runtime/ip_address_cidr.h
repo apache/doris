@@ -20,8 +20,8 @@
 
 #pragma once
 
+#include "util/sse_util.hpp"
 #include "vec/common/format_ip.h"
-
 namespace doris {
 
 class IPAddressVariant {
@@ -73,6 +73,29 @@ bool match_ipv4_subnet(uint32_t addr, uint32_t cidr_addr, uint8_t prefix) {
     return (addr & mask) == (cidr_addr & mask);
 }
 
+#if defined(__SSE2__) || defined(__aarch64__)
+
+bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t prefix) {
+    uint16_t mask = _mm_movemask_epi8(
+            _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(addr)),
+                           _mm_loadu_si128(reinterpret_cast<const __m128i*>(cidr_addr))));
+    mask = ~mask;
+
+    if (mask) {
+        const auto offset = std::countl_zero(mask);
+        if (prefix / 8 != offset) {
+            return prefix / 8 < offset;
+        }
+        auto cmpmask = ~(0xff >> (prefix % 8));
+        return (addr[IPV6_BINARY_LENGTH - 1 - offset] & cmpmask) ==
+               (cidr_addr[IPV6_BINARY_LENGTH - 1 - offset] & cmpmask);
+    } else {
+        // All the bytes are equal.
+    }
+    return true;
+}
+
+#else
 // ipv6 liitle-endian input
 bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t prefix) {
     if (prefix > IPV6_BINARY_LENGTH * 8U) {
@@ -93,6 +116,7 @@ bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t pr
     auto mask = ~(0xff >> prefix);
     return (addr[i] & mask) == (cidr_addr[i] & mask);
 }
+#endif
 
 IPAddressCIDR parse_ip_with_cidr(std::string_view cidr_str) {
     size_t pos_slash = cidr_str.find('/');

@@ -39,7 +39,7 @@ public class RestoreFileMapping implements Writable {
         }
 
         public IdChain(Long... ids) {
-            Preconditions.checkState(ids.length == 5);
+            Preconditions.checkState(ids.length == 6);
             chain = ids;
         }
 
@@ -63,6 +63,14 @@ public class RestoreFileMapping implements Writable {
             return chain[4];
         }
 
+        public boolean hasRefTabletId() {
+            return chain.length >= 6 && chain[5] != -1L;
+        }
+
+        public long getRefTabletId() {
+            return chain[5];
+        }
+
         @Override
         public String toString() {
             StringBuilder sb = new StringBuilder();
@@ -78,8 +86,12 @@ public class RestoreFileMapping implements Writable {
                 return false;
             }
 
+            if (((IdChain) obj).chain.length != chain.length) {
+                return false;
+            }
+
             IdChain other = (IdChain) obj;
-            for (int i = 0; i < 5; i++) {
+            for (int i = 0; i < chain.length; i++) {
                 // DO NOT use ==, Long_1 != Long_2
                 if (!chain[i].equals(other.chain[i])) {
                     return false;
@@ -92,7 +104,7 @@ public class RestoreFileMapping implements Writable {
         @Override
         public int hashCode() {
             int code = chain[0].hashCode();
-            for (int i = 1; i < 5; i++) {
+            for (int i = 1; i < chain.length; i++) {
                 code ^= chain[i].hashCode();
             }
             return code;
@@ -154,6 +166,11 @@ public class RestoreFileMapping implements Writable {
         RestoreFileMapping mapping = new RestoreFileMapping();
         mapping.readFields(in);
         return mapping;
+    }
+
+    public void clear() {
+        mapping.clear();
+        overwriteMap.clear();
     }
 
     @Override

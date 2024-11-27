@@ -28,9 +28,9 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
+import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.wildfly.common.Assert;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -93,7 +93,7 @@ public class CancelExportStmtTest extends TestWithFeService {
         stmt = new CancelExportStmt(null, compoundAndPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL EXPORT FROM testDb WHERE (`label` = 'doris_test_label') AND (`state` = 'PENDING')",
+                "CANCEL EXPORT FROM testDb WHERE ((`label` = 'doris_test_label') AND (`state` = 'PENDING'))",
                 stmt.toString());
 
         CompoundPredicate compoundOrPredicate = new CompoundPredicate(Operator.OR, labelBinaryPredicate,
@@ -101,7 +101,7 @@ public class CancelExportStmtTest extends TestWithFeService {
         stmt = new CancelExportStmt(null, compoundOrPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL EXPORT FROM testDb WHERE (`label` = 'doris_test_label') OR (`state` = 'PENDING')",
+                "CANCEL EXPORT FROM testDb WHERE ((`label` = 'doris_test_label') OR (`state` = 'PENDING'))",
                 stmt.toString());
     }
 
@@ -233,7 +233,6 @@ public class CancelExportStmtTest extends TestWithFeService {
         exportMgr.unprotectAddJob(job2);
         exportMgr.unprotectAddJob(job3);
         exportMgr.unprotectAddJob(job4);
-
 
         // cancel export job where state = "PENDING"
         Assert.assertTrue(job1.getState() == ExportJobState.PENDING);

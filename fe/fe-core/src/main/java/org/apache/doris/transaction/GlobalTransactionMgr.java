@@ -211,7 +211,7 @@ public class GlobalTransactionMgr implements Writable {
         }
     }
 
-    public void preCommitTransaction2PC(long dbId, List<Table> tableList, long transactionId,
+    private void preCommitTransaction2PC(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         if (Config.disable_load_job) {
@@ -225,6 +225,7 @@ public class GlobalTransactionMgr implements Writable {
         dbTransactionMgr.preCommitTransaction2PC(tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
     }
 
+    @Deprecated
     public void commitTransaction(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
@@ -347,8 +348,11 @@ public class GlobalTransactionMgr implements Writable {
 
     // for http cancel stream load api
     public void abortTransaction(Long dbId, String label, String reason) throws UserException {
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.abortTransaction(label, reason);
+        Long txnId = getTransactionId(dbId, label);
+        if (txnId == null) {
+            throw new AnalysisException("txn with label " + label + " does not exist");
+        }
+        abortTransaction(dbId, txnId, reason);
     }
 
     public void abortTransaction2PC(Long dbId, long transactionId, List<Table> tableList) throws UserException {
@@ -414,9 +418,10 @@ public class GlobalTransactionMgr implements Writable {
      * @param transactionId
      * @return
      */
-    public void finishTransaction(long dbId, long transactionId) throws UserException {
+    public void finishTransaction(long dbId, long transactionId, Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
-        dbTransactionMgr.finishTransaction(transactionId);
+        dbTransactionMgr.finishTransaction(transactionId, partitionVisibleVersions, backendPartitions);
     }
 
     /**
@@ -666,10 +671,12 @@ public class GlobalTransactionMgr implements Writable {
         }
     }
 
-    public List<Pair<Long, Long>> getTransactionIdByCoordinateBe(String coordinateHost, int limit) {
+    private List<Pair<Long, Long>> getPrepareTransactionIdByCoordinateBe(long coordinateBeId,
+            String coordinateHost, int limit) {
         ArrayList<Pair<Long, Long>> txnInfos = new ArrayList<>();
         for (DatabaseTransactionMgr databaseTransactionMgr : dbIdToDatabaseTransactionMgrs.values()) {
-            txnInfos.addAll(databaseTransactionMgr.getTransactionIdByCoordinateBe(coordinateHost, limit));
+            txnInfos.addAll(databaseTransactionMgr.getPrepareTransactionIdByCoordinateBe(
+                        coordinateBeId, coordinateHost, limit));
             if (txnInfos.size() > limit) {
                 break;
             }
@@ -677,19 +684,35 @@ public class GlobalTransactionMgr implements Writable {
         return txnInfos.size() > limit ? new ArrayList<>(txnInfos.subList(0, limit)) : txnInfos;
     }
 
-    /**
-     * If a Coordinate BE is down when running txn, the txn will remain in FE until killed by timeout
-     * So when FE identify the Coordinate BE is down, FE should cancel it initiative
-     */
-    public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit) {
-        List<Pair<Long, Long>> transactionIdByCoordinateBe = getTransactionIdByCoordinateBe(coordinateHost, limit);
+    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime) {
+        List<Pair<Long, Long>> transactionIdByCoordinateBe
+                = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, Integer.MAX_VALUE);
         for (Pair<Long, Long> txnInfo : transactionIdByCoordinateBe) {
             try {
                 DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(txnInfo.first);
                 TransactionState transactionState = dbTransactionMgr.getTransactionState(txnInfo.second);
-                if (transactionState.getTransactionStatus() == TransactionStatus.PRECOMMITTED) {
-                    continue;
+                long coordStartTime = transactionState.getCoordinator().startTime;
+                if (coordStartTime < beStartTime) {
+                    // does not hold table write lock
+                    dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE restart", null);
                 }
+            } catch (UserException e) {
+                LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * If a Coordinate BE is down when running txn, the txn will remain in FE until killed by timeout
+     * So when FE identify the Coordinate BE is down, FE should cancel it initiative
+     */
+    public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit) {
+        List<Pair<Long, Long>> transactionIdByCoordinateBe
+                = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, limit);
+        for (Pair<Long, Long> txnInfo : transactionIdByCoordinateBe) {
+            try {
+                // does not hold table write lock
+                DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(txnInfo.first);
                 dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE is down", null);
             } catch (UserException e) {
                 LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());

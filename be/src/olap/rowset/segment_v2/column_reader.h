@@ -72,6 +72,7 @@ class BitmapIndexIterator;
 class BitmapIndexReader;
 class InvertedIndexIterator;
 class InvertedIndexReader;
+class InvertedIndexFileReader;
 class PageDecoder;
 class RowRanges;
 class ZoneMapIndexReader;
@@ -115,14 +116,15 @@ public:
 
     enum DictEncodingType { UNKNOWN_DICT_ENCODING, PARTIAL_DICT_ENCODING, ALL_DICT_ENCODING };
 
-    ~ColumnReader();
+    virtual ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
     Status new_iterator(ColumnIterator** iterator);
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
-    Status new_inverted_index_iterator(const TabletIndex* index_meta,
+    Status new_inverted_index_iterator(std::shared_ptr<InvertedIndexFileReader> index_file_reader,
+                                       const TabletIndex* index_meta,
                                        const StorageReadOptions& read_options,
                                        std::unique_ptr<InvertedIndexIterator>* iterator);
 
@@ -191,27 +193,30 @@ private:
 
     // Read column inverted indexes into memory
     // May be called multiple times, subsequent calls will no op.
-    Status _ensure_inverted_index_loaded(const TabletIndex* index_meta) {
+    Status _ensure_inverted_index_loaded(std::shared_ptr<InvertedIndexFileReader> index_file_reader,
+                                         const TabletIndex* index_meta) {
         // load inverted index only if not loaded or index_id is changed
-        RETURN_IF_ERROR(_load_inverted_index_index(index_meta));
+        RETURN_IF_ERROR(_load_inverted_index_index(index_file_reader, index_meta));
         return Status::OK();
     }
 
     [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory);
     [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory);
     [[nodiscard]] Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
-    [[nodiscard]] Status _load_inverted_index_index(const TabletIndex* index_meta);
+    [[nodiscard]] Status _load_inverted_index_index(
+            std::shared_ptr<InvertedIndexFileReader> index_file_reader,
+            const TabletIndex* index_meta);
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
 
     bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                                    WrapperField* max_value_container,
                                    const AndBlockColumnPredicate* col_predicates) const;
 
-    void _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                         WrapperField* max_value_container) const;
+    Status _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
+                           WrapperField* max_value_container) const;
 
-    void _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                                   WrapperField* max_value_container) const;
+    Status _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
+                                     WrapperField* max_value_container) const;
 
     Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
                                const std::vector<const ColumnPredicate*>* delete_predicates,
@@ -244,7 +249,7 @@ private:
     // meta for various column indexes (null if the index is absent)
     std::unique_ptr<ZoneMapPB> _segment_zone_map;
 
-    mutable std::mutex _load_index_lock;
+    mutable std::shared_mutex _load_index_lock;
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
@@ -552,7 +557,7 @@ private:
 class RowIdColumnIterator : public ColumnIterator {
 public:
     RowIdColumnIterator() = delete;
-    RowIdColumnIterator(int32_t tid, RowsetId rid, int32_t segid)
+    RowIdColumnIterator(int64_t tid, RowsetId rid, int32_t segid)
             : _tablet_id(tid), _rowset_id(rid), _segment_id(segid) {}
 
     Status seek_to_first() override {
@@ -594,7 +599,7 @@ public:
 
 private:
     rowid_t _current_rowid = 0;
-    int32_t _tablet_id = 0;
+    int64_t _tablet_id = 0;
     RowsetId _rowset_id;
     int32_t _segment_id = 0;
 };
@@ -628,6 +633,9 @@ public:
     ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
 
 private:
+    Status _process_root_column(vectorized::MutableColumnPtr& dst,
+                                vectorized::MutableColumnPtr& root_column,
+                                const vectorized::DataTypePtr& most_common_type);
     std::unique_ptr<FileColumnIterator> _inner_iter;
 };
 

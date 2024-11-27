@@ -17,11 +17,11 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginMgr;
-import org.apache.doris.plugin.audit.AuditEvent;
 
 import com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
@@ -70,12 +70,21 @@ public class AuditEventProcessor {
         }
     }
 
-    public void handleAuditEvent(AuditEvent auditEvent) {
+    public boolean handleAuditEvent(AuditEvent auditEvent) {
+        return handleAuditEvent(auditEvent, false);
+    }
+
+    public boolean handleAuditEvent(AuditEvent auditEvent, boolean ignoreQueueFullLog) {
+        boolean isAddSucc = true;
         try {
             eventQueue.add(auditEvent);
         } catch (Exception e) {
-            LOG.warn("encounter exception when handle audit event, ignore", e);
+            isAddSucc = false;
+            if (!ignoreQueueFullLog) {
+                LOG.warn("encounter exception when handle audit event {}, ignore", auditEvent.type, e);
+            }
         }
+        return isAddSucc;
     }
 
     public class Worker implements Runnable {

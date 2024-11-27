@@ -58,7 +58,7 @@ namespace doris::vectorized {
 
 template <typename T>
 struct NearestFieldTypeImpl {
-    using Type = T;
+    using Type = T; // for HLL or some origin types. see def. of storage
 };
 
 template <typename T>
@@ -217,29 +217,37 @@ public:
 
     bool operator<(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
+        __builtin_unreachable();
     }
     bool operator<=(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
+        __builtin_unreachable();
     }
     bool operator==(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
+        __builtin_unreachable();
     }
     bool operator>(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
+        __builtin_unreachable();
     }
     bool operator>=(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
+        __builtin_unreachable();
     }
     bool operator!=(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
+        __builtin_unreachable();
     }
 
     const JsonbField& operator+=(const JsonbField& r) {
         LOG(FATAL) << "Not support plus opration on JsonbField";
+        __builtin_unreachable();
     }
 
     const JsonbField& operator-=(const JsonbField& r) {
         LOG(FATAL) << "Not support minus opration on JsonbField";
+        __builtin_unreachable();
     }
 
 private:
@@ -298,6 +306,7 @@ public:
     const DecimalField<T>& operator+=(const DecimalField<T>& r) {
         if (scale != r.get_scale()) {
             LOG(FATAL) << "Add different decimal fields";
+            __builtin_unreachable();
         }
         dec += r.get_value();
         return *this;
@@ -306,6 +315,7 @@ public:
     const DecimalField<T>& operator-=(const DecimalField<T>& r) {
         if (scale != r.get_scale()) {
             LOG(FATAL) << "Sub different decimal fields";
+            __builtin_unreachable();
         }
         dec -= r.get_value();
         return *this;
@@ -415,6 +425,7 @@ public:
                 LOG(FATAL) << "type not supported, type=" << Types::to_string(which);
                 break;
             }
+            __builtin_unreachable();
         }
     };
 
@@ -441,45 +452,27 @@ public:
 
     Field(Field&& rhs) { create(std::move(rhs)); }
 
+    // Make the constructor with a String parameter explicit to prevent accidentally creating a Field with the wrong string type.
+    // Other types don't require explicit construction to avoid extensive modifications.
     template <typename T>
         requires(!std::is_same_v<std::decay_t<T>, Field>)
-    Field(T&& rhs);
-
-    /// Create a string inplace.
-    Field(const char* data, size_t size) { create(data, size); }
-
-    Field(const unsigned char* data, size_t size) { create(data, size); }
-
-    /// NOTE In case when field already has string type, more direct assign is possible.
-    void assign_string(const char* data, size_t size) {
-        destroy();
-        create(data, size);
-    }
-
-    void assign_string(const unsigned char* data, size_t size) {
-        destroy();
-        create(data, size);
-    }
-
-    void assign_jsonb(const char* data, size_t size) {
-        destroy();
-        create_jsonb(data, size);
-    }
-
-    void assign_jsonb(const unsigned char* data, size_t size) {
-        destroy();
-        create_jsonb(data, size);
-    }
+    explicit(std::is_same_v<std::decay_t<T>, String>) Field(T&& rhs);
 
     Field& operator=(const Field& rhs) {
         if (this != &rhs) {
             if (which != rhs.which) {
                 destroy();
                 create(rhs);
-            } else
+            } else {
                 assign(rhs); /// This assigns string or vector without deallocation of existing buffer.
+            }
         }
         return *this;
+    }
+
+    bool is_complex_field() const {
+        return which == Types::Array || which == Types::Map || which == Types::Tuple ||
+               which == Types::VariantMap;
     }
 
     Field& operator=(Field&& rhs) {
@@ -487,8 +480,9 @@ public:
             if (which != rhs.which) {
                 destroy();
                 create(std::move(rhs));
-            } else
+            } else {
                 assign(std::move(rhs));
+            }
         }
         return *this;
     }
@@ -715,7 +709,6 @@ private:
         *ptr = std::forward<T>(x);
     }
 
-private:
     void create(const Field& x) {
         dispatch([this](auto& value) { create_concrete(value); }, x);
     }
@@ -732,27 +725,10 @@ private:
         dispatch([this](auto& value) { assign_concrete(std::move(value)); }, x);
     }
 
-    void create(const char* data, size_t size) {
-        new (&storage) String(data, size);
-        which = Types::String;
-    }
-
-    void create(const unsigned char* data, size_t size) {
-        create(reinterpret_cast<const char*>(data), size);
-    }
-
-    void create_jsonb(const char* data, size_t size) {
-        new (&storage) JsonbField(data, size);
-        which = Types::JSONB;
-    }
-
-    void create_jsonb(const unsigned char* data, size_t size) {
-        new (&storage) JsonbField(reinterpret_cast<const char*>(data), size);
-        which = Types::JSONB;
-    }
-
     ALWAYS_INLINE void destroy() {
-        if (which < Types::MIN_NON_POD) return;
+        if (which < Types::MIN_NON_POD) {
+            return;
+        }
 
         switch (which) {
         case Types::String:
@@ -772,6 +748,15 @@ private:
             break;
         case Types::VariantMap:
             destroy<VariantMap>();
+            break;
+        case Types::Bitmap:
+            destroy<BitmapValue>();
+            break;
+        case Types::HyperLogLog:
+            destroy<HyperLogLog>();
+            break;
+        case Types::QuantileState:
+            destroy<QuantileState>();
             break;
         default:
             break;

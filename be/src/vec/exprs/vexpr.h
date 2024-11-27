@@ -84,6 +84,7 @@ public:
     virtual ~VExpr() = default;
 
     virtual const std::string& expr_name() const = 0;
+    virtual std::string expr_label() { return ""; }
 
     /// Initializes this expr instance for execution. This does not include initializing
     /// state in the VExprContext; 'context' should only be used to register a
@@ -114,6 +115,21 @@ public:
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
 
+    // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
+    virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+        return Status::OK();
+    }
+
+    Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
+                                    uint32_t segment_num_rows);
+
+    // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
+    // interface
+    virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
+                                          int* result_column_id, std::vector<size_t>& args) {
+        return execute(context, block, result_column_id);
+    };
+
     /// Subclasses overriding this function should call VExpr::Close().
     //
     /// If scope if FRAGMENT_LOCAL, both fragment- and thread-local state should be torn
@@ -126,6 +142,7 @@ public:
     TypeDescriptor type() { return _type; }
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+    virtual bool is_literal() const { return false; }
 
     TExprNodeType::type node_type() const { return _node_type; }
 
@@ -155,6 +172,9 @@ public:
 
     static Status create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* node_idx,
                                           VExprSPtr& root_expr, VExprContextSPtr& ctx);
+
+    static Status check_expr_output_type(const VExprContextSPtrs& ctxs,
+                                         const RowDescriptor& output_row_desc);
     virtual const VExprSPtrs& children() const { return _children; }
     void set_children(const VExprSPtrs& children) { _children = children; }
     void set_children(VExprSPtrs&& children) { _children = std::move(children); }
@@ -208,6 +228,15 @@ public:
                    << this->debug_string();
         return nullptr;
     }
+
+    // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
+    bool fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
+                      int* result_column_id);
+
+    virtual bool can_push_down_to_index() const { return false; }
+    virtual bool equals(const VExpr& other);
+    void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
+    uint32_t index_unique_id() const { return _index_unique_id; }
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information
@@ -273,6 +302,12 @@ protected:
     // for concrete classes
     bool _prepare_finished = false;
     bool _open_finished = false;
+
+    // ensuring uniqueness during index traversal
+    uint32_t _index_unique_id = 0;
+    bool _can_fast_execute = false;
+    bool _enable_inverted_index_query = true;
+    uint32_t _in_list_value_count_threshold = 10;
 };
 
 } // namespace vectorized
@@ -351,11 +386,11 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         const auto* origin_value = reinterpret_cast<const DateV2Value<DateTimeV2ValueType>*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
-        origin_value->to_string(convert_buffer);
+        origin_value->to_string(convert_buffer, scale);
         date_literal.__set_value(convert_buffer);
         (*node).__set_date_literal(date_literal);
         (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2));
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2, precision, scale));
     } else if constexpr (T == TYPE_DECIMALV2) {
         const auto* origin_value = reinterpret_cast<const DecimalV2Value*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
@@ -367,28 +402,35 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         const auto* origin_value = reinterpret_cast<const vectorized::Decimal<int32_t>*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string(scale));
+        decimal_literal.__set_value(origin_value->to_string(precision, scale));
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL32, precision, scale));
     } else if constexpr (T == TYPE_DECIMAL64) {
         const auto* origin_value = reinterpret_cast<const vectorized::Decimal<int64_t>*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string(scale));
+        decimal_literal.__set_value(origin_value->to_string(precision, scale));
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL64, precision, scale));
     } else if constexpr (T == TYPE_DECIMAL128I) {
         const auto* origin_value = reinterpret_cast<const vectorized::Decimal<int128_t>*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string(scale));
+        // e.g. For a decimal(26,6) column, the initial value of the _min of the MinMax RF
+        // on the RF producer side is an int128 value with 38 digits of 9, and this is the
+        // final min value of the MinMax RF if the fragment instance has no data.
+        // Need to truncate the value to the right precision and scale here, to avoid
+        // error when casting string back to decimal later.
+        // TODO: this is a temporary solution, the best solution is to produce the
+        // right min max value at the producer side.
+        decimal_literal.__set_value(origin_value->to_string(precision, scale));
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL128I, precision, scale));
     } else if constexpr (T == TYPE_DECIMAL256) {
         const auto* origin_value = reinterpret_cast<const vectorized::Decimal<wide::Int256>*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string(scale));
+        decimal_literal.__set_value(origin_value->to_string(precision, scale));
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL256, precision, scale));
     } else if constexpr (T == TYPE_FLOAT) {

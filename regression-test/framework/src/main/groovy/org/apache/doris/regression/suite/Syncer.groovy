@@ -355,14 +355,26 @@ class Syncer {
         }
         String checkSQL = "SHOW BACKUP FROM ${dbName}"
         def records = suite.sql(checkSQL)
+        def allDone = true
         for (row in records) {
             logger.info("BACKUP row is ${row}")
             String state = (row[3] as String);
             if (state != "FINISHED" && state != "CANCELLED") {
-                return false
+                allDone = false
             }
         }
-        true
+        allDone
+    }
+
+    void waitSnapshotFinish(String dbName = null) {
+        int count = 0;
+        while (!checkSnapshotFinish(dbName)) {
+            if (++count >= 600) {  // 30min
+                logger.error('BACKUP task is timeouted')
+                throw new Exception("BACKUP task is timeouted after 30mins")
+            }
+            Thread.sleep(3000)
+        }
     }
 
     String getSnapshotTimestamp(String repoName, String snapshotName) {
@@ -393,22 +405,47 @@ class Syncer {
         }
         String checkSQL = "SHOW RESTORE FROM ${dbName}"
         def records = suite.sql(checkSQL)
+        def allDone = true
         for (row in records) {
             logger.info("Restore row is ${row}")
             String state = row[4]
             if (state != "FINISHED" && state != "CANCELLED") {
-                return false
+                allDone = false
             }
         }
-        true
+        allDone
+    }
+
+    void waitAllRestoreFinish(String dbName = null) {
+        int count = 0;
+        while (!checkAllRestoreFinish(dbName)) {
+            if (++count >= 600) {  // 30min
+                logger.error('RESTORE task is timeouted')
+                throw new Exception("RESTORE task is timeouted after 30mins")
+            }
+            Thread.sleep(3000)
+        }
     }
 
     Boolean checkRestoreFinish() {
         String checkSQL = "SHOW RESTORE FROM TEST_" + context.db
-        List<Object> row = suite.sql(checkSQL)[0]
+        int size = suite.sql(checkSQL).size()
+        logger.info("Now size is ${size}")
+        List<Object> row = suite.sql(checkSQL)[size-1]
         logger.info("Now row is ${row}")
 
         return (row[4] as String) == "FINISHED"
+    }
+
+    void waitTargetRestoreFinish() {
+        int count = 0;
+        while (!checkRestoreFinish()) {
+            if (++count >= 600) {  // 30min
+                logger.error('target RESTORE task is timeouted')
+                throw new Exception("target RESTORE task is timeouted after 30mins")
+            }
+            Thread.sleep(3000)
+        }
     }
 
     Boolean checkGetSnapshot() {
@@ -426,6 +463,8 @@ class Syncer {
                             logger.error("TGetSnapshotResult meta is unset.")
                         } else if (!result.isSetJobInfo()) {
                             logger.error("TGetSnapshotResult job info is unset.")
+                        } else if (!result.isSetExpiredAt()) {
+                            logger.error("TGetSnapshotResult expiredAt is unset.")
                         } else {
                             isCheckedOK = true
                         }
@@ -612,9 +651,9 @@ class Syncer {
 
         // step 2: get partitionIds
         metaMap.values().forEach {
-            baseSql += "/" + it.id.toString() + "/partitions"
+            def partitionSql = baseSql + "/" + it.id.toString() + "/partitions"
             Map<Long, Long> partitionInfo = Maps.newHashMap()
-            sqlInfo = sendSql.call(baseSql, toSrc)
+            sqlInfo = sendSql.call(partitionSql, toSrc)
             for (List<Object> row : sqlInfo) {
                 partitionInfo.put(row[0] as Long, row[2] as Long)
             }
@@ -627,7 +666,7 @@ class Syncer {
             for (Entry<Long, Long> info : partitionInfo) {
 
                 // step 3.1: get partition/indexId
-                String partitionSQl = baseSql + "/" + info.key.toString()
+                String partitionSQl = partitionSql + "/" + info.key.toString()
                 sqlInfo = sendSql.call(partitionSQl, toSrc)
                 if (sqlInfo.isEmpty()) {
                     logger.error("Target cluster partition-${info.key} indexId fault.")
@@ -638,8 +677,13 @@ class Syncer {
                 // step 3.2: get partition/indexId/tabletId
                 partitionSQl += "/" + meta.indexId.toString()
                 sqlInfo = sendSql.call(partitionSQl, toSrc)
+                Map<Long, Long> replicaMap = Maps.newHashMap()
                 for (List<Object> row : sqlInfo) {
-                    meta.tabletMeta.put(row[0] as Long, row[2] as Long)
+                    Long tabletId = row[0] as Long
+                    if (!meta.tabletMeta.containsKey(tabletId)) {
+                        meta.tabletMeta.put(tabletId, new TabletMeta())
+                    }
+                    meta.tabletMeta[tabletId].replicas.put(row[1] as Long, row[2] as Long)
                 }
                 if (meta.tabletMeta.isEmpty()) {
                     logger.error("Target cluster get (partitionId/indexId)-(${info.key}/${meta.indexId}) tabletIds fault.")
@@ -735,47 +779,55 @@ class Syncer {
                     continue
                 }
 
+                long txnId = context.txnId
+                // step 2.3: ingest each tablet in the partition
                 Iterator srcTabletIter = srcPartition.value.tabletMeta.iterator()
                 Iterator tarTabletIter = tarPartition.value.tabletMeta.iterator()
-
-                // step 2.3: ingest each tablet in the partition
                 while (srcTabletIter.hasNext()) {
                     Entry srcTabletMap = srcTabletIter.next()
                     Entry tarTabletMap = tarTabletIter.next()
+                    TabletMeta srcTabletMeta = srcTabletMap.value
+                    TabletMeta tarTabletMeta = tarTabletMap.value
 
-                    BackendClientImpl srcClient = context.sourceBackendClients.get(srcTabletMap.value)
-                    if (srcClient == null) {
-                        logger.error("Can't find src tabletId-${srcTabletMap.key} -> beId-${srcTabletMap.value}")
-                        return false
+                    Iterator srcReplicaIter = srcTabletMeta.replicas.iterator()
+                    Iterator tarReplicaIter = tarTabletMeta.replicas.iterator()
+                    while (srcReplicaIter.hasNext()) {
+                        Entry srcReplicaMap = srcReplicaIter.next()
+                        Entry tarReplicaMap = tarReplicaIter.next()
+                        BackendClientImpl srcClient = context.sourceBackendClients.get(srcReplicaMap.value)
+                        if (srcClient == null) {
+                            logger.error("Can't find src tabletId-${srcReplicaMap.key} -> beId-${srcReplicaMap.value}")
+                            return false
+                        }
+                        BackendClientImpl tarClient = context.targetBackendClients.get(tarReplicaMap.value)
+                        if (tarClient == null) {
+                            logger.error("Can't find target tabletId-${tarReplicaMap.key} -> beId-${tarReplicaMap.value}")
+                            return false
+                        }
+
+                        tarPartition.value.version = srcPartition.value.version
+                        long partitionId = fakePartitionId == -1 ? tarPartition.key : fakePartitionId
+                        long version = fakeVersion == -1 ? partitionRecord.version : fakeVersion
+
+                        TIngestBinlogRequest request = new TIngestBinlogRequest()
+                        TUniqueId uid = new TUniqueId(-1, -1)
+                        request.setTxnId(txnId)
+                        request.setRemoteTabletId(srcTabletMap.key)
+                        request.setBinlogVersion(version)
+                        request.setRemoteHost(srcClient.address.hostname)
+                        request.setRemotePort(srcClient.httpPort.toString())
+                        request.setPartitionId(partitionId)
+                        request.setLocalTabletId(tarTabletMap.key)
+                        request.setLoadId(uid)
+                        logger.info("request -> ${request}")
+                        TIngestBinlogResult result = tarClient.client.ingestBinlog(request)
+                        if (!checkIngestBinlog(result)) {
+                            logger.error("Ingest binlog error! result: ${result}")
+                            return false
+                        }
+
+                        addCommitInfo(tarTabletMap.key, tarReplicaMap.value)
                     }
-                    BackendClientImpl tarClient = context.targetBackendClients.get(tarTabletMap.value)
-                    if (tarClient == null) {
-                        logger.error("Can't find target tabletId-${tarTabletMap.key} -> beId-${tarTabletMap.value}")
-                        return false
-                    }
-
-                    tarPartition.value.version = srcPartition.value.version
-                    long partitionId = fakePartitionId == -1 ? tarPartition.key : fakePartitionId
-                    long version = fakeVersion == -1 ? srcPartition.value.version : fakeVersion
-
-                    TIngestBinlogRequest request = new TIngestBinlogRequest()
-                    TUniqueId uid = new TUniqueId(-1, -1)
-                    request.setTxnId(context.txnId)
-                    request.setRemoteTabletId(srcTabletMap.key)
-                    request.setBinlogVersion(version)
-                    request.setRemoteHost(srcClient.address.hostname)
-                    request.setRemotePort(srcClient.httpPort.toString())
-                    request.setPartitionId(partitionId)
-                    request.setLocalTabletId(tarTabletMap.key)
-                    request.setLoadId(uid)
-                    logger.info("request -> ${request}")
-                    TIngestBinlogResult result = tarClient.client.ingestBinlog(request)
-                    if (!checkIngestBinlog(result)) {
-                        logger.error("Ingest binlog error! result: ${result}")
-                        return false
-                    }
-
-                    addCommitInfo(tarTabletMap.key, tarTabletMap.value)
                 }
             }
         }
@@ -818,8 +870,7 @@ class Syncer {
             "s3.endpoint" = "http://${endpoint}",
             "s3.region" = "${region}",
             "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
-            "delete_if_exists" = "true"
+            "s3.secret_key" = "${sk}"
         )
             """
     }

@@ -276,7 +276,7 @@ Along with the new Multi-Catalog feature, we also added privilege management at 
 
 Users can also specify a custom authentication class through the `access_controller.class` attribute. As specified by:
 
-`"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory"`
+`"access_controller.class" = "org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveAccessControllerFactory"`
 
 Then you can use Apache Range to perform authentication management on Hive Catalog. For more information see: [Hive Catalog](./hive.md)
 

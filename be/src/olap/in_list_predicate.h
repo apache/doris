@@ -36,13 +36,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
-template <>
-struct std::equal_to<doris::StringRef> {
-    bool operator()(const doris::StringRef& lhs, const doris::StringRef& rhs) const {
-        return lhs == rhs;
-    }
-};
-
 // for uint24_t
 template <>
 struct std::hash<doris::uint24_t> {
@@ -187,7 +180,7 @@ public:
         return Status::OK();
     }
 
-    Status evaluate(const vectorized::NameAndTypePair& name_with_type,
+    Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     InvertedIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
@@ -201,10 +194,10 @@ public:
             auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(
                     *reinterpret_cast<const T*>(ptr));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
-            roaring::Roaring index;
+            std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
             RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
-                                                               num_rows, &index));
-            indices |= index;
+                                                               num_rows, index));
+            indices |= *index;
             iter->next();
         }
 
@@ -373,8 +366,6 @@ private:
                 new_size = _base_evaluate<false, false>(&column, nullptr, sel, size);
             }
         }
-        _evaluated_rows += size;
-        _passed_rows += new_size;
         return new_size;
     }
 
@@ -434,6 +425,7 @@ private:
                 }
             } else {
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                __builtin_unreachable();
             }
         } else {
             auto& pred_col =
@@ -497,6 +489,7 @@ private:
                 }
             } else {
                 LOG(FATAL) << "column_dictionary must use StringRef predicate.";
+                __builtin_unreachable();
             }
         } else {
             auto* nested_col_ptr = vectorized::check_and_get_column<

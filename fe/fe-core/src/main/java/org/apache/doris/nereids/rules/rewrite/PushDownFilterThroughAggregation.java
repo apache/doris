@@ -29,7 +29,7 @@ import org.apache.doris.nereids.util.PlanUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
@@ -60,9 +60,9 @@ public class PushDownFilterThroughAggregation extends OneRewriteRuleFactory {
             LogicalAggregate<Plan> aggregate = filter.child();
             Set<Slot> canPushDownSlots = getCanPushDownSlots(aggregate);
 
-            Set<Expression> pushDownPredicates = Sets.newHashSet();
-            Set<Expression> filterPredicates = Sets.newHashSet();
-            filter.getConjuncts().forEach(conjunct -> {
+            Set<Expression> pushDownPredicates = Sets.newLinkedHashSet();
+            Set<Expression> filterPredicates = Sets.newLinkedHashSet();
+            for (Expression conjunct : filter.getConjuncts()) {
                 Set<Slot> conjunctSlots = conjunct.getInputSlots();
                 // NOTICE: filter not contain slot should not be pushed. e.g. 'a' = 'b'
                 if (!conjunctSlots.isEmpty() && canPushDownSlots.containsAll(conjunctSlots)) {
@@ -70,7 +70,7 @@ public class PushDownFilterThroughAggregation extends OneRewriteRuleFactory {
                 } else {
                     filterPredicates.add(conjunct);
                 }
-            });
+            }
             if (pushDownPredicates.isEmpty()) {
                 return null;
             }
@@ -84,7 +84,7 @@ public class PushDownFilterThroughAggregation extends OneRewriteRuleFactory {
      * get the slots that can be pushed down
      */
     public static Set<Slot> getCanPushDownSlots(LogicalAggregate<? extends Plan> aggregate) {
-        Set<Slot> canPushDownSlots = new HashSet<>();
+        Set<Slot> canPushDownSlots = new LinkedHashSet<>();
         if (aggregate.getSourceRepeat().isPresent()) {
             // When there is a repeat, the push-down condition is consistent with the repeat
             aggregate.getSourceRepeat().get().getCommonGroupingSetExpressions().stream()

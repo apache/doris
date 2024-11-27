@@ -92,19 +92,19 @@ void VExplodeNumbersTableFunction::process_close() {
     _value_column = nullptr;
 }
 
-void VExplodeNumbersTableFunction::get_value(MutableColumnPtr& column) {
+void VExplodeNumbersTableFunction::get_same_many_values(MutableColumnPtr& column, int length) {
     if (current_empty()) {
-        column->insert_default();
+        column->insert_many_defaults(length);
     } else {
         if (_is_nullable) {
             assert_cast<ColumnInt32*>(
                     assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
-                    ->insert_value(_cur_offset);
+                    ->insert_many_vals(_cur_offset, length);
             assert_cast<ColumnUInt8*>(
                     assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
-                    ->insert_default();
+                    ->insert_many_defaults(length);
         } else {
-            assert_cast<ColumnInt32*>(column.get())->insert_value(_cur_offset);
+            assert_cast<ColumnInt32*>(column.get())->insert_many_vals(_cur_offset, length);
         }
     }
 }

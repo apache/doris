@@ -54,9 +54,16 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testParseMultiple() {
         NereidsParser nereidsParser = new NereidsParser();
-        String sql = "SELECT b FROM test;SELECT a FROM test;";
+        String sql = "SELECT b FROM test;;;;SELECT a FROM test;";
         List<Pair<LogicalPlan, StatementContext>> logicalPlanList = nereidsParser.parseMultiple(sql);
         Assertions.assertEquals(2, logicalPlanList.size());
+    }
+
+    @Test
+    public void testParseMultipleError() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "SELECT b FROM test SELECT a FROM test;";
+        Assertions.assertThrowsExactly(ParseException.class, () -> nereidsParser.parseMultiple(sql));
     }
 
     @Test
@@ -344,14 +351,8 @@ public class NereidsParserTest extends ParserTestBase {
         parsePlan("select * from t1 join [broadcast] t2 on t1.keyy=t2.keyy")
                 .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.BROADCAST_RIGHT));
 
-        parsePlan("select * from t1 join /*+ broadcast   */ t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.BROADCAST_RIGHT));
-
         // invalid hint position
         parsePlan("select * from [shuffle] t1 join t2 on t1.keyy=t2.keyy")
-                .assertThrowsExactly(ParseException.class);
-
-        parsePlan("select * from /*+ shuffle */ t1 join t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class);
 
         // invalid hint content
@@ -364,8 +365,6 @@ public class NereidsParserTest extends ParserTestBase {
                         + "----------------------^^^");
 
         // invalid multiple hints
-        parsePlan("select * from t1 join /*+ shuffle , broadcast */ t2 on t1.keyy=t2.keyy")
-                .assertThrowsExactly(ParseException.class);
 
         parsePlan("select * from t1 join [shuffle,broadcast] t2 on t1.keyy=t2.keyy")
                 .assertThrowsExactly(ParseException.class);

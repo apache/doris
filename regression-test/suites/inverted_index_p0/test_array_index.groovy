@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 suite("test_array_index1"){
     // prepare test table
 
@@ -23,6 +22,22 @@ suite("test_array_index1"){
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0
+
+
+    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
+            alter_res = alter_res.toString()
+            if(alter_res.contains("FINISHED")) {
+                sleep(10000) // wait change table state to normal
+                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
+    }
 
     def indexTblName = "test_array_index"
 
@@ -46,6 +61,7 @@ suite("test_array_index1"){
     "enable_single_replica_compaction" = "false"
     );
     """
+    sql """ set enable_common_expr_pushdown = true """
 
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2017-01-01', '6afef581285b6608bf80d5a4e46cf839', '[\"a\", \"b\", \"c\"]'); """
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2017-01-01', 'd93d942d985a8fb7547c72dada8d332d', '[\"d\", \"e\", \"f\", \"g\", \"h\", \"i\", \"j\", \"k\", \"l\"]'); """
@@ -65,6 +81,7 @@ suite("test_array_index1"){
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2019-01-01', 'ee27ee1da291e46403c408e220bed6e1', '[\"y\"]'); """
 
     sql """ ALTER TABLE ${indexTblName} ADD INDEX index_inverted_inventors(inventors) USING INVERTED  COMMENT ''; """
+    wait_for_latest_op_on_table_finish(indexTblName, timeout)
 
     sql """ BUILD INDEX index_inverted_inventors ON ${indexTblName}; """
 }

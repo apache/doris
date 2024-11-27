@@ -24,10 +24,13 @@ import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
@@ -51,6 +54,7 @@ import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -247,7 +251,8 @@ public class RestoreJobTest {
         db.unregisterTable(expectedRestoreTbl.getName());
 
         job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(), jobInfo, false,
-                new ReplicaAllocation((short) 3), 100000, -1, false, false, false, env, repo.getId());
+                new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false, false, false,
+                env, repo.getId());
 
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();
@@ -276,4 +281,27 @@ public class RestoreJobTest {
         System.out.println("tbl signature: " + tbl.getSignature(BackupHandler.SIGNATURE_VERSION, partNames));
     }
 
+    @Test
+    public void testResetPartitionVisibleAndNextVersionForRestore() throws Exception {
+        long visibleVersion = 1234;
+        long remotePartId = 123;
+        String partName = "p20240723";
+        MaterializedIndex index = new MaterializedIndex();
+        Partition remotePart = new Partition(remotePartId, partName, index, new HashDistributionInfo());
+        remotePart.setVisibleVersionAndTime(visibleVersion, 0);
+        remotePart.setNextVersion(visibleVersion + 10);
+
+        OlapTable localTbl = new OlapTable();
+        localTbl.setPartitionInfo(new PartitionInfo(PartitionType.RANGE));
+        OlapTable remoteTbl = new OlapTable();
+        remoteTbl.addPartition(remotePart);
+        remoteTbl.setPartitionInfo(new PartitionInfo(PartitionType.RANGE));
+
+        ReplicaAllocation alloc = new ReplicaAllocation();
+        job.resetPartitionForRestore(localTbl, remoteTbl, partName, alloc);
+
+        Partition localPart = remoteTbl.getPartition(partName);
+        Assert.assertEquals(localPart.getVisibleVersion(), visibleVersion);
+        Assert.assertEquals(localPart.getNextVersion(), visibleVersion + 1);
+    }
 }

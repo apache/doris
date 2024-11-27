@@ -45,7 +45,7 @@ public:
 
     // this function must call before other function,
     // you can call this multiple times to reuse this object
-    Status init(const std::string& url);
+    Status init(const std::string& url, bool set_fail_on_error = true);
 
     void set_method(HttpMethod method);
 
@@ -106,14 +106,17 @@ public:
             if (cl < 0) {
                 return Status::InternalError(
                         fmt::format("failed to get content length, it should be a positive value, "
-                                    "actrual is : {}",
+                                    "actual is : {}",
                                     cl));
             }
-            *length = cl;
+            *length = (uint64_t)cl;
             return Status::OK();
         }
         return Status::InternalError("failed to get content length. err code: {}", code);
     }
+
+    // Get the value of the header CONTENT-MD5. The output is empty if no such header exists.
+    Status get_content_md5(std::string* md5) const;
 
     long get_http_status() const {
         long code;
@@ -143,8 +146,18 @@ public:
 
     size_t on_response_data(const void* data, size_t length);
 
+    // The file name of the variant column with the inverted index contains %
+    // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
+    //  {rowset_id}_{seg_num}_{index_id}_{variant_column_name}{%2E}{extracted_column_name}.idx
+    // We need to handle %, otherwise it will cause an HTTP 404 error.
+    // Because the percent ("%") character serves as the indicator for percent-encoded octets,
+    // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
+    // https://datatracker.ietf.org/doc/html/rfc3986
+    Status _escape_url(const std::string& url, std::string* escaped_url);
+
 private:
-    const char* _to_errmsg(CURLcode code);
+    const char* _to_errmsg(CURLcode code) const;
+    const char* _get_url() const;
 
 private:
     CURL* _curl = nullptr;

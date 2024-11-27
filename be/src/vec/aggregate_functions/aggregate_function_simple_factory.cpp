@@ -26,10 +26,11 @@
 
 namespace doris::vectorized {
 
-void register_aggregate_function_combinator_sort(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory);
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_sum0(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_max_by(AggregateFunctionSimpleFactory& factory);
@@ -38,6 +39,7 @@ void register_aggregate_function_count(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_count_by_enum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_uniq(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_uniq_distribute_key(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_quantile_state(AggregateFunctionSimpleFactory& factory);
@@ -48,9 +50,11 @@ void register_aggregate_function_stddev_variance_pop(AggregateFunctionSimpleFact
 void register_aggregate_function_stddev_variance_samp(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_group_array_intersect(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory);
@@ -69,6 +73,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static AggregateFunctionSimpleFactory instance;
     std::call_once(oc, [&]() {
         register_aggregate_function_sum(instance);
+        register_aggregate_function_sum0(instance);
         register_aggregate_function_minmax(instance);
         register_aggregate_function_min_by(instance);
         register_aggregate_function_max_by(instance);
@@ -76,8 +81,10 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_count(instance);
         register_aggregate_function_count_by_enum(instance);
         register_aggregate_function_uniq(instance);
+        register_aggregate_function_uniq_distribute_key(instance);
         register_aggregate_function_bit(instance);
         register_aggregate_function_bitmap(instance);
+        register_aggregate_function_group_array_intersect(instance);
         register_aggregate_function_group_concat(instance);
         register_aggregate_function_quantile_state(instance);
         register_aggregate_function_combinator_distinct(instance);
@@ -90,6 +97,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_percentile(instance);
         register_aggregate_function_percentile_approx(instance);
         register_aggregate_function_window_funnel(instance);
+        register_aggregate_function_window_funnel_old(instance);
         register_aggregate_function_retention(instance);
         register_aggregate_function_orthogonal_bitmap(instance);
         register_aggregate_function_collect_list(instance);
@@ -107,6 +115,8 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_functions_corr(instance);
         register_aggregate_function_covar_pop(instance);
         register_aggregate_function_covar_samp(instance);
+
+        register_aggregate_function_combinator_foreach(instance);
     });
     return instance;
 }

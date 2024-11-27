@@ -30,6 +30,8 @@ suite("query12") {
     sql 'set enable_nereids_timeout = false'
     sql 'set runtime_filter_type=8'
     sql 'set enable_runtime_filter_prune=true'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
 
     def ds = """select  i_item_id
       ,i_item_desc 

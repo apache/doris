@@ -112,7 +112,6 @@ suite("test_outer_join_with_cross_join") {
         inner join test_outer_join_with_cross_join_outerjoin_C as ref_4 on true;
     """
 
-    sql """set enable_nereids_planner=false;"""
     qt_select3 """
                 WITH a As(
                     select
@@ -125,7 +124,7 @@ suite("test_outer_join_with_cross_join") {
 
                             end) as enddate
                 )
-                select * from test_outer_join_with_cross_join_outerjoin_A DMR_POTM, a
+                select * from test_outer_join_with_cross_join_outerjoin_A DMR_POTM cross join a
                 right join ( select distinct a from test_outer_join_with_cross_join_outerjoin_B ) DD
                 on DMR_POTM.a =DD.a;
                 """

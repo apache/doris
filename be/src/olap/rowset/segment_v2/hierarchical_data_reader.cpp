@@ -17,6 +17,8 @@
 
 #include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 
+#include <memory>
+
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
@@ -34,15 +36,14 @@ namespace segment_v2 {
 Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
                                       vectorized::PathInData path,
                                       const SubcolumnColumnReaders::Node* node,
-                                      const SubcolumnColumnReaders::Node* root,
-                                      bool output_as_raw_json) {
+                                      const SubcolumnColumnReaders::Node* root) {
     // None leave node need merge with root
-    auto* stream_iter = new HierarchicalDataReader(path, output_as_raw_json);
+    auto* stream_iter = new HierarchicalDataReader(path);
     std::vector<const SubcolumnColumnReaders::Node*> leaves;
     vectorized::PathsInData leaves_paths;
     SubcolumnColumnReaders::get_leaves_of_node(node, leaves, leaves_paths);
     for (size_t i = 0; i < leaves_paths.size(); ++i) {
-        if (leaves_paths[i] == root->path) {
+        if (leaves_paths[i].empty()) {
             // use set_root to share instead
             continue;
         }
@@ -76,6 +77,7 @@ Status HierarchicalDataReader::init(const ColumnIteratorOptions& opts) {
 
 Status HierarchicalDataReader::seek_to_first() {
     LOG(FATAL) << "Not implemented";
+    __builtin_unreachable();
 }
 
 Status HierarchicalDataReader::seek_to_ordinal(ordinal_t ord) {
@@ -154,6 +156,7 @@ Status ExtractReader::init(const ColumnIteratorOptions& opts) {
 
 Status ExtractReader::seek_to_first() {
     LOG(FATAL) << "Not implemented";
+    __builtin_unreachable();
 }
 
 Status ExtractReader::seek_to_ordinal(ordinal_t ord) {
@@ -182,7 +185,7 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows
     // since some other column may depend on it.
     vectorized::MutableColumnPtr extracted_column;
     RETURN_IF_ERROR(root.extract_root( // trim the root name, eg. v.a.b -> a.b
-            _col.path_info().copy_pop_front(), extracted_column));
+            _col.path_info_ptr()->copy_pop_front(), extracted_column));
 
     if (_target_type_hint != nullptr) {
         variant.create_root(_target_type_hint, _target_type_hint->create_column());

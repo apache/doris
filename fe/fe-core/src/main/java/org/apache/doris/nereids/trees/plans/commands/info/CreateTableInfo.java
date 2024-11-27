@@ -17,27 +17,18 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.KeysDesc;
-import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
-import org.apache.doris.analysis.RangePartitionDesc;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -49,16 +40,15 @@ import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsUtil;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.parser.PartitionTableInfo;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -69,7 +59,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -83,6 +72,16 @@ import java.util.stream.Collectors;
  * table info in creating table.
  */
 public class CreateTableInfo {
+
+    public static final String ENGINE_OLAP = "olap";
+    public static final String ENGINE_JDBC = "jdbc";
+    public static final String ENGINE_ELASTICSEARCH = "elasticsearch";
+    public static final String ENGINE_ODBC = "odbc";
+    public static final String ENGINE_MYSQL = "mysql";
+    public static final String ENGINE_BROKER = "broker";
+    public static final String ENGINE_HIVE = "hive";
+    public static final String ENGINE_ICEBERG = "iceberg";
+
     private final boolean ifNotExists;
     private String ctlName;
     private String dbName;
@@ -90,26 +89,21 @@ public class CreateTableInfo {
     private List<ColumnDefinition> columns;
     private final List<IndexDefinition> indexes;
     private final List<String> ctasColumns;
-    private final String engineName;
+    private String engineName;
     private KeysType keysType;
     private List<String> keys;
     private final String comment;
-    private final String partitionType;
-    private List<String> partitionColumns;
-    private final List<PartitionDefinition> partitions;
     private DistributionDescriptor distribution;
     private final List<RollupDefinition> rollups;
     private Map<String, String> properties;
     private Map<String, String> extProperties;
     private boolean isEnableMergeOnWrite = false;
 
-    private final boolean isAutoPartition;
-    private final List<Expression> autoPartitionExprs;
-
     private boolean isExternal = false;
     private String clusterName = null;
     private List<String> clusterKeysColumnNames = null;
     private List<Integer> clusterKeysColumnIds = null;
+    private PartitionTableInfo partitionTableInfo; // get when validate
 
     /**
      * constructor for create table
@@ -117,8 +111,7 @@ public class CreateTableInfo {
     public CreateTableInfo(boolean ifNotExists, boolean isExternal, String ctlName, String dbName,
             String tableName, List<ColumnDefinition> columns, List<IndexDefinition> indexes,
             String engineName, KeysType keysType, List<String> keys, String comment,
-            boolean isAutoPartition, List<Expression> autoPartitionExprs, String partitionType,
-            List<String> partitionColumns, List<PartitionDefinition> partitions,
+            PartitionTableInfo partitionTableInfo,
             DistributionDescriptor distribution, List<RollupDefinition> rollups,
             Map<String, String> properties, Map<String, String> extProperties,
             List<String> clusterKeyColumnNames) {
@@ -134,11 +127,7 @@ public class CreateTableInfo {
         this.keysType = keysType;
         this.keys = Utils.copyRequiredList(keys);
         this.comment = comment;
-        this.isAutoPartition = isAutoPartition;
-        this.autoPartitionExprs = autoPartitionExprs;
-        this.partitionType = partitionType;
-        this.partitionColumns = partitionColumns;
-        this.partitions = partitions;
+        this.partitionTableInfo = partitionTableInfo;
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
         this.properties = properties;
@@ -151,9 +140,8 @@ public class CreateTableInfo {
      */
     public CreateTableInfo(boolean ifNotExists, boolean isExternal, String ctlName, String dbName,
             String tableName, List<String> cols, String engineName, KeysType keysType,
-            List<String> keys, String comment, boolean isAutoPartition,
-            List<Expression> autoPartitionExprs, String partitionType,
-            List<String> partitionColumns, List<PartitionDefinition> partitions,
+            List<String> keys, String comment,
+            PartitionTableInfo partitionTableInfo,
             DistributionDescriptor distribution, List<RollupDefinition> rollups,
             Map<String, String> properties, Map<String, String> extProperties,
             List<String> clusterKeyColumnNames) {
@@ -169,11 +157,7 @@ public class CreateTableInfo {
         this.keysType = keysType;
         this.keys = Utils.copyRequiredList(keys);
         this.comment = comment;
-        this.isAutoPartition = isAutoPartition;
-        this.autoPartitionExprs = autoPartitionExprs;
-        this.partitionType = partitionType;
-        this.partitionColumns = partitionColumns;
-        this.partitions = partitions;
+        this.partitionTableInfo = partitionTableInfo;
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
         this.properties = properties;
@@ -210,6 +194,21 @@ public class CreateTableInfo {
         return ImmutableList.of(tableName);
     }
 
+    private void checkEngineWithCatalog() {
+        if (engineName.equals(ENGINE_OLAP)) {
+            if (!ctlName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                throw new AnalysisException("Cannot create olap table out of internal catalog."
+                    + " Make sure 'engine' type is specified when use the catalog: " + ctlName);
+            }
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+        if (catalog instanceof HMSExternalCatalog && !engineName.equals(ENGINE_HIVE)) {
+            throw new AnalysisException("Hms type catalog can only use `hive` engine.");
+        } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
+            throw new AnalysisException("Iceberg type catalog can only use `iceberg` engine.");
+        }
+    }
+
     /**
      * analyze create table info
      */
@@ -217,25 +216,6 @@ public class CreateTableInfo {
         // pre-block in some cases.
         if (columns.isEmpty()) {
             throw new AnalysisException("table should contain at least one column");
-        }
-
-        checkEngineName();
-
-        if (properties == null) {
-            properties = Maps.newHashMap();
-        }
-
-        if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase("olap")) {
-            if (distribution == null) {
-                throw new AnalysisException("Create olap table should contain distribution desc");
-            }
-            properties = maybeRewriteByAutoBucket(distribution, properties);
-        }
-
-        try {
-            FeNameFormat.checkTableName(tableName);
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e);
         }
 
         // analyze catalog name
@@ -246,6 +226,27 @@ public class CreateTableInfo {
                 ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
             }
         }
+        paddingEngineName(ctlName, ctx);
+        checkEngineName();
+
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+
+        if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
+            if (distribution == null) {
+                distribution = new DistributionDescriptor(false, true, FeConstants.default_bucket_num, null);
+            }
+            properties = maybeRewriteByAutoBucket(distribution, properties);
+        }
+
+        try {
+            FeNameFormat.checkTableName(tableName);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+
+        checkEngineWithCatalog();
 
         // analyze table name
         if (Strings.isNullOrEmpty(dbName)) {
@@ -256,7 +257,7 @@ public class CreateTableInfo {
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), ctlName, dbName,
                 tableName, PrivPredicate.CREATE)) {
             try {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
@@ -271,6 +272,11 @@ public class CreateTableInfo {
 
         //check datev1 and decimalv2
         for (ColumnDefinition columnDef : columns) {
+            String columnNameUpperCase = columnDef.getName().toUpperCase();
+            if (columnNameUpperCase.startsWith("__DORIS_")) {
+                throw new AnalysisException(
+                        "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
+            }
             if (columnDef.getType().isDateType() && Config.disable_datev1) {
                 throw new AnalysisException(
                         "Disable to create table with `DATE` type columns, please use `DATEV2`.");
@@ -280,8 +286,20 @@ public class CreateTableInfo {
                         + "please use `DECIMALV3`.");
             }
         }
+        // check duplicated columns
+        Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        columns.forEach(c -> {
+            if (columnMap.put(c.getName(), c) != null) {
+                try {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME,
+                            c.getName());
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+            }
+        });
 
-        if (engineName.equalsIgnoreCase("olap")) {
+        if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
             properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(ctlName, dbName,
                     properties);
             boolean enableDuplicateWithoutKeysByDefault = false;
@@ -375,10 +393,8 @@ public class CreateTableInfo {
             }
 
             validateKeyColumns();
-            if (!clusterKeysColumnNames.isEmpty() && !isEnableMergeOnWrite) {
-                throw new AnalysisException(
-                        "Cluster keys only support unique keys table which enabled "
-                                + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            if (!clusterKeysColumnNames.isEmpty()) {
+                throw new AnalysisException("Cluster key is not supported");
             }
             for (int i = 0; i < keys.size(); ++i) {
                 columns.get(i).setIsKey(true);
@@ -442,67 +458,10 @@ public class CreateTableInfo {
                 }
             }
 
-            // validate partitions
-            Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-            columns.forEach(c -> {
-                if (columnMap.put(c.getName(), c) != null) {
-                    try {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME,
-                                c.getName());
-                    } catch (Exception e) {
-                        throw new AnalysisException(e.getMessage(), e.getCause());
-                    }
-                }
-            });
-
-            if (isAutoPartition) {
-                partitionColumns = ExpressionUtils
-                        .collectAll(autoPartitionExprs, UnboundSlot.class::isInstance).stream()
-                        .map(slot -> ((UnboundSlot) slot).getName()).collect(Collectors.toList());
-            }
-
-            if (partitionColumns != null) {
-                partitionColumns.forEach(p -> {
-                    if (!columnMap.containsKey(p)) {
-                        throw new AnalysisException(
-                                String.format("partition key %s is not exists", p));
-                    }
-                    validatePartitionColumn(columnMap.get(p), ctx);
-                });
-
-                Set<String> partitionColumnSets = Sets.newHashSet();
-                List<String> duplicatesKeys = partitionColumns.stream()
-                        .filter(c -> !partitionColumnSets.add(c)).collect(Collectors.toList());
-                if (!duplicatesKeys.isEmpty()) {
-                    throw new AnalysisException(
-                            "Duplicated partition column " + duplicatesKeys.get(0));
-                }
-
-                if (partitions != null) {
-                    if (!checkPartitionsTypes()) {
-                        throw new AnalysisException(
-                                "partitions types is invalid, expected FIXED or LESS in range partitions"
-                                        + " and IN in list partitions");
-                    }
-                    Set<String> partitionNames = Sets.newHashSet();
-                    for (PartitionDefinition partition : partitions) {
-                        if (partition instanceof StepPartition) {
-                            continue;
-                        }
-                        String partitionName = partition.getPartitionName();
-                        if (partitionNames.contains(partitionName)) {
-                            throw new AnalysisException(
-                                    "Duplicated named partition: " + partitionName);
-                        }
-                        partitionNames.add(partitionName);
-                    }
-                    partitions.forEach(p -> {
-                        p.setPartitionTypes(partitionColumns.stream()
-                                .map(s -> columnMap.get(s).getType()).collect(Collectors.toList()));
-                        p.validate(Maps.newHashMap(properties));
-                    });
-                }
-            }
+            // validate partition
+            partitionTableInfo.extractPartitionColumns();
+            partitionTableInfo.validatePartitionInfo(
+                    engineName, columns, columnMap, properties, ctx, isEnableMergeOnWrite, isExternal);
 
             // validate distribution descriptor
             distribution.updateCols(columns.get(0).getName());
@@ -532,14 +491,33 @@ public class CreateTableInfo {
                         "Create " + engineName + " table should not contain keys desc");
             }
 
+            if (!rollups.isEmpty()) {
+                throw new AnalysisException(engineName + " catalog doesn't support rollup tables.");
+            }
+
+            if (engineName.equalsIgnoreCase(ENGINE_ICEBERG) && distribution != null) {
+                throw new AnalysisException(
+                    "Iceberg doesn't support 'DISTRIBUTE BY', "
+                        + "and you can use 'bucket(num, column)' in 'PARTITIONED BY'.");
+            }
             for (ColumnDefinition columnDef : columns) {
+                if (!columnDef.isNullable()
+                        && engineName.equalsIgnoreCase(ENGINE_HIVE)) {
+                    throw new AnalysisException(engineName + " catalog doesn't support column with 'NOT NULL'.");
+                }
                 columnDef.setIsKey(true);
+                columnDef.setAggType(AggregateType.NONE);
+            }
+            // TODO: support iceberg partition check
+            if (engineName.equalsIgnoreCase(ENGINE_HIVE)) {
+                partitionTableInfo.validatePartitionInfo(
+                        engineName, columns, columnMap, properties, ctx, false, true);
             }
         }
 
         // validate column
         try {
-            if (!engineName.equals("elasticsearch") && columns.isEmpty()) {
+            if (!engineName.equals(ENGINE_ELASTICSEARCH) && columns.isEmpty()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
             }
         } catch (Exception e) {
@@ -549,7 +527,7 @@ public class CreateTableInfo {
         final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         keysSet.addAll(keys);
-        columns.forEach(c -> c.validate(engineName.equals("olap"), keysSet, finalEnableMergeOnWrite,
+        columns.forEach(c -> c.validate(engineName.equals(ENGINE_OLAP), keysSet, finalEnableMergeOnWrite,
                 keysType));
 
         // validate index
@@ -559,7 +537,7 @@ public class CreateTableInfo {
 
             for (IndexDefinition indexDef : indexes) {
                 indexDef.validate();
-                if (!engineName.equalsIgnoreCase("olap")) {
+                if (!engineName.equalsIgnoreCase(ENGINE_OLAP)) {
                     throw new AnalysisException(
                             "index only support in olap engine at current version.");
                 }
@@ -591,34 +569,50 @@ public class CreateTableInfo {
         }
     }
 
-    public void validateCreateTableAsSelect(List<ColumnDefinition> columns, ConnectContext ctx) {
-        this.columns = Utils.copyRequiredMutableList(columns);
-        // bucket num is hard coded 10 to be consistent with legacy planner
-        this.distribution = new DistributionDescriptor(true, false, 10,
-                Lists.newArrayList(columns.get(0).getName()));
-        validate(ctx);
+    private void paddingEngineName(String ctlName, ConnectContext ctx) {
+        Preconditions.checkArgument(!Strings.isNullOrEmpty(ctlName));
+        if (Strings.isNullOrEmpty(engineName)) {
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+            if (catalog == null) {
+                throw new AnalysisException("Unknown catalog: " + ctlName);
+            }
+
+            if (catalog instanceof InternalCatalog) {
+                engineName = ENGINE_OLAP;
+            } else if (catalog instanceof HMSExternalCatalog) {
+                engineName = ENGINE_HIVE;
+            } else if (catalog instanceof IcebergExternalCatalog) {
+                engineName = ENGINE_ICEBERG;
+            } else {
+                throw new AnalysisException("Current catalog does not support create table: " + ctlName);
+            }
+        }
     }
 
     /**
-     * check partitions types.
+     * validate ctas definition
      */
-    private boolean checkPartitionsTypes() {
-        if (partitionType.equalsIgnoreCase(PartitionType.RANGE.name())) {
-            if (partitions.stream().allMatch(
-                    p -> p instanceof StepPartition || p instanceof FixedRangePartition)) {
-                return true;
+    public void validateCreateTableAsSelect(List<String> qualifierTableName, List<ColumnDefinition> columns,
+                                            ConnectContext ctx) {
+        String catalogName = qualifierTableName.get(0);
+        paddingEngineName(catalogName, ctx);
+        this.columns = Utils.copyRequiredMutableList(columns);
+        // bucket num is hard coded 10 to be consistent with legacy planner
+        if (engineName.equals(ENGINE_OLAP) && this.distribution == null) {
+            if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                throw new AnalysisException("Cannot create olap table out of internal catalog."
+                        + " Make sure 'engine' type is specified when use the catalog: " + catalogName);
             }
-            return partitions.stream().allMatch(
-                    p -> (p instanceof LessThanPartition) || (p instanceof FixedRangePartition));
+            this.distribution = new DistributionDescriptor(true, false, 10,
+                    Lists.newArrayList(columns.get(0).getName()));
         }
-        return partitionType.equalsIgnoreCase(PartitionType.LIST.name())
-                && partitions.stream().allMatch(p -> p instanceof InPartition);
+        validate(ctx);
     }
 
     private void checkEngineName() {
-        if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
-                || engineName.equals("elasticsearch") || engineName.equals("hive") || engineName.equals("iceberg")
-                || engineName.equals("jdbc")) {
+        if (engineName.equals(ENGINE_MYSQL) || engineName.equals(ENGINE_ODBC) || engineName.equals(ENGINE_BROKER)
+                || engineName.equals(ENGINE_ELASTICSEARCH) || engineName.equals(ENGINE_HIVE)
+                || engineName.equals(ENGINE_ICEBERG) || engineName.equals(ENGINE_JDBC)) {
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;
@@ -627,14 +621,14 @@ public class CreateTableInfo {
             if (isExternal) {
                 throw new AnalysisException(
                         "Do not support external table with engine name = olap");
-            } else if (!engineName.equals("olap")) {
+            } else if (!engineName.equals(ENGINE_OLAP)) {
                 throw new AnalysisException(
                         "Do not support table with engine name = " + engineName);
             }
         }
 
-        if (!Config.enable_odbc_mysql_broker_table && (engineName.equals("odbc")
-                || engineName.equals("mysql") || engineName.equals("broker"))) {
+        if (!Config.enable_odbc_mysql_broker_table && (engineName.equals(ENGINE_ODBC)
+                || engineName.equals(ENGINE_MYSQL) || engineName.equals(ENGINE_BROKER))) {
             throw new AnalysisException("odbc, mysql and broker table is no longer supported."
                     + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
                     + " For broker table, use table valued function instead."
@@ -643,38 +637,15 @@ public class CreateTableInfo {
         }
     }
 
-    private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx) {
-        if (!column.isKey()
-                && (!column.getAggType().equals(AggregateType.NONE) || isEnableMergeOnWrite)) {
-            throw new AnalysisException("The partition column could not be aggregated column");
-        }
-        if (column.getType().isFloatLikeType()) {
-            throw new AnalysisException("Floating point type column can not be partition column");
-        }
-        if (column.getType().isStringType()) {
-            throw new AnalysisException("String Type should not be used in partition column["
-                    + column.getName() + "].");
-        }
-        if (column.getType().isComplexType()) {
-            throw new AnalysisException("Complex type column can't be partition column: "
-                    + column.getType().toString());
-        }
-        // prohibit to create auto partition with null column anyhow
-        if (this.isAutoPartition && column.isNullable()) {
-            throw new AnalysisException("The auto partition column must be NOT NULL");
-        }
-        if (!ctx.getSessionVariable().isAllowPartitionColumnNullable() && column.isNullable()) {
-            throw new AnalysisException(
-                    "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
-        }
-        if (partitionType.equalsIgnoreCase(PartitionType.LIST.name()) && column.isNullable()) {
-            throw new AnalysisException("The list partition column must be NOT NULL");
-        }
-    }
-
-    // if auto bucket auto bucket enable, rewrite distribution bucket num &&
-    // set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
-    private static Map<String, String> maybeRewriteByAutoBucket(
+    /**
+     * if auto bucket auto bucket enable, rewrite distribution bucket num &&
+     * set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
+     *
+     * @param distributionDesc distributionDesc
+     * @param properties properties
+     * @return new properties
+     */
+    public static Map<String, String> maybeRewriteByAutoBucket(
             DistributionDescriptor distributionDesc, Map<String, String> properties) {
         if (distributionDesc == null || !distributionDesc.isAutoBucket()) {
             return properties;
@@ -691,7 +662,7 @@ public class CreateTableInfo {
             if (!newProperties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
                 distributionDesc.updateBucketNum(FeConstants.default_bucket_num);
             } else {
-                long partitionSize = ParseUtil.analyzeDataVolumn(
+                long partitionSize = ParseUtil.analyzeDataVolume(
                         newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
                 distributionDesc.updateBucketNum(AutoBucketUtils.getBucketsNum(partitionSize,
                         Config.autobucket_min_buckets));
@@ -717,44 +688,7 @@ public class CreateTableInfo {
         }
 
         if (!clusterKeysColumnNames.isEmpty()) {
-            if (keysType != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("Cluster keys only support unique keys table.");
-            }
-            clusterKeysColumnIds = Lists.newArrayList();
-            for (int i = 0; i < clusterKeysColumnNames.size(); ++i) {
-                String name = clusterKeysColumnNames.get(i);
-                // check if key is duplicate
-                for (int j = 0; j < i; j++) {
-                    if (clusterKeysColumnNames.get(j).equalsIgnoreCase(name)) {
-                        throw new AnalysisException("Duplicate cluster key column[" + name + "].");
-                    }
-                }
-                // check if key exists and generate key column ids
-                for (int j = 0; j < columns.size(); j++) {
-                    if (columns.get(j).getName().equalsIgnoreCase(name)) {
-                        columns.get(j).setClusterKeyId(clusterKeysColumnIds.size());
-                        clusterKeysColumnIds.add(j);
-                        break;
-                    }
-                    if (j == columns.size() - 1) {
-                        throw new AnalysisException(
-                                "Key cluster column[" + name + "] doesn't exist.");
-                    }
-                }
-            }
-
-            int minKeySize = keys.size() < clusterKeysColumnNames.size() ? keys.size()
-                    : clusterKeysColumnNames.size();
-            boolean sameKey = true;
-            for (int i = 0; i < minKeySize; ++i) {
-                if (!keys.get(i).equalsIgnoreCase(clusterKeysColumnNames.get(i))) {
-                    sameKey = false;
-                    break;
-                }
-            }
-            if (sameKey) {
-                throw new AnalysisException("Unique keys and cluster keys should be different.");
-            }
+            throw new AnalysisException("Cluster key is not supported");
         }
 
         for (int i = 0; i < keys.size(); ++i) {
@@ -798,47 +732,7 @@ public class CreateTableInfo {
      * translate to catalog create table stmt
      */
     public CreateTableStmt translateToLegacyStmt() {
-        PartitionDesc partitionDesc = null;
-        if (partitionColumns != null || isAutoPartition) {
-            List<AllPartitionDesc> partitionDescs =
-                    partitions != null
-                            ? partitions.stream().map(PartitionDefinition::translateToCatalogStyle)
-                                    .collect(Collectors.toList())
-                            : null;
-
-            int createTablePartitionMaxNum = ConnectContext.get().getSessionVariable().getCreateTablePartitionMaxNum();
-            if (partitionDescs != null && partitionDescs.size() > createTablePartitionMaxNum) {
-                throw new org.apache.doris.nereids.exceptions.AnalysisException(String.format(
-                        "The number of partitions to be created is [%s], exceeding the maximum value of [%s]. "
-                                + "Creating too many partitions can be time-consuming. If necessary, "
-                                + "You can set the session variable 'create_table_partition_max_num' "
-                                + "to a larger value.",
-                        partitionDescs.size(), createTablePartitionMaxNum));
-            }
-
-            try {
-                if (partitionType.equals(PartitionType.RANGE.name())) {
-                    if (isAutoPartition) {
-                        partitionDesc = new RangePartitionDesc(
-                                convertToLegacyAutoPartitionExprs(autoPartitionExprs),
-                                partitionColumns, partitionDescs);
-                    } else {
-                        partitionDesc = new RangePartitionDesc(partitionColumns, partitionDescs);
-                    }
-                } else {
-                    if (isAutoPartition) {
-                        partitionDesc = new ListPartitionDesc(
-                                convertToLegacyAutoPartitionExprs(autoPartitionExprs),
-                                partitionColumns, partitionDescs);
-                    } else {
-                        partitionDesc = new ListPartitionDesc(partitionColumns, partitionDescs);
-                    }
-                }
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
-            }
-        }
-
+        PartitionDesc partitionDesc = partitionTableInfo.convertToPartitionDesc(isExternal);
         List<AlterClause> addRollups = Lists.newArrayList();
         if (!rollups.isEmpty()) {
             addRollups.addAll(rollups.stream().map(RollupDefinition::translateToCatalogStyle)
@@ -855,16 +749,20 @@ public class CreateTableInfo {
 
         // TODO should move this code to validate function
         // EsUtil.analyzePartitionAndDistributionDesc only accept DistributionDesc and PartitionDesc
-        if (engineName.equals("elasticsearch")) {
+        if (engineName.equals(ENGINE_ELASTICSEARCH)) {
             try {
                 EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
-        } else if (!engineName.equals("olap")) {
-            if (partitionDesc != null || distributionDesc != null) {
+        } else if (!engineName.equals(ENGINE_OLAP)) {
+            if (!engineName.equals(ENGINE_HIVE) && distributionDesc != null) {
                 throw new AnalysisException("Create " + engineName
-                        + " table should not contain partition or distribution desc");
+                    + " table should not contain distribution desc");
+            }
+            if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_ICEBERG) && partitionDesc != null) {
+                throw new AnalysisException("Create " + engineName
+                        + " table should not contain partition desc");
             }
         }
 
@@ -876,30 +774,16 @@ public class CreateTableInfo {
                 comment, addRollups, null);
     }
 
-    private static ArrayList<Expr> convertToLegacyAutoPartitionExprs(List<Expression> expressions) {
-        return new ArrayList<>(expressions.stream().map(expression -> {
-            if (expression instanceof UnboundSlot) {
-                return new SlotRef(null, ((UnboundSlot) expression).getName());
-            } else if (expression instanceof UnboundFunction) {
-                UnboundFunction function = (UnboundFunction) expression;
-                return new FunctionCallExpr(function.getName(),
-                        new FunctionParams(convertToLegacyArguments(function.children())));
-            } else {
-                throw new AnalysisException(
-                        "unsupported auto partition expr " + expression.toString());
-            }
-        }).collect(Collectors.toList()));
+    public void setIsExternal(boolean isExternal) {
+        this.isExternal = isExternal;
     }
 
-    private static List<Expr> convertToLegacyArguments(List<Expression> children) {
-        return children.stream().map(child -> {
-            if (child instanceof UnboundSlot) {
-                return new SlotRef(null, ((UnboundSlot) child).getName());
-            } else if (child instanceof Literal) {
-                return new StringLiteral(((Literal) child).getStringValue());
-            } else {
-                throw new AnalysisException("unsupported argument " + child.toString());
-            }
-        }).collect(Collectors.toList());
+    public PartitionTableInfo getPartitionTableInfo() {
+        return partitionTableInfo;
+    }
+
+    public DistributionDescriptor getDistribution() {
+        return distribution;
     }
 }
+

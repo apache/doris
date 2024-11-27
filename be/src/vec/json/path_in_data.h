@@ -23,6 +23,7 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -35,6 +36,8 @@
 namespace doris::vectorized {
 
 /// Class that represents path in document, e.g. JSON.
+class PathInData;
+using PathInDataPtr = std::shared_ptr<PathInData>;
 class PathInData {
 public:
     struct Part {
@@ -100,6 +103,7 @@ private:
     /// Cached to avoid linear complexity at 'has_nested'.
     bool has_nested = false;
 };
+
 class PathInDataBuilder {
 public:
     const PathInData::Parts& get_parts() const { return parts; }
@@ -126,4 +130,16 @@ struct ParseResult {
     std::vector<PathInData> paths;
     std::vector<Field> values;
 };
+
+struct PathInDataRef {
+    const PathInData* ref;
+    struct Hash {
+        size_t operator()(const PathInDataRef& value) const {
+            return PathInData::Hash {}(*value.ref);
+        }
+    };
+    PathInDataRef(const PathInData* ptr) : ref(ptr) {}
+    bool operator==(const PathInDataRef& other) const { return *this->ref == *other.ref; }
+};
+
 } // namespace doris::vectorized

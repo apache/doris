@@ -81,6 +81,11 @@ VFileResultWriter::VFileResultWriter(const ResultFileOptions* file_opts,
 Status VFileResultWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
     _init_profile(profile);
+    // check orc writer version
+    if (_file_opts->file_format == TFileFormatType::FORMAT_ORC &&
+        _file_opts->orc_writer_version < 1) {
+        return Status::InternalError("orc writer version is less than 1.");
+    }
     // Delete existing files
     if (_file_opts->delete_existing_files) {
         RETURN_IF_ERROR(_delete_dir());
@@ -96,38 +101,6 @@ void VFileResultWriter::_init_profile(RuntimeProfile* parent_profile) {
     _writer_close_timer = ADD_TIMER(profile, "FileWriterCloseTime");
     _written_rows_counter = ADD_COUNTER(profile, "NumWrittenRows", TUnit::UNIT);
     _written_data_bytes = ADD_COUNTER(profile, "WrittenDataBytes", TUnit::BYTES);
-}
-
-Status VFileResultWriter::_create_success_file() {
-    std::string file_name;
-    RETURN_IF_ERROR(_get_success_file_name(&file_name));
-    RETURN_IF_ERROR(FileFactory::create_file_writer(
-            FileFactory::convert_storage_type(_storage_type), _state->exec_env(),
-            _file_opts->broker_addresses, _file_opts->broker_properties, file_name, 0,
-            _file_writer_impl));
-    // must write somthing because s3 file writer can not writer empty file
-    RETURN_IF_ERROR(_file_writer_impl->append({"success"}));
-    return _file_writer_impl->close();
-}
-
-Status VFileResultWriter::_get_success_file_name(std::string* file_name) {
-    std::stringstream ss;
-    ss << _file_opts->file_path << _file_opts->success_file_name;
-    *file_name = ss.str();
-    if (_storage_type == TStorageBackendType::LOCAL) {
-        // For local file writer, the file_path is a local dir.
-        // Here we do a simple security verification by checking whether the file exists.
-        // Because the file path is currently arbitrarily specified by the user,
-        // Doris is not responsible for ensuring the correctness of the path.
-        // This is just to prevent overwriting the existing file.
-        bool exists = true;
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(*file_name, &exists));
-        if (exists) {
-            return Status::InternalError("File already exists: {}", *file_name);
-        }
-    }
-
-    return Status::OK();
 }
 
 Status VFileResultWriter::_create_next_file_writer() {
@@ -156,9 +129,9 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
                 _file_opts->parquet_version, _output_object_data));
         break;
     case TFileFormatType::FORMAT_ORC:
-        _vfile_writer.reset(new VOrcTransformer(_state, _file_writer_impl.get(),
-                                                _vec_output_expr_ctxs, _file_opts->orc_schema,
-                                                _output_object_data));
+        _vfile_writer.reset(new VOrcTransformer(
+                _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->orc_schema, {},
+                _output_object_data, _file_opts->orc_compression_type));
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
@@ -277,10 +250,6 @@ Status VFileResultWriter::_close_file_writer(bool done) {
         RETURN_IF_ERROR(_create_next_file_writer());
     } else {
         // All data is written to file, send statistic result
-        if (_file_opts->success_file_name != "") {
-            // write success file, just need to touch an empty file
-            RETURN_IF_ERROR(_create_success_file());
-        }
         if (_output_block == nullptr) {
             RETURN_IF_ERROR(_send_result());
         } else {
@@ -409,7 +378,7 @@ Status VFileResultWriter::_delete_dir() {
         std::shared_ptr<io::S3FileSystem> s3_fs = nullptr;
         RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(
                 _file_opts->broker_properties, s3_uri, &s3_conf));
-        RETURN_IF_ERROR(io::S3FileSystem::create(s3_conf, "", &s3_fs));
+        RETURN_IF_ERROR(io::S3FileSystem::create(s3_conf, "", nullptr, &s3_fs));
         file_system = s3_fs;
         break;
     }
@@ -420,17 +389,21 @@ Status VFileResultWriter::_delete_dir() {
     return Status::OK();
 }
 
-Status VFileResultWriter::close(Status) {
-    // the following 2 profile "_written_rows_counter" and "_writer_close_timer"
-    // must be outside the `_close_file_writer()`.
-    // because `_close_file_writer()` may be called in deconstructor,
-    // at that time, the RuntimeState may already been deconstructed,
-    // so does the profile in RuntimeState.
-    if (_written_rows_counter) {
-        COUNTER_SET(_written_rows_counter, _written_rows);
-        SCOPED_TIMER(_writer_close_timer);
+Status VFileResultWriter::close(Status exec_status) {
+    Status st = exec_status;
+    if (st.ok()) {
+        // the following 2 profile "_written_rows_counter" and "_writer_close_timer"
+        // must be outside the `_close_file_writer()`.
+        // because `_close_file_writer()` may be called in deconstructor,
+        // at that time, the RuntimeState may already been deconstructed,
+        // so does the profile in RuntimeState.
+        if (_written_rows_counter) {
+            COUNTER_SET(_written_rows_counter, _written_rows);
+            SCOPED_TIMER(_writer_close_timer);
+        }
+        st = _close_file_writer(true);
     }
-    return _close_file_writer(true);
+    return st;
 }
 
 } // namespace doris::vectorized

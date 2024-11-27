@@ -37,6 +37,7 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
 
         try {
             db2_docker "CREATE SCHEMA doris_test;"
+            db2_docker "CREATE SCHEMA test;"
             db2_docker """CREATE TABLE doris_test.sample_table (
                 id_column INT GENERATED ALWAYS AS IDENTITY,
                 numeric_column NUMERIC,
@@ -201,7 +202,7 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
                 "type"="jdbc",
                 "user"="db2inst1",
                 "password"="123456",
-                "jdbc_url" = "jdbc:db2://${externalEnvIp}:${db2_port}/doris",
+                "jdbc_url" = "jdbc:db2://${externalEnvIp}:${db2_port}/doris:allowNextOnExhaustedResultSet=1;resultSetHoldability=1",
                 "driver_url" = "${driver_url}",
                 "driver_class" = "com.ibm.db2.jcc.DB2Driver"
             );"""
@@ -239,12 +240,35 @@ suite("test_db2_jdbc_catalog", "p0,external,db2,external_docker,external_docker_
                    select * except(ID_COLUMN) from ${sample_table};
             """
 
+            db2_docker """create table test.books(id bigint not null
+                          primary key, book XML);"""
+
+            db2_docker """insert into test.books values(1000, '<catalog>
+                          <book>
+
+                          <author> Gambardella Matthew</author>
+                          <title>XML Developers Guide</title>
+                          <genre>Computer</genre>
+                          <price>44.95</price>
+                          <publish_date>2000-10-01</publish_date>
+                          <description>An in-depth look at creating application
+                          with XML</description>
+                          </book>
+
+                          </catalog>');"""
+
             order_qt_sample_table_insert  """ select * except(ID_COLUMN) from ${sample_table} order by 1; """
+
+            order_qt_desc_db "show databases from ${catalog_name};"
+
+            order_qt_select_xml "select * from TEST.BOOKS;"
 
             sql """ drop catalog if exists ${catalog_name} """
 
             db2_docker "DROP TABLE IF EXISTS doris_test.sample_table;"
             db2_docker "DROP SCHEMA doris_test restrict;"
+            db2_docker "DROP TABLE IF EXISTS test.books;"
+            db2_docker "DROP SCHEMA test restrict;"
 
         } catch (Exception e) {
             e.printStackTrace()

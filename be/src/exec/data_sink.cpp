@@ -36,6 +36,8 @@
 #include "vec/sink/group_commit_block_sink.h"
 #include "vec/sink/multi_cast_data_stream_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
+#include "vec/sink/vhive_table_sink.h"
+#include "vec/sink/viceberg_table_sink.h"
 #include "vec/sink/vmemory_scratch_sink.h"
 #include "vec/sink/volap_table_sink.h"
 #include "vec/sink/volap_table_sink_v2.h"
@@ -76,10 +78,15 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data buffer sink.");
         }
 
+        int result_sink_buffer_size_rows = vectorized::RESULT_SINK_BUFFER_SIZE;
+        if (!thrift_sink.result_sink.__isset.type ||
+            thrift_sink.result_sink.type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+            result_sink_buffer_size_rows = config::arrow_flight_result_sink_buffer_size_rows;
+        }
+
         // TODO: figure out good buffer size based on size of output row
-        sink->reset(new doris::vectorized::VResultSink(row_desc, output_exprs,
-                                                       thrift_sink.result_sink,
-                                                       vectorized::RESULT_SINK_BUFFER_SIZE));
+        sink->reset(new doris::vectorized::VResultSink(
+                row_desc, output_exprs, thrift_sink.result_sink, result_sink_buffer_size_rows));
         break;
     }
     case TDataSinkType::RESULT_FILE_SINK: {
@@ -157,9 +164,27 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         }
         break;
     }
+    case TDataSinkType::HIVE_TABLE_SINK: {
+        if (!thrift_sink.__isset.hive_table_sink) {
+            return Status::InternalError("Missing hive table sink.");
+        }
+        sink->reset(new vectorized::VHiveTableSink(pool, row_desc, output_exprs));
+        break;
+    }
+    case TDataSinkType::ICEBERG_TABLE_SINK: {
+        if (!thrift_sink.__isset.iceberg_table_sink) {
+            return Status::InternalError("Missing iceberg table sink.");
+        }
+        sink->reset(new vectorized::VIcebergTableSink(pool, row_desc, output_exprs));
+        break;
+    }
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
         Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
+#ifndef NDEBUG
+        DCHECK(state->get_query_ctx() != nullptr);
+        state->get_query_ctx()->query_mem_tracker->is_group_commit_load = true;
+#endif
         sink->reset(new vectorized::GroupCommitBlockSink(pool, row_desc, output_exprs, &status));
         RETURN_IF_ERROR(status);
         break;
@@ -217,10 +242,15 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data buffer sink.");
         }
 
+        int result_sink_buffer_size_rows = vectorized::RESULT_SINK_BUFFER_SIZE;
+        if (!thrift_sink.result_sink.__isset.type ||
+            thrift_sink.result_sink.type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+            result_sink_buffer_size_rows = config::arrow_flight_result_sink_buffer_size_rows;
+        }
+
         // TODO: figure out good buffer size based on size of output row
-        sink->reset(new doris::vectorized::VResultSink(row_desc, output_exprs,
-                                                       thrift_sink.result_sink,
-                                                       vectorized::RESULT_SINK_BUFFER_SIZE));
+        sink->reset(new doris::vectorized::VResultSink(
+                row_desc, output_exprs, thrift_sink.result_sink, result_sink_buffer_size_rows));
         break;
     }
     case TDataSinkType::RESULT_FILE_SINK: {
@@ -298,6 +328,20 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         }
         break;
     }
+    case TDataSinkType::HIVE_TABLE_SINK: {
+        if (!thrift_sink.__isset.hive_table_sink) {
+            return Status::InternalError("Missing hive table sink.");
+        }
+        sink->reset(new vectorized::VHiveTableSink(pool, row_desc, output_exprs));
+        break;
+    }
+    case TDataSinkType::ICEBERG_TABLE_SINK: {
+        if (!thrift_sink.__isset.iceberg_table_sink) {
+            return Status::InternalError("Missing iceberg table sink.");
+        }
+        sink->reset(new vectorized::VIcebergTableSink(pool, row_desc, output_exprs));
+        break;
+    }
     case TDataSinkType::MULTI_CAST_DATA_STREAM_SINK: {
         DCHECK(thrift_sink.__isset.multi_cast_stream_sink);
         DCHECK_GT(thrift_sink.multi_cast_stream_sink.sinks.size(), 0);
@@ -309,10 +353,15 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
         Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
+#ifndef NDEBUG
+        DCHECK(state->get_query_ctx() != nullptr);
+        state->get_query_ctx()->query_mem_tracker->is_group_commit_load = true;
+#endif
         sink->reset(new vectorized::GroupCommitBlockSink(pool, row_desc, output_exprs, &status));
         RETURN_IF_ERROR(status);
         break;
     }
+
     default: {
         std::stringstream error_msg;
         std::map<int, const char*>::const_iterator i =

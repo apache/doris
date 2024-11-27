@@ -111,10 +111,12 @@ public class StreamLoadPlanner {
         return destTable;
     }
 
+    // the caller should get table read lock when call this method
     public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
         return this.plan(loadId, 1);
     }
 
+    // the caller should get table read lock when call this method
     // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
     public TExecPlanFragmentParams plan(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
         if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
@@ -146,6 +148,13 @@ public class StreamLoadPlanner {
         if (isPartialUpdate && !destTable.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
         }
+
+        // try to convert to upsert if only has missing auto-increment key column
+        boolean hasMissingColExceptAutoIncKey = false;
+        if (taskInfo.getColumnExprDescs().descs.isEmpty()) {
+            isPartialUpdate = false;
+        }
+
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
@@ -170,13 +179,23 @@ public class StreamLoadPlanner {
                         break;
                     }
                 }
-                if (col.isKey() && !existInExpr) {
-                    throw new UserException("Partial update should include all key columns, missing: " + col.getName());
+                if (!existInExpr) {
+                    if (col.isKey() && !col.isAutoInc()) {
+                        throw new UserException("Partial update should include all key columns, missing: "
+                                + col.getName());
+                    }
+                    if (!(col.isKey() && col.isAutoInc()) && col.isVisible()) {
+                        hasMissingColExceptAutoIncKey = true;
+                    }
                 }
             }
-            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
+            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE
+                    || taskInfo.getMergeType() == LoadTask.MergeType.MERGE) {
                 partialUpdateInputColumns.add(Column.DELETE_SIGN);
             }
+        }
+        if (isPartialUpdate && !hasMissingColExceptAutoIncKey) {
+            isPartialUpdate = false;
         }
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
@@ -218,8 +237,10 @@ public class StreamLoadPlanner {
 
         scanTupleDesc.setTable(destTable);
         analyzer.registerTupleDescriptor(scanTupleDesc);
+        Expr whereExpr = null;
         if (null != taskInfo.getWhereExpr()) {
-            taskInfo.getWhereExpr().analyze(analyzer);
+            whereExpr = taskInfo.getWhereExpr().clone();
+            whereExpr.analyze(analyzer);
         }
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
@@ -227,6 +248,7 @@ public class StreamLoadPlanner {
         DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
         dataDescription.analyzeWithoutCheckPriv(db.getFullName());
         BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
+        fileGroup.setWhereExpr(whereExpr);
         fileGroup.parse(db, dataDescription);
         // 2. create dummy file status
         TBrokerFileStatus fileStatus = new TBrokerFileStatus();
@@ -242,7 +264,7 @@ public class StreamLoadPlanner {
         // The load id will pass to csv reader to find the stream load context from new load stream manager
         fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
                 fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
-                taskInfo.isPartialUpdate());
+                isPartialUpdate);
         scanNode = fileScanNode;
 
         scanNode.init(analyzer);
@@ -250,21 +272,20 @@ public class StreamLoadPlanner {
         descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
-        if (taskInfo instanceof RoutineLoadJob) {
-            // For routine load, make the timeout fo plan fragment larger than MaxIntervalS config.
-            // So that the execution won't be killed before consuming finished.
-            timeout *= 2;
-        }
-
+        final boolean enableMemtableOnSinkNode =
+                destTable.getTableProperty().getUseSchemaLightChange()
+                ? taskInfo.isMemtableOnSinkNode() : false;
+        final boolean enableSingleReplicaLoad = enableMemtableOnSinkNode
+                ? false : Config.enable_single_replica_load;
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink;
         if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).getGroupCommit() != null) {
             olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
-                    Config.enable_single_replica_load, ((StreamLoadTask) taskInfo).getGroupCommit(),
+                    enableSingleReplicaLoad, ((StreamLoadTask) taskInfo).getGroupCommit(),
                     taskInfo.getMaxFilterRatio());
         } else {
-            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
+            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, enableSingleReplicaLoad);
         }
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
                 taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
@@ -284,6 +305,7 @@ public class StreamLoadPlanner {
 
         params.setDescTbl(analyzer.getDescTbl().toThrift());
         params.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
+        params.setCurrentConnectFe(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
 
         TPlanFragmentExecParams execParams = new TPlanFragmentExecParams();
         // user load id (streamLoadTask.id) as query id
@@ -319,13 +341,11 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        boolean isEnableMemtableOnSinkNode =
-                destTable.getTableProperty().getUseSchemaLightChange()
-                ? taskInfo.isMemtableOnSinkNode() : false;
-        queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
+        queryOptions.setEnableProfile(taskInfo.getEnableProfile());
+        queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
+        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         queryGlobals.setTimestampMs(System.currentTimeMillis());
         queryGlobals.setTimeZone(taskInfo.getTimezone());
         queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);
@@ -337,11 +357,13 @@ public class StreamLoadPlanner {
         return params;
     }
 
+    // the caller should get table read lock when call this method
     // single table plan fragmentInstanceIndex is 1(default value)
     public TPipelineFragmentParams planForPipeline(TUniqueId loadId) throws UserException {
         return this.planForPipeline(loadId, 1);
     }
 
+    // the caller should get table read lock when call this method
     public TPipelineFragmentParams planForPipeline(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
         if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
                 && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
@@ -372,6 +394,13 @@ public class StreamLoadPlanner {
         if (isPartialUpdate && !destTable.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
         }
+
+        // try to convert to upsert if only has missing auto-increment key column
+        boolean hasMissingColExceptAutoIncKey = false;
+        if (taskInfo.getColumnExprDescs().descs.isEmpty()) {
+            isPartialUpdate = false;
+        }
+
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
@@ -396,13 +425,23 @@ public class StreamLoadPlanner {
                         break;
                     }
                 }
-                if (col.isKey() && !existInExpr) {
-                    throw new UserException("Partial update should include all key columns, missing: " + col.getName());
+                if (!existInExpr) {
+                    if (col.isKey() && !col.isAutoInc()) {
+                        throw new UserException("Partial update should include all key columns, missing: "
+                                + col.getName());
+                    }
+                    if (!(col.isKey() && col.isAutoInc()) && col.isVisible()) {
+                        hasMissingColExceptAutoIncKey = true;
+                    }
                 }
             }
-            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
+            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE
+                    || taskInfo.getMergeType() == LoadTask.MergeType.MERGE) {
                 partialUpdateInputColumns.add(Column.DELETE_SIGN);
             }
+        }
+        if (isPartialUpdate && !hasMissingColExceptAutoIncKey) {
+            isPartialUpdate = false;
         }
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
@@ -443,8 +482,10 @@ public class StreamLoadPlanner {
         }
         scanTupleDesc.setTable(destTable);
         analyzer.registerTupleDescriptor(scanTupleDesc);
+        Expr whereExpr = null;
         if (null != taskInfo.getWhereExpr()) {
-            taskInfo.getWhereExpr().analyze(analyzer);
+            whereExpr = taskInfo.getWhereExpr().clone();
+            whereExpr.analyze(analyzer);
         }
         // create scan node
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), scanTupleDesc);
@@ -452,6 +493,7 @@ public class StreamLoadPlanner {
         DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
         dataDescription.analyzeWithoutCheckPriv(db.getFullName());
         BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
+        fileGroup.setWhereExpr(whereExpr);
         fileGroup.parse(db, dataDescription);
         // 2. create dummy file status
         TBrokerFileStatus fileStatus = new TBrokerFileStatus();
@@ -481,15 +523,20 @@ public class StreamLoadPlanner {
             timeout *= 2;
         }
 
+        final boolean enableMemtableOnSinkNode =
+                destTable.getTableProperty().getUseSchemaLightChange()
+                ? taskInfo.isMemtableOnSinkNode() : false;
+        final boolean enableSingleReplicaLoad = enableMemtableOnSinkNode
+                ? false : Config.enable_single_replica_load;
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink;
         if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).getGroupCommit() != null) {
             olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
-                    Config.enable_single_replica_load, ((StreamLoadTask) taskInfo).getGroupCommit(),
+                    enableSingleReplicaLoad, ((StreamLoadTask) taskInfo).getGroupCommit(),
                     taskInfo.getMaxFilterRatio());
         } else {
-            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
+            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, enableSingleReplicaLoad);
         }
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
                 taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
@@ -510,6 +557,7 @@ public class StreamLoadPlanner {
 
         pipParams.setDescTbl(analyzer.getDescTbl().toThrift());
         pipParams.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
+        pipParams.setCurrentConnectFe(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
         pipParams.setQueryId(loadId);
         pipParams.per_exch_num_senders = Maps.newHashMap();
         pipParams.destinations = Lists.newArrayList();
@@ -546,14 +594,12 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        boolean isEnableMemtableOnSinkNode =
-                destTable.getTableProperty().getUseSchemaLightChange()
-                ? taskInfo.isMemtableOnSinkNode() : false;
-        queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
+        queryOptions.setEnableProfile(taskInfo.getEnableProfile());
+        queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
 
         pipParams.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
-        queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
+        queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         queryGlobals.setTimestampMs(System.currentTimeMillis());
         queryGlobals.setTimeZone(taskInfo.getTimezone());
         queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);

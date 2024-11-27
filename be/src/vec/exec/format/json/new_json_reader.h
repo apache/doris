@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exec/decompressor.h"
 #include "exec/line_reader.h"
 #include "exprs/json_functions.h"
 #include "io/file_factory.h"
@@ -93,6 +94,9 @@ public:
                        std::unordered_set<std::string>* missing_cols) override;
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
+
+protected:
+    void _collect_profile_before_close() override;
 
 private:
     Status _get_range_params();
@@ -209,6 +213,8 @@ private:
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
     bool _reader_eof;
+    std::unique_ptr<Decompressor> _decompressor;
+    TFileCompressType::type _file_compress_type;
 
     // When we fetch range doesn't start from 0 will always skip the first line
     bool _skip_first_line;
@@ -228,6 +234,7 @@ private:
 
     std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
     std::vector<JsonPath> _parsed_json_root;
+    bool _parsed_from_json_root = false; // to avoid parsing json root multiple times
 
     char _value_buffer[4 * 1024 * 1024]; // 4MB
     char _parse_buffer[512 * 1024];      // 512KB

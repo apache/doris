@@ -30,6 +30,7 @@ suite("query49") {
     sql 'set enable_nereids_timeout = false'
     sql 'set runtime_filter_type=8'
     sql 'set enable_runtime_filter_prune=true'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     def ds = """select  channel, item, return_ratio, return_rank, currency_rank from
  (select

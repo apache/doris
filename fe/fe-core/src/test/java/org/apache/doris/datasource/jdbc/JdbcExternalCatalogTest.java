@@ -41,24 +41,34 @@ public class JdbcExternalCatalogTest {
         properties.put(JdbcResource.DRIVER_URL, "ojdbc8.jar");
         properties.put(JdbcResource.JDBC_URL, "jdbc:oracle:thin:@127.0.0.1:1521:XE");
         properties.put(JdbcResource.DRIVER_CLASS, "oracle.jdbc.driver.OracleDriver");
-        jdbcExternalCatalog = new JdbcExternalCatalog(1L, "testCatalog", null, properties, "testComment", false);
+        jdbcExternalCatalog = new JdbcExternalCatalog(1L, "testCatalog", null, properties, "testComment");
     }
 
     @Test
-    public void testProcessCompatibleProperties() throws DdlException {
+    public void testProcessCompatibleProperties() {
         // Create a properties map with lower_case_table_names
-        Map<String, String> inputProps = new HashMap<>();
-        inputProps.put("lower_case_table_names", "true");
+        jdbcExternalCatalog.getCatalogProperty().addProperty("lower_case_table_names", "true");
 
         // Call processCompatibleProperties
-        Map<String, String> resultProps = jdbcExternalCatalog.processCompatibleProperties(inputProps, true);
+        jdbcExternalCatalog.setDefaultPropsIfMissing(true);
 
         // Assert that lower_case_meta_names is present and has the correct value
-        Assert.assertTrue(resultProps.containsKey("lower_case_meta_names"));
-        Assert.assertEquals("true", resultProps.get("lower_case_meta_names"));
+        Assert.assertTrue(
+                jdbcExternalCatalog.getCatalogProperty().getProperties().containsKey("lower_case_meta_names"));
+        Assert.assertEquals("true",
+                jdbcExternalCatalog.getCatalogProperty().getProperties().get("lower_case_meta_names"));
 
         // Assert that lower_case_table_names is not present
-        Assert.assertFalse(resultProps.containsKey("lower_case_table_names"));
+        Assert.assertFalse(
+                jdbcExternalCatalog.getCatalogProperty().getProperties().containsKey("lower_case_table_names"));
+
+        jdbcExternalCatalog.getCatalogProperty().addProperty("lower_case_table_names", "true");
+        IllegalArgumentException exceptione = Assert.assertThrows(IllegalArgumentException.class,
+                () -> jdbcExternalCatalog.setDefaultPropsIfMissing(false));
+        Assert.assertEquals(
+                "Jdbc catalog property lower_case_table_names is not supported, please use lower_case_meta_names instead.",
+                exceptione.getMessage());
+        jdbcExternalCatalog.getCatalogProperty().deleteProperty("lower_case_table_names");
     }
 
     @Test

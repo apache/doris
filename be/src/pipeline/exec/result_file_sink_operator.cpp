@@ -115,7 +115,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         // create sender
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
                 state->fragment_instance_id(), p._buf_size, &_sender, state->enable_pipeline_exec(),
-                state->execution_timeout()));
+                state));
         // create writer
         _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
                 p._file_opts.get(), p._storage_type, state->fragment_instance_id(),
@@ -210,7 +210,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                     Status status;
                     for (auto channel : _channels) {
                         if (!channel->is_receiver_eof()) {
-                            status = channel->send_local_block(_output_block.get());
+                            status = channel->send_local_block(_output_block.get(), false);
                             HANDLE_CHANNEL_STATUS(state, channel, status);
                         }
                     }
@@ -234,7 +234,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                         for (auto channel : _channels) {
                             if (!channel->is_receiver_eof()) {
                                 if (channel->is_local()) {
-                                    status = channel->send_local_block(&cur_block);
+                                    status = channel->send_local_block(&cur_block, false);
                                 } else {
                                     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                     status = channel->send_broadcast_block(_block_holder, true);

@@ -31,6 +31,8 @@ suite("query72") {
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
     sql 'set dump_nereids_memo=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+
     def ds = """select  i_item_desc
       ,w_warehouse_name
       ,d1.d_week_seq

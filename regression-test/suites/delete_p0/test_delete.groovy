@@ -446,4 +446,107 @@ suite("test_delete") {
     """
     sql "set experimental_enable_nereids_planner = false;"
     sql "delete from test3 where statistic_date >= date_sub('2024-01-16',INTERVAL 1 day);"
+
+    sql "drop table if exists bi_acti_per_period_plan"
+    sql """
+            CREATE TABLE `bi_acti_per_period_plan` (
+            `proj_id` bigint(20) NULL,
+            `proj_name` varchar(400) NULL,
+            `proj_start_date` datetime NULL,
+            `proj_end_date` datetime NULL,
+            `last_data_date` datetime NULL,
+            `data_date` datetime NULL,
+            `data_batch_num` datetime NULL,
+            `la_sum_base_proj_id` varchar(200) NULL,
+            `sum_base_proj_id` varchar(200) NULL,
+            `today_date` datetime NULL,
+            `count` bigint(20) NULL,
+            `count_type` varchar(50) NULL,
+            `bl_count` bigint(20) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`proj_id`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`proj_id`) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "is_being_synced" = "false",
+            "storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false",
+            "enable_single_replica_compaction" = "false"
+            ); 
+    """
+    sql """
+            INSERT INTO bi_acti_per_period_plan (proj_id,proj_name,proj_start_date,proj_end_date,last_data_date,data_date,data_batch_num,la_sum_base_proj_id,sum_base_proj_id,today_date,count,count_type,bl_count) VALUES
+            (4508,'建筑工程项目A','2023-05-30 00:00:00','2024-03-07 00:00:00','2023-06-01 00:00:00','2023-08-15 00:00:00','2024-01-31 00:00:00','4509','4509','2023-08-27 00:00:00',5,'plan',4);
+    """
+    sql "set experimental_enable_nereids_planner = false;"
+    sql "set @data_batch_num='2024-01-31 00:00:00';"
+    sql "delete  from bi_acti_per_period_plan where data_batch_num =@data_batch_num; "
+
+    // delete bitmap
+    sql "drop table if exists table_bitmap"
+    sql """
+        CREATE TABLE if not exists `table_bitmap` (
+          `dt` DATE NULL,
+          `page_id` INT NULL,
+          `page_level` INT NULL,
+          `user_id` BITMAP NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`dt`, `page_id`, `page_level`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`dt`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        insert into table_bitmap values
+        ('2021-12-09',     101 ,          1 , BITMAP_FROM_STRING('100001,100002,100003,100004,100005')),
+        ('2021-12-09',     102 ,          2 , BITMAP_FROM_STRING('100001,100003,100004')),
+        ('2021-12-09',     103 ,          3 , BITMAP_FROM_STRING('100003'));
+    """
+
+    test {
+        sql "delete from table_bitmap where user_id is null"
+        exception "Can not apply delete condition to column type: bitmap"
+    }
+
+    sql "drop table if exists table_decimal"
+    sql """
+        CREATE TABLE table_decimal (
+          `k1` BOOLEAN NOT NULL,
+          `k2` DECIMAL(17, 1) NOT NULL,
+          `k3` INT NOT NULL,
+          `k4` DECIMAL(7, 7)
+        ) ENGINE=OLAP 
+        DUPLICATE KEY(`k1`,`k2`,`k3`) 
+        DISTRIBUTED BY HASH(`k1`,`k2`,`k3`) BUCKETS 4 
+        PROPERTIES (
+        "replication_num" = "1",
+        "disable_auto_compaction" = "false"
+        ); 
+    """
+    sql """
+        insert into table_decimal values
+        (false, '-9999782574499444.2', -20, 0.1234567),
+        (true, '-1', 10, 0.7654321);
+    """
+    sql """
+        delete from table_decimal where k1 = false and k2 = '-9999782574499444.2' and k3 = '-20';
+    """
+
+    sql """
+        delete from table_decimal where k4 = '0.1234567';
+    """
+
+    sql """
+        delete from table_decimal where k4 = '-0.123';
+    """
+
+    qt_check_decimal """
+        select * from table_decimal;
+    """
+
 }

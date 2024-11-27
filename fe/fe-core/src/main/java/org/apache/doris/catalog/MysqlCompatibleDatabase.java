@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.Alter;
-import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.common.Pair;
 
@@ -42,17 +40,6 @@ public abstract class MysqlCompatibleDatabase extends Database {
      * So driven class should implement this function to create table.
      */
     protected abstract void initTables();
-
-    /**
-     * Currently, rename a table of InfoSchemaDb will throw exception
-     * {@link Alter#processAlterTable(AlterTableStmt)}
-     * so we follow this design.
-     * @note: Rename a table of mysql database in MYSQL ls allowed.
-     */
-    @Override
-    public boolean registerTable(TableIf table) {
-        return super.registerTable(table);
-    }
 
     @Override
     public void unregisterTable(String name) {

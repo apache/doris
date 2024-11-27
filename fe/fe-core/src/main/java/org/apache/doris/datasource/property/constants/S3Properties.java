@@ -19,13 +19,17 @@ package org.apache.doris.datasource.property.constants;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.credentials.CloudCredential;
-import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
-import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
+import org.apache.doris.common.credentials.CloudCredential;
+import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
+import org.apache.doris.common.credentials.DataLakeAWSCredentialsProvider;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
+import com.amazonaws.auth.InstanceProfileCredentialsProvider;
+import com.amazonaws.auth.SystemPropertiesCredentialsProvider;
+import com.amazonaws.auth.WebIdentityTokenCredentialsProvider;
+import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider;
@@ -36,6 +40,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public class S3Properties extends BaseProperties {
 
@@ -66,7 +71,13 @@ public class S3Properties extends BaseProperties {
             TemporaryAWSCredentialsProvider.class.getName(),
             SimpleAWSCredentialsProvider.class.getName(),
             EnvironmentVariableCredentialsProvider.class.getName(),
+            SystemPropertiesCredentialsProvider.class.getName(),
+            ProfileCredentialsProvider.class.getName(),
+            InstanceProfileCredentialsProvider.class.getName(),
+            WebIdentityTokenCredentialsProvider.class.getName(),
             IAMInstanceCredentialsProvider.class.getName());
+
+    private static final Pattern IPV4_PORT_PATTERN = Pattern.compile("((?:\\d{1,3}\\.){3}\\d{1,3}:\\d{1,5})");
 
     public static Map<String, String> credentialToMap(CloudCredentialWithEndpoint credential) {
         Map<String, String> resMap = new HashMap<>();
@@ -117,11 +128,18 @@ public class S3Properties extends BaseProperties {
         }
         String endpoint = props.get(Env.ENDPOINT);
         String region = props.getOrDefault(Env.REGION, S3Properties.getRegionOfEndpoint(endpoint));
+        props.putIfAbsent(Env.REGION, PropertyConverter.checkRegion(endpoint, region, Env.REGION));
         return new CloudCredentialWithEndpoint(endpoint, region, credential);
     }
 
     public static String getRegionOfEndpoint(String endpoint) {
-        String[] endpointSplit = endpoint.split("\\.");
+        if (IPV4_PORT_PATTERN.matcher(endpoint).find()) {
+            // if endpoint contains '192.168.0.1:8999', return null region
+            return null;
+        }
+        String[] endpointSplit = endpoint.replace("http://", "")
+                .replace("https://", "")
+                .split("\\.");
         if (endpointSplit.length < 2) {
             return null;
         }
@@ -253,6 +271,7 @@ public class S3Properties extends BaseProperties {
         s3Info.setRegion(properties.get(S3Properties.REGION));
         s3Info.setAk(properties.get(S3Properties.ACCESS_KEY));
         s3Info.setSk(properties.get(S3Properties.SECRET_KEY));
+        s3Info.setToken(properties.get(S3Properties.SESSION_TOKEN));
 
         s3Info.setRootPath(properties.get(S3Properties.ROOT_PATH));
         s3Info.setBucket(properties.get(S3Properties.BUCKET));
@@ -260,10 +279,10 @@ public class S3Properties extends BaseProperties {
         s3Info.setMaxConn(Integer.parseInt(maxConnections == null
                 ? S3Properties.Env.DEFAULT_MAX_CONNECTIONS : maxConnections));
         String requestTimeoutMs = properties.get(S3Properties.REQUEST_TIMEOUT_MS);
-        s3Info.setMaxConn(Integer.parseInt(requestTimeoutMs == null
+        s3Info.setRequestTimeoutMs(Integer.parseInt(requestTimeoutMs == null
                 ? S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS : requestTimeoutMs));
         String connTimeoutMs = properties.get(S3Properties.CONNECTION_TIMEOUT_MS);
-        s3Info.setMaxConn(Integer.parseInt(connTimeoutMs == null
+        s3Info.setConnTimeoutMs(Integer.parseInt(connTimeoutMs == null
                 ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
         String usePathStyle = properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
         s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle));

@@ -18,7 +18,7 @@
 suite("test_backup_restore_multi_tables", "backup_restore") {
     String dbName = "backup_restore_multi_tables_db"
     String suiteName = "test_backup_restore_multi_tables"
-    String repoName = "${suiteName}_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String tableNamePrefix = "${suiteName}_tables"
 
@@ -61,9 +61,7 @@ suite("test_backup_restore_multi_tables", "backup_restore") {
         ON (${backupTables.join(",")})
     """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
@@ -83,9 +81,7 @@ suite("test_backup_restore_multi_tables", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     for (def tableName in tables) {
         result = sql "SELECT * FROM ${dbName}.${tableName}"

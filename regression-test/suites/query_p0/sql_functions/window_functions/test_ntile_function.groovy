@@ -70,6 +70,16 @@ suite("test_ntile_function") {
     qt_select "select k1, k2, k3, ntile(5) over (partition by k1 order by k2) as ntile from ${tableName} order by k1, k2, k3 desc;"
     qt_select "select k2, k1, k3, ntile(3) over (order by k2) as ntile from ${tableName} order by k2, k1, k3 desc;"
     qt_select "select k3, k2, k1, ntile(3) over (partition by k3 order by k2) as ntile from ${tableName} order by k3, k2, k1;"
+
+    test {
+        sql "select k1, k2, k3, ntile(0) over (partition by k1 order by k2) as ntile from ${tableName} order by k1, k2, k3 desc;"
+        exception "positive"
+    }
+
+    test {
+        sql "select k1, k2, k3, ntile(k1) over (partition by k1 order by k2) as ntile from ${tableName} order by k1, k2, k3 desc;"
+        exception ""
+    }
 }
 
 

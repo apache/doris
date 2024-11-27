@@ -40,8 +40,6 @@ import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -53,7 +51,6 @@ import java.util.Set;
 import java.util.TreeSet;
 
 public class SlotRef extends Expr {
-    private static final Logger LOG = LogManager.getLogger(SlotRef.class);
     private TableName tblName;
     private TableIf table = null;
     private TupleId tupleId = null;
@@ -94,7 +91,7 @@ public class SlotRef extends Expr {
         this.desc = desc;
         this.type = desc.getType();
         // TODO(zc): label is meaningful
-        this.label = null;
+        this.label = desc.getLabel();
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
         }
@@ -201,23 +198,10 @@ public class SlotRef extends Expr {
         if ((thisColumnName == null) != (srcColumnName == null)) {
             return false;
         }
-        if (thisColumnName != null && !thisColumnName.toLowerCase().equals(srcColumnName.toLowerCase())) {
+        if (thisColumnName != null && !thisColumnName.equalsIgnoreCase(srcColumnName)) {
             return false;
         }
         return true;
-    }
-
-    @Override
-    public void vectorizedAnalyze(Analyzer analyzer) {
-        computeOutputColumn(analyzer);
-    }
-
-    @Override
-    public void computeOutputColumn(Analyzer analyzer) {
-        outputColumn = desc.getSlotOffset();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("SlotRef: " + debugString() + " outputColumn: " + outputColumn);
-        }
     }
 
     @Override
@@ -285,7 +269,7 @@ public class SlotRef extends Expr {
             // virtual slot of an alias function
             // when we try to translate an alias function to Nereids style, the desc in the place holding slotRef
             // is null, and we just need the name of col.
-            return col;
+            return "`" + col + "`";
         } else if (desc.getSourceExprs() != null) {
             if (!disableTableName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
                 if (desc.getId().asInt() != 1) {
@@ -364,7 +348,7 @@ public class SlotRef extends Expr {
         msg.node_type = TExprNodeType.SLOT_REF;
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
         msg.slot_ref.setColUniqueId(desc.getUniqueId());
-        msg.setOutputColumn(outputColumn);
+        msg.setLabel(label);
     }
 
     @Override
@@ -463,6 +447,11 @@ public class SlotRef extends Expr {
     @Override
     public boolean hasAggregateSlot() {
         return desc.getColumn().isAggregated();
+    }
+
+    @Override
+    public boolean hasAutoInc() {
+        return desc.getColumn().isAutoInc();
     }
 
     @Override
@@ -705,6 +694,11 @@ public class SlotRef extends Expr {
 
     @Override
     public void replaceSlot(TupleDescriptor tuple) {
+        // do not analyze slot after replaceSlot to avoid duplicate columns in desc
         desc = tuple.getColumnSlot(col);
+        type = desc.getType();
+        if (!isAnalyzed) {
+            analysisDone();
+        }
     }
 }

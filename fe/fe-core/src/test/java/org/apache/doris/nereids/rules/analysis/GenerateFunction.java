@@ -44,7 +44,6 @@ import org.apache.doris.nereids.trees.expressions.functions.DecimalWiderPrecisio
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.IdenticalSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ImplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.functions.NullOrIdenticalSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -739,9 +738,6 @@ public class GenerateFunction {
             interfaces.add(arityExpressionType);
         }
         interfaces.add(getComputeSignatureInterface(functionName));
-        if (functionSet.isNondeterministicFunction(functionName)) {
-            interfaces.add(Nondeterministic.class);
-        }
 
         Function function = functions.get(0);
         if (!customNullableFunctions.contains(functionName)) {

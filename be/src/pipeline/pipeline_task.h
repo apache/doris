@@ -26,7 +26,7 @@
 #include "common/status.h"
 #include "exec/operator.h"
 #include "pipeline.h"
-#include "runtime/task_group/task_group.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
@@ -242,6 +242,8 @@ public:
         }
     }
 
+    virtual bool is_finished() const { return false; }
+
     virtual void set_close_pipeline_time() {
         if (!_is_close_pipeline) {
             _close_pipeline_time = _pipeline_task_watcher.elapsed_time();
@@ -288,6 +290,10 @@ public:
     RuntimeState* runtime_state() const { return _state; }
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
+
+    PipelineId pipeline_id() const { return _pipeline->id(); }
+
+    virtual void clear_blocking_state(bool wake_up_by_downstream = false) {}
 
 protected:
     void _finish_p_dependency() {

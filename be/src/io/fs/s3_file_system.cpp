@@ -72,6 +72,7 @@
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_writer.h"
 #include "util/bvar_helper.h"
+#include "util/runtime_profile.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -97,18 +98,43 @@ namespace io {
     RETURN_IF_ERROR(get_key(path, &key));
 #endif
 
+// Guarded by external lock.
+Status S3FileSystem::set_conf(S3Conf s3_conf) {
+    if (s3_conf.ak == _s3_conf.ak && s3_conf.sk == _s3_conf.sk && s3_conf.token == _s3_conf.token) {
+        return Status::OK(); // Same conf
+    }
+
+    auto reset_conf = _s3_conf;
+    reset_conf.ak = s3_conf.ak;
+    reset_conf.sk = s3_conf.sk;
+    reset_conf.token = s3_conf.token;
+    auto client = S3ClientFactory::instance().create(s3_conf);
+    if (!client) {
+        return Status::InternalError("failed to init s3 client with {}", _s3_conf.to_string());
+    }
+
+    {
+        std::lock_guard lock(_client_mu);
+        _client = std::move(client);
+    }
+    _s3_conf = std::move(reset_conf);
+    return Status::OK();
+}
+
 std::string S3FileSystem::full_path(std::string_view key) const {
     return fmt::format("{}/{}/{}", _s3_conf.endpoint, _s3_conf.bucket, key);
 }
 
-Status S3FileSystem::create(S3Conf s3_conf, std::string id, std::shared_ptr<S3FileSystem>* fs) {
-    (*fs).reset(new S3FileSystem(std::move(s3_conf), std::move(id)));
+Status S3FileSystem::create(S3Conf s3_conf, std::string id, RuntimeProfile* profile,
+                            std::shared_ptr<S3FileSystem>* fs) {
+    (*fs).reset(new S3FileSystem(std::move(s3_conf), std::move(id), profile));
     return (*fs)->connect();
 }
 
-S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id)
+S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id, RuntimeProfile* profile)
         : RemoteFileSystem(s3_conf.prefix, std::move(id), FileSystemType::S3),
-          _s3_conf(std::move(s3_conf)) {
+          _s3_conf(std::move(s3_conf)),
+          _profile(profile) {
     // FIXME(plat1ko): Normalize prefix
     // remove the first and last '/'
     if (!_s3_conf.prefix.empty()) {
@@ -151,7 +177,8 @@ Status S3FileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader
     }
     GET_KEY(key, file);
     *reader = std::make_shared<S3FileReader>(
-            fsize, std::move(key), std::static_pointer_cast<S3FileSystem>(shared_from_this()));
+            fsize, std::move(key), std::static_pointer_cast<S3FileSystem>(shared_from_this()),
+            _profile);
     return Status::OK();
 }
 

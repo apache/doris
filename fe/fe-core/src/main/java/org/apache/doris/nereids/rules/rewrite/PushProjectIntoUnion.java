@@ -62,14 +62,13 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
                     if (old instanceof SlotReference) {
                         newProjections.add(replaceRootMap.get(old));
                     } else {
-                        newProjections.add(ExpressionUtils.replace(old, replaceMap));
+                        newProjections.add(ExpressionUtils.replaceNameExpression(old, replaceMap));
                     }
                 }
                 newConstExprs.add(newProjections.build());
             }
-            return p.child()
-                    .withChildrenAndConstExprsList(ImmutableList.of(), ImmutableList.of(), newConstExprs.build())
-                    .withNewOutputs(p.getOutputs());
+            return p.child().withNewOutputsChildrenAndConstExprsList(ImmutableList.copyOf(p.getOutput()),
+                    ImmutableList.of(), ImmutableList.of(), newConstExprs.build());
         }).toRule(RuleType.PUSH_PROJECT_INTO_UNION);
     }
 }

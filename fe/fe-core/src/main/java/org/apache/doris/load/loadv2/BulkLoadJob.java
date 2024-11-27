@@ -23,6 +23,8 @@ import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UnifiedLoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
@@ -32,6 +34,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
@@ -41,7 +44,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.plugin.audit.AuditEvent;
+import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.audit.LoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -138,6 +141,8 @@ public abstract class BulkLoadJob extends LoadJob {
             bulkLoadJob.setComment(stmt.getComment());
             bulkLoadJob.setJobProperties(stmt.getProperties());
             bulkLoadJob.checkAndSetDataSourceInfo((Database) db, stmt.getDataDescriptions());
+            // In the construction method, there may not be table information yet
+            bulkLoadJob.rebuildAuthorizationInfo();
             return bulkLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
@@ -168,6 +173,10 @@ public abstract class BulkLoadJob extends LoadJob {
     private AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());
+    }
+
+    public void rebuildAuthorizationInfo() throws MetaNotFoundException {
+        this.authorizationInfo = gatherAuthInfo();
     }
 
     @Override
@@ -265,14 +274,9 @@ public abstract class BulkLoadJob extends LoadJob {
         fileGroupAggInfo = new BrokerFileGroupAggInfo();
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt.originStmt),
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
-        LoadStmt stmt;
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
-            stmt = (LoadStmt) SqlParserUtils.getStmt(parser, originStmt.idx);
-            for (DataDescription dataDescription : stmt.getDataDescriptions()) {
-                dataDescription.analyzeWithoutCheckPriv(db.getFullName());
-            }
-            checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
+            analyzeStmt(SqlParserUtils.getStmt(parser, originStmt.idx), db);
         } catch (Exception e) {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("origin_stmt", originStmt)
@@ -281,6 +285,20 @@ public abstract class BulkLoadJob extends LoadJob {
                     .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), false, true);
         }
+    }
+
+    protected void analyzeStmt(StatementBase stmtBase, Database db) throws UserException {
+        LoadStmt stmt = null;
+        if (stmtBase instanceof UnifiedLoadStmt) {
+            stmt = (LoadStmt) ((UnifiedLoadStmt) stmtBase).getProxyStmt();
+        } else {
+            stmt = (LoadStmt) stmtBase;
+        }
+
+        for (DataDescription dataDescription : stmt.getDataDescriptions()) {
+            dataDescription.analyzeWithoutCheckPriv(db.getFullName());
+        }
+        checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
     }
 
     @Override

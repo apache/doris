@@ -24,7 +24,6 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FdFactory;
 import org.apache.doris.nereids.properties.FdItem;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.TableFdItem;
@@ -58,7 +57,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -158,9 +156,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // Just use in withXXX method. Don't need check/copyOf()
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, children);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
-        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
-        this.markJoinConjuncts = ImmutableList.copyOf(markJoinConjuncts);
+        this.hashJoinConjuncts = Utils.fastToImmutableList(hashJoinConjuncts);
+        this.otherJoinConjuncts = Utils.fastToImmutableList(otherJoinConjuncts);
+        this.markJoinConjuncts = Utils.fastToImmutableList(markJoinConjuncts);
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
         if (joinReorderContext != null) {
             this.joinReorderContext.copyFrom(joinReorderContext);
@@ -185,11 +183,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
      * getConditionSlot
      */
     public Set<Slot> getConditionSlot() {
-        // this function is called by rules which reject mark join
-        // so markJoinConjuncts is not processed here
-        Preconditions.checkState(!isMarkJoin(),
-                "shouldn't call mark join's getConditionSlot method");
-        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
+        return Stream.concat(Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream()),
+                markJoinConjuncts.stream())
                 .flatMap(expr -> expr.getInputSlots().stream())
                 .collect(ImmutableSet.toImmutableSet());
     }
@@ -198,11 +193,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
      * getConditionExprId
      */
     public Set<ExprId> getConditionExprId() {
-        // this function is called by rules which reject mark join
-        // so markJoinConjuncts is not processed here
-        Preconditions.checkState(!isMarkJoin(),
-                "shouldn't call mark join's getConditionExprId method");
-        return Stream.concat(getHashJoinConjuncts().stream(), getOtherJoinConjuncts().stream())
+        return Stream.concat(Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream()),
+                markJoinConjuncts.stream())
                 .flatMap(expr -> expr.getInputSlotExprIds().stream()).collect(Collectors.toSet());
     }
 
@@ -417,7 +409,14 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType, JoinReorderContext otherJoinReorderContext) {
+    public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, groupExpression, Optional.of(getLogicalProperties()),
+                children, joinReorderContext);
+    }
+
+    public LogicalJoin<Plan, Plan> withJoinTypeAndContext(JoinType joinType,
+            JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
                 children, otherJoinReorderContext);
@@ -459,76 +458,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        if (isMarkJoin()) {
-            // TODO disable function dependence calculation for mark join, but need re-think this in future.
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
-        //1. NALAJ and FOJ block functional dependencies
-        if (joinType.isNullAwareLeftAntiJoin() || joinType.isFullOuterJoin()) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
-
-        // left/right semi/anti join propagate left/right functional dependencies
-        if (joinType.isLeftAntiJoin() || joinType.isLefSemiJoin()) {
-            return left().getLogicalProperties().getFunctionalDependencies();
-        }
-        if (joinType.isRightSemiJoin() || joinType.isRightAntiJoin()) {
-            return right().getLogicalProperties().getFunctionalDependencies();
-        }
-
-        // if there is non-equal join conditions, block functional dependencies
-        if (!otherJoinConjuncts.isEmpty()) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
-
-        Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
-        if (keys == null) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
-        }
-
-        // Note here we only check whether the left is unique.
-        // So the hash condition can't be null-safe
-        // TODO: consider Null-safe hash condition when left and rigth is not nullable
-        boolean isLeftUnique = left().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.first);
-        boolean isRightUnique = right().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.second);
-        Builder fdBuilder = new Builder();
-        if (joinType.isInnerJoin()) {
-            // inner join propagate uniforms slots
-            // And if the hash keys is unique, inner join can propagate all functional dependencies
-            if (isLeftUnique && isRightUnique) {
-                fdBuilder.addFunctionalDependencies(left().getLogicalProperties().getFunctionalDependencies());
-                fdBuilder.addFunctionalDependencies(right().getLogicalProperties().getFunctionalDependencies());
-            } else {
-                fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
-                fdBuilder.addUniformSlot(right().getLogicalProperties().getFunctionalDependencies());
-            }
-        }
-
-        // left/right outer join propagate left/right uniforms slots
-        // And if the right/left hash keys is unique,
-        // join can propagate left/right functional dependencies
-        if (joinType.isLeftOuterJoin()) {
-            if (isRightUnique) {
-                return left().getLogicalProperties().getFunctionalDependencies();
-            }
-            fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
-        }
-        if (joinType.isRightOuterJoin()) {
-            if (isLeftUnique) {
-                return left().getLogicalProperties().getFunctionalDependencies();
-            }
-            fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
-        }
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        fdBuilder.addFdItems(fdItems);
-        return fdBuilder.build();
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
+    public ImmutableSet<FdItem> computeFdItems() {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
         if (isMarkJoin() || joinType.isNullAwareLeftAntiJoin()
                 || joinType.isFullOuterJoin()
@@ -708,5 +638,78 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         properties.put("MarkJoinSlotReference", markJoinSlotReference.toString());
         logicalJoin.put("Properties", properties);
         return logicalJoin;
+    }
+
+    @Override
+    public void computeUnique(Builder fdBuilder) {
+        if (isMarkJoin()) {
+            // TODO disable function dependence calculation for mark join, but need re-think this in future.
+            return;
+        }
+        if (joinType.isLeftSemiOrAntiJoin()) {
+            fdBuilder.addUniqueSlot(left().getLogicalProperties().getFunctionalDependencies());
+        } else if (joinType.isRightSemiOrAntiJoin()) {
+            fdBuilder.addUniqueSlot(right().getLogicalProperties().getFunctionalDependencies());
+        }
+        // if there is non-equal join conditions, don't propagate unique
+        if (hashJoinConjuncts.isEmpty()) {
+            return;
+        }
+        Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
+        if (keys == null) {
+            return;
+        }
+
+        // Note here we only check whether the left is unique.
+        // So the hash condition can't be null-safe
+        // TODO: consider Null-safe hash condition when left and rigth is not nullable
+        boolean isLeftUnique = left().getLogicalProperties()
+                .getFunctionalDependencies().isUnique(keys.first);
+        boolean isRightUnique = right().getLogicalProperties()
+                .getFunctionalDependencies().isUnique(keys.second);
+
+        // left/right outer join propagate left/right uniforms slots
+        // And if the right/left hash keys is unique,
+        // join can propagate left/right functional dependencies
+        if (joinType.isLeftOuterJoin() && isRightUnique) {
+            fdBuilder.addUniqueSlot(left().getLogicalProperties().getFunctionalDependencies());
+        } else if (joinType.isRightOuterJoin() && isLeftUnique) {
+            fdBuilder.addUniqueSlot(right().getLogicalProperties().getFunctionalDependencies());
+        } else if (joinType.isInnerJoin() && isLeftUnique && isRightUnique) {
+            // inner join propagate uniforms slots
+            // And if the hash keys is unique, inner join can propagate all functional dependencies
+            fdBuilder.addFunctionalDependencies(left().getLogicalProperties().getFunctionalDependencies());
+            fdBuilder.addFunctionalDependencies(right().getLogicalProperties().getFunctionalDependencies());
+        }
+    }
+
+    @Override
+    public void computeUniform(Builder fdBuilder) {
+        if (isMarkJoin()) {
+            // TODO disable function dependence calculation for mark join, but need re-think this in future.
+            return;
+        }
+        if (!joinType.isLeftSemiOrAntiJoin()) {
+            fdBuilder.addUniformSlot(right().getLogicalProperties().getFunctionalDependencies());
+        }
+        if (!joinType.isRightSemiOrAntiJoin()) {
+            fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
+        }
+    }
+
+    @Override
+    public void computeEqualSet(Builder fdBuilder) {
+        if (!joinType.isLeftSemiOrAntiJoin()) {
+            fdBuilder.addEqualSet(right().getLogicalProperties().getFunctionalDependencies());
+        }
+        if (!joinType.isRightSemiOrAntiJoin()) {
+            fdBuilder.addEqualSet(left().getLogicalProperties().getFunctionalDependencies());
+        }
+        if (joinType.isInnerJoin()) {
+            for (Expression expression : getHashJoinConjuncts()) {
+                Optional<Pair<Slot, Slot>> equalSlot = ExpressionUtils.extractEqualSlot(expression);
+                equalSlot.ifPresent(slotSlotPair -> fdBuilder.addEqualPair(slotSlotPair.first, slotSlotPair.second));
+            }
+        }
     }
 }

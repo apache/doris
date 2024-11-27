@@ -51,12 +51,13 @@ class SortSinkOperatorX;
 
 class SortSinkLocalState : public PipelineXSinkLocalState<SortSharedState> {
     ENABLE_FACTORY_CREATOR(SortSinkLocalState);
+    using Base = PipelineXSinkLocalState<SortSharedState>;
 
 public:
-    SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<SortSharedState>(parent, state) {}
+    SortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
 
 private:
     friend class SortSinkOperatorX;
@@ -73,7 +74,7 @@ private:
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
     SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                      const DescriptorTbl& descs);
+                      const DescriptorTbl& descs, bool require_bucket_distribution);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<SortSinkLocalState>::_name);
@@ -86,7 +87,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
         if (_is_analytic_sort) {
-            return _is_colocate
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         } else if (_merge_by_exchange) {
@@ -95,6 +96,18 @@ public:
         }
         return DataSinkOperatorX<SortSinkLocalState>::required_data_distribution();
     }
+    bool require_shuffled_data_distribution() const override { return _is_analytic_sort; }
+    bool require_data_distribution() const override { return _is_colocate; }
+
+    bool is_full_sort() const { return _algorithm == SortAlgorithm::FULL_SORT; }
+
+    size_t get_revocable_mem_size(RuntimeState* state) const;
+
+    Status prepare_for_spill(RuntimeState* state);
+
+    Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+                                     int batch_size, bool* eos);
+    void reset(RuntimeState* state);
 
 private:
     friend class SortSinkLocalState;
@@ -117,6 +130,7 @@ private:
     const bool _use_two_phase_read;
     const bool _merge_by_exchange;
     const bool _is_colocate = false;
+    const bool _require_bucket_distribution = false;
     const bool _is_analytic_sort = false;
     const std::vector<TExpr> _partition_exprs;
 };

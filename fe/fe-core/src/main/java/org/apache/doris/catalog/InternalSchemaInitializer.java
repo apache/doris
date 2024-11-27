@@ -19,16 +19,21 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
+import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -36,12 +41,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
-import org.apache.doris.plugin.audit.AuditLoaderPlugin;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,16 +57,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+
 public class InternalSchemaInitializer extends Thread {
 
     public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 5;
 
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
 
+    public InternalSchemaInitializer() {
+        super("InternalSchemaInitializer");
+    }
+
     public void run() {
         if (!FeConstants.enableInternalSchemaDb) {
             return;
         }
+        modifyColumnStatsTblSchema();
         while (!created()) {
             try {
                 FrontendNodeType feType = Env.getCurrentEnv().getFeType();
@@ -87,7 +99,78 @@ public class InternalSchemaInitializer extends Thread {
         Database database = op.get();
         modifyTblReplicaCount(database, StatisticConstants.STATISTIC_TBL_NAME);
         modifyTblReplicaCount(database, StatisticConstants.HISTOGRAM_TBL_NAME);
-        modifyTblReplicaCount(database, AuditLoaderPlugin.AUDIT_LOG_TABLE);
+        modifyTblReplicaCount(database, AuditLoader.AUDIT_LOG_TABLE);
+    }
+
+    public void modifyColumnStatsTblSchema() {
+        while (true) {
+            try {
+                Table table = findStatsTable();
+                if (table == null) {
+                    break;
+                }
+                table.writeLock();
+                try {
+                    doSchemaChange(table);
+                    break;
+                } finally {
+                    table.writeUnlock();
+                }
+            } catch (Throwable t) {
+                LOG.warn("Failed to do schema change for stats table. Try again later.", t);
+            }
+            try {
+                Thread.sleep(TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS *  1000);
+            } catch (InterruptedException t) {
+                // IGNORE
+            }
+        }
+    }
+
+    public Table findStatsTable() {
+        // 1. check database exist
+        Optional<Database> dbOpt = Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!dbOpt.isPresent()) {
+            return null;
+        }
+
+        // 2. check table exist
+        Database db = dbOpt.get();
+        Optional<Table> tableOp = db.getTable(StatisticConstants.STATISTIC_TBL_NAME);
+        return tableOp.orElse(null);
+    }
+
+    public void doSchemaChange(Table table) throws UserException {
+        List<AlterClause> clauses = getModifyColumnClauses(table);
+        if (!clauses.isEmpty()) {
+            TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    StatisticConstants.DB_NAME, table.getName());
+            AlterTableStmt alter = new AlterTableStmt(tableName, clauses);
+            Env.getCurrentEnv().alterTable(alter);
+        }
+    }
+
+    public List<AlterClause> getModifyColumnClauses(Table table) {
+        List<AlterClause> clauses = Lists.newArrayList();
+        for (Column col : table.fullSchema) {
+            if (col.isKey() && col.getType().isVarchar()
+                    && col.getType().getLength() < StatisticConstants.MAX_NAME_LEN) {
+                TypeDef typeDef = new TypeDef(
+                        ScalarType.createVarchar(StatisticConstants.MAX_NAME_LEN), col.isAllowNull());
+                ColumnDef columnDef = new ColumnDef(col.getName(), typeDef, true, null,
+                        col.isAllowNull(), -1, new ColumnDef.DefaultValue(false, null), "");
+                try {
+                    columnDef.analyze(true);
+                } catch (AnalysisException e) {
+                    LOG.warn("Failed to analyze column {}", col.getName());
+                    continue;
+                }
+                ModifyColumnClause clause = new ModifyColumnClause(columnDef, null, null, Maps.newHashMap());
+                clause.setColumn(columnDef.toColumn());
+                clauses.add(clause);
+            }
+        }
+        return clauses;
     }
 
     @VisibleForTesting
@@ -97,7 +180,7 @@ public class InternalSchemaInitializer extends Thread {
             return;
         }
         while (true) {
-            int backendNum = Env.getCurrentSystemInfo().getBackendNumFromDiffHosts(true);
+            int backendNum = Env.getCurrentSystemInfo().getStorageBackendNumFromDiffHosts(true);
             if (FeConstants.runningUnitTest) {
                 backendNum = Env.getCurrentSystemInfo().getAllBackendIds().size();
             }
@@ -160,8 +243,8 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void createDb() {
-        CreateDbStmt createDbStmt = new CreateDbStmt(true, FeConstants.INTERNAL_DB_NAME,
-                null);
+        CreateDbStmt createDbStmt = new CreateDbStmt(true,
+                new DbName("internal", FeConstants.INTERNAL_DB_NAME), null);
         try {
             Env.getCurrentEnv().createDb(createDbStmt);
         } catch (DdlException e) {
@@ -218,7 +301,7 @@ public class InternalSchemaInitializer extends Thread {
 
     private static CreateTableStmt buildAuditTblStmt() throws UserException {
         TableName tableName = new TableName("",
-                FeConstants.INTERNAL_DB_NAME, AuditLoaderPlugin.AUDIT_LOG_TABLE);
+                FeConstants.INTERNAL_DB_NAME, AuditLoader.AUDIT_LOG_TABLE);
 
         String engineName = "olap";
         ArrayList<String> dupKeys = Lists.newArrayList("query_id", "time", "client_ip");
@@ -241,7 +324,7 @@ public class InternalSchemaInitializer extends Thread {
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, InternalSchema.getCopiedSchema(AuditLoaderPlugin.AUDIT_LOG_TABLE),
+                tableName, InternalSchema.getCopiedSchema(AuditLoader.AUDIT_LOG_TABLE),
                 engineName, keysDesc, partitionDesc, distributionDesc,
                 properties, null, "Doris internal audit table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
@@ -283,7 +366,7 @@ public class InternalSchemaInitializer extends Thread {
         }
 
         // 3. check audit table
-        optionalStatsTbl = db.getTable(AuditLoaderPlugin.AUDIT_LOG_TABLE);
+        optionalStatsTbl = db.getTable(AuditLoader.AUDIT_LOG_TABLE);
         if (!optionalStatsTbl.isPresent()) {
             return false;
         }

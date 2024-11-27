@@ -41,7 +41,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/column_vector_helper.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/allocator.h"
 #include "vec/common/arena.h"
@@ -225,16 +224,15 @@ using ArenaUPtr = std::unique_ptr<Arena>;
 struct AggregateDataContainer {
 public:
     AggregateDataContainer(size_t size_of_key, size_t size_of_aggregate_states)
-            : _size_of_key(size_of_key), _size_of_aggregate_states(size_of_aggregate_states) {
-        _expand();
-    }
+            : _size_of_key(size_of_key), _size_of_aggregate_states(size_of_aggregate_states) {}
 
     int64_t memory_usage() const { return _arena_pool.size(); }
 
     template <typename KeyType>
     AggregateDataPtr append_data(const KeyType& key) {
         DCHECK_EQ(sizeof(KeyType), _size_of_key);
-        if (UNLIKELY(_index_in_sub_container == SUB_CONTAINER_CAPACITY)) {
+        // SUB_CONTAINER_CAPACITY should add a new sub container, and also expand when it is zero
+        if (UNLIKELY(_index_in_sub_container % SUB_CONTAINER_CAPACITY == 0)) {
             _expand();
         }
 
@@ -352,7 +350,7 @@ private:
     Arena _arena_pool;
     std::vector<char*> _key_containers;
     std::vector<AggregateDataPtr> _value_containers;
-    AggregateDataPtr _current_agg_data;
+    AggregateDataPtr _current_agg_data = nullptr;
     char* _current_keys = nullptr;
     size_t _size_of_key {};
     size_t _size_of_aggregate_states {};
@@ -417,9 +415,15 @@ public:
     Status pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
     Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
+    bool is_probe_expr_ctxs_empty() const { return _probe_expr_ctxs.empty(); }
     bool is_streaming_preagg() const { return _is_streaming_preagg; }
     bool is_aggregate_evaluators_empty() const { return _aggregate_evaluators.empty(); }
     void _make_nullable_output_key(Block* block);
+    /// Return true if we should keep expanding hash tables in the preagg. If false,
+    /// the preagg should pass through any rows it can't fit in its tables.
+    bool _should_expand_preagg_hash_tables();
+
+    TupleDescriptor* agg_output_desc() { return _output_tuple_desc; }
 
 protected:
     bool _is_streaming_preagg;
@@ -498,14 +502,11 @@ private:
     std::unique_ptr<AggregateDataContainer> _aggregate_data_container;
 
     void _release_self_resource(RuntimeState* state);
-    /// Return true if we should keep expanding hash tables in the preagg. If false,
-    /// the preagg should pass through any rows it can't fit in its tables.
-    bool _should_expand_preagg_hash_tables();
 
     size_t _get_hash_table_size();
 
     Status _create_agg_status(AggregateDataPtr data);
-    Status _destroy_agg_status(AggregateDataPtr data);
+    void _destroy_agg_status(AggregateDataPtr data);
 
     Status _get_without_key_result(RuntimeState* state, Block* block, bool* eos);
     Status _serialize_without_key(RuntimeState* state, Block* block, bool* eos);
@@ -641,8 +642,8 @@ private:
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_and_merge_vec_selected(
                                 _places.data(), _offsets_of_aggregate_states[i],
-                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
-                                _agg_arena_pool.get(), rows);
+                                _deserialize_buffer.data(), column.get(), _agg_arena_pool.get(),
+                                rows);
                     }
                 } else {
                     RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add_selected(
@@ -676,8 +677,8 @@ private:
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_and_merge_vec(
                                 _places.data(), _offsets_of_aggregate_states[i],
-                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
-                                _agg_arena_pool.get(), rows);
+                                _deserialize_buffer.data(), column.get(), _agg_arena_pool.get(),
+                                rows);
                     }
                 } else {
                     RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(

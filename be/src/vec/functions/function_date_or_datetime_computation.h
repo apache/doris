@@ -288,16 +288,25 @@ struct TimeDiffImpl {
     using ReturnType = DataTypeTimeV2;
 
     static constexpr auto name = "timediff";
-    static constexpr auto is_nullable = false;
+    static constexpr int64_t limit_value = 3020399000000; // 838:59:59 convert to microsecond
     static inline ReturnType::FieldType execute(const ArgType1& t0, const ArgType2& t1,
                                                 bool& is_null) {
         const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
         const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
         is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
         if constexpr (UsingTimev2) {
-            return ts0.microsecond_diff(ts1);
+            // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
+            // the time type value between '-838:59:59' and '838:59:59', so the return value should limited
+            int64_t diff_m = ts0.microsecond_diff(ts1);
+            if (diff_m > limit_value) {
+                return (double)limit_value;
+            } else if (diff_m < -1 * limit_value) {
+                return (double)(-1 * limit_value);
+            } else {
+                return (double)diff_m;
+            }
         } else {
-            return (1000 * 1000) * ts0.second_diff(ts1);
+            return (double)((1000 * 1000) * ts0.second_diff(ts1));
         }
     }
     static DataTypes get_variadic_argument_types() {
@@ -703,16 +712,17 @@ public:
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if (arguments.size() != 2 && arguments.size() != 3) {
-            LOG(FATAL) << fmt::format(
-                    "Number of arguments for function {} doesn't match: passed {} , should be 2 or "
-                    "3",
-                    get_name(), arguments.size());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Number of arguments for function {} doesn't match: passed {} , "
+                                   "should be 2 or 3",
+                                   get_name(), arguments.size());
         }
 
         if (arguments.size() == 2) {
             if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
                 !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
-                LOG(FATAL) << fmt::format(
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
                         "Illegal type {} of argument of function {}. Should be a date or a date "
                         "with time",
                         arguments[0].type->get_name(), get_name());
@@ -721,7 +731,8 @@ public:
             if (!WhichDataType(remove_nullable(arguments[0].type)).is_date_time() ||
                 !WhichDataType(remove_nullable(arguments[0].type)).is_date_time_v2() ||
                 !WhichDataType(remove_nullable(arguments[2].type)).is_string()) {
-                LOG(FATAL) << fmt::format(
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
                         "Function {} supports 2 or 3 arguments. The 1st argument must be of type "
                         "Date or DateTime. The 2nd argument must be number. The 3rd argument "
                         "(optional) must be a constant string with timezone name. The timezone "
@@ -739,56 +750,11 @@ public:
         WhichDataType which1(remove_nullable(first_arg_type));
         WhichDataType which2(remove_nullable(second_arg_type));
 
-        if (which1.is_date() && which2.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
-                                           DataTypeDate::FieldType>::execute(block, arguments,
-                                                                             result,
-                                                                             input_rows_count);
-        } else if (which1.is_date_time() && which2.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTime::FieldType, Transform,
-                                           DataTypeDate::FieldType>::execute(block, arguments,
-                                                                             result,
-                                                                             input_rows_count);
-        } else if (which1.is_date_v2() && which2.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
-                                           DataTypeDate::FieldType>::execute(block, arguments,
-                                                                             result,
-                                                                             input_rows_count);
-        } else if (which1.is_date_time_v2() && which2.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTimeV2::FieldType, Transform,
-                                           DataTypeDate::FieldType>::execute(block, arguments,
-                                                                             result,
-                                                                             input_rows_count);
-        } else if (which1.is_date() && which2.is_date_time()) {
-            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
-                                           DataTypeDateTime::FieldType>::execute(block, arguments,
-                                                                                 result,
-                                                                                 input_rows_count);
-        } else if (which1.is_date() && which2.is_date_v2()) {
-            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
-                                           DataTypeDateV2::FieldType>::execute(block, arguments,
-                                                                               result,
-                                                                               input_rows_count);
-        } else if (which1.is_date() && which2.is_date_time_v2()) {
-            return DateTimeAddIntervalImpl<
-                    DataTypeDate::FieldType, Transform,
-                    DataTypeDateTimeV2::FieldType>::execute(block, arguments, result,
-                                                            input_rows_count);
-        } else if (which1.is_date_v2() && which2.is_date_time()) {
-            return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
-                                           DataTypeDateTime::FieldType>::execute(block, arguments,
-                                                                                 result,
-                                                                                 input_rows_count);
-        } else if (which1.is_date_v2() && which2.is_date_v2()) {
+        if (which1.is_date_v2() && which2.is_date_v2()) {
             return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
                                            DataTypeDateV2::FieldType>::execute(block, arguments,
                                                                                result,
                                                                                input_rows_count);
-        } else if (which1.is_date_time_v2() && which2.is_date_time()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTimeV2::FieldType, Transform,
-                                           DataTypeDateTime::FieldType>::execute(block, arguments,
-                                                                                 result,
-                                                                                 input_rows_count);
         } else if (which1.is_date_time_v2() && which2.is_date_time_v2()) {
             return DateTimeAddIntervalImpl<
                     DataTypeDateTimeV2::FieldType, Transform,
@@ -799,16 +765,6 @@ public:
                                            DataTypeDateTime::FieldType>::execute(block, arguments,
                                                                                  result,
                                                                                  input_rows_count);
-        } else if (which1.is_date_time() && which2.is_date_v2()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTime::FieldType, Transform,
-                                           DataTypeDateV2::FieldType>::execute(block, arguments,
-                                                                               result,
-                                                                               input_rows_count);
-        } else if (which1.is_date_time() && which2.is_date_time_v2()) {
-            return DateTimeAddIntervalImpl<
-                    DataTypeDateTime::FieldType, Transform,
-                    DataTypeDateTimeV2::FieldType>::execute(block, arguments, result,
-                                                            input_rows_count);
         } else if (which1.is_date_v2() && which2.is_date_time_v2()) {
             return DateTimeAddIntervalImpl<
                     DataTypeDateV2::FieldType, Transform,
@@ -990,6 +946,41 @@ struct CurrentDateTimeImpl {
             block.get_by_position(result).column = std::move(col_to);
         }
         return Status::OK();
+    }
+};
+
+template <typename FunctionImpl>
+class FunctionCurrentDateOrDateTimeOld : public IFunction {
+public:
+    static constexpr bool has_variadic_argument =
+            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<FunctionImpl>()))>;
+
+    static constexpr auto name = FunctionImpl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionCurrentDateOrDateTimeOld>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+
+    // the only diff in old version is it's ALWAYS_NOT_NULLABLE
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return std::make_shared<typename FunctionImpl::ReturnType>();
+    }
+
+    bool is_variadic() const override { return true; }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (has_variadic_argument) {
+            return FunctionImpl::get_variadic_argument_types();
+        }
+        return {};
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        return FunctionImpl::execute(context, block, arguments, result, input_rows_count);
     }
 };
 

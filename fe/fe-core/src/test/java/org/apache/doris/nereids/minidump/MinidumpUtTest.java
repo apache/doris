@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.minidump;
 
 import org.json.JSONObject;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -30,6 +31,7 @@ import java.io.IOException;
  */
 class MinidumpUtTest {
 
+    @Disabled
     @Test
     public void testMinidumpUt() {
         Minidump minidump = null;

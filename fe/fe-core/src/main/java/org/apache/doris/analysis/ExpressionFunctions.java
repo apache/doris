@@ -207,7 +207,7 @@ public enum ExpressionFunctions {
                                     Method method, FEFunction annotation) {
         if (annotation != null) {
             String name = annotation.name();
-            Type returnType = Type.fromPrimitiveType(PrimitiveType.valueOf(annotation.returnType()));
+            Type returnType = Type.fromPrimitiveType(PrimitiveType.valueOf(annotation.returnType().toUpperCase()));
             List<Type> argTypes = new ArrayList<>();
             for (String type : annotation.argTypes()) {
                 argTypes.add(ScalarType.createType(type));

@@ -155,10 +155,15 @@ public class PrivBitSet implements Writable {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < Privilege.privileges.length; i++) {
             if (get(i)) {
-                sb.append(Privilege.getPriv(i)).append(" ");
+                sb.append(Privilege.getPriv(i)).append(",");
             }
         }
-        return sb.toString();
+        String res = sb.toString();
+        if (res.length() > 0) {
+            return res.substring(0, res.length() - 1);
+        } else {
+            return res;
+        }
     }
 
     public static PrivBitSet read(DataInput in) throws IOException {

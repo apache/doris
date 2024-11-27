@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.ConfField;
+import org.apache.doris.common.LogUtils;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
@@ -148,7 +149,7 @@ public class DocGenerator {
                     sortedDoc.put(field.getName(), res);
                 }
             } catch (Exception e) {
-                System.out.println("Failed to generate doc for field: " + field.getName());
+                LogUtils.stderr("Failed to generate doc for field: " + field.getName());
                 throw e;
             }
         }
@@ -204,7 +205,7 @@ public class DocGenerator {
                     sortedDoc.put(field.getAnnotation(VariableMgr.VarAttr.class).name(), res);
                 }
             } catch (Exception e) {
-                System.out.println("Failed to generate doc for " + field.getName());
+                LogUtils.stderr("Failed to generate doc for " + field.getName());
                 throw e;
             }
         }
@@ -217,7 +218,7 @@ public class DocGenerator {
                     sortedDoc.put(field.getAnnotation(VariableMgr.VarAttr.class).name(), res);
                 }
             } catch (Exception e) {
-                System.out.println("Failed to generate doc for field: " + field.getName());
+                LogUtils.stderr("Failed to generate doc for field: " + field.getName());
                 throw e;
             }
         }
@@ -255,8 +256,10 @@ public class DocGenerator {
             }
             sb.append("\n\n");
         }
-        sb.append(VAR_READ_ONLY[lang.idx]).append("`").append(varAttr.flag() == VariableMgr.READ_ONLY).append("`\n\n");
-        sb.append(VAR_GLOBAL_ONLY[lang.idx]).append("`").append(varAttr.flag() == VariableMgr.GLOBAL).append("`\n\n");
+        sb.append(VAR_READ_ONLY[lang.idx]).append("`")
+                .append((varAttr.flag() & VariableMgr.READ_ONLY) != 0).append("`\n\n");
+        sb.append(VAR_GLOBAL_ONLY[lang.idx]).append("`")
+                .append((varAttr.flag() & VariableMgr.GLOBAL) != 0).append("`\n\n");
         return sb.toString();
     }
 
@@ -288,7 +291,7 @@ public class DocGenerator {
                 sessionVariableDocOutputPath, sessionVariableDocOutputPathCN);
         try {
             docGenerator.generate();
-            System.out.println("Done!");
+            LogUtils.stdout("Done!");
         } catch (Exception e) {
             log.info("failed to generate doc", e);
             System.exit(-1);

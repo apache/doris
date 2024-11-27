@@ -40,6 +40,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -52,6 +53,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
@@ -72,8 +74,10 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/random.h"
@@ -93,6 +97,10 @@ std::mutex s_task_signatures_mtx;
 std::unordered_map<TTaskType::type, std::unordered_set<int64_t>> s_task_signatures;
 
 std::atomic_ulong s_report_version(time(nullptr) * 10000);
+
+void increase_report_version() {
+    s_report_version.fetch_add(1, std::memory_order_relaxed);
+}
 
 // FIXME(plat1ko): Paired register and remove task info
 bool register_task_info(const TTaskType::type task_type, int64_t signature) {
@@ -188,11 +196,12 @@ void alter_tablet(StorageEngine& engine, const TAgentTaskRequest& agent_task_req
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
         EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     }
 
     if (status.ok()) {
-        s_report_version.fetch_add(1, std::memory_order_relaxed);
+        increase_report_version();
     }
 
     // Return result to fe
@@ -351,6 +360,7 @@ bvar::Adder<uint64_t> ALTER_count("task", "ALTER_TABLE");
 bvar::Adder<uint64_t> CLONE_count("task", "CLONE");
 bvar::Adder<uint64_t> STORAGE_MEDIUM_MIGRATE_count("task", "STORAGE_MEDIUM_MIGRATE");
 bvar::Adder<uint64_t> GC_BINLOG_count("task", "GC_BINLOG");
+bvar::Adder<uint64_t> UPDATE_VISIBLE_VERSION_count("task", "UPDATE_VISIBLE_VERSION");
 
 void add_task_count(const TAgentTaskRequest& task, int n) {
     // clang-format off
@@ -378,6 +388,7 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     ADD_TASK_COUNT(CLONE)
     ADD_TASK_COUNT(STORAGE_MEDIUM_MIGRATE)
     ADD_TASK_COUNT(GC_BINLOG)
+    ADD_TASK_COUNT(UPDATE_VISIBLE_VERSION)
     #undef ADD_TASK_COUNT
     case TTaskType::REALTIME_PUSH:
     case TTaskType::PUSH:
@@ -405,7 +416,7 @@ bvar::Adder<uint64_t> report_tablet_failed("report", "tablet_failed");
 TaskWorkerPool::TaskWorkerPool(std::string_view name, int worker_count,
                                std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
-    auto st = ThreadPoolBuilder(fmt::format("TaskWorkerPool.{}", name))
+    auto st = ThreadPoolBuilder(fmt::format("TaskWP_{}", name))
                       .set_min_threads(worker_count)
                       .set_max_threads(worker_count)
                       .build(&_thread_pool);
@@ -440,7 +451,7 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         std::string_view name, int normal_worker_count, int high_prior_worker_conut,
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
-    auto st = ThreadPoolBuilder(fmt::format("TaskWorkerPool.{}", name))
+    auto st = ThreadPoolBuilder(fmt::format("TaskWP_.{}", name))
                       .set_min_threads(normal_worker_count)
                       .set_max_threads(normal_worker_count)
                       .build(&_normal_pool);
@@ -630,6 +641,7 @@ void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskReques
     auto tablet_ptr = engine.tablet_manager()->get_tablet(alter_inverted_index_rq.tablet_id);
     if (tablet_ptr != nullptr) {
         EngineIndexChangeTask engine_task(alter_inverted_index_rq);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     } else {
         status = Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
@@ -676,6 +688,23 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             continue;
         }
         bool need_to_save = false;
+        if (tablet_meta_info.__isset.partition_id) {
+            // for fix partition_id = 0
+            LOG(WARNING) << "change be tablet id: " << tablet->tablet_meta()->tablet_id()
+                         << "partition id from : " << tablet->tablet_meta()->partition_id()
+                         << " to : " << tablet_meta_info.partition_id;
+            auto succ = engine.tablet_manager()->update_tablet_partition_id(
+                    tablet_meta_info.partition_id, tablet->tablet_meta()->tablet_id());
+            if (!succ) {
+                std::string err_msg = fmt::format(
+                        "change be tablet id : {} partition_id : {} failed",
+                        tablet->tablet_meta()->tablet_id(), tablet_meta_info.partition_id);
+                LOG(WARNING) << err_msg;
+                status = Status::InvalidArgument(err_msg);
+                continue;
+            }
+            need_to_save = true;
+        }
         if (tablet_meta_info.__isset.storage_policy_id) {
             tablet->tablet_meta()->set_storage_policy_id(tablet_meta_info.storage_policy_id);
             need_to_save = true;
@@ -691,8 +720,8 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.compaction_policy) {
-            if (tablet_meta_info.compaction_policy != "size_based" &&
-                tablet_meta_info.compaction_policy != "time_series") {
+            if (tablet_meta_info.compaction_policy != CUMULATIVE_SIZE_BASED_POLICY &&
+                tablet_meta_info.compaction_policy != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "invalid compaction policy, only support for size_based or "
                         "time_series");
@@ -702,7 +731,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.time_series_compaction_goal_size_mbytes) {
-            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "only time series compaction policy support time series config");
                 continue;
@@ -712,7 +741,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.time_series_compaction_file_count_threshold) {
-            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "only time series compaction policy support time series config");
                 continue;
@@ -722,7 +751,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.time_series_compaction_time_threshold_seconds) {
-            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "only time series compaction policy support time series config");
                 continue;
@@ -732,13 +761,23 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.time_series_compaction_empty_rowsets_threshold) {
-            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
                 status = Status::InvalidArgument(
                         "only time series compaction policy support time series config");
                 continue;
             }
             tablet->tablet_meta()->set_time_series_compaction_empty_rowsets_threshold(
                     tablet_meta_info.time_series_compaction_empty_rowsets_threshold);
+            need_to_save = true;
+        }
+        if (tablet_meta_info.__isset.time_series_compaction_level_threshold) {
+            if (tablet->tablet_meta()->compaction_policy() != CUMULATIVE_TIME_SERIES_POLICY) {
+                status = Status::InvalidArgument(
+                        "only time series compaction policy support time series config");
+                continue;
+            }
+            tablet->tablet_meta()->set_time_series_compaction_level_threshold(
+                    tablet_meta_info.time_series_compaction_level_threshold);
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.replica_id) {
@@ -829,6 +868,7 @@ void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& 
     EngineChecksumTask engine_task(check_consistency_req.tablet_id,
                                    check_consistency_req.schema_hash, check_consistency_req.version,
                                    &checksum);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     Status status = engine_task.execute();
     if (!status.ok()) {
         LOG_WARNING("failed to check consistency")
@@ -879,13 +919,6 @@ void report_task_callback(const TMasterInfo& master_info) {
 }
 
 void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info) {
-    // Random sleep 1~5 seconds before doing report.
-    // In order to avoid the problem that the FE receives many report requests at the same time
-    // and can not be processed.
-    if (config::report_random_wait) {
-        random_sleep(5);
-    }
-
     TReportRequest request;
     request.__set_backend(BackendOptions::get_local_backend());
     request.__isset.disks = true;
@@ -926,8 +959,16 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     request.__set_backend(BackendOptions::get_local_backend());
     request.__isset.tablets = true;
 
-    uint64_t report_version = s_report_version;
-    engine.tablet_manager()->build_all_report_tablets_info(&request.tablets);
+    uint64_t report_version;
+    for (int i = 0; i < 5; i++) {
+        request.tablets.clear();
+        report_version = s_report_version;
+        engine.tablet_manager()->build_all_report_tablets_info(&request.tablets);
+        if (report_version == s_report_version) {
+            break;
+        }
+    }
+
     if (report_version < s_report_version) {
         // TODO llj This can only reduce the possibility for report error, but can't avoid it.
         // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
@@ -937,6 +978,11 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
         DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
         return;
     }
+
+    std::map<int64_t, int64_t> partitions_version;
+    engine.tablet_manager()->get_partitions_visible_version(&partitions_version);
+    request.__set_partitions_version(std::move(partitions_version));
+
     int64_t max_compaction_score =
             std::max(DorisMetrics::instance()->tablet_cumulative_max_compaction_score->value(),
                      DorisMetrics::instance()->tablet_base_max_compaction_score->value());
@@ -1216,6 +1262,7 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
             S3Conf s3_conf;
             s3_conf.ak = std::move(resource.s3_storage_param.ak);
             s3_conf.sk = std::move(resource.s3_storage_param.sk);
+            s3_conf.token = std::move(resource.s3_storage_param.token);
             s3_conf.endpoint = std::move(resource.s3_storage_param.endpoint);
             s3_conf.region = std::move(resource.s3_storage_param.region);
             s3_conf.prefix = std::move(resource.s3_storage_param.root_path);
@@ -1228,10 +1275,10 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
             s3_conf.use_virtual_addressing = !resource.s3_storage_param.use_path_style;
             std::shared_ptr<io::S3FileSystem> fs;
             if (existed_resource.fs == nullptr) {
-                st = io::S3FileSystem::create(s3_conf, std::to_string(resource.id), &fs);
+                st = io::S3FileSystem::create(s3_conf, std::to_string(resource.id), nullptr, &fs);
             } else {
                 fs = std::static_pointer_cast<io::S3FileSystem>(existed_resource.fs);
-                fs->set_conf(s3_conf);
+                st = fs->set_conf(s3_conf);
             }
             if (!st.ok()) {
                 LOG(WARNING) << "update s3 resource failed: " << st;
@@ -1245,9 +1292,13 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
         } else if (resource.__isset.hdfs_storage_param) {
             Status st;
             std::shared_ptr<io::HdfsFileSystem> fs;
+            std::string root_path = resource.hdfs_storage_param.__isset.root_path
+                                            ? resource.hdfs_storage_param.root_path
+                                            : "";
             if (existed_resource.fs == nullptr) {
                 st = io::HdfsFileSystem::create(resource.hdfs_storage_param,
-                                                std::to_string(resource.id), "", nullptr, &fs);
+                                                std::to_string(resource.id), root_path, nullptr,
+                                                &fs);
             } else {
                 fs = std::static_pointer_cast<io::HdfsFileSystem>(existed_resource.fs);
             }
@@ -1256,7 +1307,8 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
             } else {
                 LOG_INFO("successfully update hdfs resource")
                         .tag("resource_id", resource.id)
-                        .tag("resource_name", resource.name);
+                        .tag("resource_name", resource.name)
+                        .tag("root_path", fs->root_path().string());
                 put_storage_resource(resource.id, {std::move(fs), resource.version});
             }
         } else {
@@ -1316,7 +1368,9 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
             COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
             std::stringstream ss;
             profile->pretty_print(&ss);
-            LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl << ss.str();
+            LOG(WARNING) << "create tablet " << create_tablet_req.tablet_id << " cost(s) "
+                         << elapsed_time / 1e9 << std::endl
+                         << ss.str();
         }
     });
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
@@ -1332,7 +1386,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
                 .tag("tablet_id", create_tablet_req.tablet_id)
                 .error(status);
     } else {
-        s_report_version.fetch_add(1, std::memory_order_relaxed);
+        increase_report_version();
         // get path hash of the created tablet
         TabletSharedPtr tablet;
         {
@@ -1410,6 +1464,7 @@ void push_callback(const TAgentTaskRequest& req) {
     std::vector<TTabletInfo> tablet_infos;
 
     EngineBatchLoadTask engine_task(const_cast<TPushReq&>(push_req), &tablet_infos);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();
 
     // Return result to fe
@@ -1426,7 +1481,7 @@ void push_callback(const TAgentTaskRequest& req) {
                 .tag("signature", req.signature)
                 .tag("tablet_id", push_req.tablet_id)
                 .tag("push_type", push_req.push_type);
-        ++s_report_version;
+        increase_report_version();
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
     } else {
         LOG_WARNING("failed to execute push task")
@@ -1469,6 +1524,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
         EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids, &succ_tablets,
                                              &discontinuous_version_tablets,
                                              &table_id_to_num_delta_rows);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
         if (status.ok()) {
             break;
@@ -1528,7 +1584,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 .error(status);
     } else {
         if (!config::disable_auto_compaction &&
-            !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
@@ -1538,7 +1594,7 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                         if (tablet->exceed_version_limit(config::max_tablet_version_num * 2 / 3) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
-                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true, false);
                             if (!st.ok()) [[unlikely]] {
                                 LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
                                              << ", published=" << published_count << " : " << st;
@@ -1658,6 +1714,12 @@ void gc_binlog_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     engine.gc_binlogs(gc_tablet_infos);
 }
 
+void visible_version_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
+    const TVisibleVersionReq& visible_version_req = req.visible_version_req;
+    engine.tablet_manager()->update_partitions_visible_version(
+            visible_version_req.partition_version);
+}
+
 void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
                     const TAgentTaskRequest& req) {
     const auto& clone_req = req.clone_req;
@@ -1667,6 +1729,7 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
 
     std::vector<TTabletInfo> tablet_infos;
     EngineCloneTask engine_task(clone_req, master_info, req.signature, &tablet_infos);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();
     // Return result to fe
     TFinishTaskRequest finish_task_request;
@@ -1685,6 +1748,10 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
         LOG_INFO("successfully clone tablet")
                 .tag("signature", req.signature)
                 .tag("tablet_id", clone_req.tablet_id);
+        if (engine_task.is_new_tablet()) {
+            increase_report_version();
+            finish_task_request.__set_report_version(s_report_version);
+        }
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
     }
 
@@ -1702,6 +1769,7 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
     auto status = check_migrate_request(engine, storage_medium_migrate_req, tablet, &dest_store);
     if (status.ok()) {
         EngineStorageMigrationTask engine_task(tablet, dest_store);
+        SCOPED_ATTACH_TASK(engine_task.mem_tracker());
         status = engine_task.execute();
     }
     // fe should ignore this err
@@ -1727,6 +1795,14 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
+}
+
+void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
+    LOG(INFO) << "clean trash start";
+    DBUG_EXECUTE_IF("clean_trash_callback_sleep", { sleep(100); })
+    static_cast<void>(engine.start_trash_sweep(nullptr, true));
+    static_cast<void>(engine.notify_listener("REPORT_DISK_STATE"));
+    LOG(INFO) << "clean trash finish";
 }
 
 } // namespace doris

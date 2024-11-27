@@ -36,6 +36,7 @@ suite("agg_window_project") {
 
     sql """insert into test_window_table values("1", 1);"""
 
+    sql """sync"""
 
     order_qt_select1 """
         SELECT `owner`,
@@ -94,12 +95,32 @@ suite("agg_window_project") {
 
     sql """insert into test_window_table2 values("1", 1, 1),("1", 1, 2),("1", 2, 1),("1", 2, 2),("2", 11, 1),("2", 11, 2),("2", 12, 1),("2", 12, 2);"""
 
-    order_qt_select4 """select a, c, sum(sum(b)) over(partition by c order by c rows between unbounded preceding and current row) from test_window_table2 group by a, c having a > 1;"""
+    sql """sync"""
+    
+    order_qt_select4 """select a, c, sum(sum(b)) over(partition by c order by a, c rows between unbounded preceding and current row) from test_window_table2 group by a, c having a > 1;"""
 
+    order_qt_select5 """select a, c, sum(sum(b)) over(partition by c order by a, c rows between unbounded preceding and current row) dd from test_window_table2 group by a, c having dd < 4;"""
+    
     explain {
         sql("select a, c, sum(sum(b)) over(partition by c order by c rows between unbounded preceding and current row) from test_window_table2 group by a, c having a > 1;")
         contains "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW"
     }
 
+    sql """select a, a aa, row_number() over (partition by b) from test_window_table2;"""
+
     sql "DROP TABLE IF EXISTS test_window_table2;"
+
+    sql """DROP TABLE IF EXISTS test_window_union_t1;"""
+    sql """DROP TABLE IF EXISTS test_window_union_t2;"""
+    sql """create table test_window_union_t1 (item_code int) distributed by hash(item_code) properties("replication_num"="1");"""
+    sql """insert into test_window_union_t1 values(1), (11), (111);"""
+
+    sql """create table test_window_union_t2 (orderamount_lj_tq decimalv3(38,5)) distributed by hash(orderamount_lj_tq) properties("replication_num"="1");"""
+    sql """insert into test_window_union_t2 values(123456.12345), (223456.12345), (323456.12345);"""
+
+    sql """
+        SELECT 0 AS `amount_dh_real_tq`, (CASE WHEN `t`.`item_code` IS NOT NULL THEN (1.0 / count(1) OVER (PARTITION BY `t`.`item_code`)) ELSE 0.0 END) AS `item_qty_dh_order` FROM `test_window_union_t1` t
+        UNION ALL
+        SELECT `t`.`orderamount_lj_tq` AS `amount_dh_real_tq`, 0 AS `item_qty_dh_order` FROM `test_window_union_t2` t  ;
+    """
 }

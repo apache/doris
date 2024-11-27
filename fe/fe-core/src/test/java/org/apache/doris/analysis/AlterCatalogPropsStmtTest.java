@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
@@ -42,9 +43,9 @@ public class AlterCatalogPropsStmtTest {
 
     @Before
     public void setUp() throws DdlException {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "%");
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
     }
 
     @Test
@@ -83,6 +84,15 @@ public class AlterCatalogPropsStmtTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("hive.metastore.uris", "thrift://localhost:9083");
         AlterCatalogPropertyStmt stmt = new AlterCatalogPropertyStmt(InternalCatalog.INTERNAL_CATALOG_NAME, props);
+        stmt.analyze(analyzer);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testUseMetaCache() throws UserException {
+        Map<String, String> props = Maps.newHashMap();
+        props.put(ExternalCatalog.USE_META_CACHE, "true");
+        AlterCatalogPropertyStmt stmt = new AlterCatalogPropertyStmt("testCatalog", props);
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
@@ -41,7 +42,7 @@ import javax.net.ssl.SSLException;
  * MySQL protocol will split one logical packet more than 16MB to many packets.
  * http://dev.mysql.com/doc/internals/en/sending-more-than-16mbyte.html
  */
-public class MysqlChannel {
+public class MysqlChannel implements BytesChannel {
     // logger for this class
     private static final Logger LOG = LogManager.getLogger(MysqlChannel.class);
     // max length which one MySQL physical can hold, if one logical packet is bigger than this,
@@ -80,6 +81,9 @@ public class MysqlChannel {
     // mysql flag CLIENT_DEPRECATE_EOF
     private boolean clientDeprecatedEOF;
 
+    // mysql flag CLIENT_MULTI_STATEMENTS
+    private boolean clientMultiStatements;
+
     private ConnectContext context;
 
     protected MysqlChannel() {
@@ -94,6 +98,14 @@ public class MysqlChannel {
         return clientDeprecatedEOF;
     }
 
+    public void setClientMultiStatements() {
+        clientMultiStatements = true;
+    }
+
+    public boolean clientMultiStatements() {
+        return clientMultiStatements;
+    }
+
     public MysqlChannel(StreamConnection connection, ConnectContext context) {
         Preconditions.checkNotNull(connection);
         this.sequenceId = 0;
@@ -101,6 +113,9 @@ public class MysqlChannel {
         this.remoteHostPortString = "";
         this.remoteIp = "";
         this.conn = connection;
+
+        // if proxy protocal is enabled, the remote address will be got from proxy protocal header
+        // and overwrite the original remote address.
         if (connection.getPeerAddress() instanceof InetSocketAddress) {
             InetSocketAddress address = (InetSocketAddress) connection.getPeerAddress();
             remoteHostPortString = NetUtils
@@ -216,6 +231,28 @@ public class MysqlChannel {
         return readLen;
     }
 
+    @Override
+    public int read(ByteBuffer dstBuf) {
+        int readLen = 0;
+        try {
+            while (dstBuf.remaining() != 0) {
+                int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf, context.getNetReadTimeout(),
+                        TimeUnit.SECONDS);
+                // return -1 when remote peer close the channel
+                if (ret == -1) {
+                    return 0;
+                }
+                readLen += ret;
+            }
+        } catch (IOException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Read channel exception, ignore.", e);
+            }
+            return 0;
+        }
+        return readLen;
+    }
+
     protected void decryptData(ByteBuffer dstBuf, boolean isHeader) throws SSLException {
         // after decrypt, we get a mysql packet with mysql header.
         if (!isSslMode || isHeader) {
@@ -288,7 +325,7 @@ public class MysqlChannel {
             // before read, set limit to make read only one packet
             result.limit(result.position() + packetLen);
             readLen = readAll(result, false);
-            if (isSslMode && remainingBuffer.position() == 0) {
+            if (isSslMode && remainingBuffer.position() == 0 && result.hasRemaining()) {
                 byte[] header = result.array();
                 int packetId = header[3] & 0xFF;
                 if (packetId != sequenceId) {
@@ -376,11 +413,13 @@ public class MysqlChannel {
     protected void realNetSend(ByteBuffer buffer) throws IOException {
         buffer = encryptData(buffer);
         long bufLen = buffer.remaining();
+        long start = System.currentTimeMillis();
         long writeLen = Channels.writeBlocking(conn.getSinkChannel(), buffer, context.getNetWriteTimeout(),
                 TimeUnit.SECONDS);
         if (bufLen != writeLen) {
-            throw new IOException("Write mysql packet failed.[write=" + writeLen
-                    + ", needToWrite=" + bufLen + "]");
+            long duration = System.currentTimeMillis() - start;
+            throw new ConnectionException("Write mysql packet failed.[write=" + writeLen
+                    + ", needToWrite=" + bufLen + "], duration: " + duration + " ms");
         }
         Channels.flushBlocking(conn.getSinkChannel(), context.getNetWriteTimeout(), TimeUnit.SECONDS);
         isSend = true;
@@ -578,4 +617,9 @@ public class MysqlChannel {
         }
     }
 
+    // for proxy protocal only
+    public void setRemoteAddr(String ip, int port) {
+        this.remoteIp = ip;
+        this.remoteHostPortString = NetUtils.getHostPortInAccessibleFormat(ip, port);
+    }
 }

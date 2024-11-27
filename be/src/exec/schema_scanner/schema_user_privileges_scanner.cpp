@@ -81,7 +81,7 @@ Status SchemaUserPrivilegesScanner::_get_new_table() {
     return Status::OK();
 }
 
-Status SchemaUserPrivilegesScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaUserPrivilegesScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

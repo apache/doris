@@ -17,6 +17,8 @@
 
 #include "vec/exec/runtime_filter_consumer.h"
 
+#include "pipeline/pipeline_x/pipeline_x_task.h"
+
 namespace doris::vectorized {
 
 RuntimeFilterConsumer::RuntimeFilterConsumer(const int32_t filter_id,
@@ -40,7 +42,7 @@ void RuntimeFilterConsumer::_init_profile(RuntimeProfile* profile) {
     fmt::memory_buffer buffer;
     for (auto& rf_ctx : _runtime_filter_ctxs) {
         rf_ctx.runtime_filter->init_profile(profile);
-        fmt::format_to(buffer, "{}, ", rf_ctx.runtime_filter->get_name());
+        fmt::format_to(buffer, "{}, ", rf_ctx.runtime_filter->debug_string());
     }
     profile->add_info_string("RuntimeFilters: ", to_string(buffer));
 }
@@ -75,48 +77,89 @@ bool RuntimeFilterConsumer::runtime_filters_are_ready_or_timeout() {
 }
 
 void RuntimeFilterConsumer::init_runtime_filter_dependency(
-        doris::pipeline::RuntimeFilterDependency* _runtime_filter_dependency) {
-    _runtime_filter_dependency->set_blocked_by_rf(_blocked_by_rf);
+        std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>&
+                runtime_filter_dependencies,
+        const int id, const int node_id, const std::string& name) {
+    runtime_filter_dependencies.resize(_runtime_filter_descs.size());
+    std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> runtime_filter_timers(
+            _runtime_filter_descs.size());
+    std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>
+            local_runtime_filter_dependencies;
+
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
-        _runtime_filter_dependency->add_filters(runtime_filter);
+        runtime_filter_dependencies[i] = std::make_shared<pipeline::RuntimeFilterDependency>(
+                id, node_id, name, runtime_filter);
+        _runtime_filter_ctxs[i].runtime_filter_dependency = runtime_filter_dependencies[i].get();
+        runtime_filter_timers[i] = std::make_shared<pipeline::RuntimeFilterTimer>(
+                runtime_filter->registration_time(), runtime_filter->wait_time_ms(),
+                runtime_filter_dependencies[i]);
+        runtime_filter->set_filter_timer(runtime_filter_timers[i]);
+        if (runtime_filter->has_local_target()) {
+            local_runtime_filter_dependencies.emplace_back(runtime_filter_dependencies[i]);
+        }
     }
+
+    // The gloabl runtime filter timer need set local runtime filter dependencies.
+    // start to wait before the local runtime filter ready
+    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
+        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
+        if (!runtime_filter->has_local_target()) {
+            runtime_filter_timers[i]->set_local_runtime_filter_dependencies(
+                    local_runtime_filter_dependencies);
+        }
+    }
+    ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer(
+            std::move(runtime_filter_timers));
 }
 
-Status RuntimeFilterConsumer::_acquire_runtime_filter() {
+Status RuntimeFilterConsumer::_acquire_runtime_filter(bool pipeline_x) {
     SCOPED_TIMER(_acquire_runtime_filter_timer);
-    VExprSPtrs vexprs;
+    std::vector<vectorized::VRuntimeFilterPtr> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
-        bool ready = runtime_filter->is_ready();
-        if (!ready) {
-            ready = runtime_filter->await();
-        }
-        if (ready && !_runtime_filter_ctxs[i].apply_mark) {
-            RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(_probe_ctxs, vexprs, false));
-            _runtime_filter_ctxs[i].apply_mark = true;
-        } else if (runtime_filter->current_state() == RuntimeFilterState::NOT_READY &&
-                   !_runtime_filter_ctxs[i].apply_mark) {
-            *_blocked_by_rf = true;
-        } else if (!_runtime_filter_ctxs[i].apply_mark) {
-            DCHECK(runtime_filter->current_state() != RuntimeFilterState::NOT_READY);
-            _is_all_rf_applied = false;
+        if (pipeline_x) {
+            runtime_filter->update_state();
+            if (runtime_filter->is_ready() && !_runtime_filter_ctxs[i].apply_mark) {
+                // Runtime filter has been applied in open phase.
+                RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(_probe_ctxs, vexprs, false));
+                _runtime_filter_ctxs[i].apply_mark = true;
+            } else if (!_runtime_filter_ctxs[i].apply_mark) {
+                // Runtime filter is timeout.
+                _is_all_rf_applied = false;
+            }
+        } else {
+            bool ready = runtime_filter->is_ready();
+            if (!ready) {
+                ready = runtime_filter->await();
+            }
+            if (ready && !_runtime_filter_ctxs[i].apply_mark) {
+                RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(_probe_ctxs, vexprs, false));
+                _runtime_filter_ctxs[i].apply_mark = true;
+            } else if (runtime_filter->current_state() == RuntimeFilterState::NOT_READY &&
+                       !_runtime_filter_ctxs[i].apply_mark) {
+                *_blocked_by_rf = true;
+            } else if (!_runtime_filter_ctxs[i].apply_mark) {
+                DCHECK(runtime_filter->current_state() != RuntimeFilterState::NOT_READY);
+                _is_all_rf_applied = false;
+            }
         }
     }
     RETURN_IF_ERROR(_append_rf_into_conjuncts(vexprs));
-    if (*_blocked_by_rf) {
+    if (!pipeline_x && *_blocked_by_rf) {
         return Status::WaitForRf("Runtime filters are neither not ready nor timeout");
     }
 
     return Status::OK();
 }
 
-Status RuntimeFilterConsumer::_append_rf_into_conjuncts(const VExprSPtrs& vexprs) {
+Status RuntimeFilterConsumer::_append_rf_into_conjuncts(
+        const std::vector<vectorized::VRuntimeFilterPtr>& vexprs) {
     if (vexprs.empty()) {
         return Status::OK();
     }
 
-    for (auto& expr : vexprs) {
+    for (const auto& expr : vexprs) {
         VExprContextSPtr conjunct = VExprContext::create_shared(expr);
         RETURN_IF_ERROR(conjunct->prepare(_state, _row_descriptor_ref));
         RETURN_IF_ERROR(conjunct->open(_state));
@@ -142,7 +185,7 @@ Status RuntimeFilterConsumer::try_append_late_arrival_runtime_filter(int* arrive
     }
 
     // 1. Check if are runtime filter ready but not applied.
-    VExprSPtrs exprs;
+    std::vector<vectorized::VRuntimeFilterPtr> exprs;
     int current_arrived_rf_num = 0;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         if (_runtime_filter_ctxs[i].apply_mark) {

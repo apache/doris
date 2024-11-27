@@ -75,14 +75,11 @@ public:
     Status close(RuntimeState* state) override;
 
     Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
-
-    void set_compound_filters(const std::vector<TCondition>& compound_filters);
-
     doris::TabletStorageType get_storage_type() override;
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
-    void _update_counters_before_close() override;
+    void _collect_profile_before_close() override;
 
 private:
     void _update_realtime_counters();
@@ -102,11 +99,10 @@ private:
 
     std::vector<uint32_t> _return_columns;
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
-    std::vector<TCondition> _compound_filters;
 
     // ========= profiles ==========
-    int64_t _compressed_bytes_read = 0;
-    int64_t _raw_rows_read = 0;
+    int64_t _scan_bytes = 0;
+    int64_t _scan_rows = 0;
     bool _profile_updated = false;
 };
 } // namespace vectorized

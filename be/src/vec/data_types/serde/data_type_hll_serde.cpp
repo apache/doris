@@ -133,8 +133,8 @@ void DataTypeHLLSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValu
 }
 
 void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                             arrow::ArrayBuilder* array_builder, int start,
-                                             int end) const {
+                                             arrow::ArrayBuilder* array_builder, int start, int end,
+                                             const cctz::time_zone& ctz) const {
     const auto& col = assert_cast<const ColumnHLL&>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
@@ -155,7 +155,8 @@ void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const NullMa
 template <bool is_binary_format>
 Status DataTypeHLLSerDe::_write_column_to_mysql(const IColumn& column,
                                                 MysqlRowBuffer<is_binary_format>& result,
-                                                int row_idx, bool col_const) const {
+                                                int row_idx, bool col_const,
+                                                const FormatOptions& options) const {
     auto& data_column = assert_cast<const ColumnHLL&>(column);
     if (_return_object_as_string) {
         const auto col_index = index_check_const(row_idx, col_const);
@@ -176,14 +177,14 @@ Status DataTypeHLLSerDe::_write_column_to_mysql(const IColumn& column,
 
 Status DataTypeHLLSerDe::write_column_to_mysql(const IColumn& column,
                                                MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                               bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                               bool col_const, const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeHLLSerDe::write_column_to_mysql(const IColumn& column,
                                                MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                               bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                               bool col_const, const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

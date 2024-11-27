@@ -30,6 +30,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.TypeUtils;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
@@ -132,6 +133,11 @@ public class CastExpr extends Expr {
             if (type.isDecimalV2() && e.type.isDecimalV2()) {
                 getChild(0).setType(type);
             }
+            // as the targetType have struct field name, if use the default name will be
+            // like col1,col2, col3... in struct, and the filed name is import in BE.
+            if (type.isStructType() && e.type.isStructType()) {
+                getChild(0).setType(type);
+            }
             analysisDone();
             return;
         }
@@ -146,6 +152,10 @@ public class CastExpr extends Expr {
             Type from = getActualArgTypes(collectChildReturnTypes())[0];
             Type to = getActualType(type);
             NullableMode nullableMode = TYPE_NULLABLE_MODE.get(Pair.of(from, to));
+            // for complex type cast to jsonb we make ret is always nullable
+            if (from.isComplexType() && type.isJsonbType()) {
+                nullableMode = Function.NullableMode.ALWAYS_NULLABLE;
+            }
             Preconditions.checkState(nullableMode != null,
                     "cannot find nullable node for cast from " + from + " to " + to);
             fn = new Function(new FunctionName(getFnName(type)), Lists.newArrayList(e.type), type,
@@ -173,6 +183,7 @@ public class CastExpr extends Expr {
         targetTypeDef = other.targetTypeDef;
         isImplicit = other.isImplicit;
         noOp = other.noOp;
+        nullableFromNereids = other.nullableFromNereids;
     }
 
     private static String getFnName(Type targetType) {
@@ -208,7 +219,7 @@ public class CastExpr extends Expr {
             return getChild(0).toSql();
         }
         if (isAnalyzed) {
-            return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
+            return "CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
         } else {
             return "CAST(" + getChild(0).toSql() + " AS "
                     + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
@@ -245,7 +256,6 @@ public class CastExpr extends Expr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.CAST_EXPR;
         msg.setOpcode(opcode);
-        msg.setOutputColumn(outputColumn);
         if (type.isNativeType() && getChild(0).getType().isNativeType()) {
             msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
         }
@@ -576,8 +586,8 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String getStringValueForArray() {
-        return children.get(0).getStringValueForArray();
+    public String getStringValueForArray(FormatOptions options) {
+        return children.get(0).getStringValueForArray(options);
     }
 
     public void setNotFold(boolean notFold) {
@@ -586,5 +596,10 @@ public class CastExpr extends Expr {
 
     public boolean isNotFold() {
         return this.notFold;
+    }
+
+    @Override
+    protected void compactForLiteral(Type type) {
+        // do nothing
     }
 }

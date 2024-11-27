@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
+import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -34,8 +35,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -55,7 +56,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -74,8 +77,8 @@ public class PolicyMgr implements Writable {
     @SerializedName(value = "typeToPolicyMap")
     private Map<PolicyTypeEnum, List<Policy>> typeToPolicyMap = Maps.newConcurrentMap();
 
-    // dbId -> tableId -> List<RowPolicy>
-    private Map<Long, Map<Long, List<RowPolicy>>> tablePolicies = Maps.newConcurrentMap();
+    // ctlName -> dbName -> tableName -> List<RowPolicy>
+    private Map<String, Map<String, Map<String, List<RowPolicy>>>> tablePolicies = Maps.newConcurrentMap();
 
     private void writeLock() {
         lock.writeLock().lock();
@@ -277,6 +280,25 @@ public class PolicyMgr implements Writable {
     }
 
     public void replayCreate(Policy policy) {
+        // for compatible
+        if (policy instanceof RowPolicy) {
+            RowPolicy rowPolicy = (RowPolicy) policy;
+            if (StringUtils.isEmpty(rowPolicy.getCtlName())) {
+                Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(rowPolicy.getDbId());
+                if (!db.isPresent()) {
+                    LOG.warn("db may be dropped,ignore CreatePolicyLog. dbId:" + rowPolicy.getDbId());
+                    return;
+                }
+                Optional<Table> table = db.get().getTable(rowPolicy.getTableId());
+                if (!table.isPresent()) {
+                    LOG.warn("table may be dropped,ignore CreatePolicyLog. tableId:" + rowPolicy.getTableId());
+                    return;
+                }
+                rowPolicy.setCtlName(InternalCatalog.INTERNAL_CATALOG_NAME);
+                rowPolicy.setDbName(db.get().getFullName());
+                rowPolicy.setTableName(table.get().getName());
+            }
+        }
         unprotectedAdd(policy);
         if (policy instanceof StoragePolicy) {
             ((StoragePolicy) policy).addResourceReference();
@@ -298,6 +320,22 @@ public class PolicyMgr implements Writable {
     }
 
     public void replayDrop(DropPolicyLog log) {
+        // for compatible
+        if (log.getType() == PolicyTypeEnum.ROW && StringUtils.isEmpty(log.getCtlName())) {
+            Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(log.getDbId());
+            if (!db.isPresent()) {
+                LOG.warn("db may be dropped,ignore DropPolicyLog. dbId:" + log.getDbId());
+                return;
+            }
+            Optional<Table> table = db.get().getTable(log.getTableId());
+            if (!table.isPresent()) {
+                LOG.warn("table may be dropped,ignore DropPolicyLog. tableId:" + log.getTableId());
+                return;
+            }
+            log.setCtlName(InternalCatalog.INTERNAL_CATALOG_NAME);
+            log.setDbName(db.get().getFullName());
+            log.setTableName(table.get().getName());
+        }
         unprotectedDrop(log);
         LOG.info("replay drop policy log: {}", log);
     }
@@ -333,18 +371,19 @@ public class PolicyMgr implements Writable {
     /**
      * Match row policy and return it.
      **/
-    public RowPolicy getMatchTablePolicy(long dbId, long tableId, UserIdentity user) {
-        List<RowPolicy> res = getUserPolicies(dbId, tableId, user);
+    public RowPolicy getMatchTablePolicy(String ctlName, String dbName, String tableName, UserIdentity user) {
+        List<RowPolicy> res = getUserPolicies(ctlName, dbName, tableName, user);
         if (CollectionUtils.isEmpty(res)) {
             return null;
         }
         return mergeRowPolicies(res);
     }
 
-    public List<RowPolicy> getUserPolicies(long dbId, long tableId, UserIdentity user) {
+    public List<RowPolicy> getUserPolicies(String ctlName, String dbName, String tableName, UserIdentity user) {
         List<RowPolicy> res = Lists.newArrayList();
         // Make a judgment in advance to reduce the number of times to obtain getRoles
-        if (!tablePolicies.containsKey(dbId) || !tablePolicies.get(dbId).containsKey(tableId)) {
+        if (!tablePolicies.containsKey(ctlName) || !tablePolicies.get(ctlName).containsKey(dbName)
+                || !tablePolicies.get(ctlName).get(dbName).containsKey(tableName)) {
             return res;
         }
         Set<String> roles = Env.getCurrentEnv().getAccessManager().getAuth().getRolesByUserWithLdap(user).stream()
@@ -352,10 +391,11 @@ public class PolicyMgr implements Writable {
         readLock();
         try {
             // double check in lock,avoid NPE
-            if (!tablePolicies.containsKey(dbId) || !tablePolicies.get(dbId).containsKey(tableId)) {
+            if (!tablePolicies.containsKey(ctlName) || !tablePolicies.get(ctlName).containsKey(dbName)
+                    || !tablePolicies.get(ctlName).get(dbName).containsKey(tableName)) {
                 return res;
             }
-            List<RowPolicy> policys = tablePolicies.get(dbId).get(tableId);
+            List<RowPolicy> policys = tablePolicies.get(ctlName).get(dbName).get(tableName);
             for (RowPolicy rowPolicy : policys) {
                 // on rowPolicy to user
                 if ((rowPolicy.getUser() != null && rowPolicy.getUser().getQualifiedUser()
@@ -409,7 +449,6 @@ public class PolicyMgr implements Writable {
      **/
     public ShowResultSet showPolicy(ShowPolicyStmt showStmt) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
-        long currentDbId = ConnectContext.get().getCurrentDbId();
         Policy checkedPolicy = null;
         switch (showStmt.getType()) {
             case STORAGE:
@@ -423,9 +462,6 @@ public class PolicyMgr implements Writable {
                 }
                 if (!StringUtils.isEmpty(showStmt.getRoleName())) {
                     rowPolicy.setRoleName(showStmt.getRoleName());
-                }
-                if (currentDbId != -1) {
-                    rowPolicy.setDbId(currentDbId);
                 }
                 checkedPolicy = rowPolicy;
         }
@@ -452,32 +488,182 @@ public class PolicyMgr implements Writable {
         }
     }
 
+    /**
+     * Show objects which is using the storage policy
+     **/
+    public ShowResultSet showStoragePolicyUsing(ShowStoragePolicyUsingStmt showStmt) throws AnalysisException {
+        List<List<String>> rows = Lists.newArrayList();
+        String targetPolicyName = showStmt.getPolicyName();
+
+        readLock();
+        try {
+            List<Database> databases = Env.getCurrentEnv().getInternalCatalog().getDbs();
+            // show for all storage policies
+            if (Strings.isNullOrEmpty(targetPolicyName)) {
+                for (Database db : databases) {
+                    List<Table> tables = db.getTables();
+                    for (Table table : tables) {
+                        if (!(table instanceof OlapTable)) {
+                            continue;
+                        }
+
+                        Map<String, List<String>> policyToPartitionsMap = new HashMap<>();
+                        OlapTable olapTable = (OlapTable) table;
+                        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                        // classify a table's all partitions by storage policy
+                        for (Long partitionId : olapTable.getPartitionIds()) {
+                            String policyName = partitionInfo.getDataProperty(partitionId).getStoragePolicy();
+                            if (StringUtils.isEmpty(policyName)) {
+                                continue;
+                            }
+                            if (policyToPartitionsMap.containsKey(policyName)) {
+                                policyToPartitionsMap.get(policyName)
+                                        .add(olapTable.getPartition(partitionId).getName());
+                            } else {
+                                List<String> partitionList = new ArrayList<>();
+                                partitionList.add(olapTable.getPartition(partitionId).getName());
+                                policyToPartitionsMap.put(policyName, partitionList);
+                            }
+                        }
+
+                        //output, all partitions with same storage policy in a table will be shown in one line
+                        if (policyToPartitionsMap.size() == 1) {
+                            String[] policyArray = policyToPartitionsMap.keySet().toArray(new String[0]);
+                            List<String> partitionsList = new ArrayList<>(policyToPartitionsMap.values()).get(0);
+                            if (partitionsList.size() == olapTable.getPartitionNum()) {
+                                List<String> row = Arrays.asList(policyArray[0],
+                                        ClusterNamespace.getNameFromFullName(db.getFullName()), olapTable.getName(),
+                                        "ALL");
+                                rows.add(row);
+                            } else {
+                                List<String> row = Arrays.asList(policyArray[0],
+                                        ClusterNamespace.getNameFromFullName(db.getFullName()), olapTable.getName(),
+                                        String.join(",", partitionsList));
+                                rows.add(row);
+                            }
+                        } else {
+                            for (Map.Entry<String, List<String>> entry : policyToPartitionsMap.entrySet()) {
+                                List<String> row = Arrays.asList(entry.getKey(),
+                                        ClusterNamespace.getNameFromFullName(db.getFullName()), olapTable.getName(),
+                                        String.join(",", entry.getValue()));
+                                rows.add(row);
+                            }
+                        }
+                    }
+                }
+            } else {
+                // show for specific storage policy
+                for (Database db : databases) {
+                    List<Table> tables = db.getTables();
+                    for (Table table : tables) {
+                        if (!(table instanceof OlapTable)) {
+                            continue;
+                        }
+
+                        OlapTable olapTable = (OlapTable) table;
+                        int partitionMatchNum = 0;
+                        StringBuilder matchPartitionsSB = new StringBuilder();
+                        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                        for (Long partitionId : olapTable.getPartitionIds()) {
+                            String policyName = partitionInfo.getDataProperty(partitionId).getStoragePolicy();
+                            if (policyName.equals(targetPolicyName)) {
+                                partitionMatchNum++;
+                                matchPartitionsSB.append(olapTable.getPartition(partitionId).getName()).append(",");
+                            }
+                        }
+
+                        if (partitionMatchNum == 0) {
+                            continue;
+                        }
+
+                        String matchPartitionsStr = "ALL";
+                        if (partitionMatchNum < olapTable.getPartitionNum()) {
+                            matchPartitionsStr = matchPartitionsSB.toString();
+                            matchPartitionsStr = matchPartitionsStr.substring(0, matchPartitionsStr.length() - 1);
+                        }
+
+                        List<String> row = Arrays.asList(targetPolicyName,
+                                ClusterNamespace.getNameFromFullName(db.getFullName()), olapTable.getName(),
+                                matchPartitionsStr);
+                        rows.add(row);
+                    }
+                }
+            }
+            return new ShowResultSet(showStmt.getMetaData(), rows);
+        } finally {
+            readUnlock();
+        }
+    }
+
     private void addTablePolicies(RowPolicy policy) {
         if (policy.getUser() != null) {
             policy.getUser().setIsAnalyzed();
         }
-        List<RowPolicy> policys = getOrCreateTblPolicies(policy.getDbId(), policy.getTableId());
+        List<RowPolicy> policys = getOrCreateTblPolicies(policy.getCtlName(), policy.getDbName(),
+                policy.getTableName());
         policys.add(policy);
     }
 
     private void dropTablePolicies(RowPolicy policy) {
-        List<RowPolicy> policys = getOrCreateTblPolicies(policy.getDbId(), policy.getTableId());
+        List<RowPolicy> policys = getOrCreateTblPolicies(policy.getCtlName(), policy.getDbName(),
+                policy.getTableName());
         policys.removeIf(p -> p.matchPolicy(policy));
     }
 
-    private List<RowPolicy> getOrCreateTblPolicies(long dbId, long tableId) {
-        Map<Long, List<RowPolicy>> dbPolicyMap = getOrCreateDbPolicyMap(dbId);
-        if (!dbPolicyMap.containsKey(tableId)) {
-            dbPolicyMap.put(tableId, Lists.newArrayList());
+    private List<RowPolicy> getOrCreateTblPolicies(String ctlName, String dbName, String tableName) {
+        Map<String, List<RowPolicy>> dbPolicyMap = getOrCreateDbPolicyMap(ctlName, dbName);
+        if (!dbPolicyMap.containsKey(tableName)) {
+            dbPolicyMap.put(tableName, Lists.newArrayList());
         }
-        return dbPolicyMap.get(tableId);
+        return dbPolicyMap.get(tableName);
     }
 
-    private Map<Long, List<RowPolicy>> getOrCreateDbPolicyMap(Long dbId) {
-        if (!tablePolicies.containsKey(dbId)) {
-            tablePolicies.put(dbId, Maps.newConcurrentMap());
+    private Map<String, List<RowPolicy>> getOrCreateDbPolicyMap(String ctlName, String dbName) {
+        Map<String, Map<String, List<RowPolicy>>> ctlPolicyMap = getOrCreateCtlPolicyMap(ctlName);
+        if (!ctlPolicyMap.containsKey(dbName)) {
+            ctlPolicyMap.put(dbName, Maps.newConcurrentMap());
         }
-        return tablePolicies.get(dbId);
+        return ctlPolicyMap.get(dbName);
+    }
+
+    private Map<String, Map<String, List<RowPolicy>>> getOrCreateCtlPolicyMap(String ctlName) {
+        if (!tablePolicies.containsKey(ctlName)) {
+            tablePolicies.put(ctlName, Maps.newConcurrentMap());
+        }
+        return tablePolicies.get(ctlName);
+    }
+
+    private void compatible() {
+        readLock();
+        try {
+            if (!typeToPolicyMap.containsKey(PolicyTypeEnum.ROW)) {
+                return;
+            }
+            List<Policy> allPolicies = typeToPolicyMap.get(PolicyTypeEnum.ROW);
+            List<Policy> compatiblePolicies = Lists.newArrayList();
+            for (Policy policy : allPolicies) {
+                RowPolicy rowPolicy = (RowPolicy) policy;
+                if (StringUtils.isEmpty(rowPolicy.getCtlName())) {
+                    Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(rowPolicy.getDbId());
+                    if (!db.isPresent()) {
+                        LOG.warn("db may be dropped,ignore DropPolicyLog. dbId:" + rowPolicy.getDbId());
+                        continue;
+                    }
+                    Optional<Table> table = db.get().getTable(rowPolicy.getTableId());
+                    if (!table.isPresent()) {
+                        LOG.warn("table may be dropped,ignore DropPolicyLog. tableId:" + rowPolicy.getTableId());
+                        continue;
+                    }
+                    rowPolicy.setCtlName(InternalCatalog.INTERNAL_CATALOG_NAME);
+                    rowPolicy.setDbName(db.get().getFullName());
+                    rowPolicy.setTableName(table.get().getName());
+                }
+                compatiblePolicies.add(rowPolicy);
+            }
+            typeToPolicyMap.put(PolicyTypeEnum.ROW, compatiblePolicies);
+        } finally {
+            readUnlock();
+        }
     }
 
     /**
@@ -510,6 +696,8 @@ public class PolicyMgr implements Writable {
     public static PolicyMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
         PolicyMgr policyMgr = GsonUtils.GSON.fromJson(json, PolicyMgr.class);
+        // for compatible
+        policyMgr.compatible();
         // update merge policy cache and userPolicySet
         policyMgr.updateTablePolicies();
         return policyMgr;

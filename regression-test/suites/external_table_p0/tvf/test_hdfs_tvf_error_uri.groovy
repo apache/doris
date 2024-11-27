@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_hdfs_tvf_error_uri","external,hive,tvf,external_docker") {
-    String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+    String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
     // It's okay to use random `hdfsUser`, but can not be empty.

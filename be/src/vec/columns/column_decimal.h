@@ -21,6 +21,7 @@
 #pragma once
 
 #include <glog/logging.h>
+#include <pdqsort.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/types.h>
@@ -33,7 +34,6 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
-#include "vec/columns/column_vector_helper.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array.h"
@@ -85,12 +85,12 @@ private:
 
 /// A ColumnVector for Decimals
 template <typename T>
-class ColumnDecimal final : public COWHelper<ColumnVectorHelper, ColumnDecimal<T>> {
+class ColumnDecimal final : public COWHelper<IColumn, ColumnDecimal<T>> {
     static_assert(IsDecimalNumber<T>);
 
 private:
     using Self = ColumnDecimal;
-    friend class COWHelper<ColumnVectorHelper, Self>;
+    friend class COWHelper<IColumn, Self>;
 
 public:
     using value_type = T;
@@ -228,14 +228,13 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    MutableColumns scatter(IColumn::ColumnIndex num_columns,
-                           const IColumn::Selector& selector) const override {
-        return this->template scatter_impl<Self>(num_columns, selector);
-    }
-
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         this->template append_data_by_selector_impl<Self>(res, selector);
+    }
+    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override {
+        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
     }
 
     //    void gather(ColumnGathererStream & gatherer_stream) override;
@@ -288,14 +287,22 @@ protected:
         for (U i = 0; i < s; ++i) res[i] = i;
 
         auto sort_end = res.end();
-        if (limit && limit < s) sort_end = res.begin() + limit;
-
-        if (reverse)
-            std::partial_sort(res.begin(), sort_end, res.end(),
-                              [this](size_t a, size_t b) { return data[a] > data[b]; });
-        else
-            std::partial_sort(res.begin(), sort_end, res.end(),
-                              [this](size_t a, size_t b) { return data[a] < data[b]; });
+        if (limit && limit < s / 8.0) {
+            sort_end = res.begin() + limit;
+            if (reverse)
+                std::partial_sort(res.begin(), sort_end, res.end(),
+                                  [this](size_t a, size_t b) { return data[a] > data[b]; });
+            else
+                std::partial_sort(res.begin(), sort_end, res.end(),
+                                  [this](size_t a, size_t b) { return data[a] < data[b]; });
+        } else {
+            if (reverse)
+                pdqsort(res.begin(), res.end(),
+                        [this](size_t a, size_t b) { return data[a] > data[b]; });
+            else
+                pdqsort(res.begin(), res.end(),
+                        [this](size_t a, size_t b) { return data[a] < data[b]; });
+        }
     }
 
     void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint32_t& hash) const {

@@ -43,6 +43,7 @@ public abstract class AbstractDataSourceProperties {
      * and this is only a temporary parameter and will be of no use after convert ends
      */
     @Getter
+    @SerializedName(value = "originalDataSourceProperties")
     protected Map<String, String> originalDataSourceProperties;
 
     @SerializedName(value = "type")

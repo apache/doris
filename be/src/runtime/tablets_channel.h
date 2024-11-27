@@ -21,8 +21,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <functional>
-#include <map>
 #include <mutex>
 #include <ostream>
 #include <shared_mutex>
@@ -113,6 +111,11 @@ public:
 
     size_t num_rows_filtered() const { return _num_rows_filtered; }
 
+    // means this tablets in this BE is incremental opened partitions.
+    bool is_incremental_channel() const { return _open_by_incremental; }
+
+    bool is_finished() const { return _state == kFinished; }
+
 protected:
     Status _get_current_seq(int64_t& cur_seq, const PTabletWriterAddBlockRequest& request);
 
@@ -133,11 +136,8 @@ protected:
     // id of this load channel
     TabletsChannelKey _key;
 
-    // make execute sequence
+    // protect _state change. open and close. when add_batch finished, lock to change _next_seqs also
     std::mutex _lock;
-
-    SpinLock _tablet_writers_lock;
-
     enum State {
         kInitialized,
         kOpened,
@@ -151,10 +151,11 @@ protected:
     int64_t _txn_id = -1;
     int64_t _index_id = -1;
     std::shared_ptr<OlapTableSchemaParam> _schema;
-
     TupleDescriptor* _tuple_desc = nullptr;
+    bool _open_by_incremental = false;
 
     // next sequence we expect
+    std::set<int32_t> _recieved_senders;
     int _num_remaining_senders = 0;
     std::vector<int64_t> _next_seqs;
     Bitmap _closed_senders;
@@ -162,8 +163,10 @@ protected:
     // currently it's OK.
     Status _close_status;
 
-    // tablet_id -> TabletChannel
+    // tablet_id -> TabletChannel. it will only be changed in open() or inc_open()
     std::unordered_map<int64_t, std::unique_ptr<BaseDeltaWriter>> _tablet_writers;
+    // protect _tablet_writers
+    SpinLock _tablet_writers_lock;
     // broken tablet ids.
     // If a tablet write fails, it's id will be added to this set.
     // So that following batch will not handle this tablet anymore.

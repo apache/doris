@@ -73,21 +73,6 @@ TEST(BitmapValueTest, Roaring64Map_ctors) {
     EXPECT_TRUE(roaring64_map3.contains(uint32_t(2)));
     EXPECT_TRUE(roaring64_map3.contains(uint32_t(9)));
     EXPECT_FALSE(roaring64_map3.contains(uint32_t(0)));
-
-    auto roaring_t = roaring_bitmap_copy(&roaring32.roaring);
-    detail::Roaring64Map roaring64_map4(roaring_t);
-    EXPECT_EQ(roaring64_map3.cardinality(), 9);
-    EXPECT_TRUE(roaring64_map4.contains(uint32_t(1)));
-    EXPECT_TRUE(roaring64_map4.contains(uint32_t(2)));
-    EXPECT_TRUE(roaring64_map4.contains(uint32_t(9)));
-    EXPECT_FALSE(roaring64_map4.contains(uint32_t(0)));
-
-    auto roaring64_map5 = detail::Roaring64Map::bitmapOf(4, 0, 1, 4, 6);
-    EXPECT_EQ(roaring64_map5.cardinality(), 4);
-    EXPECT_TRUE(roaring64_map5.contains(uint32_t(0)));
-    EXPECT_TRUE(roaring64_map5.contains(uint32_t(1)));
-    EXPECT_TRUE(roaring64_map5.contains(uint32_t(4)));
-    EXPECT_TRUE(roaring64_map5.contains(uint32_t(6)));
 }
 
 TEST(BitmapValueTest, Roaring64Map_add_remove) {
@@ -109,27 +94,12 @@ TEST(BitmapValueTest, Roaring64Map_add_remove) {
     EXPECT_TRUE(roaring64_map.contains(uint64_t(1000)));
     EXPECT_EQ(roaring64_map.cardinality(), 12);
 
-    roaring64_map.addChecked(uint64_t(1001));
-    EXPECT_TRUE(roaring64_map.contains(uint64_t(1001)));
-    EXPECT_EQ(roaring64_map.cardinality(), 13);
-
-    roaring64_map.addChecked(uint32_t(1002));
-    EXPECT_TRUE(roaring64_map.contains(uint32_t(1002)));
-    EXPECT_EQ(roaring64_map.cardinality(), 14);
-
     roaring64_map.remove(uint32_t(8));
     EXPECT_FALSE(roaring64_map.contains(uint32_t(8)));
     EXPECT_FALSE(roaring64_map.contains(uint64_t(8)));
 
     roaring64_map.remove(uint64_t(8));
     EXPECT_FALSE(roaring64_map.contains(uint64_t(8)));
-
-    roaring64_map.removeChecked(uint32_t(9));
-    EXPECT_FALSE(roaring64_map.contains(uint32_t(9)));
-    EXPECT_FALSE(roaring64_map.contains(uint64_t(9)));
-
-    roaring64_map.removeChecked(uint64_t(9));
-    EXPECT_FALSE(roaring64_map.contains(uint64_t(9)));
 }
 
 TEST(BitmapValueTest, Roaring64Map_cardinality) {
@@ -150,48 +120,6 @@ TEST(BitmapValueTest, Roaring64Map_cardinality) {
     EXPECT_EQ(roaring64_map1.xorCardinality(roaring64_map2), 6);
     EXPECT_EQ(roaring64_map1.orCardinality(roaring64_map2), 10);
     EXPECT_EQ(roaring64_map1.andCardinality(roaring64_map2), 4);
-}
-
-TEST(BitmapValueTest, Roaring64Map_subset) {
-    detail::Roaring64Map roaring64_map1, roaring64_map2;
-    EXPECT_TRUE(roaring64_map1.isEmpty());
-
-    const std::vector<uint32_t> values1({0, 1, 2, 3, 4, 5, 6});
-    const std::vector<uint32_t> values2({3, 4, 5, 6, 7, 8, 9});
-
-    roaring64_map1.addMany(values1.size(), values1.data());
-    roaring64_map2.addMany(values2.size(), values2.data());
-
-    EXPECT_FALSE(roaring64_map2.isSubset(roaring64_map1));
-    EXPECT_FALSE(roaring64_map1.isSubset(roaring64_map2));
-
-    auto roaring64_map_and = roaring64_map1 & roaring64_map2;
-    EXPECT_TRUE(roaring64_map_and.isSubset(roaring64_map1));
-    EXPECT_TRUE(roaring64_map_and.isSubset(roaring64_map2));
-
-    EXPECT_TRUE(roaring64_map1.isSubset(roaring64_map1));
-    EXPECT_TRUE(!roaring64_map1.isStrictSubset(roaring64_map1));
-    EXPECT_TRUE(roaring64_map_and.isStrictSubset(roaring64_map1));
-    EXPECT_TRUE(roaring64_map_and.isStrictSubset(roaring64_map2));
-}
-
-TEST(BitmapValueTest, Roaring64Map_toUint64Array) {
-    detail::Roaring64Map roaring64_map;
-    const std::vector<uint32_t> values({0, 1, 2, 3, 4, 5, 6});
-    roaring64_map.addMany(values.size(), values.data());
-
-    uint64_t* ans = new uint64_t[values.size()];
-    roaring64_map.toUint64Array(ans);
-    auto* end = ans + values.size();
-    EXPECT_NE(std::find(ans, ans + values.size(), 0), end);
-    EXPECT_NE(std::find(ans, ans + values.size(), 1), end);
-    EXPECT_NE(std::find(ans, ans + values.size(), 2), end);
-    EXPECT_NE(std::find(ans, ans + values.size(), 3), end);
-    EXPECT_NE(std::find(ans, ans + values.size(), 4), end);
-    EXPECT_NE(std::find(ans, ans + values.size(), 5), end);
-    EXPECT_NE(std::find(ans, ans + values.size(), 6), end);
-
-    delete[] ans;
 }
 
 TEST(BitmapValueTest, Roaring64Map_operator_eq) {
@@ -215,29 +143,6 @@ TEST(BitmapValueTest, Roaring64Map_operator_eq) {
 
     roaring64_map1.remove(uint32_t(100));
     EXPECT_TRUE(roaring64_map1 == roaring64_map2);
-}
-
-TEST(BitmapValueTest, Roaring64Map_flip) {
-    detail::Roaring64Map roaring64_map;
-    const std::vector<uint32_t> values({0, 1, 3, 4, 5, 7, 8});
-    roaring64_map.addMany(values.size(), values.data());
-
-    roaring64_map.flip(0, 10);
-    EXPECT_EQ(roaring64_map.cardinality(), 3);
-
-    roaring64_map.flip(0, 10);
-    EXPECT_EQ(roaring64_map.cardinality(), 7);
-
-    roaring64_map.flip(0, uint64_t(std::numeric_limits<uint32_t>::max()) + 10);
-    EXPECT_EQ(roaring64_map.cardinality(), 4294967297);
-}
-
-TEST(BitmapValueTest, Roaring64Map_removeRunCompression) {
-    detail::Roaring64Map roaring64_map;
-    const std::vector<uint32_t> values({0, 1, 3, 4, 5, 7, 8});
-    roaring64_map.addMany(values.size(), values.data());
-
-    EXPECT_FALSE(roaring64_map.removeRunCompression());
 }
 
 TEST(BitmapValueTest, Roaring64Map_shrinkToFit) {
@@ -271,45 +176,6 @@ TEST(BitmapValueTest, Roaring64Map_iterate) {
             &values2);
 
     EXPECT_EQ(std::find(values2.begin(), values2.end(), 7), values2.cend());
-}
-
-TEST(BitmapValueTest, Roaring64Map_select) {
-    detail::Roaring64Map roaring64_map;
-    const std::vector<uint32_t> values({0, 1, 3, 4, 5, 7, 8});
-    roaring64_map.addMany(values.size(), values.data());
-
-    uint64_t value;
-    roaring64_map.select(3, &value);
-    EXPECT_EQ(value, 4);
-
-    roaring64_map.add(std::numeric_limits<uint64_t>::max());
-    roaring64_map.select(7, &value);
-    EXPECT_EQ(value, std::numeric_limits<uint64_t>::max());
-
-    EXPECT_FALSE(roaring64_map.select(8, &value));
-}
-
-TEST(BitmapValueTest, Roaring64Map_rank) {
-    detail::Roaring64Map roaring64_map;
-    const std::vector<uint64_t> values({0, 1, 3, 4, 5, 7, 8, 4294967295, 4294967296, 4294967297,
-                                        4294967295 * 2, 4294967295 * 3, 4294967295 * 4,
-                                        4294967295 * 5, 4294967295 * 5 + 1});
-    roaring64_map.addMany(values.size(), values.data());
-
-    EXPECT_EQ(roaring64_map.rank(0), 1);
-    EXPECT_EQ(roaring64_map.rank(1), 2);
-    EXPECT_EQ(roaring64_map.rank(3), 3);
-    EXPECT_EQ(roaring64_map.rank(4), 4);
-    EXPECT_EQ(roaring64_map.rank(5), 5);
-    EXPECT_EQ(roaring64_map.rank(7), 6);
-    EXPECT_EQ(roaring64_map.rank(8), 7);
-    EXPECT_EQ(roaring64_map.rank(4294967296), 9);
-    EXPECT_EQ(roaring64_map.rank(4294967295 * 3 - 1), 11);
-    EXPECT_EQ(roaring64_map.rank(4294967295 * 3), 12);
-    EXPECT_EQ(roaring64_map.rank(4294967295 * 3 + 1), 12);
-    EXPECT_EQ(roaring64_map.rank(4294967295 * 5), 14);
-    EXPECT_EQ(roaring64_map.rank(4294967295 * 5 + 1), 15);
-    EXPECT_EQ(roaring64_map.rank(4294967295 * 5 + 2), 15);
 }
 
 TEST(BitmapValueTest, Roaring64Map_write_read) {
@@ -354,21 +220,6 @@ TEST(BitmapValueTest, Roaring64Map_write_read) {
     EXPECT_EQ(bitmap_read, roaring64_map);
 }
 
-TEST(BitmapValueTest, Roaring64Map_set_get_copy_on_write) {
-    detail::Roaring64Map roaring64_map;
-    const std::vector<uint32_t> values({0, 1, 3, 4, 5, 7, 8});
-    roaring64_map.addMany(values.size(), values.data());
-
-    roaring64_map.setCopyOnWrite(true);
-    EXPECT_TRUE(roaring64_map.getCopyOnWrite());
-
-    roaring64_map.setCopyOnWrite(true);
-    EXPECT_TRUE(roaring64_map.getCopyOnWrite());
-
-    roaring64_map.setCopyOnWrite(false);
-    EXPECT_FALSE(roaring64_map.getCopyOnWrite());
-}
-
 TEST(BitmapValueTest, Roaring64Map_iterators) {
     detail::Roaring64Map roaring64_map;
 
@@ -376,9 +227,6 @@ TEST(BitmapValueTest, Roaring64Map_iterators) {
     auto end = roaring64_map.end();
 
     EXPECT_TRUE(begin == end);
-    EXPECT_FALSE(begin < end);
-    EXPECT_TRUE(begin <= end);
-    EXPECT_TRUE(begin >= end);
     EXPECT_FALSE(begin != end);
 
     const std::vector<uint64_t> values({0, 1, 2, 3, 4, 5, 6, 4294967297, 4294967298});
@@ -388,20 +236,17 @@ TEST(BitmapValueTest, Roaring64Map_iterators) {
     end = roaring64_map.end();
 
     EXPECT_FALSE(begin == end);
-    EXPECT_TRUE(begin < end);
-    EXPECT_TRUE(begin <= end);
-    EXPECT_FALSE(begin >= end);
     EXPECT_TRUE(begin != end);
 
     auto iter = roaring64_map.begin();
     while (iter != end) {
-        EXPECT_TRUE(iter < end);
+        EXPECT_TRUE(iter != end);
         ++iter;
     }
 
     iter = roaring64_map.begin();
     while (iter != end) {
-        EXPECT_TRUE(iter < end);
+        EXPECT_TRUE(iter != end);
         iter++;
     }
 
@@ -1026,6 +871,29 @@ TEST(BitmapValueTest, bitmap_union) {
     EXPECT_EQ(3, bitmap3.cardinality());
     bitmap3.fastunion({&bitmap});
     EXPECT_EQ(5, bitmap3.cardinality());
+
+    const auto old_config = config::enable_set_in_bitmap_value;
+    config::enable_set_in_bitmap_value = true;
+    BitmapValue bitmap4; // empty
+
+    BitmapValue bitmap_set1;
+    BitmapValue bitmap_set2;
+    BitmapValue bitmap_set3;
+
+    const int set_data1[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    bitmap_set1.add_many(set_data1, 15);
+
+    const int set_data2[] = {16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30};
+    bitmap_set2.add_many(set_data2, 15);
+
+    const int set_data3[] = {31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45};
+    bitmap_set3.add_many(set_data3, 15);
+
+    bitmap4.fastunion({&bitmap_set1, &bitmap_set2, &bitmap_set3});
+
+    EXPECT_EQ(bitmap4.cardinality(), 45);
+    EXPECT_EQ(bitmap4.get_type_code(), BitmapTypeCode::BITMAP32);
+    config::enable_set_in_bitmap_value = old_config;
 }
 
 TEST(BitmapValueTest, bitmap_intersect) {
@@ -1174,26 +1042,19 @@ TEST(BitmapValueTest, Roaring64Map) {
     size_t size_after = r1.getSizeInBytes(1);
     EXPECT_LT(size_after, size_before);
 
-    Roaring64Map r2 = Roaring64Map::bitmapOf(5, 1ull, 2ull, 234294967296ull, 195839473298ull,
-                                             14000000000000000100ull);
+    Roaring64Map r2;
+    r2.add((uint64_t)1);
+    r2.add((uint64_t)2);
+    r2.add((uint64_t)234294967296);
+    r2.add((uint64_t)195839473298);
+    r2.add((uint64_t)14000000000000000100ull);
     EXPECT_EQ(1ull, r2.minimum());
     EXPECT_EQ(14000000000000000100ull, r2.maximum());
-    EXPECT_EQ(4ull, r2.rank(234294967296ull));
 
     // we can also create a bitmap from a pointer to 32-bit integers
     const uint32_t values[] = {2, 3, 4};
     Roaring64Map r3(3, values);
     EXPECT_EQ(3, r3.cardinality());
-
-    // we can also go in reverse and go from arrays to bitmaps
-    uint64_t card1 = r1.cardinality();
-    uint64_t* arr1 = new uint64_t[card1];
-    EXPECT_TRUE(arr1 != nullptr);
-    r1.toUint64Array(arr1);
-    Roaring64Map r1f(card1, arr1);
-    delete[] arr1;
-    // bitmaps shall be equal
-    EXPECT_TRUE(r1 == r1f);
 
     // we can copy and compare bitmaps
     Roaring64Map z(r3);

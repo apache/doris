@@ -20,14 +20,13 @@ package org.apache.doris.datasource.jdbc.source;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -39,7 +38,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
@@ -59,16 +57,18 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 public class JdbcScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(JdbcScanNode.class);
 
     private final List<String> columns = new ArrayList<String>();
     private final List<String> filters = new ArrayList<String>();
+    private final List<Expr> pushedDownConjuncts = new ArrayList<>();
     private String tableName;
     private TOdbcTableType jdbcType;
     private String graphQueryString = "";
+    private boolean isTableValuedFunction = false;
+    private String query = "";
 
     private JdbcTable tbl;
 
@@ -84,10 +84,18 @@ public class JdbcScanNode extends ExternalScanNode {
         tableName = tbl.getProperRemoteFullTableName(jdbcType);
     }
 
+    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isTableValuedFunction, String query) {
+        super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE, false);
+        this.isTableValuedFunction = isTableValuedFunction;
+        this.query = query;
+        tbl = (JdbcTable) desc.getTable();
+        jdbcType = tbl.getJdbcTableType();
+        tableName = tbl.getExternalTableName();
+    }
+
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        getGraphQueryString();
     }
 
     /**
@@ -99,25 +107,6 @@ public class JdbcScanNode extends ExternalScanNode {
         numNodes = numNodes <= 0 ? 1 : numNodes;
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
         cardinality = (long) statsDeriveResult.getRowCount();
-    }
-
-    private boolean isNebula() {
-        return jdbcType == TOdbcTableType.NEBULA;
-    }
-
-    private void getGraphQueryString() {
-        if (!isNebula()) {
-            return;
-        }
-        for (Expr expr : conjuncts) {
-            FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
-            if ("g".equals(functionCallExpr.getFnName().getFunction())) {
-                graphQueryString = functionCallExpr.getChild(0).getStringValue();
-                break;
-            }
-        }
-        // clean conjusts cause graph sannnode no need conjuncts
-        conjuncts = Lists.newArrayList();
     }
 
     private void createJdbcFilters() {
@@ -142,7 +131,7 @@ public class JdbcScanNode extends ExternalScanNode {
         for (Expr individualConjunct : pushDownConjuncts) {
             String filter = conjunctExprToString(jdbcType, individualConjunct, tbl);
             filters.add(filter);
-            conjuncts.remove(individualConjunct);
+            pushedDownConjuncts.add(individualConjunct);
         }
     }
 
@@ -179,13 +168,10 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     private boolean shouldPushDownLimit() {
-        return limit != -1 && conjuncts.isEmpty();
+        return limit != -1 && conjuncts.size() == pushedDownConjuncts.size();
     }
 
     private String getJdbcQueryStr() {
-        if (isNebula()) {
-            return graphQueryString;
-        }
         StringBuilder sql = new StringBuilder("SELECT ");
 
         // Oracle use the where clause to do top n
@@ -217,7 +203,8 @@ public class JdbcScanNode extends ExternalScanNode {
                 || jdbcType == TOdbcTableType.SAP_HANA
                 || jdbcType == TOdbcTableType.TRINO
                 || jdbcType == TOdbcTableType.PRESTO
-                || jdbcType == TOdbcTableType.OCEANBASE)) {
+                || jdbcType == TOdbcTableType.OCEANBASE
+                || jdbcType == TOdbcTableType.GBASE)) {
             sql.append(" LIMIT ").append(limit);
         }
 
@@ -232,14 +219,19 @@ public class JdbcScanNode extends ExternalScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix).append("TABLE: ").append(tableName).append("\n");
-        if (detailLevel == TExplainLevel.BRIEF) {
-            return output.toString();
-        }
-        output.append(prefix).append("QUERY: ").append(getJdbcQueryStr()).append("\n");
-        if (!conjuncts.isEmpty()) {
-            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
-            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        if (isTableValuedFunction) {
+            output.append(prefix).append("TABLE VALUE FUNCTION\n");
+            output.append(prefix).append("QUERY: ").append(query).append("\n");
+        } else {
+            output.append(prefix).append("TABLE: ").append(tableName).append("\n");
+            if (detailLevel == TExplainLevel.BRIEF) {
+                return output.toString();
+            }
+            output.append(prefix).append("QUERY: ").append(getJdbcQueryStr()).append("\n");
+            if (!conjuncts.isEmpty()) {
+                Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+                output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+            }
         }
         return output.toString();
     }
@@ -257,12 +249,6 @@ public class JdbcScanNode extends ExternalScanNode {
         createJdbcColumns();
         createJdbcFilters();
         createScanRangeLocations();
-    }
-
-    @Override
-    public void updateRequiredSlots(PlanTranslatorContext context, Set<SlotId> requiredByProjectSlotIdSet)
-            throws UserException {
-        createJdbcColumns();
     }
 
     @Override
@@ -286,7 +272,11 @@ public class JdbcScanNode extends ExternalScanNode {
         msg.jdbc_scan_node = new TJdbcScanNode();
         msg.jdbc_scan_node.setTupleId(desc.getId().asInt());
         msg.jdbc_scan_node.setTableName(tableName);
-        msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
+        if (isTableValuedFunction) {
+            msg.jdbc_scan_node.setQueryString(query);
+        } else {
+            msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
+        }
         msg.jdbc_scan_node.setTableType(jdbcType);
     }
 
@@ -310,6 +300,22 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
+        // Prevent pushing down expressions with NullLiteral to Oracle
+        if (ConnectContext.get() != null
+                && !ConnectContext.get().getSessionVariable().enableJdbcOracleNullPredicatePushDown
+                && containsNullLiteral(expr)
+                && tableType.equals(TOdbcTableType.ORACLE)) {
+            return false;
+        }
+
+        // Prevent pushing down cast expressions if ConnectContext is null or cast pushdown is disabled
+        if (ConnectContext.get() == null || !ConnectContext.get()
+                .getSessionVariable().enableJdbcCastPredicatePushDown) {
+            if (containsCastExpr(expr)) {
+                return false;
+            }
+        }
+
         if (containsFunctionCallExpr(expr)) {
             if (tableType.equals(TOdbcTableType.MYSQL) || tableType.equals(TOdbcTableType.CLICKHOUSE)
                     || tableType.equals(TOdbcTableType.ORACLE)) {
@@ -333,36 +339,6 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     public static String conjunctExprToString(TOdbcTableType tableType, Expr expr, TableIf tbl) {
-        if (expr instanceof CompoundPredicate) {
-            StringBuilder result = new StringBuilder();
-            CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
-
-            // If the operator is 'NOT', prepend 'NOT' to the start of the string
-            if (compoundPredicate.getOp() == Operator.NOT) {
-                result.append("NOT ");
-            }
-
-            // Iterate through all children of the CompoundPredicate
-            for (Expr child : compoundPredicate.getChildren()) {
-                // Recursively call conjunctExprToString for each child and append to the result
-                result.append(conjunctExprToString(tableType, child, tbl));
-
-                // If the operator is not 'NOT', append the operator after each child expression
-                if (!(compoundPredicate.getOp() == Operator.NOT)) {
-                    result.append(" ").append(compoundPredicate.getOp().toString()).append(" ");
-                }
-            }
-
-            // For operators other than 'NOT', remove the extra appended operator at the end
-            // This is necessary for operators like 'AND' or 'OR' that appear between child expressions
-            if (!(compoundPredicate.getOp() == Operator.NOT)) {
-                result.setLength(result.length() - compoundPredicate.getOp().toString().length() - 2);
-            }
-
-            // Return the processed string trimmed of any extra spaces
-            return result.toString().trim();
-        }
-
         if (expr.contains(DateLiteral.class) && expr instanceof BinaryPredicate) {
             ArrayList<Expr> children = expr.getChildren();
             String filter = children.get(0).toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
@@ -379,7 +355,7 @@ public class JdbcScanNode extends ExternalScanNode {
             return filter;
         }
 
-        // only for old planner
+        // Only for old planner
         if (expr.contains(BoolLiteral.class) && "1".equals(expr.getStringValue()) && expr.getChildren().isEmpty()) {
             return "1 = 1";
         }
@@ -404,5 +380,17 @@ public class JdbcScanNode extends ExternalScanNode {
             }
         }
         return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+    }
+
+    private static boolean containsNullLiteral(Expr expr) {
+        List<NullLiteral> nullExprList = Lists.newArrayList();
+        expr.collect(NullLiteral.class, nullExprList);
+        return !nullExprList.isEmpty();
+    }
+
+    private static boolean containsCastExpr(Expr expr) {
+        List<CastExpr> castExprList = Lists.newArrayList();
+        expr.collect(CastExpr.class, castExprList);
+        return !castExprList.isEmpty();
     }
 }

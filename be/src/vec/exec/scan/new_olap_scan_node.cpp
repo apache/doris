@@ -105,6 +105,7 @@ Status NewOlapScanNode::_init_profile() {
     _block_load_timer = ADD_TIMER(_segment_profile, "BlockLoadTime");
     _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
+    _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
     _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
@@ -113,6 +114,8 @@ Status NewOlapScanNode::_init_profile() {
     _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
     _block_conditions_filtered_bf_timer =
             ADD_TIMER(_segment_profile, "BlockConditionsFilteredBloomFilterTime");
+    _collect_iterator_merge_next_timer = ADD_TIMER(_segment_profile, "CollectIteratorMergeTime");
+    _collect_iterator_normal_next_timer = ADD_TIMER(_segment_profile, "CollectIteratorNormalTime");
     _block_conditions_filtered_zonemap_timer =
             ADD_TIMER(_segment_profile, "BlockConditionsFilteredZonemapTime");
     _block_conditions_filtered_zonemap_rp_timer =
@@ -171,6 +174,8 @@ Status NewOlapScanNode::_init_profile() {
     _inverted_index_query_cache_miss_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT);
     _inverted_index_query_timer = ADD_TIMER(_segment_profile, "InvertedIndexQueryTime");
+    _inverted_index_query_null_bitmap_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexQueryNullBitmapTime");
     _inverted_index_query_bitmap_copy_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapCopyTime");
     _inverted_index_query_bitmap_op_timer =
@@ -179,6 +184,10 @@ Status NewOlapScanNode::_init_profile() {
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherOpenTime");
     _inverted_index_searcher_search_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchTime");
+    _inverted_index_searcher_cache_hit_counter =
+            ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheHit", TUnit::UNIT);
+    _inverted_index_searcher_cache_miss_counter =
+            ADD_COUNTER(_segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT);
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
 
@@ -264,9 +273,13 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
         // we use `exact_range` to identify a key range is an exact range or not when we convert
         // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filters`.
         bool exact_range = true;
+
+        // If the `_scan_keys` cannot extend by the range of column, should stop.
+        bool should_break = false;
+
         bool eos = false;
-        for (int column_index = 0;
-             column_index < column_names.size() && !_scan_keys.has_range_value() && !eos;
+        for (int column_index = 0; column_index < column_names.size() &&
+                                   !_scan_keys.has_range_value() && !eos && !should_break;
              ++column_index) {
             auto iter = _colname_to_value_range.find(column_names[column_index]);
             if (_colname_to_value_range.end() == iter) {
@@ -280,8 +293,9 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                         // but the original range may be converted to olap filters, if it's not a exact_range.
                         auto temp_range = range;
                         if (range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
-                            RETURN_IF_ERROR(_scan_keys.extend_scan_key(
-                                    temp_range, _max_scan_key_num, &exact_range, &eos));
+                            RETURN_IF_ERROR(
+                                    _scan_keys.extend_scan_key(temp_range, _max_scan_key_num,
+                                                               &exact_range, &eos, &should_break));
                             if (exact_range) {
                                 _colname_to_value_range.erase(iter->first);
                             }
@@ -289,8 +303,9 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
                             // and will not erase from _colname_to_value_range, it must be not exact_range
                             temp_range.set_whole_value_range();
-                            RETURN_IF_ERROR(_scan_keys.extend_scan_key(
-                                    temp_range, _max_scan_key_num, &exact_range, &eos));
+                            RETURN_IF_ERROR(
+                                    _scan_keys.extend_scan_key(temp_range, _max_scan_key_num,
+                                                               &exact_range, &eos, &should_break));
                         }
                         return Status::OK();
                     },
@@ -304,22 +319,6 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
 
             for (const auto& filter : filters) {
                 _olap_filters.push_back(filter);
-            }
-        }
-
-        for (auto& iter : _compound_value_ranges) {
-            std::vector<TCondition> filters;
-            std::visit(
-                    [&](auto&& range) {
-                        if (range.is_in_compound_value_range()) {
-                            range.to_condition_in_compound(filters);
-                        } else if (range.is_match_value_range()) {
-                            range.to_match_condition(filters);
-                        }
-                    },
-                    iter);
-            for (const auto& filter : filters) {
-                _compound_filters.push_back(filter);
             }
         }
 
@@ -414,7 +413,7 @@ std::string NewOlapScanNode::get_name() {
 
 void NewOlapScanNode::_filter_and_collect_cast_type_for_variant(
         const VExpr* expr,
-        phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types) {
+        phmap::flat_hash_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types) {
     auto* cast_expr = dynamic_cast<const VCastExpr*>(expr);
     if (cast_expr != nullptr) {
         auto* src_slot = cast_expr->get_child(0)->node_type() == TExprNodeType::SLOT_REF
@@ -437,7 +436,7 @@ void NewOlapScanNode::_filter_and_collect_cast_type_for_variant(
 }
 
 void NewOlapScanNode::get_cast_types_for_variants() {
-    phmap::flat_hash_map<std::string, std::vector<PrimitiveType>> colname_to_cast_types;
+    phmap::flat_hash_map<std::string, std::vector<TypeDescriptor>> colname_to_cast_types;
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
         if (conjunct->root()) {
@@ -589,7 +588,6 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         for (auto& scanner : *scanners) {
             auto* olap_scanner = assert_cast<NewOlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->prepare(_state, _conjuncts));
-            olap_scanner->set_compound_filters(_compound_filters);
         }
         LOG(INFO) << "segment count: " << segment_count << ", scanners count: " << scanners->size();
         return Status::OK();
@@ -611,7 +609,6 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                                                             _olap_scan_node.is_preaggregation,
                                                     });
         RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
-        scanner->set_compound_filters(_compound_filters);
         scanners->push_back(std::move(scanner));
         return Status::OK();
     };
@@ -757,8 +754,8 @@ void NewOlapScanNode::add_filter_info(int id, const PredicateFilterInfo& update_
     filter_name += std::to_string(id);
     std::string info_str;
     info_str += "type = " + type_to_string(static_cast<PredicateType>(info.type)) + ", ";
-    info_str += "input = " + std::to_string(info.input_row) + ", ";
-    info_str += "filtered = " + std::to_string(info.filtered_row);
+    info_str += "predicate input = " + std::to_string(info.input_row) + ", ";
+    info_str += "predicate filtered = " + std::to_string(info.filtered_row);
     info_str = "[" + info_str + "]";
 
     // add info

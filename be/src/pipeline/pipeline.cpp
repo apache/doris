@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_task.h"
 
 namespace doris::pipeline {
 
@@ -38,7 +39,7 @@ Status Pipeline::build_operators() {
     for (auto& operator_t : _operator_builders) {
         auto o = operator_t->build_operator();
         if (pre) {
-            static_cast<void>(o->set_child(pre));
+            RETURN_IF_ERROR(o->set_child(pre));
         }
         _operators.emplace_back(o);
 
@@ -97,6 +98,16 @@ Status Pipeline::set_sink(DataSinkOperatorXPtr& sink) {
     }
     _sink_x = sink;
     return Status::OK();
+}
+
+void Pipeline::make_all_runnable() {
+    if (_sink_x->count_down_destination()) {
+        for (auto* task : _tasks) {
+            if (task) {
+                task->clear_blocking_state(true);
+            }
+        }
+    }
 }
 
 } // namespace doris::pipeline

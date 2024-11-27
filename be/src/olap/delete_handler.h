@@ -18,12 +18,10 @@
 #pragma once
 
 #include <butil/macros.h>
-#include <stdint.h>
 
-#include <memory>
+#include <cstdint>
 #include <string>
-#include <unordered_map>
-#include <vector>
+#include <type_traits>
 
 #include "common/factory_creator.h"
 #include "common/status.h"
@@ -66,6 +64,15 @@ public:
 
     static void convert_to_sub_pred_v2(DeletePredicatePB* delete_pred, TabletSchemaSPtr schema);
 
+    /**
+     * Use regular expression to extract 'column_name', 'op' and 'operands'
+     *
+     * @param condition_str input predicate string in form of `X OP Y`
+     * @param condition output param
+     * @return OK if matched and extracted correctly otherwise DELETE_INVALID_PARAMETERS
+     */
+    static Status parse_condition(const std::string& condition_str, TCondition* condition);
+
 private:
     // Validate the condition on the schema.
     static Status check_condition_valid(const TabletSchema& tablet_schema, const TCondition& cond);
@@ -79,15 +86,8 @@ private:
                                          const std::string& condition_op,
                                          const std::string& value_str);
 
-    // construct sub condition from TCondition
-    static std::string construct_sub_predicate(const TCondition& condition);
-
-    // make operators from FE adaptive to BE
-    [[nodiscard]] static std::string trans_op(const string& op);
-
     // extract 'column_name', 'op' and 'operands' to condition
     static Status parse_condition(const DeleteSubPredicatePB& sub_cond, TCondition* condition);
-    static Status parse_condition(const std::string& condition_str, TCondition* condition);
 
 public:
     DeleteHandler() = default;
@@ -99,13 +99,13 @@ public:
     // input:
     //     * schema: tablet's schema, the delete conditions and data rows are in this schema
     //     * version: maximum version
-    //     * with_sub_pred_v2: whether to use delete sub predicate v2 (v2 is based on PB, v1 is based on condition string)
+    //     * with_sub_pred_v2: whether to use delete sub predicate v2 (v2 is based on PB and use column uid to specify a column,
+    //         v1 is based on condition string, and relies on regex for parse)
     // return:
     //     * Status::Error<DELETE_INVALID_PARAMETERS>(): input parameters are not valid
     //     * Status::Error<MEM_ALLOC_FAILED>(): alloc memory failed
     Status init(TabletSchemaSPtr tablet_schema,
-                const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version,
-                bool with_sub_pred_v2 = false);
+                const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version);
 
     [[nodiscard]] bool empty() const { return _del_conds.empty(); }
 
@@ -116,6 +116,8 @@ public:
 
 private:
     template <typename SubPredType>
+        requires(std::is_same_v<SubPredType, DeleteSubPredicatePB> or
+                 std::is_same_v<SubPredType, std::string>)
     Status _parse_column_pred(
             TabletSchemaSPtr complete_schema, TabletSchemaSPtr delete_pred_related_schema,
             const ::google::protobuf::RepeatedPtrField<SubPredType>& sub_pred_list,

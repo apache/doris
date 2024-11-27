@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MaxLiteral;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
@@ -119,6 +120,19 @@ public class PartitionInfo implements Writable {
 
     public List<Column> getPartitionColumns() {
         return partitionColumns;
+    }
+
+    public String getDisplayPartitionColumns() {
+        StringBuilder sb = new StringBuilder();
+        int index = 0;
+        for (Column c : partitionColumns) {
+            if (index  != 0) {
+                sb.append(", ");
+            }
+            sb.append(c.getDisplayName());
+            index++;
+        }
+        return sb.toString();
     }
 
     public Map<Long, PartitionItem> getIdToItem(boolean isTemp) {
@@ -248,8 +262,9 @@ public class PartitionInfo implements Writable {
         return isAutoCreatePartitions;
     }
 
+    // forbid change metadata.
     public ArrayList<Expr> getPartitionExprs() {
-        return this.partitionExprs;
+        return Expr.cloneList(this.partitionExprs);
     }
 
     public void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
@@ -374,6 +389,8 @@ public class PartitionInfo implements Writable {
                 return PartitionValue.MAX_VALUE;
             } else if (expr instanceof DateLiteral) {
                 return new PartitionValue(expr.getStringValue());
+            } else if (expr instanceof NullLiteral) {
+                return new PartitionValue("NULL", true);
             } else {
                 return new PartitionValue(expr.getRealValue().toString());
             }
@@ -387,15 +404,31 @@ public class PartitionInfo implements Writable {
         }
     }
 
-    public void resetPartitionIdForRestore(long newPartitionId, long oldPartitionId,
+    public void resetPartitionIdForRestore(
+            Map<Long, Long> partitionIdMap,
             ReplicaAllocation restoreReplicaAlloc, boolean isSinglePartitioned) {
-        idToDataProperty.put(newPartitionId, idToDataProperty.remove(oldPartitionId));
-        idToReplicaAllocation.remove(oldPartitionId);
-        idToReplicaAllocation.put(newPartitionId, restoreReplicaAlloc);
-        if (!isSinglePartitioned) {
-            idToItem.put(newPartitionId, idToItem.remove(oldPartitionId));
+        Map<Long, DataProperty> origIdToDataProperty = idToDataProperty;
+        Map<Long, ReplicaAllocation> origIdToReplicaAllocation = idToReplicaAllocation;
+        Map<Long, PartitionItem> origIdToItem = idToItem;
+        Map<Long, Boolean> origIdToInMemory = idToInMemory;
+        Map<Long, String> origIdToStoragePolicy = idToStoragePolicy;
+        idToDataProperty = Maps.newHashMap();
+        idToReplicaAllocation = Maps.newHashMap();
+        idToItem = Maps.newHashMap();
+        idToInMemory = Maps.newHashMap();
+        idToStoragePolicy = Maps.newHashMap();
+
+        for (Map.Entry<Long, Long> entry : partitionIdMap.entrySet()) {
+            idToDataProperty.put(entry.getKey(), origIdToDataProperty.get(entry.getValue()));
+            idToReplicaAllocation.put(entry.getKey(),
+                    restoreReplicaAlloc == null ? origIdToReplicaAllocation.get(entry.getValue())
+                            : restoreReplicaAlloc);
+            if (!isSinglePartitioned) {
+                idToItem.put(entry.getKey(), origIdToItem.get(entry.getValue()));
+            }
+            idToInMemory.put(entry.getKey(), origIdToInMemory.get(entry.getValue()));
+            idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.get(entry.getValue()));
         }
-        idToInMemory.put(newPartitionId, idToInMemory.remove(oldPartitionId));
     }
 
     @Override

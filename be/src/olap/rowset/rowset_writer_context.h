@@ -63,7 +63,8 @@ struct RowsetWriterContext {
     io::FileSystemSPtr fs;
     std::string rowset_dir;
     TabletSchemaSPtr tablet_schema;
-    TabletSchemaSPtr original_tablet_schema;
+    // for variant schema update
+    TabletSchemaSPtr merged_tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state;
@@ -89,7 +90,8 @@ struct RowsetWriterContext {
 
     int64_t newest_write_timestamp = -1;
     bool enable_unique_key_merge_on_write = false;
-    std::set<int32_t> skip_inverted_index;
+    // store column_unique_id to do index compaction
+    std::set<int32_t> columns_to_do_index_compaction;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     BaseTabletSPtr tablet = nullptr;
 

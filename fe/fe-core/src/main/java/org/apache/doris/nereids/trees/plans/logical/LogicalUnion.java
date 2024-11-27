@@ -37,11 +37,15 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 /**
  * Logical Union.
@@ -70,7 +74,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
             List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter, List<Plan> children) {
         super(PlanType.LOGICAL_UNION, qualifier, outputs, childrenOutputs, children);
         this.hasPushedFilter = hasPushedFilter;
-        this.constantExprsList = ImmutableList.copyOf(
+        this.constantExprsList = Utils.fastToImmutableList(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
@@ -81,7 +85,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         super(PlanType.LOGICAL_UNION, qualifier, outputs, childrenOutputs,
                 groupExpression, logicalProperties, children);
         this.hasPushedFilter = hasPushedFilter;
-        this.constantExprsList = ImmutableList.copyOf(
+        this.constantExprsList = Utils.fastToImmutableList(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
@@ -165,9 +169,22 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
                 hasPushedFilter, Optional.empty(), Optional.empty(), children);
     }
 
+    public LogicalUnion withNewOutputsAndConstExprsList(List<NamedExpression> newOutputs,
+            List<List<NamedExpression>> constantExprsList) {
+        return new LogicalUnion(qualifier, newOutputs, regularChildrenOutputs, constantExprsList,
+                hasPushedFilter, Optional.empty(), Optional.empty(), children);
+    }
+
     public LogicalUnion withChildrenAndConstExprsList(List<Plan> children,
             List<List<SlotReference>> childrenOutputs, List<List<NamedExpression>> constantExprsList) {
         return new LogicalUnion(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter, children);
+    }
+
+    public LogicalUnion withNewOutputsChildrenAndConstExprsList(List<NamedExpression> newOutputs, List<Plan> children,
+                                                                List<List<SlotReference>> childrenOutputs,
+                                                                List<List<NamedExpression>> constantExprsList) {
+        return new LogicalUnion(qualifier, newOutputs, childrenOutputs, constantExprsList,
+                hasPushedFilter, Optional.empty(), Optional.empty(), children);
     }
 
     public LogicalUnion withAllQualifier() {
@@ -181,20 +198,75 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     }
 
     @Override
-    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
-        if (qualifier != Qualifier.DISTINCT) {
-            return FunctionalDependencies.EMPTY_FUNC_DEPS;
+    public void computeUnique(FunctionalDependencies.Builder fdBuilder) {
+        if (qualifier == Qualifier.DISTINCT) {
+            fdBuilder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
-        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
-        builder.addUniqueSlot(ImmutableSet.copyOf(outputSupplier.get()));
-        ImmutableSet<FdItem> fdItems = computeFdItems(outputSupplier);
-        builder.addFdItems(fdItems);
-        return builder.build();
     }
 
     @Override
-    public ImmutableSet<FdItem> computeFdItems(Supplier<List<Slot>> outputSupplier) {
-        Set<NamedExpression> output = ImmutableSet.copyOf(outputSupplier.get());
+    public void computeUniform(FunctionalDependencies.Builder fdBuilder) {
+        // don't propagate uniform slots
+    }
+
+    private List<Set<Integer>> mapSlotToIndex(Plan plan, List<Set<Slot>> equalSlotsList) {
+        Map<Slot, Integer> slotToIndex = new HashMap<>();
+        for (int i = 0; i < plan.getOutput().size(); i++) {
+            slotToIndex.put(plan.getOutput().get(i), i);
+        }
+        List<Set<Integer>> equalSlotIndicesList = new ArrayList<>();
+        for (Set<Slot> equalSlots : equalSlotsList) {
+            Set<Integer> equalSlotIndices = new HashSet<>();
+            for (Slot slot : equalSlots) {
+                if (slotToIndex.containsKey(slot)) {
+                    equalSlotIndices.add(slotToIndex.get(slot));
+                }
+            }
+            if (equalSlotIndices.size() > 1) {
+                equalSlotIndicesList.add(equalSlotIndices);
+            }
+        }
+        return equalSlotIndicesList;
+    }
+
+    @Override
+    public void computeEqualSet(FunctionalDependencies.Builder fdBuilder) {
+        List<Set<Integer>> unionEqualSlotIndicesList = new ArrayList<>();
+
+        for (Plan child : children) {
+            List<Set<Slot>> childEqualSlotsList =
+                    child.getLogicalProperties().getFunctionalDependencies().calAllEqualSet();
+            List<Set<Integer>> childEqualSlotsIndicesList = mapSlotToIndex(child, childEqualSlotsList);
+            if (unionEqualSlotIndicesList.isEmpty()) {
+                unionEqualSlotIndicesList = childEqualSlotsIndicesList;
+            } else {
+                // Only all child of union has the equal pair, we keep the equal pair.
+                // It means we should calculate the intersection of all child
+                for (Set<Integer> childEqualSlotIndices : childEqualSlotsIndicesList) {
+                    for (Set<Integer> unionEqualSlotIndices : unionEqualSlotIndicesList) {
+                        if (Collections.disjoint(childEqualSlotIndices, unionEqualSlotIndices)) {
+                            unionEqualSlotIndices.retainAll(childEqualSlotIndices);
+                        }
+                    }
+                }
+            }
+
+            List<Slot> ouputList = getOutput();
+            for (Set<Integer> equalSlotIndices : unionEqualSlotIndicesList) {
+                if (equalSlotIndices.size() <= 1) {
+                    continue;
+                }
+                int first = equalSlotIndices.iterator().next();
+                for (int idx : equalSlotIndices) {
+                    fdBuilder.addEqualPair(ouputList.get(first), ouputList.get(idx));
+                }
+            }
+        }
+    }
+
+    @Override
+    public ImmutableSet<FdItem> computeFdItems() {
+        Set<NamedExpression> output = ImmutableSet.copyOf(getOutput());
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
 
         ImmutableSet<SlotReference> exprs = output.stream()

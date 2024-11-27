@@ -72,6 +72,7 @@ Status MemoryScratchSink::prepare(RuntimeState* state) {
     _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
     init_sink_common_profile();
 
+    _timezone_obj = state->timezone_obj();
     return Status::OK();
 }
 
@@ -87,9 +88,9 @@ Status MemoryScratchSink::send(RuntimeState* state, Block* input_block, bool eos
                                                                        *input_block, &block));
     std::shared_ptr<arrow::Schema> block_arrow_schema;
     // After expr executed, use recaculated schema as final schema
-    RETURN_IF_ERROR(convert_block_arrow_schema(block, &block_arrow_schema));
+    RETURN_IF_ERROR(get_arrow_schema_from_block(block, &block_arrow_schema, state->timezone()));
     RETURN_IF_ERROR(convert_to_arrow_batch(block, block_arrow_schema, arrow::default_memory_pool(),
-                                           &result));
+                                           &result, _timezone_obj));
     _queue->blocking_put(result);
     return Status::OK();
 }

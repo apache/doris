@@ -24,12 +24,14 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/split.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "olap/olap_common.h"
 #include "olap/options.h"
 
 namespace doris {
@@ -38,14 +40,16 @@ class CollectionValue;
 class Field;
 
 class TabletIndex;
+class TabletColumn;
 
 namespace segment_v2 {
+class InvertedIndexFileWriter;
 
 class InvertedIndexColumnWriter {
 public:
     static Status create(const Field* field, std::unique_ptr<InvertedIndexColumnWriter>* res,
-                         const std::string& segment_file_name, const std::string& dir,
-                         const TabletIndex* inverted_index, const io::FileSystemSPtr& fs);
+                         InvertedIndexFileWriter* index_file_writer,
+                         const TabletIndex* inverted_index);
     virtual Status init() = 0;
 
     InvertedIndexColumnWriter() = default;
@@ -60,6 +64,7 @@ public:
                                     size_t count) = 0;
 
     virtual Status add_nulls(uint32_t count) = 0;
+    virtual Status add_array_nulls(uint32_t row_id) = 0;
 
     virtual Status finish() = 0;
 
@@ -68,6 +73,10 @@ public:
     virtual int64_t file_size() const = 0;
 
     virtual void close_on_error() = 0;
+
+    // check if the column is valid for inverted index, some columns
+    // are generated from variant, but not all of them are supported
+    static bool check_support_inverted_index(const TabletColumn& column);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexColumnWriter);
@@ -83,11 +92,9 @@ public:
 
     Status init() {
         for (auto& tmp_file_dir : _tmp_file_dirs) {
-            bool exists = true;
-            RETURN_IF_ERROR(io::global_local_filesystem()->exists(tmp_file_dir, &exists));
-            if (!exists) {
-                RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tmp_file_dir));
-            }
+            // delete the tmp dir to avoid the tmp files left by last crash
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tmp_file_dir));
+            RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tmp_file_dir));
         }
         return Status::OK();
     };

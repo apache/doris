@@ -17,7 +17,6 @@
 
 #include "vec/aggregate_functions/aggregate_function_approx_count_distinct.h"
 
-#include "util/bitmap_value.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
@@ -32,7 +31,8 @@
 namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr) {
     WhichDataType which(remove_nullable(argument_types[0]));
 
 #define DISPATCH(TYPE, COLUMN_TYPE)                                                             \

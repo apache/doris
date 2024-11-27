@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <string.h>
-
+#include <cstdint>
+#include <cstring>
 #include <map>
 #include <string>
 #include <utility>
@@ -109,7 +108,7 @@ public:
         }
     }
 
-    HyperLogLog(HyperLogLog&& other) {
+    HyperLogLog(HyperLogLog&& other) noexcept {
         this->_type = other._type;
         switch (other._type) {
         case HLL_DATA_EMPTY:
@@ -131,7 +130,7 @@ public:
         }
     }
 
-    HyperLogLog& operator=(HyperLogLog&& other) {
+    HyperLogLog& operator=(HyperLogLog&& other) noexcept {
         if (this != &other) {
             if (_registers != nullptr) {
                 delete[] _registers;
@@ -197,10 +196,10 @@ public:
         _registers = nullptr;
     }
 
-    typedef uint8_t SetTypeValueType;
-    typedef int32_t SparseLengthValueType;
-    typedef uint16_t SparseIndexType;
-    typedef uint8_t SparseValueType;
+    using SetTypeValueType = uint8_t;
+    using SparseLengthValueType = int32_t;
+    using SparseIndexType = uint16_t;
+    using SparseValueType = uint8_t;
 
     // Add a hash value to this HLL value
     // NOTE: input must be a hash_value
@@ -213,10 +212,11 @@ public:
 
     size_t memory_consumed() const {
         size_t size = sizeof(*this);
-        if (_type == HLL_DATA_EXPLICIT)
+        if (_type == HLL_DATA_EXPLICIT) {
             size += _hash_set.size() * sizeof(uint64_t);
-        else if (_type == HLL_DATA_SPARSE || _type == HLL_DATA_FULL)
+        } else if (_type == HLL_DATA_SPARSE || _type == HLL_DATA_FULL) {
             size += HLL_REGISTERS_COUNT;
+        }
         return size;
     }
 
@@ -231,13 +231,7 @@ public:
 
     int64_t estimate_cardinality() const;
 
-    static std::string empty() {
-        static HyperLogLog hll;
-        std::string buf;
-        buf.resize(HLL_EMPTY_SIZE);
-        hll.serialize((uint8_t*)buf.c_str());
-        return buf;
-    }
+    static HyperLogLog empty() { return HyperLogLog {}; }
 
     // Check if input slice is a valid serialized binary of HyperLogLog.
     // This function only check the encoded type in slice, whose complex
@@ -264,14 +258,6 @@ public:
             return {};
         }
     }
-
-private:
-    HllDataType _type = HLL_DATA_EMPTY;
-    vectorized::flat_hash_set<uint64_t> _hash_set;
-
-    // This field is much space consuming(HLL_REGISTERS_COUNT), we create
-    // it only when it is really needed.
-    uint8_t* _registers = nullptr;
 
 private:
     void _convert_explicit_to_register();
@@ -308,26 +294,27 @@ private:
         }
 #endif
     }
+
+    HllDataType _type = HLL_DATA_EMPTY;
+    vectorized::flat_hash_set<uint64_t> _hash_set;
+
+    // This field is much space consuming(HLL_REGISTERS_COUNT), we create
+    // it only when it is really needed.
+    uint8_t* _registers = nullptr;
 };
 
 // todo(kks): remove this when dpp_sink class was removed
 class HllSetResolver {
 public:
-    HllSetResolver()
-            : _buf_ref(nullptr),
-              _buf_len(0),
-              _set_type(HLL_DATA_EMPTY),
-              _full_value_position(nullptr),
-              _explicit_value(nullptr),
-              _explicit_num(0) {}
+    HllSetResolver() = default;
 
-    ~HllSetResolver() {}
+    ~HllSetResolver() = default;
 
-    typedef uint8_t SetTypeValueType;
-    typedef uint8_t ExplicitLengthValueType;
-    typedef int32_t SparseLengthValueType;
-    typedef uint16_t SparseIndexType;
-    typedef uint8_t SparseValueType;
+    using SetTypeValueType = uint8_t;
+    using ExplicitLengthValueType = uint8_t;
+    using SparseLengthValueType = int32_t;
+    using SparseIndexType = uint16_t;
+    using SparseValueType = uint8_t;
 
     // only save pointer
     void init(char* buf, int len) {
@@ -339,7 +326,7 @@ public:
     HllDataType get_hll_data_type() { return _set_type; }
 
     // explicit value num
-    int get_explicit_count() { return (int)_explicit_num; }
+    int get_explicit_count() const { return (int)_explicit_num; }
 
     // get explicit index value 64bit
     uint64_t get_explicit_value(int index) {
@@ -360,11 +347,11 @@ public:
 
 private:
     char* _buf_ref = nullptr; // set
-    int _buf_len;             // set len
-    HllDataType _set_type;    //set type
+    int _buf_len {};          // set len
+    HllDataType _set_type {}; //set type
     char* _full_value_position = nullptr;
     uint64_t* _explicit_value = nullptr;
-    ExplicitLengthValueType _explicit_num;
+    ExplicitLengthValueType _explicit_num {};
     std::map<SparseIndexType, SparseValueType> _sparse_map;
     SparseLengthValueType* _sparse_count;
 };

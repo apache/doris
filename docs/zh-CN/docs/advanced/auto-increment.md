@@ -108,8 +108,7 @@ Doris保证自增列上自动生成的值是稠密的，但**不能保证**在�
   UNIQUE KEY(`id`)
   DISTRIBUTED BY HASH(`id`) BUCKETS 10
   PROPERTIES (
-  "replication_allocation" = "tag.location.default: 3",
-  "enable_unique_key_merge_on_write" = "true"
+  "replication_allocation" = "tag.location.default: 3"
   );
   ```
 
@@ -123,8 +122,7 @@ Doris保证自增列上自动生成的值是稠密的，但**不能保证**在�
   UNIQUE KEY(`text`)
   DISTRIBUTED BY HASH(`text`) BUCKETS 10
   PROPERTIES (
-  "replication_allocation" = "tag.location.default: 3",
-  "enable_unique_key_merge_on_write" = "true"
+  "replication_allocation" = "tag.location.default: 3"
   );
   ```
 
@@ -150,8 +148,7 @@ CREATE TABLE `demo`.`tbl` (
 UNIQUE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 10
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 3",
-"enable_unique_key_merge_on_write" = "true"
+"replication_allocation" = "tag.location.default: 3"
 );
 ```
 
@@ -176,12 +173,12 @@ mysql> select * from tbl order by id;
 
 test.csv:
 ```
-Tom, 40
-John, 50
+Tom,40
+John,50
 ```
 
 ```
-curl --location-trusted -u user:passwd -H "columns:name,value" -H "column_separator:," -T ./test1.csv http://{host}:{port}/api/{db}/tbl/_stream_load
+curl --location-trusted -u user:passwd -H "columns:name,value" -H "column_separator:," -T ./test.csv http://{host}:{port}/api/{db}/tbl/_stream_load
 ```
 
 ```sql
@@ -383,14 +380,14 @@ PROPERTIES (
 将存量数据中的`user_id`导入字典表，建立`user_id`到整数值的编码映射
 
 ```sql
-insert into dit_tbl(user_id)
+insert into dictionary_tbl(user_id)
 select user_id from dwd_dup_tbl group by user_id;
 ```
 
 或者使用如下方式仅将增量数据中的`user_id`导入到字典表
 
 ```sql
-insert into dit_tbl(user_id)
+insert into dictionary_tbl(user_id)
 select dwd_dup_tbl.user_id from dwd_dup_tbl left join dictionary_tbl
 on dwd_dup_tbl.user_id = dictionary_tbl.user_id where dwd_dup_tbl.visit_time > '2023-12-10' and dictionary_tbl.user_id is NULL;
 ```
@@ -408,7 +405,7 @@ CREATE TABLE `demo`.`dws_agg_tbl` (
     `pv` BIGINT SUM NOT NULL 
 ) ENGINE=OLAP
 AGGREGATE KEY(`dim1`,`dim3`,`dim5`)
-DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
+DISTRIBUTED BY HASH(`dim1`) BUCKETS 32
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 3"
 );
@@ -419,13 +416,14 @@ PROPERTIES (
 ```sql
 insert into dws_tbl
 select dwd_dup_tbl.dim1, dwd_dup_tbl.dim3, dwd_dup_tbl.dim5, BITMAP_UNION(TO_BITMAP(dictionary_tbl.aid)), COUNT(1)
-from dwd_dup_tbl INNER JOIN dictionary_tbl on dwd_dup_tbl.user_id = dictionary_tbl.user_id;
+from dwd_dup_tbl INNER JOIN dictionary_tbl on dwd_dup_tbl.user_id = dictionary_tbl.user_id
+group by dwd_dup_tbl.dim1, dwd_dup_tbl.dim3, dwd_dup_tbl.dim5;
 ```
 
 用如下语句进行 uv, pv 查询
 
 ```sql
-select dim1, dim3, dim5, user_id_bitmap as uv, pv from dws_agg_tbl;
+select dim1, dim3, dim5, bitmap_count(user_id_bitmap) as uv, pv from dws_agg_tbl;
 ```
 
 ### 高效分页
@@ -434,7 +432,7 @@ select dim1, dim3, dim5, user_id_bitmap as uv, pv from dws_agg_tbl;
 
 ```sql
 CREATE TABLE `demo`.`records_tbl` (
-    `key` int(11) NOT NULL COMMENT "",
+    `user_id` int(11) NOT NULL COMMENT "",
     `name` varchar(26) NOT NULL COMMENT "",
     `address` varchar(41) NOT NULL COMMENT "",
     `city` varchar(11) NOT NULL COMMENT "",
@@ -442,8 +440,8 @@ CREATE TABLE `demo`.`records_tbl` (
     `region` varchar(13) NOT NULL COMMENT "",
     `phone` varchar(16) NOT NULL COMMENT "",
     `mktsegment` varchar(11) NOT NULL COMMENT ""
-) DUPLICATE KEY (`key`, `name`)
-DISTRIBUTED BY HASH(`key`) BUCKETS 10
+) DUPLICATE KEY (`user_id`, `name`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 10
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 3"
 );
@@ -452,13 +450,13 @@ PROPERTIES (
 假设在分页展示中，每页展示100条数据。那么获取第1页的数据可以使用如下sql进行查询：
 
 ```sql
-select * from records_tbl order by key, name limit 100;
+select * from records_tbl order by user_id, name limit 100;
 ```
 
 获取第2页的数据可以使用如下sql进行查询：
 
 ```sql
-select * from records_tbl order by key, name limit 100, offset 100;
+select * from records_tbl order by user_id, name limit 100, offset 100;
 ```
 
 然而，当进行深分页查询时(offset很大时)，即使实际需要需要的数据行很少，该方法依然会将全部数据读取到内存中进行全量排序后再进行后续处理，这种方法比较低效。可以通过自增列给每行数据一个唯一值，在查询时就可以通过记录之前页面`unique_value`列的最大值`max_value`，然后使用 `where unique_value > max_value limit rows_per_page` 的方式通过提下推谓词提前过滤大量数据，从而更高效地实现分页。
@@ -467,7 +465,7 @@ select * from records_tbl order by key, name limit 100, offset 100;
 
 ```sql
 CREATE TABLE `demo`.`records_tbl2` (
-    `key` int(11) NOT NULL COMMENT "",
+    `user_id` int(11) NOT NULL COMMENT "",
     `name` varchar(26) NOT NULL COMMENT "",
     `address` varchar(41) NOT NULL COMMENT "",
     `city` varchar(11) NOT NULL COMMENT "",
@@ -476,10 +474,10 @@ CREATE TABLE `demo`.`records_tbl2` (
     `phone` varchar(16) NOT NULL COMMENT "",
     `mktsegment` varchar(11) NOT NULL COMMENT "",
     `unique_value` BIGINT NOT NULL AUTO_INCREMENT
-) DUPLICATE KEY (`key`, `name`)
-DISTRIBUTED BY HASH(`key`) BUCKETS 10
+) DUPLICATE KEY (`user_id`, `name`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 10
 PROPERTIES (
-    "replication_num" = "3"
+"replication_allocation" = "tag.location.default: 3"
 );
 ```
 
@@ -498,8 +496,8 @@ select * from records_tbl2 where unique_value > 99 order by unique_value limit 1
 如果要直接查询一个靠后页面的内容，此时不方便直接获取之前页面数据中`unique_value`的最大值时，例如要直接获取第101页的内容，则可以使用如下方式进行查询
 
 ```sql
-select key, name, address, city, nation, region, phone, mktsegment
-from records_tbl2, (select uniuqe_value as max_value from records_tbl2 order by uniuqe_value limit 1 offset 9999) as previous_data
-where records_tbl2.uniuqe_value > previous_data.max_value
+select user_id, name, address, city, nation, region, phone, mktsegment
+from records_tbl2, (select unique_value as max_value from records_tbl2 order by unique_value limit 1 offset 9999) as previous_data
+where records_tbl2.unique_value > previous_data.max_value
 order by unique_value limit 100;
 ```

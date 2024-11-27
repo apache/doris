@@ -213,6 +213,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
     }
 
     auto& mcol = mutable_block.mutable_columns();
+    const bool has_mark_join_conjunct = !_parent->_mark_join_conjuncts.empty();
 
     int current_offset = 0;
     if constexpr ((JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
@@ -258,7 +259,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
               need_null_map_for_probe &&
                       ignore_null > (hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
                                      probe_index, build_index, probe_rows, _probe_indexs.data(),
-                                     _probe_visited, _build_indexs.data());
+                                     _probe_visited, _build_indexs.data(), has_mark_join_conjunct);
         probe_index = new_probe_idx;
         build_index = new_build_idx;
         current_offset = new_current_offset;

@@ -73,6 +73,7 @@ public:
     UnionSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _child_row_idx(0) {}
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     friend class UnionSinkOperatorX;
     using Base = PipelineXSinkLocalState<UnionSharedState>;
     using Parent = UnionSinkOperatorX;
@@ -123,6 +124,12 @@ public:
             return ss;
         }
     }
+
+    bool require_shuffled_data_distribution() const override {
+        return _followed_by_shuffled_operator;
+    }
+
+    bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
 
 private:
     int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }

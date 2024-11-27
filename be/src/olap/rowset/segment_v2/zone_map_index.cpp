@@ -39,6 +39,8 @@
 namespace doris {
 struct uint24_t;
 
+static bvar::Adder<size_t> g_zone_map_memory_bytes("doris_zone_map_memory_bytes");
+
 namespace segment_v2 {
 
 template <PrimitiveType Type>
@@ -155,6 +157,9 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
 
     _page_zone_maps.resize(reader.num_values());
 
+    g_zone_map_memory_bytes << sizeof(*this) + sizeof(ZoneMapPB) * _page_zone_maps.size() +
+                                       sizeof(IndexedColumnMetaPB);
+
     // read and cache all page zone maps
     for (int i = 0; i < reader.num_values(); ++i) {
         size_t num_to_read = 1;
@@ -173,9 +178,17 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
             return Status::Corruption("Failed to parse zone map");
         }
     }
+
     return Status::OK();
 }
 
+ZoneMapIndexReader::~ZoneMapIndexReader() {
+    // Maybe wrong due to load failures.
+    if (_page_zone_maps.size() > 0) {
+        g_zone_map_memory_bytes << -sizeof(*this) - sizeof(ZoneMapPB) * _page_zone_maps.size() -
+                                           sizeof(IndexedColumnMetaPB);
+    }
+}
 #define APPLY_FOR_PRIMITITYPE(M) \
     M(TYPE_TINYINT)              \
     M(TYPE_SMALLINT)             \

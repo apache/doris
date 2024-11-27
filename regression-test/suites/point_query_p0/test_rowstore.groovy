@@ -18,10 +18,12 @@
 suite("test_rowstore", "p0") {
     def tableName = "rs_query"
     sql """DROP TABLE IF EXISTS ${tableName}"""
+    sql "set enable_decimal256 = true"
     sql """
               CREATE TABLE IF NOT EXISTS ${tableName} (
                 `k1` int(11) NULL COMMENT "",
-                `k2` text NULL COMMENT ""
+                `v1` text NULL COMMENT "",
+                `v2` DECIMAL(50, 18) NULL COMMENT ""
               ) ENGINE=OLAP
               UNIQUE KEY(`k1`)
               DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -35,7 +37,7 @@ suite("test_rowstore", "p0") {
           """
 
     sql "set experimental_enable_nereids_planner = false"
-    sql """insert into ${tableName} values (1, 'abc')"""
+    sql """insert into ${tableName} values (1, 'abc', 1111919.12345678919)"""
     explain {
         sql("select * from ${tableName}")
         contains "OPT TWO PHASE"
@@ -46,4 +48,13 @@ suite("test_rowstore", "p0") {
          ALTER table ${tableName} ADD COLUMN new_column1 INT default "123";
     """
     qt_sql """select * from ${tableName} where k1 = 1"""
+
+    sql """
+         ALTER table ${tableName} ADD COLUMN new_column2 DATETIMEV2(3) DEFAULT "1970-01-01 00:00:00.111";
+    """
+    sleep(1000)
+    qt_sql """select * from ${tableName} where k1 = 1"""
+   
+    sql """insert into ${tableName} values (2, 'def', 1111919.12345678919, 456, NULL)"""
+    qt_sql """select * from ${tableName} where k1 = 2"""
 }

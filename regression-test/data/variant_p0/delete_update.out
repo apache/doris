@@ -7,10 +7,17 @@
 
 -- !sql --
 2	{"updated_value":123}	{"updated_value":123}
-6	{"a":4,"b":[4],"c":4.0}	{"updated_value" : 123}
+6	{"a":4,"b":[4],"c":4.1}	{"updated_value" : 123}
 7	{"updated_value":1111}	yyy
 
 -- !sql --
 2	{"updated_value":123}	{"updated_value":123}
-6	{"a":4,"b":[4],"c":4.0}	{"updated_value" : 123}
+6	{"a":4,"b":[4],"c":4.1}	{"updated_value" : 123}
+
+-- !sql --
+1	"ddddddddddd"	1111	199	10	{"new_data1":1}
+2	"eeeeee"	2222	299	20	{"new_data2":2}
+3	"aaaaa"	3333	399	30	{"new_data3":3}
+4	"bbbbbbbb"	4444	499	40	{"new_data4":4}
+5	"cccccccccccc"	5555	599	50	{"new_data5":5}
 

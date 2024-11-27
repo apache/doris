@@ -55,7 +55,15 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_cast_string_to_array,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv"
+excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "test_analyze_stats_p1," +
+    "test_broker_load," +
+    "test_cast_string_to_array," +
+    "test_refresh_mtmv," +
+    "test_spark_load," +
+    "test_broker_load_func," +
+    "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
+
 // this directories will not be executed
 excludeDirectories = ""
 
@@ -80,27 +88,54 @@ pg_14_port=7121
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
+mariadb_10_port=3326
 db2_11_port=50000
+oceanbase_port=2881
 
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=true
-hms_port=7141
-hive_pg_port=5432
+enablePaimonTest=enable_deprecated_case
+
+// port of hive2 docker
+hive2HmsPort=9083
+hive2HdfsPort=8020
+hive2ServerPort=10000
+hive2PgPort=5432
+
+// port of hive3 docker
+hive3HmsPort=9383
+hive3HdfsPort=8320
+hive3ServerPort=13000
+hive3PgPort=5732
+
+// iceberg test config
+iceberg_rest_uri_port=18181
+iceberg_minio_port=19001
+enableIcebergTest=true
 
 enableEsTest=true
+es_5_port=59200
 es_6_port="19200/"
 es_7_port=29200
 es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
+s3Source="aliyun"
+
+// for multi cloud test case, eg. paimon_base_filesystem
+aliYunAk="***********"
+aliYunSk="***********"
+txYunAk="***********"
+txYunSk="***********"
 
 max_failure_num=50
 
 externalEnvIp="127.0.0.1"
 
+// kerberos docker config
+enableKerberosTest = true
+kerberosHmsPort=9883
+kerberosHdfsPort=8820

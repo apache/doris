@@ -28,6 +28,7 @@
 #include <stack>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -92,7 +93,7 @@ public:
     const RowDescriptor& row_desc() const override {
         return _old_version_flag
                        ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
-                       : *_output_row_desc;
+                       : (_output_row_descriptor ? *_output_row_descriptor : *_output_row_desc);
     }
 
     std::shared_ptr<Block> get_left_block() { return _left_block; }
@@ -152,15 +153,11 @@ private:
             }
 
             if constexpr (set_probe_side_flag) {
-                Status status;
-                RETURN_IF_CATCH_EXCEPTION(
-                        (status = _do_filtering_and_update_visited_flags<
-                                 set_build_side_flag, set_probe_side_flag, ignore_null>(
-                                 &_join_block, !_is_left_semi_anti)));
+                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                        (_do_filtering_and_update_visited_flags<set_build_side_flag,
+                                                                set_probe_side_flag, ignore_null>(
+                                &_join_block, !_is_left_semi_anti)));
                 _update_additional_flags(&_join_block);
-                if (!status.ok()) {
-                    return status;
-                }
                 // If this join operation is left outer join or full outer join, when
                 // `_left_side_process_count`, means all rows from build
                 // side have been joined with _left_side_process_count, we should output current
@@ -175,15 +172,11 @@ private:
         }
 
         if constexpr (!set_probe_side_flag) {
-            Status status;
-            RETURN_IF_CATCH_EXCEPTION(
-                    (status = _do_filtering_and_update_visited_flags<
-                             set_build_side_flag, set_probe_side_flag, ignore_null>(
-                             &_join_block, !_is_right_semi_anti)));
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                    (_do_filtering_and_update_visited_flags<set_build_side_flag,
+                                                            set_probe_side_flag, ignore_null>(
+                            &_join_block, !_is_right_semi_anti)));
             _update_additional_flags(&_join_block);
-            if (!status.ok()) {
-                return status;
-            }
         }
 
         if constexpr (set_build_side_flag) {

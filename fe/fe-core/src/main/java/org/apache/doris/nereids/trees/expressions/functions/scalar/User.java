@@ -51,4 +51,9 @@ public class User extends ScalarFunction
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUser(this, context);
     }
+
+    @Override
+    public boolean isDeterministic() {
+        return false;
+    }
 }

@@ -7,7 +7,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF5 sr_item_sk->[i_item_sk,ss_item_sk];RF6 sr_ticket_number->[ss_ticket_number]
+--------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF5 sr_ticket_number->[ss_ticket_number];RF6 sr_item_sk->[i_item_sk,ss_item_sk]
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF4 i_item_sk->[ss_item_sk]
 --------------------PhysicalDistribute[DistributionSpecHash]
@@ -31,7 +31,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------PhysicalOlapScan[customer_address]
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[item] apply RFs: RF5
+------------------------PhysicalOlapScan[item] apply RFs: RF6
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[store_returns]
@@ -41,19 +41,19 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
 ------------NestedLoopJoin[INNER_JOIN](cast(paid as DOUBLE) > cast((0.05 * avg(cast(netpaid as DECIMALV3(38, 4)))) as DOUBLE))
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalProject
-------------------------filter((ssales.i_color = 'beige'))
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalProject
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashAgg[LOCAL]
+----------------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------------PhysicalProject
+--------------------------filter((ssales.i_color = 'beige'))
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute[DistributionSpecGather]
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------------------PhysicalProject
-----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

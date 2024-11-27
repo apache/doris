@@ -33,6 +33,13 @@ under the License.
 
 将字符串 str 重复 count 次输出，count 小于1时返回空串，str，count 任一为NULL时，返回 NULL
 
+:::tip
+repeat 函数默认最多重复 10000 次，可通过会话变量调整限制。
+```
+set repeat_max_num = 20000
+```
+:::
+
 ### example
 
 ```

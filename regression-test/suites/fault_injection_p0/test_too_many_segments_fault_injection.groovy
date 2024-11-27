@@ -44,26 +44,7 @@ suite("test_too_many_segments", "nonConcurrent,p2") { // the epic -238 case
         String endpoint = getS3Endpoint()
         String region = getS3Region()
         String bucket = getS3BucketName()
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        String backend_id;
         try {
-            getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-            backend_id = backendId_to_backendIP.keySet()[0]
-            def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-
-            logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def configList = parseJson(out.trim())
-            assert configList instanceof List
-
-            boolean disableAutoCompaction = true
-            for (Object ele in (List) configList) {
-                assert ele instanceof List<String>
-                if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                    disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-                }
-            }
             sql """ DROP TABLE IF EXISTS ${tableName} """
             sql "${create_table_sql}"
 

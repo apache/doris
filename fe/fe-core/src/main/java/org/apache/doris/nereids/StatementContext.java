@@ -18,6 +18,10 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.FormatOptions;
+import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.Hint;
@@ -26,38 +30,55 @@ import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShortCircuitQueryContext;
+import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.statistics.Statistics;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.sparkproject.guava.base.Throwables;
 
+import java.io.Closeable;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.Stack;
+import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
  * Statement context for nereids
  */
-public class StatementContext {
+public class StatementContext implements Closeable {
+    private static final Logger LOG = LogManager.getLogger(StatementContext.class);
 
     private ConnectContext connectContext;
 
@@ -84,46 +105,97 @@ public class StatementContext {
     // Thus hasUnknownColStats has higher priority than isDpHyp
     private boolean hasUnknownColStats = false;
 
-    private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
+    private final IdGenerator<ExprId> exprIdGenerator;
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
+    private final IdGenerator<TableId> talbeIdGenerator = TableId.createGenerator();
 
     private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
-    private final Map<CTEId, Set<NamedExpression>> cteIdToProjects = new HashMap<>();
+    private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
-    private final Map<CTEId, Set<RelationId>> cteIdToConsumerUnderProjects = new HashMap<>();
     // Used to update consumer's stats
-    private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
+    private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
+    private final SqlCacheContext sqlCacheContext;
+
+    // generate for next id for prepared statement's placeholders, which is connection level
+    private final IdGenerator<PlaceholderId> placeHolderIdGenerator = PlaceholderId.createGenerator();
+    // relation id to placeholders for prepared statement, ordered by placeholder id
+    private final Map<PlaceholderId, Expression> idToPlaceholderRealExpr = new TreeMap<>();
 
     // collect all hash join conditions to compute node connectivity in join graph
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
-    // Root Slot -> Paths -> Sub-column Slots
-    private final Map<Slot, Map<List<String>, SlotReference>> subColumnSlotRefMap
-            = Maps.newHashMap();
-
-    // Map from rewritten slot to original expr
-    private final Map<Slot, Expression> subColumnOriginalExprMap = Maps.newHashMap();
-
-    // Map from original expr to rewritten slot
-    private final Map<Expression, Slot> originalExprToRewrittenSubColumn = Maps.newHashMap();
 
     // Map slot to its relation, currently used in SlotReference to find its original
     // Relation for example LogicalOlapScan
     private final Map<Slot, Relation> slotToRelation = Maps.newHashMap();
 
+    private BitSet disableRules;
+
+    // table locks
+    private final Stack<CloseableResource> plannerResources = new Stack<>();
+
+    // placeholder params for prepared statement
+    private List<Placeholder> placeholders;
+
+    // for create view support in nereids
+    // key is the start and end position of the sql substring that needs to be replaced,
+    // and value is the new string used for replacement.
+    private final TreeMap<Pair<Integer, Integer>, String> indexInSqlToString
+            = new TreeMap<>(new Pair.PairComparator<>());
+    // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
+    // the value is the auto-increment id in the cascades context
+    private final Map<TableIdentifier, TableId> tableIdMapping = new LinkedHashMap<>();
+    // Record the materialization statistics by id which is used for cost estimation.
+    // Maybe return null, which means the id according statistics should calc normally rather than getting
+    // form this map
+    private final Map<RelationId, Statistics> relationIdToStatisticsMap = new LinkedHashMap<>();
+
+    // Indicates the query is short-circuited in both plan and execution phase, typically
+    // for high speed/concurrency point queries
+    private boolean isShortCircuitQuery;
+
+    private ShortCircuitQueryContext shortCircuitQueryContext;
+
+    private FormatOptions formatOptions = FormatOptions.getDefault();
+
+    private List<PlannerHook> plannerHooks = new ArrayList<>();
+
     public StatementContext() {
-        this.connectContext = ConnectContext.get();
+        this(ConnectContext.get(), null, 0);
+    }
+
+    public StatementContext(int initialId) {
+        this(ConnectContext.get(), null, initialId);
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
+        this(connectContext, originStatement, 0);
+    }
+
+    /**
+     * StatementContext
+     */
+    public StatementContext(ConnectContext connectContext, OriginStatement originStatement, int initialId) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        exprIdGenerator = ExprId.createGenerator(initialId);
+        if (connectContext != null && connectContext.getSessionVariable() != null
+                && connectContext.queryId() != null
+                && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
+            this.sqlCacheContext = new SqlCacheContext(
+                    connectContext.getCurrentUserIdentity(), connectContext.queryId());
+            if (originStatement != null) {
+                this.sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+            }
+        } else {
+            this.sqlCacheContext = null;
+        }
     }
 
     public void setConnectContext(ConnectContext connectContext) {
@@ -136,6 +208,9 @@ public class StatementContext {
 
     public void setOriginStatement(OriginStatement originStatement) {
         this.originStatement = originStatement;
+        if (originStatement != null && sqlCacheContext != null) {
+            sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+        }
     }
 
     public OriginStatement getOriginStatement() {
@@ -162,63 +237,28 @@ public class StatementContext {
         }
     }
 
-    public int getMaxContinuousJoin() {
-        return joinCount;
+    public boolean isShortCircuitQuery() {
+        return isShortCircuitQuery;
     }
 
-    public Set<SlotReference> getAllPathsSlots() {
-        Set<SlotReference> allSlotReferences = Sets.newHashSet();
-        for (Map<List<String>, SlotReference> slotReferenceMap : subColumnSlotRefMap.values()) {
-            allSlotReferences.addAll(slotReferenceMap.values());
-        }
-        return allSlotReferences;
+    public void setShortCircuitQuery(boolean shortCircuitQuery) {
+        isShortCircuitQuery = shortCircuitQuery;
     }
 
-    public Expression getOriginalExpr(SlotReference rewriteSlot) {
-        return subColumnOriginalExprMap.getOrDefault(rewriteSlot, null);
+    public ShortCircuitQueryContext getShortCircuitQueryContext() {
+        return shortCircuitQueryContext;
     }
 
-    public Slot getRewrittenSlotRefByOriginalExpr(Expression originalExpr) {
-        return originalExprToRewrittenSubColumn.getOrDefault(originalExpr, null);
+    public void setShortCircuitQueryContext(ShortCircuitQueryContext shortCircuitQueryContext) {
+        this.shortCircuitQueryContext = shortCircuitQueryContext;
     }
 
-    /**
-     * Add a slot ref attached with paths in context to avoid duplicated slot
-     */
-    public void addPathSlotRef(Slot root, List<String> paths, SlotReference slotRef, Expression originalExpr) {
-        subColumnSlotRefMap.computeIfAbsent(root, k -> Maps.newTreeMap(new Comparator<List<String>>() {
-            @Override
-            public int compare(List<String> lst1, List<String> lst2) {
-                Iterator<String> it1 = lst1.iterator();
-                Iterator<String> it2 = lst2.iterator();
-                while (it1.hasNext() && it2.hasNext()) {
-                    int result = it1.next().compareTo(it2.next());
-                    if (result != 0) {
-                        return result;
-                    }
-                }
-                return Integer.compare(lst1.size(), lst2.size());
-            }
-        }));
-        subColumnSlotRefMap.get(root).put(paths, slotRef);
-        subColumnOriginalExprMap.put(slotRef, originalExpr);
-        originalExprToRewrittenSubColumn.put(originalExpr, slotRef);
-    }
-
-    public SlotReference getPathSlot(Slot root, List<String> paths) {
-        Map<List<String>, SlotReference> pathsSlotsMap = subColumnSlotRefMap.getOrDefault(root, null);
-        if (pathsSlotsMap == null) {
-            return null;
-        }
-        return pathsSlotsMap.getOrDefault(paths, null);
+    public Optional<SqlCacheContext> getSqlCacheContext() {
+        return Optional.ofNullable(sqlCacheContext);
     }
 
     public void addSlotToRelation(Slot slot, Relation relation) {
         slotToRelation.put(slot, relation);
-    }
-
-    public Relation getRelationBySlot(Slot slot) {
-        return slotToRelation.getOrDefault(slot, null);
     }
 
     public boolean isDpHyp() {
@@ -245,6 +285,10 @@ public class StatementContext {
         return relationIdGenerator.getNextId();
     }
 
+    public TableId getNextTableId() {
+        return talbeIdGenerator.getNextId();
+    }
+
     public void setParsedStatement(StatementBase parsedStatement) {
         this.parsedStatement = parsedStatement;
     }
@@ -259,11 +303,22 @@ public class StatementContext {
         return supplier.get();
     }
 
+    public synchronized BitSet getOrCacheDisableRules(SessionVariable sessionVariable) {
+        if (this.disableRules != null) {
+            return this.disableRules;
+        }
+        this.disableRules = sessionVariable.getDisableNereidsRules();
+        return this.disableRules;
+    }
+
     /**
      * Some value of the cacheKey may change, invalid cache when value change
      */
     public synchronized void invalidCache(String cacheKey) {
         contextCacheMap.remove(cacheKey);
+        if (cacheKey.equalsIgnoreCase(SessionVariable.DISABLE_NEREIDS_RULES)) {
+            this.disableRules = null;
+        }
     }
 
     public ColumnAliasGenerator getColumnAliasGenerator() {
@@ -284,19 +339,23 @@ public class StatementContext {
         return cteIdToConsumers;
     }
 
-    public Map<CTEId, Set<NamedExpression>> getCteIdToProjects() {
-        return cteIdToProjects;
+    public Map<CTEId, Set<Slot>> getCteIdToOutputIds() {
+        return cteIdToOutputIds;
     }
 
     public Map<RelationId, Set<Expression>> getConsumerIdToFilters() {
         return consumerIdToFilters;
     }
 
-    public Map<CTEId, Set<RelationId>> getCteIdToConsumerUnderProjects() {
-        return cteIdToConsumerUnderProjects;
+    public PlaceholderId getNextPlaceholderId() {
+        return placeHolderIdGenerator.getNextId();
     }
 
-    public Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
+    public Map<PlaceholderId, Expression> getIdToPlaceholderRealExpr() {
+        return idToPlaceholderRealExpr;
+    }
+
+    public Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
         return cteIdToConsumerGroup;
     }
 
@@ -338,5 +397,154 @@ public class StatementContext {
 
     public void setHasUnknownColStats(boolean hasUnknownColStats) {
         this.hasUnknownColStats = hasUnknownColStats;
+    }
+
+    public TreeMap<Pair<Integer, Integer>, String> getIndexInSqlToString() {
+        return indexInSqlToString;
+    }
+
+    public void addIndexInSqlToString(Pair<Integer, Integer> pair, String replacement) {
+        indexInSqlToString.put(pair, replacement);
+    }
+
+    public void addStatistics(Id id, Statistics statistics) {
+        if (id instanceof RelationId) {
+            this.relationIdToStatisticsMap.put((RelationId) id, statistics);
+        }
+    }
+
+    public Optional<Statistics> getStatistics(Id id) {
+        if (id instanceof RelationId) {
+            return Optional.ofNullable(this.relationIdToStatisticsMap.get((RelationId) id));
+        }
+        return Optional.empty();
+    }
+
+    @VisibleForTesting
+    public Map<RelationId, Statistics> getRelationIdToStatisticsMap() {
+        return relationIdToStatisticsMap;
+    }
+
+    /** addTableReadLock */
+    public synchronized void addTableReadLock(TableIf tableIf) {
+        if (!tableIf.needReadLockWhenPlan()) {
+            return;
+        }
+        if (!tableIf.tryReadLock(1, TimeUnit.MINUTES)) {
+            close();
+            throw new RuntimeException(String.format("Failed to get read lock on table: %s", tableIf.getName()));
+        }
+
+        String fullTableName = tableIf.getNameWithFullQualifiers();
+        String resourceName = "tableReadLock(" + fullTableName + ")";
+        plannerResources.push(new CloseableResource(
+                resourceName, Thread.currentThread().getName(),
+                originStatement == null ? null : originStatement.originStmt, tableIf::readUnlock));
+    }
+
+    /** releasePlannerResources */
+    public synchronized void releasePlannerResources() {
+        Throwable throwable = null;
+        while (!plannerResources.isEmpty()) {
+            try {
+                plannerResources.pop().close();
+            } catch (Throwable t) {
+                if (throwable == null) {
+                    throwable = t;
+                }
+            }
+        }
+        if (throwable != null) {
+            Throwables.propagateIfInstanceOf(throwable, RuntimeException.class);
+            throw new IllegalStateException("Release resource failed", throwable);
+        }
+    }
+
+    // CHECKSTYLE OFF
+    @Override
+    protected void finalize() throws Throwable {
+        if (!plannerResources.isEmpty()) {
+            String msg = "Resources leak: " + plannerResources;
+            LOG.error(msg);
+            throw new IllegalStateException(msg);
+        }
+    }
+    // CHECKSTYLE ON
+
+    @Override
+    public void close() {
+        releasePlannerResources();
+    }
+
+    public List<Placeholder> getPlaceholders() {
+        return placeholders;
+    }
+
+    public void setPlaceholders(List<Placeholder> placeholders) {
+        this.placeholders = placeholders;
+    }
+
+    public void setFormatOptions(FormatOptions options) {
+        this.formatOptions = options;
+    }
+
+    public FormatOptions getFormatOptions() {
+        return formatOptions;
+    }
+
+    public List<PlannerHook> getPlannerHooks() {
+        return plannerHooks;
+    }
+
+    public void addPlannerHook(PlannerHook plannerHook) {
+        this.plannerHooks.add(plannerHook);
+    }
+
+    private static class CloseableResource implements Closeable {
+        public final String resourceName;
+        public final String threadName;
+        public final String sql;
+
+        private final Closeable resource;
+
+        private boolean closed;
+
+        public CloseableResource(String resourceName, String threadName, String sql, Closeable resource) {
+            this.resourceName = resourceName;
+            this.threadName = threadName;
+            this.sql = sql;
+            this.resource = resource;
+        }
+
+        @Override
+        public void close() {
+            if (!closed) {
+                try {
+                    resource.close();
+                } catch (Throwable t) {
+                    Throwables.propagateIfInstanceOf(t, RuntimeException.class);
+                    throw new IllegalStateException("Close resource failed: " + t.getMessage(), t);
+                }
+                closed = true;
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "\nResource {\n  name: " + resourceName + ",\n  thread: " + threadName
+                    + ",\n  sql:\n" + sql + "\n}";
+        }
+    }
+
+    /** Get table id with lazy */
+    public TableId getTableId(TableIf tableIf) {
+        TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
+        TableId tableId = this.tableIdMapping.get(tableIdentifier);
+        if (tableId != null) {
+            return tableId;
+        }
+        tableId = StatementScopeIdGenerator.newTableId();
+        this.tableIdMapping.put(tableIdentifier, tableId);
+        return tableId;
     }
 }

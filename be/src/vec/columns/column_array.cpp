@@ -20,15 +20,12 @@
 
 #include "vec/columns/column_array.h"
 
-#include <assert.h>
-#include <string.h>
-
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <limits>
-#include <memory>
+#include <cstring>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -89,10 +86,11 @@ INSTANTIATE_INDEX_IMPL(ColumnArray)
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
         : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
-    const ColumnOffsets* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
+    const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
 
     if (!offsets_concrete) {
-        LOG(FATAL) << "offsets_column must be a ColumnUInt64";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");
+        __builtin_unreachable();
     }
 
     if (!offsets_concrete->empty() && data) {
@@ -100,7 +98,10 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
         /// This will also prevent possible overflow in offset.
         if (data->size() != last_offset) {
-            LOG(FATAL) << "offsets_column has data inconsistent with nested_column";
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "nested_column's size {}, is not consistent with offsets_column's {}",
+                    data->size(), last_offset);
         }
     }
 
@@ -112,14 +113,24 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nested_column)) {
     if (!data->empty()) {
-        LOG(FATAL) << "Not empty data passed to ColumnArray, but no offsets passed";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Not empty data passed to ColumnArray, but no offsets passed");
+        __builtin_unreachable();
     }
 
     offsets = ColumnOffsets::create();
 }
 
+bool ColumnArray::could_shrinked_column() {
+    return data->could_shrinked_column();
+}
+
 MutableColumnPtr ColumnArray::get_shrinked_column() {
-    return ColumnArray::create(data->get_shrinked_column(), offsets->assume_mutable());
+    if (could_shrinked_column()) {
+        return ColumnArray::create(data->get_shrinked_column(), offsets->assume_mutable());
+    } else {
+        return ColumnArray::create(data->assume_mutable(), offsets->assume_mutable());
+    }
 }
 
 std::string ColumnArray::get_name() const {
@@ -161,8 +172,10 @@ Field ColumnArray::operator[](size_t n) const {
     size_t size = size_at(n);
 
     if (size > max_array_size_as_field)
-        LOG(FATAL) << "Array of size " << size << " is too large to be manipulated as single field,"
-                   << "maximum size " << max_array_size_as_field;
+        throw doris::Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "Array of size {}, is too large to be manipulated as single field, maximum size {}",
+                size, max_array_size_as_field);
 
     Array res(size);
 
@@ -176,8 +189,10 @@ void ColumnArray::get(size_t n, Field& res) const {
     size_t size = size_at(n);
 
     if (size > max_array_size_as_field)
-        LOG(FATAL) << "Array of size " << size << " is too large to be manipulated as single field,"
-                   << " maximum size " << max_array_size_as_field;
+        throw doris::Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "Array of size {}, is too large to be manipulated as single field, maximum size {}",
+                size, max_array_size_as_field);
 
     res = Array(size);
     Array& res_arr = doris::vectorized::get<Array&>(res);
@@ -216,8 +231,11 @@ bool ColumnArray::is_default_at(size_t n) const {
 void ColumnArray::insert_data(const char* pos, size_t length) {
     /** Similarly - only for arrays of fixed length values.
       */
-    if (!data->is_fixed_and_contiguous())
-        LOG(FATAL) << "Method insert_data is not supported for " << get_name();
+    if (!data->is_fixed_and_contiguous()) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method insert_data should have_fixed_size, {} is not suitable",
+                               get_name());
+    }
 
     size_t field_size = data->size_of_value_if_fixed();
 
@@ -229,7 +247,9 @@ void ColumnArray::insert_data(const char* pos, size_t length) {
             data->insert_data(pos, field_size);
 
         if (pos != end)
-            LOG(FATAL) << "Incorrect length argument for method ColumnArray::insert_data";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Incorrect length argument for method ColumnArray::insert_data");
+        __builtin_unreachable();
     }
 
     get_offsets().push_back(get_offsets().back() + elems);
@@ -411,7 +431,8 @@ void ColumnArray::insert_from(const IColumn& src_, size_t n) {
 
     if (!get_data().is_nullable() && src.get_data().is_nullable()) {
         // Note: we can't process the case of 'Array(Nullable(nest))'
-        DCHECK(false);
+        throw Exception(ErrorCode::INTERNAL_ERROR, "insert '{}' into '{}'", src.get_name(),
+                        get_name());
     } else if (get_data().is_nullable() && !src.get_data().is_nullable()) {
         // Note: here we should process the case of 'Array(NotNullable(nest))'
         reinterpret_cast<ColumnNullable*>(&get_data())
@@ -447,6 +468,8 @@ void ColumnArray::reserve(size_t n) {
 void ColumnArray::resize(size_t n) {
     auto last_off = get_offsets().back();
     get_offsets().resize_fill(n, last_off);
+    // make new size of data column
+    get_data().resize(get_offsets().back());
 }
 
 size_t ColumnArray::byte_size() const {
@@ -488,6 +511,40 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
     size_t nested_length = src_concrete.get_offsets()[start + length - 1] - nested_offset;
 
     get_data().insert_range_from(src_concrete.get_data(), nested_offset, nested_length);
+
+    auto& cur_offsets = get_offsets();
+    const auto& src_offsets = src_concrete.get_offsets();
+
+    if (start == 0 && cur_offsets.empty()) {
+        cur_offsets.assign(src_offsets.begin(), src_offsets.begin() + length);
+    } else {
+        size_t old_size = cur_offsets.size();
+        // -1 is ok, because PaddedPODArray pads zeros on the left.
+        size_t prev_max_offset = cur_offsets.back();
+        cur_offsets.resize(old_size + length);
+
+        for (size_t i = 0; i < length; ++i)
+            cur_offsets[old_size + i] = src_offsets[start + i] - nested_offset + prev_max_offset;
+    }
+}
+
+void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t start,
+                                                    size_t length) {
+    const ColumnArray& src_concrete = assert_cast<const ColumnArray&>(src);
+
+    if (start + length > src_concrete.get_offsets().size()) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Parameter out of bound in ColumnArray::insert_range_from method. "
+                               "[start({}) + length({}) > offsets.size({})]",
+                               std::to_string(start), std::to_string(length),
+                               std::to_string(src_concrete.get_offsets().size()));
+    }
+
+    size_t nested_offset = src_concrete.offset_at(start);
+    size_t nested_length = src_concrete.get_offsets()[start + length - 1] - nested_offset;
+
+    get_data().insert_range_from_ignore_overflow(src_concrete.get_data(), nested_offset,
+                                                 nested_length);
 
     auto& cur_offsets = get_offsets();
     const auto& src_offsets = src_concrete.get_offsets();
@@ -1057,7 +1114,9 @@ ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
         limit = std::min(size, limit);
     }
     if (perm.size() < limit) {
-        LOG(FATAL) << "Size of permutation is less than required.";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation is less than required.");
+        __builtin_unreachable();
     }
     if (limit == 0) {
         return ColumnArray::create(data);

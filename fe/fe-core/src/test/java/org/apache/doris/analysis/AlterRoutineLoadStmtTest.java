@@ -56,11 +56,11 @@ public class AlterRoutineLoadStmtTest {
                 minTimes = 0;
                 result = true;
 
-                accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -220,7 +220,7 @@ public class AlterRoutineLoadStmtTest {
                 stmt.analyze(analyzer);
                 Assert.fail();
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("max_batch_size should between 100MB and 1GB"));
+                Assert.assertTrue(e.getMessage().contains("max_batch_size should between 100MB and 10GB"));
             } catch (UserException e) {
                 Assert.fail();
             }

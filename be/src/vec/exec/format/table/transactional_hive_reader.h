@@ -89,16 +89,9 @@ public:
                             io::IOContext* io_ctx);
     ~TransactionalHiveReader() override = default;
 
-    Status init_row_filters(const TFileRangeDesc& range) override;
+    Status init_row_filters(const TFileRangeDesc& range, io::IOContext* io_ctx) override;
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
-    Status set_fill_columns(
-            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                    partition_columns,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
-
-    bool fill_all_columns() const override;
 
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;

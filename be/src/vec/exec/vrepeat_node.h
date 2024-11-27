@@ -64,6 +64,9 @@ public:
 private:
     Status get_repeated_block(Block* child_block, int repeat_id_idx, Block* output_block);
 
+    Status add_grouping_id_column(std::size_t rows, std::size_t& cur_col,
+                                  vectorized::MutableColumns& columns, int repeat_id_idx);
+
     // Slot id set used to indicate those slots need to set to null.
     std::vector<std::set<SlotId>> _slot_id_set_list;
     // all slot id

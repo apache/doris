@@ -17,17 +17,16 @@
 
 #pragma once
 
+#include "common/exception.h"
+#include "common/status.h"
 #define POP true
 #define NOTPOP false
 #define NULLABLE true
 #define NOTNULLABLE false
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <type_traits>
 
@@ -43,8 +42,8 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -52,10 +51,6 @@ template <typename T>
 class ColumnDecimal;
 template <typename>
 class ColumnVector;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 template <typename T>
 struct BaseData {
@@ -228,17 +223,30 @@ struct SampData : Data {
     using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>,
                                             ColumnVector<Float64>>;
     void insert_result_into(IColumn& to) const {
-        ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        if (this->count == 1 || this->count == 0) {
-            nullable_column.insert_default();
-        } else {
-            auto& col = assert_cast<ColVecResult&>(nullable_column.get_nested_column());
-            if constexpr (IsDecimalNumber<T>) {
-                col.get_data().push_back(this->get_samp_result().value());
+        if (to.is_nullable()) {
+            auto& nullable_column = assert_cast<ColumnNullable&>(to);
+            if (this->count == 1 || this->count == 0) {
+                nullable_column.insert_default();
             } else {
-                col.get_data().push_back(this->get_samp_result());
+                auto& col = assert_cast<ColVecResult&>(nullable_column.get_nested_column());
+                if constexpr (IsDecimalNumber<T>) {
+                    col.get_data().push_back(this->get_samp_result().value());
+                } else {
+                    col.get_data().push_back(this->get_samp_result());
+                }
+                nullable_column.get_null_map_data().push_back(0);
             }
-            nullable_column.get_null_map_data().push_back(0);
+        } else {
+            if (this->count == 1 || this->count == 0) {
+                to.insert_default();
+            } else {
+                auto& col = assert_cast<ColVecResult&>(to);
+                if constexpr (IsDecimalNumber<T>) {
+                    col.get_data().push_back(this->get_samp_result().value());
+                } else {
+                    col.get_data().push_back(this->get_samp_result());
+                }
+            }
         }
     }
 };
@@ -266,26 +274,45 @@ public:
     String get_name() const override { return Data::name(); }
 
     DataTypePtr get_return_type() const override {
-        if constexpr (is_pop) {
+        if constexpr (is_pop || !is_nullable) { // covar and covar_samp(non_nullable)
             return Data::get_return_type();
-        } else {
+        } else { // covar_samp
             return make_nullable(Data::get_return_type());
         }
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        if constexpr (is_pop) {
+        if constexpr (is_pop) { // covar_samp
             this->data(place).add(columns[0], columns[1], row_num);
-        } else {
+        } else { // covar
             if constexpr (is_nullable) {
+                // nullable means at least one child is null.
+                // so here, maybe JUST ONE OF ups is null. so nullptr perhaps in ..._x or ..._y!
                 const auto* nullable_column_x = check_and_get_column<ColumnNullable>(columns[0]);
                 const auto* nullable_column_y = check_and_get_column<ColumnNullable>(columns[1]);
-                if (!nullable_column_x->is_null_at(row_num) &&
-                    !nullable_column_y->is_null_at(row_num)) {
-                    this->data(place).add(&nullable_column_x->get_nested_column(),
-                                          &nullable_column_y->get_nested_column(), row_num);
+
+                if (nullable_column_x && nullable_column_y) { // both nullable
+                    if (!nullable_column_x->is_null_at(row_num) &&
+                        !nullable_column_y->is_null_at(row_num)) {
+                        this->data(place).add(&nullable_column_x->get_nested_column(),
+                                              &nullable_column_y->get_nested_column(), row_num);
+                    }
+                } else if (nullable_column_x) { // x nullable
+                    if (!nullable_column_x->is_null_at(row_num)) {
+                        this->data(place).add(&nullable_column_x->get_nested_column(), columns[1],
+                                              row_num);
+                    }
+                } else if (nullable_column_y) { // y nullable
+                    if (!nullable_column_y->is_null_at(row_num)) {
+                        this->data(place).add(columns[0], &nullable_column_y->get_nested_column(),
+                                              row_num);
+                    }
+                } else {
+                    throw Exception(ErrorCode::INTERNAL_ERROR,
+                                    "Nullable function {} get non-nullable columns!", get_name());
                 }
+
             } else {
                 this->data(place).add(columns[0], columns[1], row_num);
             }
@@ -317,14 +344,14 @@ template <typename Data, bool is_nullable>
 class AggregateFunctionSamp final
         : public AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable> {
 public:
-    AggregateFunctionSamp(const DataTypes& argument_types_)
+    AggregateFunctionSamp(const DataTypes& argument_types_) // covar_samp
             : AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable>(argument_types_) {}
 };
 
 template <typename Data, bool is_nullable>
 class AggregateFunctionPop final : public AggregateFunctionSampCovariance<POP, Data, is_nullable> {
 public:
-    AggregateFunctionPop(const DataTypes& argument_types_)
+    AggregateFunctionPop(const DataTypes& argument_types_) // covar
             : AggregateFunctionSampCovariance<POP, Data, is_nullable>(argument_types_) {}
 };
 

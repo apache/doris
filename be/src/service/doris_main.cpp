@@ -164,8 +164,9 @@ auto instruction_fail_to_string(InstructionFail fail) {
     case InstructionFail::ARM_NEON:
         ret("ARM_NEON");
     }
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+
+    LOG(ERROR) << "Unrecognized instruction fail value." << std::endl;
+    exit(-1);
 }
 
 sigjmp_buf jmpbuf;
@@ -307,7 +308,10 @@ int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.
     StackTrace::createCache();
-
+    // extern doris::ErrorCode::ErrorCodeInitializer error_code_init;
+    // Some developers will modify status.h and we use a very ticky logic to init error_states
+    // and it maybe not inited. So add a check here.
+    doris::ErrorCode::error_code_init.check_init();
     // check if print version or help
     if (argc > 1) {
         if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
@@ -404,6 +408,17 @@ int main(int argc, char** argv) {
         LOG(ERROR) << "parse config storage path failed, path=" << doris::config::storage_root_path;
         exit(-1);
     }
+
+    std::vector<doris::StorePath> spill_paths;
+    if (doris::config::spill_storage_root_path.empty()) {
+        doris::config::spill_storage_root_path = doris::config::storage_root_path;
+    }
+    olap_res = doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
+    if (!olap_res) {
+        LOG(ERROR) << "parse config spill storage path failed, path="
+                   << doris::config::spill_storage_root_path;
+        exit(-1);
+    }
     std::set<std::string> broken_paths;
     doris::parse_conf_broken_store_paths(doris::config::broken_storage_path, &broken_paths);
 
@@ -423,6 +438,7 @@ int main(int argc, char** argv) {
                 it = paths.erase(it);
             } else {
                 LOG(ERROR) << "read write test file failed, path=" << it->path;
+                // if only one disk and the disk is full, also need exit because rocksdb will open failed
                 exit(-1);
             }
         } else {
@@ -432,6 +448,25 @@ int main(int argc, char** argv) {
 
     if (paths.empty()) {
         LOG(ERROR) << "All disks are broken, exit.";
+        exit(-1);
+    }
+
+    it = spill_paths.begin();
+    for (; it != spill_paths.end();) {
+        if (!doris::check_datapath_rw(it->path)) {
+            if (doris::config::ignore_broken_disk) {
+                LOG(WARNING) << "read write test file failed, path=" << it->path;
+                it = spill_paths.erase(it);
+            } else {
+                LOG(ERROR) << "read write test file failed, path=" << it->path;
+                exit(-1);
+            }
+        } else {
+            ++it;
+        }
+    }
+    if (spill_paths.empty()) {
+        LOG(ERROR) << "All spill disks are broken, exit.";
         exit(-1);
     }
 
@@ -485,8 +520,8 @@ int main(int argc, char** argv) {
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
 
     // init exec env
-    auto exec_env(doris::ExecEnv::GetInstance());
-    status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, broken_paths);
+    auto* exec_env(doris::ExecEnv::GetInstance());
+    status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, broken_paths);
     if (status != Status::OK()) {
         LOG(ERROR) << "failed to init doris storage engine, res=" << status;
         exit(-1);
@@ -559,6 +594,8 @@ int main(int argc, char** argv) {
         doris::shutdown_logging();
         exit(1);
     }
+
+    exec_env->get_storage_engine()->notify_listeners();
 
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)

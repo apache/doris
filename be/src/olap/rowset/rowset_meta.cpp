@@ -17,6 +17,10 @@
 
 #include "olap/rowset/rowset_meta.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
+#include <memory>
+
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/local_file_system.h"
@@ -28,6 +32,7 @@
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_cache.h"
+#include "vec/common/schema_util.h"
 
 namespace doris {
 

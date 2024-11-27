@@ -37,7 +37,6 @@ namespace doris {
 class ExecEnv;
 class PHandShakeRequest;
 class PHandShakeResponse;
-class LoadStreamMgr;
 class RuntimeState;
 
 class PInternalServiceImpl : public PBackendService {
@@ -77,6 +76,15 @@ public:
 
     void fetch_data(google::protobuf::RpcController* controller, const PFetchDataRequest* request,
                     PFetchDataResult* result, google::protobuf::Closure* done) override;
+
+    void fetch_arrow_data(google::protobuf::RpcController* controller,
+                          const PFetchArrowDataRequest* request, PFetchArrowDataResult* result,
+                          google::protobuf::Closure* done) override;
+
+    void outfile_write_success(google::protobuf::RpcController* controller,
+                               const POutfileWriteSuccessRequest* request,
+                               POutfileWriteSuccessResult* result,
+                               google::protobuf::Closure* done) override;
 
     void fetch_table_schema(google::protobuf::RpcController* controller,
                             const PFetchTableSchemaRequest* request,
@@ -129,6 +137,16 @@ public:
                       const ::doris::PMergeFilterRequest* request,
                       ::doris::PMergeFilterResponse* response,
                       ::google::protobuf::Closure* done) override;
+
+    void send_filter_size(::google::protobuf::RpcController* controller,
+                          const ::doris::PSendFilterSizeRequest* request,
+                          ::doris::PSendFilterSizeResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
+    void sync_filter_size(::google::protobuf::RpcController* controller,
+                          const ::doris::PSyncFilterSizeRequest* request,
+                          ::doris::PSyncFilterSizeResponse* response,
+                          ::google::protobuf::Closure* done) override;
 
     void apply_filter(::google::protobuf::RpcController* controller,
                       const ::doris::PPublishFilterRequest* request,
@@ -214,6 +232,11 @@ public:
                             PGetWalQueueSizeResponse* response,
                             google::protobuf::Closure* done) override;
 
+    void test_jdbc_connection(google::protobuf::RpcController* controller,
+                              const PJdbcTestConnectionRequest* request,
+                              PJdbcTestConnectionResult* result,
+                              google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -250,6 +273,10 @@ private:
                                        PFetchColIdsResponse* response,
                                        google::protobuf::Closure* done);
 
+    void get_be_resource(google::protobuf::RpcController* controller,
+                         const PGetBeResourceRequest* request, PGetBeResourceResponse* response,
+                         google::protobuf::Closure* done) override;
+
 private:
     ExecEnv* _exec_env = nullptr;
 
@@ -259,8 +286,7 @@ private:
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
-
-    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
+    FifoThreadPool _arrow_flight_work_pool;
 };
 
 } // namespace doris

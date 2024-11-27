@@ -21,20 +21,29 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * function in nereids.
  */
 public abstract class Function extends Expression {
-    public Function(Expression... children) {
+    private final String name;
+
+    public Function(String name, Expression... children) {
         super(children);
+        this.name = Objects.requireNonNull(name, "name can not be null");
     }
 
-    public Function(List<Expression> children) {
+    public Function(String name, List<Expression> children) {
         super(children);
+        this.name = Objects.requireNonNull(name, "name can not be null");
     }
 
     public boolean isHighOrder() {
         return !children.isEmpty() && children.get(0) instanceof Lambda;
+    }
+
+    public final String getName() {
+        return name;
     }
 }

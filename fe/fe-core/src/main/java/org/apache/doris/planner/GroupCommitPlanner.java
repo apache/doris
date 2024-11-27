@@ -29,6 +29,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FormatOptions;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
@@ -60,7 +62,6 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -91,14 +92,15 @@ public class GroupCommitPlanner {
         }
         TStreamLoadPutRequest streamLoadPutRequest = new TStreamLoadPutRequest();
         if (targetColumnNames != null) {
-            streamLoadPutRequest.setColumns(String.join(",", targetColumnNames));
+            streamLoadPutRequest.setColumns("`" + String.join("`,`", targetColumnNames) + "`");
             if (targetColumnNames.stream().anyMatch(col -> col.equalsIgnoreCase(Column.SEQUENCE_COL))) {
                 streamLoadPutRequest.setSequenceCol(Column.SEQUENCE_COL);
             }
         }
         streamLoadPutRequest
                 .setDb(db.getFullName())
-                .setMaxFilterRatio(ConnectContext.get().getSessionVariable().enableInsertStrict ? 0 : 1)
+                .setMaxFilterRatio(ConnectContext.get().getSessionVariable().enableInsertStrict ? 0
+                        : ConnectContext.get().getSessionVariable().insertMaxFilterRatio)
                 .setTbl(table.getName())
                 .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId)
@@ -131,35 +133,14 @@ public class GroupCommitPlanner {
     public PGroupCommitInsertResponse executeGroupCommitInsert(ConnectContext ctx,
             List<InternalService.PDataRow> rows)
             throws DdlException, RpcException, ExecutionException, InterruptedException {
-        backend = ctx.getInsertGroupCommit(this.table.getId());
-        if (backend == null || !backend.isAlive() || backend.isDecommissioned()) {
-            List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-            if (allBackendIds.isEmpty()) {
-                throw new DdlException("No alive backend");
-            }
-            Collections.shuffle(allBackendIds);
-            boolean find = false;
-            for (Long beId : allBackendIds) {
-                backend = Env.getCurrentSystemInfo().getBackend(beId);
-                if (!backend.isDecommissioned()) {
-                    ctx.setInsertGroupCommit(this.table.getId(), backend);
-                    find = true;
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("choose new be {}", backend.getId());
-                    }
-                    break;
-                }
-            }
-            if (!find) {
-                throw new DdlException("No suitable backend");
-            }
-        }
+        selectBackends(ctx);
+
         PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
                 .setExecPlanFragmentRequest(InternalService.PExecPlanFragmentRequest.newBuilder()
                         .setRequest(execPlanFragmentParamsBytes)
                         .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_2).build())
                 .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
-                .build()).addAllData(rows)
+                        .build()).addAllData(rows)
                 .build();
         Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
                 .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
@@ -191,11 +172,21 @@ public class GroupCommitPlanner {
         if (expr instanceof NullLiteral) {
             row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
         } else if (expr.getType() instanceof ArrayType) {
-            row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValueForArray()));
+            row.addColBuilder().setValue(String.format("\"%s\"",
+                    expr.getStringValueForArray(FormatOptions.getDefault())));
         } else if (!expr.getChildren().isEmpty()) {
             expr.getChildren().forEach(child -> processExprVal(child, row));
         } else {
             row.addColBuilder().setValue(String.format("\"%s\"", expr.getStringValue()));
+        }
+    }
+
+    protected void selectBackends(ConnectContext ctx) throws DdlException {
+        try {
+            backend = Env.getCurrentEnv().getGroupCommitManager()
+                    .selectBackendForGroupCommit(this.table.getId(), ctx);
+        } catch (LoadException e) {
+            throw new DdlException("No suitable backend");
         }
     }
 
@@ -212,7 +203,7 @@ public class GroupCommitPlanner {
         SelectStmt selectStmt = (SelectStmt) (stmt.getQueryStmt());
         if (selectStmt.getValueList() != null) {
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
-                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
+                InternalService.PDataRow data = StmtExecutor.getRowStringValue(row, FormatOptions.getDefault());
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
                             .collect(Collectors.joining(",")));
@@ -228,7 +219,7 @@ public class GroupCommitPlanner {
                     exprList.add(resultExpr);
                 }
             }
-            InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList);
+            InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList, FormatOptions.getDefault());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
                         .collect(Collectors.joining(",")));

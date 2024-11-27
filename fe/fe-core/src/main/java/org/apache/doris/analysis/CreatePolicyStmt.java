@@ -101,6 +101,13 @@ public class CreatePolicyStmt extends DdlStmt {
                     throw new UserException("storage policy feature is disabled by default. "
                             + "Enable it by setting 'enable_storage_policy=true' in fe.conf");
                 }
+                // check auth
+                // check if can create policy and use storage_resource
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                            PrivPredicate.ADMIN.getPrivs().toString());
+                }
                 break;
             case ROW:
             default:
@@ -112,10 +119,12 @@ public class CreatePolicyStmt extends DdlStmt {
                                 user.getQualifiedUser(), user.getHost(), tableName.getTbl());
                     }
                 }
-        }
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+                // check auth
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                            PrivPredicate.GRANT.getPrivs().toString());
+                }
         }
     }
 

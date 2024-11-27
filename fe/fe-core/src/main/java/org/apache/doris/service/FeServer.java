@@ -19,6 +19,7 @@ package org.apache.doris.service;
 
 import org.apache.doris.common.ThriftServer;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.FrontendService;
 
 import org.apache.logging.log4j.LogManager;
@@ -43,7 +44,7 @@ public class FeServer {
 
     public void start() throws IOException {
         FrontendServiceImpl service = new FrontendServiceImpl(ExecuteEnv.getInstance());
-        Logger feServiceLogger = LogManager.getLogger(FrontendServiceImpl.class);
+        Logger feServiceLogger = LogManager.getLogger(FeServer.class);
         FrontendService.Iface instance = (FrontendService.Iface) Proxy.newProxyInstance(
                 FrontendServiceImpl.class.getClassLoader(),
                 FrontendServiceImpl.class.getInterfaces(),
@@ -62,6 +63,7 @@ public class FeServer {
                         // If exception occurs, do not deal it, just keep as the previous
                         throw t;
                     } finally {
+                        ConnectContext.remove();
                         feServiceLogger.debug("finish process request for {}", name);
                         if (MetricRepo.isInit) {
                             long end = System.currentTimeMillis();

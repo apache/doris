@@ -32,34 +32,24 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.TExprOpcode;
 
-import com.aliyun.datalake.metastore.common.DataLakeConfig;
-import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
-import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
-import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
-import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
-import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
@@ -76,7 +66,6 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import shade.doris.hive.org.apache.thrift.TException;
 
 import java.security.PrivilegedExceptionAction;
 import java.time.LocalDateTime;
@@ -90,6 +79,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -146,65 +136,6 @@ public class HiveMetaStoreClientHelper {
             }
             return formatDesc;
         }
-    }
-
-    private static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
-        HiveConf hiveConf = new HiveConf();
-        hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, metaStoreUris);
-        hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
-                String.valueOf(Config.hive_metastore_client_timeout_second));
-        IMetaStoreClient metaStoreClient = null;
-        String type = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
-        try {
-            if ("dlf".equalsIgnoreCase(type)) {
-                // For aliyun DLF
-                hiveConf.set(DataLakeConfig.CATALOG_CREATE_DEFAULT_DB, "false");
-                metaStoreClient = new ProxyMetaStoreClient(hiveConf);
-            } else {
-                metaStoreClient = new HiveMetaStoreClient(hiveConf);
-            }
-        } catch (MetaException e) {
-            LOG.warn("Create HiveMetaStoreClient failed: {}", e.getMessage());
-            throw new DdlException("Create HiveMetaStoreClient failed: " + e.getMessage());
-        }
-        return metaStoreClient;
-    }
-
-    public static Table getTable(HiveTable hiveTable) throws DdlException {
-        IMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS));
-        Table table;
-        try {
-            table = client.getTable(hiveTable.getHiveDb(), hiveTable.getHiveTable());
-        } catch (TException e) {
-            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
-        }
-        return table;
-    }
-
-    /**
-     * Get hive table with dbName and tableName.
-     * Only for Hudi.
-     *
-     * @param dbName database name
-     * @param tableName table name
-     * @param metaStoreUris hive metastore uris
-     * @return HiveTable
-     * @throws DdlException when get table from hive metastore failed.
-     */
-    @Deprecated
-    public static Table getTable(String dbName, String tableName, String metaStoreUris) throws DdlException {
-        IMetaStoreClient client = getClient(metaStoreUris);
-        Table table;
-        try {
-            table = client.getTable(dbName, tableName);
-        } catch (TException e) {
-            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
-        } finally {
-            client.close();
-        }
-        return table;
     }
 
     /**
@@ -586,26 +517,89 @@ public class HiveMetaStoreClientHelper {
      * Convert doris type to hive type.
      */
     public static String dorisTypeToHiveType(Type dorisType) {
-        if (dorisType.equals(Type.BOOLEAN)) {
-            return "boolean";
-        } else if (dorisType.equals(Type.TINYINT)) {
-            return "tinyint";
-        } else if (dorisType.equals(Type.SMALLINT)) {
-            return "smallint";
-        } else if (dorisType.equals(Type.INT)) {
-            return "int";
-        } else if (dorisType.equals(Type.BIGINT)) {
-            return "bigint";
-        } else if (dorisType.equals(Type.DATE) || dorisType.equals(Type.DATEV2)) {
-            return "date";
-        } else if (dorisType.equals(Type.DATETIME) || dorisType.equals(Type.DATETIMEV2)) {
-            return "timestamp";
-        } else if (dorisType.equals(Type.FLOAT)) {
-            return "float";
-        } else if (dorisType.equals(Type.DOUBLE)) {
-            return "double";
-        } else if (dorisType.equals(Type.STRING)) {
-            return "string";
+        if (dorisType.isScalarType()) {
+            PrimitiveType primitiveType = dorisType.getPrimitiveType();
+            switch (primitiveType) {
+                case BOOLEAN:
+                    return "boolean";
+                case TINYINT:
+                    return "tinyint";
+                case SMALLINT:
+                    return "smallint";
+                case INT:
+                    return "int";
+                case BIGINT:
+                    return "bigint";
+                case DATEV2:
+                case DATE:
+                    return "date";
+                case DATETIMEV2:
+                case DATETIME:
+                    return "timestamp";
+                case FLOAT:
+                    return "float";
+                case DOUBLE:
+                    return "double";
+                case CHAR: {
+                    ScalarType scalarType = (ScalarType) dorisType;
+                    return "char(" + scalarType.getLength() + ")";
+                }
+                case VARCHAR:
+                case STRING:
+                    return "string";
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                case DECIMAL256:
+                case DECIMALV2: {
+                    StringBuilder decimalType = new StringBuilder();
+                    decimalType.append("decimal");
+                    ScalarType scalarType = (ScalarType) dorisType;
+                    int precision = scalarType.getScalarPrecision();
+                    if (precision == 0) {
+                        precision = ScalarType.DEFAULT_PRECISION;
+                    }
+                    // decimal(precision, scale)
+                    int scale = scalarType.getScalarScale();
+                    decimalType.append("(");
+                    decimalType.append(precision);
+                    decimalType.append(",");
+                    decimalType.append(scale);
+                    decimalType.append(")");
+                    return decimalType.toString();
+                }
+                default:
+                    throw new HMSClientException("Unsupported primitive type conversion of " + dorisType.toSql());
+            }
+        } else if (dorisType.isArrayType()) {
+            ArrayType dorisArray = (ArrayType) dorisType;
+            Type itemType = dorisArray.getItemType();
+            return "array<" + dorisTypeToHiveType(itemType) + ">";
+        } else if (dorisType.isMapType()) {
+            MapType dorisMap = (MapType) dorisType;
+            Type keyType = dorisMap.getKeyType();
+            Type valueType = dorisMap.getValueType();
+            return "map<"
+                    + dorisTypeToHiveType(keyType)
+                    + ","
+                    + dorisTypeToHiveType(valueType)
+                    + ">";
+        } else if (dorisType.isStructType()) {
+            StructType dorisStruct = (StructType) dorisType;
+            StringBuilder structType = new StringBuilder();
+            structType.append("struct<");
+            ArrayList<StructField> fields = dorisStruct.getFields();
+            for (int i = 0; i < fields.size(); i++) {
+                StructField field = fields.get(i);
+                structType.append(field.getName());
+                structType.append(":");
+                structType.append(dorisTypeToHiveType(field.getType()));
+                if (i != fields.size() - 1) {
+                    structType.append(",");
+                }
+            }
+            structType.append(">");
+            return structType.toString();
         }
         throw new HMSClientException("Unsupported type conversion of " + dorisType.toSql());
     }
@@ -763,6 +757,13 @@ public class HiveMetaStoreClientHelper {
                 output.append("ROW FORMAT SERDE\n")
                         .append(String.format("  '%s'\n", descriptor.getSerdeInfo().getSerializationLib()));
             }
+            if (descriptor.getSerdeInfo().isSetParameters()) {
+                output.append("WITH SERDEPROPERTIES (\n")
+                        .append(descriptor.getSerdeInfo().getParameters().entrySet().stream()
+                        .map(entry -> String.format("  '%s' = '%s'", entry.getKey(), entry.getValue()))
+                        .collect(Collectors.joining(",\n")))
+                        .append(")\n");
+            }
             if (descriptor.isSetInputFormat()) {
                 output.append("STORED AS INPUTFORMAT\n")
                         .append(String.format("  '%s'\n", descriptor.getInputFormat()));
@@ -817,15 +818,10 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
+        // if hive config is not ready, then use hadoop kerberos to login
         AuthenticationConfig krbConfig = AuthenticationConfig.getKerberosConfig(conf,
-                AuthenticationConfig.HIVE_KERBEROS_PRINCIPAL,
-                AuthenticationConfig.HIVE_KERBEROS_KEYTAB);
-        if (!krbConfig.isValid()) {
-            // if hive config is not ready, then use hadoop kerberos to login
-            krbConfig = AuthenticationConfig.getKerberosConfig(conf,
-                    AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                    AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
-        }
+                AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
         return HadoopUGI.ugiDoAs(krbConfig, action);
     }
 
@@ -837,10 +833,51 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {
-        Configuration conf = new HdfsConfiguration();
+        Configuration conf = DFSFileSystem.getHdfsConf(table.getCatalog().ifNotSetFallbackToSimpleAuth());
         for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }
         return conf;
+    }
+
+    public static Optional<String> getSerdeProperty(Table table, String key) {
+        String valueFromSd = table.getSd().getSerdeInfo().getParameters().get(key);
+        String valueFromTbl = table.getParameters().get(key);
+        return firstNonNullable(valueFromTbl, valueFromSd);
+    }
+
+    private static Optional<String> firstNonNullable(String... values) {
+        for (String value : values) {
+            if (!Strings.isNullOrEmpty(value)) {
+                return Optional.of(value);
+            }
+        }
+        return Optional.empty();
+    }
+
+    public static String firstPresentOrDefault(String defaultValue, Optional<String>... values) {
+        for (Optional<String> value : values) {
+            if (value.isPresent()) {
+                return value.get();
+            }
+        }
+        return defaultValue;
+    }
+
+    /**
+     * Return the byte value of the number string.
+     *
+     * @param altValue
+     *                 The string containing a number.
+     */
+    public static String getByte(String altValue) {
+        if (altValue != null && altValue.length() > 0) {
+            try {
+                return String.valueOf((char) ((Byte.parseByte(altValue) + 256) % 256));
+            } catch (NumberFormatException e) {
+                return altValue.substring(0, 1);
+            }
+        }
+        return null;
     }
 }

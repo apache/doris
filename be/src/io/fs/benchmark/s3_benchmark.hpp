@@ -42,7 +42,7 @@ public:
         S3Conf s3_conf;
         RETURN_IF_ERROR(
                 S3ClientFactory::convert_properties_to_s3_conf(_conf_map, s3_uri, &s3_conf));
-        return io::S3FileSystem::create(std::move(s3_conf), "", fs);
+        return io::S3FileSystem::create(std::move(s3_conf), "", nullptr, fs);
     }
 };
 
@@ -70,7 +70,7 @@ public:
         fd.path = file_path;
         RETURN_IF_ERROR(FileFactory::create_s3_reader(
                 _conf_map, fd, reader_opts, reinterpret_cast<std::shared_ptr<io::FileSystem>*>(&fs),
-                &reader));
+                &reader, nullptr));
         return read(state, reader);
     }
 };

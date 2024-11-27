@@ -48,7 +48,7 @@ public:
         if (len == 0) {
             return false;
         }
-        int64_t parse_value;
+        int64_t parse_value = 0;
         size_t begin = 0;
         size_t end = len - 1;
         while (begin < len && std::isspace(ipv4_str[begin])) {
@@ -83,7 +83,7 @@ public:
         if (len == 0) {
             return false;
         }
-        int64_t parse_value;
+        int64_t parse_value = 0;
         size_t begin = 0;
         size_t end = len - 1;
         while (begin < len && std::isspace(ipv4_str[begin])) {

@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.text.DecimalFormat;
 import java.util.HashMap;
@@ -38,15 +39,32 @@ public class Statistics {
     // the byte size of one tuple
     private double tupleSize;
 
+    private double deltaRowCount = 0.0;
+
+    public Statistics(Statistics another) {
+        this.rowCount = another.rowCount;
+        this.widthInJoinCluster = another.widthInJoinCluster;
+        this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
+        this.tupleSize = another.tupleSize;
+        this.deltaRowCount = another.getDeltaRowCount();
+    }
+
     public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this(rowCount, 1, expressionToColumnStats);
+        this(rowCount, 1, expressionToColumnStats, 0);
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
-                      Map<Expression, ColumnStatistic> expressionToColumnStats) {
+            Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        this(rowCount, widthInJoinCluster, expressionToColumnStats, 0);
+    }
+
+    public Statistics(double rowCount, int widthInJoinCluster,
+            Map<Expression, ColumnStatistic> expressionToColumnStats,
+            double deltaRowCount) {
         this.rowCount = rowCount;
         this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
+        this.deltaRowCount = deltaRowCount;
     }
 
     public ColumnStatistic findColumnStatistics(Expression expression) {
@@ -62,14 +80,18 @@ public class Statistics {
     }
 
     public Statistics withRowCount(double rowCount) {
-        return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
+        return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats), deltaRowCount);
+    }
+
+    public Statistics withExpressionToColumnStats(Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount);
     }
 
     /**
      * Update by count.
      */
     public Statistics withRowCountAndEnforceValid(double rowCount) {
-        Statistics statistics = new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
+        Statistics statistics = new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount);
         statistics.enforceValid();
         return statistics;
     }
@@ -118,11 +140,13 @@ public class Statistics {
                         && expressionToColumnStats.get(s).isUnKnown);
     }
 
-    private double computeTupleSize() {
+    public double computeTupleSize() {
         if (tupleSize <= 0) {
             double tempSize = 0.0;
             for (ColumnStatistic s : expressionToColumnStats.values()) {
-                tempSize += s.avgSizeByte;
+                if (s != null) {
+                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_WIDTH, s.avgSizeByte));
+                }
             }
             tupleSize = Math.max(1, tempSize);
         }
@@ -151,7 +175,11 @@ public class Statistics {
             return "-Infinite";
         }
         DecimalFormat format = new DecimalFormat("#,###.##");
-        return format.format(rowCount);
+        String rows = format.format(rowCount);
+        if (deltaRowCount > 0) {
+            rows = rows + "(" + format.format(deltaRowCount) + ")";
+        }
+        return rows;
     }
 
     public int getBENumber() {
@@ -164,6 +192,10 @@ public class Statistics {
             zero.addColumnStats(entry.getKey(), ColumnStatistic.ZERO);
         }
         return zero;
+    }
+
+    public static double getValidSelectivity(double nullSel) {
+        return nullSel < 0 ? 0 : (nullSel > 1 ? 1 : nullSel);
     }
 
     /**
@@ -195,5 +227,27 @@ public class Statistics {
 
     public int getWidthInJoinCluster() {
         return widthInJoinCluster;
+    }
+
+    public Statistics normalizeByRatio(double originRowCount) {
+        if (rowCount >= originRowCount || rowCount <= 0) {
+            return this;
+        }
+        StatisticsBuilder builder = new StatisticsBuilder(this);
+        double ratio = rowCount / originRowCount;
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            ColumnStatistic colStats = entry.getValue();
+            if (colStats.numNulls != 0 || colStats.ndv > rowCount) {
+                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(colStats);
+                colStatsBuilder.setNumNulls(colStats.numNulls * ratio);
+                colStatsBuilder.setNdv(Math.min(rowCount - colStatsBuilder.getNumNulls(), colStats.ndv));
+                builder.putColumnStatistics(entry.getKey(), colStatsBuilder.build());
+            }
+        }
+        return builder.build();
+    }
+
+    public double getDeltaRowCount() {
+        return deltaRowCount;
     }
 }

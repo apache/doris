@@ -63,6 +63,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
@@ -74,9 +75,9 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
+#include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
@@ -121,9 +122,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
           _stopped(false),
-          _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
-          _segment_meta_mem_tracker(std::make_shared<MemTracker>(
-                  "SegmentMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
@@ -141,6 +139,9 @@ StorageEngine::StorageEngine(const EngineOptions& options)
     });
 
     _broken_paths = options.broken_paths;
+
+    _memory_limitation_bytes_for_schema_change =
+            static_cast<int64_t>(MemInfo::soft_mem_limit() * config::schema_change_mem_limit_frac);
 }
 
 StorageEngine::~StorageEngine() {
@@ -173,6 +174,11 @@ Status StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     return Status::OK();
 }
 
+int64_t StorageEngine::memory_limitation_bytes_per_thread_for_schema_change() const {
+    return std::max(_memory_limitation_bytes_for_schema_change / config::alter_tablet_worker_count,
+                    config::memory_limitation_per_thread_for_schema_change_bytes);
+}
+
 Status StorageEngine::_open() {
     // init store_map
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_store_map(), "_init_store_map failed");
@@ -185,6 +191,7 @@ Status StorageEngine::_open() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
     auto dirs = get_stores<false>();
+    _disk_num = dirs.size();
     RETURN_IF_ERROR(load_data_dirs(dirs));
 
     _memtable_flush_executor.reset(new MemTableFlushExecutor());
@@ -666,6 +673,10 @@ void StorageEngine::stop() {
         _cold_data_compaction_thread_pool->shutdown();
     }
 
+    if (_cooldown_thread_pool) {
+        _cooldown_thread_pool->shutdown();
+    }
+
     _memtable_flush_executor.reset(nullptr);
     _calc_delete_bitmap_executor.reset(nullptr);
 
@@ -709,8 +720,14 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
                           << ", tablet_uid=" << tablet_info.first.tablet_uid;
                 continue;
             }
-            static_cast<void>(StorageEngine::instance()->txn_manager()->delete_txn(
-                    partition_id, tablet, transaction_id));
+            Status s = StorageEngine::instance()->txn_manager()->delete_txn(partition_id, tablet,
+                                                                            transaction_id);
+            if (!s.ok()) {
+                LOG(WARNING) << "failed to clear transaction. txn_id=" << transaction_id
+                             << ", partition_id=" << partition_id
+                             << ", tablet_id=" << tablet_info.first.tablet_id
+                             << ", status=" << s.to_string();
+            }
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
@@ -799,6 +816,9 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     // cleand unused pending publish info for deleted tablet
     _clean_unused_pending_publish_info();
+
+    // clean unused partial update info for finished txns
+    _clean_unused_partial_update_info();
 
     // clean unused rowsets in remote storage backends
     for (auto data_dir : get_stores()) {
@@ -963,6 +983,34 @@ void StorageEngine::_clean_unused_pending_publish_info() {
     }
 }
 
+void StorageEngine::_clean_unused_partial_update_info() {
+    std::vector<std::tuple<int64_t, int64_t, int64_t>> remove_infos;
+    auto unused_partial_update_info_collector =
+            [this, &remove_infos](int64_t tablet_id, int64_t partition_id, int64_t txn_id,
+                                  std::string_view value) -> bool {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            remove_infos.emplace_back(tablet_id, partition_id, txn_id);
+            return true;
+        }
+        TxnState txn_state =
+                _txn_manager->get_txn_state(partition_id, txn_id, tablet_id, tablet->tablet_uid());
+        if (txn_state == TxnState::NOT_FOUND || txn_state == TxnState::ABORTED ||
+            txn_state == TxnState::DELETED) {
+            remove_infos.emplace_back(tablet_id, partition_id, txn_id);
+            return true;
+        }
+        return true;
+    };
+    auto data_dirs = get_stores();
+    for (auto* data_dir : data_dirs) {
+        static_cast<void>(RowsetMetaManager::traverse_partial_update_info(
+                data_dir->get_meta(), unused_partial_update_info_collector));
+        static_cast<void>(
+                RowsetMetaManager::remove_partial_update_infos(data_dir->get_meta(), remove_infos));
+    }
+}
+
 void StorageEngine::gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos) {
     for (auto [tablet_id, version] : gc_tablet_infos) {
         LOG(INFO) << fmt::format("start to gc binlogs for tablet_id: {}, version: {}", tablet_id,
@@ -1034,6 +1082,8 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
             string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
                 res = io::global_local_filesystem()->delete_directory(path_name);
+                LOG(INFO) << "do sweep delete directory " << path_name << " local_now " << local_now
+                          << "actual_expire " << actual_expire << " res " << res;
                 if (!res.ok()) {
                     continue;
                 }
@@ -1090,6 +1140,7 @@ void StorageEngine::start_delete_unused_rowset() {
                 evict_querying_rowset(it->second->rowset_id());
             }
             if (rs.use_count() == 1 && rs->need_delete_file()) {
+                it->second->clear_cache();
                 // remote rowset data will be reclaimed by `remove_unused_remote_files`
                 if (rs->is_local()) {
                     unused_rowsets_copy.push_back(std::move(rs));
@@ -1344,9 +1395,9 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
@@ -1368,15 +1419,39 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
         rapidjson::Document arr;
         arr.SetArray();
 
-        for (auto& tablet_id : it.second) {
+        for (auto& tablet : it.second) {
             rapidjson::Value key;
-            const std::string& key_str = std::to_string(tablet_id);
+            const std::string& key_str = std::to_string(tablet->tablet_id());
             key.SetString(key_str.c_str(), key_str.length(), path_obj2.GetAllocator());
             arr.PushBack(key, root.GetAllocator());
         }
         path_obj2.AddMember(path_key, arr, path_obj2.GetAllocator());
     }
     root.AddMember(base_key, path_obj2, root.GetAllocator());
+
+    // full
+    const std::string& full = "FullCompaction";
+    rapidjson::Value full_key;
+    full_key.SetString(full.c_str(), full.length(), root.GetAllocator());
+    rapidjson::Document path_obj3;
+    path_obj3.SetObject();
+    for (auto& it : _tablet_submitted_full_compaction) {
+        const std::string& dir = it.first->path();
+        rapidjson::Value path_key;
+        path_key.SetString(dir.c_str(), dir.length(), path_obj3.GetAllocator());
+
+        rapidjson::Document arr;
+        arr.SetArray();
+
+        for (auto& tablet : it.second) {
+            rapidjson::Value key;
+            const std::string& key_str = std::to_string(tablet->tablet_id());
+            key.SetString(key_str.c_str(), key_str.length(), path_obj3.GetAllocator());
+            arr.PushBack(key, root.GetAllocator());
+        }
+        path_obj3.AddMember(path_key, arr, path_obj3.GetAllocator());
+    }
+    root.AddMember(full_key, path_obj3, root.GetAllocator());
 
     rapidjson::StringBuffer strbuf;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
@@ -1437,31 +1512,11 @@ Status StorageEngine::_persist_broken_paths() {
     return Status::OK();
 }
 
-bool StorageEngine::_increase_low_priority_task_nums(DataDir* dir) {
-    if (!config::enable_compaction_priority_scheduling) {
-        return true;
-    }
-    std::lock_guard l(_low_priority_task_nums_mutex);
-    if (_low_priority_task_nums[dir] < config::low_priority_compaction_task_num_per_disk) {
-        _low_priority_task_nums[dir]++;
-        return true;
-    }
-    return false;
-}
-
-void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
-    if (config::enable_compaction_priority_scheduling) {
-        std::lock_guard l(_low_priority_task_nums_mutex);
-        _low_priority_task_nums[dir]--;
-        DCHECK(_low_priority_task_nums[dir] >= 0);
-    }
-}
-
 int CreateTabletIdxCache::get_index(const std::string& key) {
-    auto lru_handle = cache()->lookup(key);
+    auto* lru_handle = lookup(key);
     if (lru_handle) {
-        Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
-        auto value = (CacheValue*)cache()->value(lru_handle);
+        Defer release([cache = this, lru_handle] { cache->release(lru_handle); });
+        auto* value = (CacheValue*)LRUCachePolicy::value(lru_handle);
         VLOG_DEBUG << "use create tablet idx cache key=" << key << " value=" << value->idx;
         return value->idx;
     }
@@ -1470,14 +1525,10 @@ int CreateTabletIdxCache::get_index(const std::string& key) {
 
 void CreateTabletIdxCache::set_index(const std::string& key, int next_idx) {
     assert(next_idx >= 0);
-    CacheValue* value = new CacheValue;
+    auto* value = new CacheValue;
     value->idx = next_idx;
-    auto deleter = [](const doris::CacheKey& key, void* value) {
-        CacheValue* cache_value = (CacheValue*)value;
-        delete cache_value;
-    };
-    auto lru_handle = cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, sizeof(int));
-    cache()->release(lru_handle);
+    auto* lru_handle = insert(key, value, 1, sizeof(int), CachePriority::NORMAL);
+    release(lru_handle);
 }
 
 } // namespace doris

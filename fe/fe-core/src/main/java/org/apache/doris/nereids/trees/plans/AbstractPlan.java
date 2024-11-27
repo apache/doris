@@ -26,15 +26,16 @@ import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.TreeStringPlan.TreeStringNode;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MutableState;
-import org.apache.doris.nereids.util.MutableState.EmptyMutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -58,13 +59,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     protected final Optional<GroupExpression> groupExpression;
     protected final Supplier<LogicalProperties> logicalPropertiesSupplier;
 
-    // this field is special, because other fields in tree node is immutable, but in some scenes, mutable
-    // state is necessary. e.g. the rewrite framework need distinguish whether the plan is created by
-    // rules, the framework can set this field to a state variable to quickly judge without new big plan.
-    // we should avoid using it as much as possible, because mutable state is easy to cause bugs and
-    // difficult to locate.
-    private MutableState mutableState = EmptyMutableState.INSTANCE;
-
     /**
      * all parameter constructor.
      */
@@ -75,8 +69,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
         Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null");
-        this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
-                this::computeLogicalProperties));
+        this.logicalPropertiesSupplier = Suppliers.memoize(() ->
+                optLogicalProperties.orElseGet(this::computeLogicalProperties));
         this.statistics = statistics;
         this.id = StatementScopeIdGenerator.newObjectId();
     }
@@ -108,7 +102,15 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     @Override
     public boolean canBind() {
-        return !bound() && children().stream().allMatch(Plan::bound);
+        if (bound()) {
+            return false;
+        }
+        for (Plan child : children()) {
+            if (!child.bound()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -120,9 +122,31 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public String treeString() {
         return TreeStringUtils.treeString(this,
                 plan -> plan.toString(),
-                plan -> (List) ((Plan) plan).children(),
-                plan -> (List) ((Plan) plan).extraPlans(),
-                plan -> ((Plan) plan).displayExtraPlanFirst());
+                plan -> {
+                    if (plan instanceof TreeStringPlan) {
+                        Optional<TreeStringNode> treeStringNode = ((TreeStringPlan) plan).parseTreeStringNode();
+                        return treeStringNode.isPresent() ? ImmutableList.of(treeStringNode.get()) : ImmutableList.of();
+                    }
+                    if (plan instanceof TreeStringNode) {
+                        return (List) ((TreeStringNode) plan).children;
+                    }
+                    if (!(plan instanceof Plan)) {
+                        return ImmutableList.of();
+                    }
+                    return (List) ((Plan) plan).children();
+                },
+                plan -> {
+                    if (!(plan instanceof Plan)) {
+                        return ImmutableList.of();
+                    }
+                    return (List) ((Plan) plan).extraPlans();
+                },
+                plan -> {
+                    if (!(plan instanceof Plan)) {
+                        return false;
+                    }
+                    return ((Plan) plan).displayExtraPlanFirst();
+                });
     }
 
     /** top toJson method, can be override by specific operator */
@@ -166,27 +190,23 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     @Override
     public LogicalProperties computeLogicalProperties() {
-        boolean hasUnboundChild = children.stream()
-                .anyMatch(child -> !child.bound());
+        boolean hasUnboundChild = false;
+        for (Plan child : children) {
+            if (!child.bound()) {
+                hasUnboundChild = true;
+                break;
+            }
+        }
+
         if (hasUnboundChild || hasUnboundExpression()) {
             return UnboundLogicalProperties.INSTANCE;
         } else {
             Supplier<List<Slot>> outputSupplier = Suppliers.memoize(this::computeOutput);
             Supplier<FunctionalDependencies> fdSupplier = () -> this instanceof LogicalPlan
-                    ? ((LogicalPlan) this).computeFuncDeps(outputSupplier)
+                    ? ((LogicalPlan) this).computeFuncDeps()
                     : FunctionalDependencies.EMPTY_FUNC_DEPS;
             return new LogicalProperties(outputSupplier, fdSupplier);
         }
-    }
-
-    @Override
-    public Optional<Object> getMutableState(String key) {
-        return mutableState.get(key);
-    }
-
-    @Override
-    public void setMutableState(String key, Object state) {
-        this.mutableState = this.mutableState.set(key, state);
     }
 
     public int getId() {

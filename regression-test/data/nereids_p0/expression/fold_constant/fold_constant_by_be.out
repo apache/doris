@@ -2,3 +2,21 @@
 -- !sql_1 --
 80000
 
+-- !sql --
+PLAN FRAGMENT 0
+  OUTPUT EXPRS:
+    sleep(100)[#0]
+  PARTITION: UNPARTITIONED
+
+  HAS_COLO_PLAN_NODE: false
+
+  VRESULT SINK
+     MYSQL_PROTOCAL
+
+  0:VUNION(32)
+     constant exprs: 
+         sleep(100)
+
+-- !sql --
+true
+

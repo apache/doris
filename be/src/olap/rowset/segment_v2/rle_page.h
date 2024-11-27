@@ -51,10 +51,12 @@ enum { RLE_PAGE_HEADER_SIZE = 4 };
 //
 // TODO(hkp): optimize rle algorithm
 template <FieldType Type>
-class RlePageBuilder : public PageBuilder {
+class RlePageBuilder : public PageBuilderHelper<RlePageBuilder<Type> > {
 public:
-    RlePageBuilder(const PageBuilderOptions& options)
-            : _options(options), _count(0), _finished(false), _bit_width(0), _rle_encoder(nullptr) {
+    using Self = RlePageBuilder<Type>;
+    friend class PageBuilderHelper<Self>;
+
+    Status init() override {
         switch (Type) {
         case FieldType::OLAP_FIELD_TYPE_BOOL: {
             _bit_width = 1;
@@ -66,7 +68,7 @@ public:
         }
         }
         _rle_encoder = new RleEncoder<CppType>(&_buf, _bit_width);
-        reset();
+        return reset();
     }
 
     ~RlePageBuilder() { delete _rle_encoder; }
@@ -92,21 +94,23 @@ public:
         return Status::OK();
     }
 
-    OwnedSlice finish() override {
+    Status finish(OwnedSlice* slice) override {
         DCHECK(!_finished);
         _finished = true;
         // here should Flush first and then encode the count header
         // or it will lead to a bug if the header is less than 8 byte and the data is small
         _rle_encoder->Flush();
         encode_fixed32_le(&_buf[0], _count);
-        return _buf.build();
+        *slice = _buf.build();
+        return Status::OK();
     }
 
-    void reset() override {
+    Status reset() override {
         _count = 0;
         _finished = false;
         _rle_encoder->Clear();
         _rle_encoder->Reserve(RLE_PAGE_HEADER_SIZE, 0);
+        return Status::OK();
     }
 
     size_t count() const override { return _count; }
@@ -132,6 +136,13 @@ public:
     }
 
 private:
+    RlePageBuilder(const PageBuilderOptions& options)
+            : _options(options),
+              _count(0),
+              _finished(false),
+              _bit_width(0),
+              _rle_encoder(nullptr) {}
+
     typedef typename TypeTraits<Type>::CppType CppType;
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
 
@@ -180,7 +191,7 @@ public:
         _rle_decoder = RleDecoder<CppType>((uint8_t*)_data.data + RLE_PAGE_HEADER_SIZE,
                                            _data.size - RLE_PAGE_HEADER_SIZE, _bit_width);
 
-        static_cast<void>(seek_to_position_in_page(0));
+        RETURN_IF_ERROR(seek_to_position_in_page(0));
         return Status::OK();
     }
 

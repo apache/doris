@@ -28,6 +28,7 @@
 #include <string_view>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "vec/json/path_in_data.h"
 #include "vec/json/simd_json_parser.h"
 
@@ -252,8 +253,9 @@ void JSONDataParser<ParserImpl, parse_nested>::traverseArrayElement(const Elemen
                 if (current_nested_sizes.size() == ctx.current_size) {
                     current_nested_sizes.push_back(array_size);
                 } else if (array_size != current_nested_sizes.back()) {
-                    LOG(FATAL) << fmt::format("Array sizes mismatched ({} and {})", array_size,
-                                              current_nested_sizes.back());
+                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                           "Array sizes mismatched ({} and {})", array_size,
+                                           current_nested_sizes.back());
                 }
             }
             path_array.push_back(std::move(values[i]));

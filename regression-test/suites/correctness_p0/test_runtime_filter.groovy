@@ -60,6 +60,7 @@ suite("test_runtime_filter") {
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
     sql "set disable_join_reorder=true"
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     sql "set ignore_storage_data_distribution=false"
     explain{

@@ -102,23 +102,24 @@ Status BaseDeltaWriter::init() {
     if (_is_init) {
         return Status::OK();
     }
+    auto* t_ctx = doris::thread_context(true);
+    std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
+    if (t_ctx) {
+        wg_sptr = t_ctx->workload_group().lock();
+    }
     RETURN_IF_ERROR(_rowset_builder->init());
     RETURN_IF_ERROR(_memtable_writer->init(
             _rowset_builder->rowset_writer(), _rowset_builder->tablet_schema(),
-            _rowset_builder->get_partial_update_info(), nullptr,
+            _rowset_builder->get_partial_update_info(), wg_sptr,
             _rowset_builder->tablet()->enable_unique_key_merge_on_write()));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     return Status::OK();
 }
 
-Status BaseDeltaWriter::append(const vectorized::Block* block) {
-    return write(block, {}, true);
-}
-
-Status BaseDeltaWriter::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
-                              bool is_append) {
-    if (UNLIKELY(row_idxs.empty() && !is_append)) {
+Status BaseDeltaWriter::write(const vectorized::Block* block,
+                              const std::vector<uint32_t>& row_idxs) {
+    if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
     _lock_watch.start();
@@ -134,7 +135,7 @@ Status BaseDeltaWriter::write(const vectorized::Block* block, const std::vector<
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    return _memtable_writer->write(block, row_idxs, is_append);
+    return _memtable_writer->write(block, row_idxs);
 }
 Status BaseDeltaWriter::wait_flush() {
     return _memtable_writer->wait_flush();
@@ -241,7 +242,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
     auto tablet_schema = cur_rowset->rowset_meta()->tablet_schema();
     if (!tablet_schema->skip_write_index_on_load()) {
         for (auto& column : tablet_schema->columns()) {
-            const TabletIndex* index_meta = tablet_schema->get_inverted_index(column);
+            const TabletIndex* index_meta = tablet_schema->get_inverted_index(*column);
             if (index_meta) {
                 indices_ids.emplace_back(index_meta->index_id(), index_meta->get_index_suffix());
             }
@@ -272,20 +273,39 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         request->mutable_segments_size()->insert({segment_id, segment_size});
 
         if (!indices_ids.empty()) {
-            for (auto index_id : indices_ids) {
+            if (tablet_schema->get_inverted_index_storage_format() !=
+                InvertedIndexStorageFormatPB::V1) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
-                        tablet_path + "/" + segment_name.str(), index_id.first, index_id.second);
+                        tablet_path + "/" + segment_name.str());
                 int64_t size = std::filesystem::file_size(inverted_index_file);
                 PTabletWriteSlaveRequest::IndexSize index_size;
-                index_size.set_indexid(index_id.first);
+                // special id for non-V1 format
+                index_size.set_indexid(0);
                 index_size.set_size(size);
-                index_size.set_suffix_path(index_id.second);
+                index_size.set_suffix_path("");
                 // Fetch the map value for the current segment_id.
                 // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
                 auto& index_size_map_value =
                         (*(request->mutable_inverted_indices_size()))[segment_id];
                 // Add the new index size to the map value.
                 *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
+            } else {
+                for (auto index_id : indices_ids) {
+                    std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
+                            tablet_path + "/" + segment_name.str(), index_id.first,
+                            index_id.second);
+                    int64_t size = std::filesystem::file_size(inverted_index_file);
+                    PTabletWriteSlaveRequest::IndexSize index_size;
+                    index_size.set_indexid(index_id.first);
+                    index_size.set_size(size);
+                    index_size.set_suffix_path(index_id.second);
+                    // Fetch the map value for the current segment_id.
+                    // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
+                    auto& index_size_map_value =
+                            (*(request->mutable_inverted_indices_size()))[segment_id];
+                    // Add the new index size to the map value.
+                    *index_size_map_value.mutable_index_sizes()->Add() = std::move(index_size);
+                }
             }
         }
     }

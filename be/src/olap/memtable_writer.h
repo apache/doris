@@ -52,6 +52,7 @@ class SlotDescriptor;
 class OlapTableSchemaParam;
 class RowsetWriter;
 struct FlushStatistic;
+class WorkloadGroup;
 
 namespace vectorized {
 class Block;
@@ -69,12 +70,9 @@ public:
 
     Status init(std::shared_ptr<RowsetWriter> rowset_writer, TabletSchemaSPtr tablet_schema,
                 std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                ThreadPool* wg_flush_pool_ptr, bool unique_key_mow = false);
+                std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow = false);
 
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
-                 bool is_append = false);
-
-    Status append(const vectorized::Block* block);
+    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();
@@ -130,12 +128,15 @@ private:
     TabletSchemaSPtr _tablet_schema;
     bool _unique_key_mow = false;
 
-    std::unique_ptr<FlushToken> _flush_token;
+    // This variable is accessed from writer thread and token flush thread
+    // use a shared ptr to avoid use after free problem.
+    std::shared_ptr<FlushToken> _flush_token;
     std::vector<std::shared_ptr<MemTracker>> _mem_table_insert_trackers;
     std::vector<std::shared_ptr<MemTracker>> _mem_table_flush_trackers;
     SpinLock _mem_table_tracker_lock;
     SpinLock _mem_table_ptr_lock;
     std::atomic<uint32_t> _mem_table_num = 1;
+    QueryThreadContext _query_thread_context;
 
     std::mutex _lock;
 

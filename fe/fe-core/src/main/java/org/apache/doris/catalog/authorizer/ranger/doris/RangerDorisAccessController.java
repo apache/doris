@@ -20,16 +20,20 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
-import org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveResource;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
+import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
+import org.apache.ranger.plugin.service.RangerAuthContextListener;
+import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -40,27 +44,42 @@ import java.util.stream.Collectors;
 
 public class RangerDorisAccessController extends RangerAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerDorisAccessController.class);
-    private RangerDorisPlugin dorisPlugin;
+    private RangerBasePlugin dorisPlugin;
     // private static ScheduledThreadPoolExecutor logFlushTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
     //        "ranger-doris-audit-log-flusher-timer", true);
     // private RangerHiveAuditHandler auditHandler;
 
     public RangerDorisAccessController(String serviceName) {
-        dorisPlugin = new RangerDorisPlugin(serviceName);
+        this(serviceName, null);
+    }
+
+    public RangerDorisAccessController(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
+        dorisPlugin = new RangerDorisPlugin(serviceName, rangerAuthContextListener);
         // auditHandler = new RangerHiveAuditHandler(dorisPlugin.getConfig());
         // start a timed log flusher
         // logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
     }
 
+    @VisibleForTesting
+    public RangerDorisAccessController(RangerBasePlugin plugin) {
+        dorisPlugin = plugin;
+    }
+
     private RangerAccessRequestImpl createRequest(UserIdentity currentUser, DorisAccessType accessType) {
+        RangerAccessRequestImpl request = createRequest(currentUser);
+        request.setAction(accessType.name());
+        request.setAccessType(accessType.name());
+        return request;
+    }
+
+    @Override
+    protected RangerAccessRequestImpl createRequest(UserIdentity currentUser) {
         RangerAccessRequestImpl request = new RangerAccessRequestImpl();
         request.setUser(ClusterNamespace.getNameFromFullName(currentUser.getQualifiedUser()));
         Set<String> roles = Env.getCurrentEnv().getAuth().getRolesByUser(currentUser, false);
         request.setUserRoles(roles.stream().map(role -> ClusterNamespace.getNameFromFullName(role)).collect(
                 Collectors.toSet()));
 
-        request.setAction(accessType.name());
-        request.setAccessType(accessType.name());
         request.setClientIPAddress(currentUser.getHost());
         request.setClusterType(CLIENT_TYPE_DORIS);
         request.setClientType(CLIENT_TYPE_DORIS);
@@ -95,27 +114,6 @@ public class RangerDorisAccessController extends RangerAccessController {
         return checkRequestResult(request, result, accessType.name());
     }
 
-    public String getFilterExpr(UserIdentity currentUser, DorisAccessType accessType,
-            RangerHiveResource resource) {
-        RangerAccessRequestImpl request = createRequest(currentUser, accessType);
-        request.setResource(resource);
-        RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
-
-        return result.getFilterExpr();
-    }
-
-    public void getColumnMask(UserIdentity currentUser, DorisAccessType accessType,
-            RangerHiveResource resource) {
-        RangerAccessRequestImpl request = createRequest(currentUser, accessType);
-        request.setResource(resource);
-        RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
-
-        if (LOG.isDebugEnabled()) {
-            LOG.debug(String.format("maskType: %s, maskTypeDef: %s, maskedValue: %s", result.getMaskType(),
-                    result.getMaskTypeDef(), result.getMaskedValue()));
-        }
-    }
-
     @Override
     public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         // ranger does not support global privilege,
@@ -131,6 +129,10 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
+        boolean res = checkCtlPriv(currentUser, ctl, wanted);
+        if (res) {
+            return true;
+        }
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.DATABASE, ctl,
                 ClusterNamespace.getNameFromFullName(db));
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
@@ -138,6 +140,11 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+        boolean res = checkDbPriv(currentUser, ctl, db, wanted);
+        if (res) {
+            return true;
+        }
+
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.TABLE,
                 ctl, ClusterNamespace.getNameFromFullName(db), tbl);
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
@@ -146,6 +153,11 @@ public class RangerDorisAccessController extends RangerAccessController {
     @Override
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
+        boolean res = checkTblPriv(currentUser, ctl, db, tbl, wanted);
+        if (res) {
+            return;
+        }
+
         List<RangerDorisResource> resources = new ArrayList<>();
         for (String col : cols) {
             RangerDorisResource resource = new RangerDorisResource(DorisObjectType.COLUMN,
@@ -164,8 +176,34 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     @Override
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
+        // For compatibility with older versions, it is not needed to check the privileges of the default group.
+        if (WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
+            return true;
+        }
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.WORKLOAD_GROUP, workloadGroupName);
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
+    }
+
+    @Override
+    protected RangerDorisResource createResource(String ctl, String db, String tbl) {
+        return new RangerDorisResource(DorisObjectType.TABLE,
+                ctl, ClusterNamespace.getNameFromFullName(db), tbl);
+    }
+
+    @Override
+    protected RangerDorisResource createResource(String ctl, String db, String tbl, String col) {
+        return new RangerDorisResource(DorisObjectType.COLUMN,
+                ctl, ClusterNamespace.getNameFromFullName(db), tbl, col);
+    }
+
+    @Override
+    protected RangerBasePlugin getPlugin() {
+        return dorisPlugin;
+    }
+
+    @Override
+    protected RangerAccessResultProcessor getAccessResultProcessor() {
+        return null;
     }
 
     // For test only

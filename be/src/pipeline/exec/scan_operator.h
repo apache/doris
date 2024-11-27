@@ -27,6 +27,7 @@
 #include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "runtime/descriptors.h"
+#include "runtime/types.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
@@ -63,7 +64,7 @@ public:
             : PipelineXLocalState<>(state, parent),
               vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
                                                 parent->row_descriptor(), _conjuncts) {}
-    virtual ~ScanLocalStateBase() = default;
+    ~ScanLocalStateBase() override = default;
 
     virtual bool ready_to_read() = 0;
 
@@ -107,6 +108,8 @@ protected:
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _peak_running_scanner = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _scanner_peak_memory_usage = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
@@ -127,6 +130,9 @@ protected:
     RuntimeProfile::Counter* _num_scanners = nullptr;
 
     RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
+
+    RuntimeProfile::Counter* _scan_rows = nullptr;
+    RuntimeProfile::Counter* _scan_bytes = nullptr;
 };
 
 template <typename LocalStateType>
@@ -134,13 +140,14 @@ class ScanOperatorX;
 template <typename Derived>
 class ScanLocalState : public ScanLocalStateBase {
     ENABLE_FACTORY_CREATOR(ScanLocalState);
-    ScanLocalState(RuntimeState* state, OperatorXBase* parent);
+    ScanLocalState(RuntimeState* state, OperatorXBase* parent)
+            : ScanLocalStateBase(state, parent) {}
     ~ScanLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    std::string debug_string(int indentation_level) const override;
+    std::string debug_string(int indentation_level) const final;
 
     bool ready_to_read() override;
 
@@ -158,14 +165,24 @@ class ScanLocalState : public ScanLocalStateBase {
     }
 
     Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
-    virtual void set_scan_ranges(RuntimeState* state,
-                                 const std::vector<TScanRangeParams>& scan_ranges) override {}
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
 
     int64_t get_push_down_count() override;
 
-    RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); };
+    std::vector<Dependency*> filter_dependencies() override {
+        if (_filter_dependencies.empty()) {
+            return {};
+        }
+        std::vector<Dependency*> res;
+        res.resize(_filter_dependencies.size());
+        for (size_t i = 0; i < _filter_dependencies.size(); i++) {
+            res[i] = _filter_dependencies[i].get();
+        }
+        return res;
+    }
 
     std::vector<Dependency*> dependencies() const override { return {_scan_dependency.get()}; }
 
@@ -175,7 +192,7 @@ protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::VScanner;
 
-    virtual Status _init_profile() override;
+    Status _init_profile() override;
     virtual Status _process_conjuncts() {
         RETURN_IF_ERROR(_normalize_conjuncts());
         return Status::OK();
@@ -261,37 +278,10 @@ protected:
                                              SlotDescriptor* slot, ColumnValueRange<T>& range,
                                              vectorized::VScanNode::PushDownType* pdt);
 
-    Status _normalize_compound_predicate(
-            vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-            vectorized::VScanNode::PushDownType* pdt, bool is_runtimer_filter_predicate,
-            const std::function<bool(const vectorized::VExprSPtrs&,
-                                     std::shared_ptr<vectorized::VSlotRef>&,
-                                     vectorized::VExprSPtr&)>& in_predicate_checker,
-            const std::function<bool(const vectorized::VExprSPtrs&,
-                                     std::shared_ptr<vectorized::VSlotRef>&,
-                                     vectorized::VExprSPtr&)>& eq_predicate_checker);
-
-    template <PrimitiveType T>
-    Status _normalize_binary_in_compound_predicate(vectorized::VExpr* expr,
-                                                   vectorized::VExprContext* expr_ctx,
-                                                   SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                   vectorized::VScanNode::PushDownType* pdt);
-
-    template <PrimitiveType T>
-    Status _normalize_match_in_compound_predicate(vectorized::VExpr* expr,
-                                                  vectorized::VExprContext* expr_ctx,
-                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                  vectorized::VScanNode::PushDownType* pdt);
-
     template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
                                         SlotDescriptor* slot, ColumnValueRange<T>& range,
                                         vectorized::VScanNode::PushDownType* pdt);
-
-    template <PrimitiveType T>
-    Status _normalize_match_predicate(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                      SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                      vectorized::VScanNode::PushDownType* pdt);
 
     bool _ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr);
 
@@ -311,7 +301,7 @@ protected:
     void get_cast_types_for_variants();
     void _filter_and_collect_cast_type_for_variant(
             const vectorized::VExpr* expr,
-            phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
+            std::unordered_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types);
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
@@ -326,7 +316,7 @@ protected:
     std::vector<FunctionFilter> _push_down_functions;
 
     // colname -> cast dst type
-    std::map<std::string, PrimitiveType> _cast_types_for_variants;
+    std::map<std::string, TypeDescriptor> _cast_types_for_variants;
 
     // slot id -> SlotDescriptor
     phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;
@@ -340,19 +330,6 @@ protected:
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
 
     std::unordered_map<std::string, int> _colname_to_slot_id;
-    /**
-     * _colname_to_value_range only store the leaf of and in the conjunct expr tree,
-     * we use _compound_value_ranges to store conresponding value ranges
-     * in the one compound relationship except the leaf of and node,
-     * such as `where a > 1 or b > 10 and c < 200`, the expr tree like:
-     *     or
-     *   /   \
-     *  a     and
-     *       /   \
-     *      b     c
-     * the value ranges of column a,b,c will all store into _compound_value_ranges
-     */
-    std::vector<ColumnValueRangeType> _compound_value_ranges;
     // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
     // in this case we can not merge "1 < col < 10" with "col not in (2)".
     // So we have to save "col not in (2)" to another structure: "_not_in_value_ranges".
@@ -364,7 +341,7 @@ protected:
 
     std::mutex _block_lock;
 
-    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
+    std::vector<std::shared_ptr<RuntimeFilterDependency>> _filter_dependencies;
 
     // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> _scanners;
@@ -382,6 +359,8 @@ public:
         return get_block(state, block, eos);
     }
     [[nodiscard]] bool is_source() const override { return true; }
+
+    [[nodiscard]] virtual bool is_file_scan_operator() const { return false; }
 
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
         return _runtime_filter_descs;

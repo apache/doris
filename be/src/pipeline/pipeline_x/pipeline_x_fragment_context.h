@@ -57,6 +57,8 @@ class Dependency;
 
 class PipelineXFragmentContext : public PipelineFragmentContext {
 public:
+    ENABLE_FACTORY_CREATOR(PipelineXFragmentContext);
+
     // Callback to report execution status of plan fragment.
     // 'profile' is the cumulative profile, 'done' indicates whether the execution
     // is done or still continuing.
@@ -70,6 +72,13 @@ public:
 
     ~PipelineXFragmentContext() override;
 
+    void clear_finished_tasks() override {
+        for (size_t j = 0; j < _tasks.size(); j++) {
+            for (size_t i = 0; i < _tasks[j].size(); i++) {
+                _tasks[j][i]->stop_if_finished();
+            }
+        }
+    };
     void instance_ids(std::vector<TUniqueId>& ins_ids) const override {
         ins_ids.resize(_fragment_instance_ids.size());
         for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
@@ -84,30 +93,18 @@ public:
         }
     }
 
-    void add_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) override {
-        _merge_controller_handlers.emplace_back(handler);
-    }
-
-    //    bool is_canceled() const { return _runtime_state->is_cancelled(); }
-
     // Prepare global information including global states and the unique operator tree shared by all pipeline tasks.
-    Status prepare(const doris::TPipelineFragmentParams& request) override;
+    Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool) override;
 
     Status submit() override;
 
-    void close_if_prepare_failed() override;
+    void close_if_prepare_failed(Status st) override;
     void close_sink() override;
 
     void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
                 const std::string& msg = "") override;
 
     Status send_report(bool) override;
-
-    RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId fragment_instance_id) override {
-        DCHECK(_runtime_filter_mgr_map.contains(fragment_instance_id));
-        return _runtime_filter_mgr_map[fragment_instance_id].get();
-    }
 
     [[nodiscard]] int next_operator_id() { return _operator_id--; }
 
@@ -119,9 +116,12 @@ public:
 
     std::string debug_string() override;
 
+    void close_a_pipeline(PipelineId pipeline_id) override;
+
 private:
     void _close_fragment_instance() override;
-    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
+    Status _build_pipeline_x_tasks(const doris::TPipelineFragmentParams& request,
+                                   ThreadPool* thread_pool);
     Status _add_local_exchange(int pip_idx, int idx, int node_id, ObjectPool* pool,
                                PipelinePtr cur_pipe, DataDistribution data_distribution,
                                bool* do_local_exchange, int num_buckets,
@@ -144,12 +144,13 @@ private:
     Status _create_tree_helper(ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
                                const doris::TPipelineFragmentParams& request,
                                const DescriptorTbl& descs, OperatorXPtr parent, int* node_idx,
-                               OperatorXPtr* root, PipelinePtr& cur_pipe, int child_idx);
+                               OperatorXPtr* root, PipelinePtr& cur_pipe, int child_idx,
+                               const bool followed_by_shuffled_join);
 
     Status _create_operator(ObjectPool* pool, const TPlanNode& tnode,
                             const doris::TPipelineFragmentParams& request,
                             const DescriptorTbl& descs, OperatorXPtr& op, PipelinePtr& cur_pipe,
-                            int parent_idx, int child_idx);
+                            int parent_idx, int child_idx, const bool followed_by_shuffled_join);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs, OperatorXPtr& op,
@@ -176,9 +177,6 @@ private:
     std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
 
     bool _need_local_merge = false;
-
-    // It is used to manage the lifecycle of RuntimeFilterMergeController
-    std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
@@ -226,6 +224,7 @@ private:
     std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             _op_id_to_le_state;
 
+    std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
     // UniqueId -> runtime mgr
     std::map<UniqueId, std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
 
@@ -235,12 +234,14 @@ private:
 
     std::vector<TUniqueId> _fragment_instance_ids;
     // Local runtime states for each task
-    std::vector<std::unique_ptr<RuntimeState>> _task_runtime_states;
+    std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
 
     std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
 
     // Total instance num running on all BEs
     int _total_instances = -1;
+
+    bool _require_bucket_distribution = false;
 };
 
 } // namespace pipeline

@@ -105,8 +105,8 @@ public class IndexDefinition {
             }
             if (!(colType.isDateLikeType() || colType.isDecimalLikeType()
                     || colType.isIntegralType() || colType.isStringLikeType()
-                    || colType.isBooleanType())) {
-                // TODO add colType.isVariantType() and colType.isAggState()
+                    || colType.isBooleanType() || colType.isVariantType() || colType.isIPType())) {
+                // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
             }
@@ -145,9 +145,9 @@ public class IndexDefinition {
                         throw new AnalysisException(
                                 "gram_size should be integer and less than 256");
                     }
-                    if (bfSize > 65536 || bfSize < 64) {
+                    if (bfSize > 65535 || bfSize < 64) {
                         throw new AnalysisException(
-                                "bf_size should be integer and between 64 and 65536");
+                                "bf_size should be integer and between 64 and 65535");
                     }
                 } catch (NumberFormatException e) {
                     throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);
@@ -211,6 +211,6 @@ public class IndexDefinition {
 
     public Index translateToCatalogStyle() {
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
-                comment);
+                comment, null);
     }
 }

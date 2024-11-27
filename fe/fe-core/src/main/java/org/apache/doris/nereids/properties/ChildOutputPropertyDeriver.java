@@ -256,8 +256,25 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
         // broadcast
         if (rightOutputProperty.getDistributionSpec() instanceof DistributionSpecReplicated) {
-            DistributionSpec parentDistributionSpec = leftOutputProperty.getDistributionSpec();
-            return new PhysicalProperties(parentDistributionSpec);
+            DistributionSpec leftDistributionSpec = leftOutputProperty.getDistributionSpec();
+            // if left side is hash distribute and the key can satisfy the join keys, then mock
+            // a right side hash spec with the corresponding join keys, to filling the returning spec
+            // with refined EquivalenceExprIds.
+            if (leftDistributionSpec instanceof DistributionSpecHash
+                    && !(hashJoin.isMarkJoin() && hashJoin.getHashJoinConjuncts().isEmpty())
+                    && !hashJoin.getHashConjunctsExprIds().first.isEmpty()
+                    && !hashJoin.getHashConjunctsExprIds().second.isEmpty()
+                    && hashJoin.getHashConjunctsExprIds().first.size()
+                        == hashJoin.getHashConjunctsExprIds().second.size()
+                    && leftDistributionSpec.satisfy(
+                            new DistributionSpecHash(hashJoin.getHashConjunctsExprIds().first, ShuffleType.REQUIRE))) {
+                DistributionSpecHash mockedRightHashSpec = mockAnotherSideSpecFromConjuncts(
+                        hashJoin, (DistributionSpecHash) leftDistributionSpec);
+                return computeShuffleJoinOutputProperties(hashJoin,
+                        (DistributionSpecHash) leftDistributionSpec, mockedRightHashSpec);
+            } else {
+                return new PhysicalProperties(leftDistributionSpec);
+            }
         }
 
         // shuffle
@@ -265,33 +282,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 && rightOutputProperty.getDistributionSpec() instanceof DistributionSpecHash) {
             DistributionSpecHash leftHashSpec = (DistributionSpecHash) leftOutputProperty.getDistributionSpec();
             DistributionSpecHash rightHashSpec = (DistributionSpecHash) rightOutputProperty.getDistributionSpec();
-
-            switch (hashJoin.getJoinType()) {
-                case INNER_JOIN:
-                case CROSS_JOIN:
-                    return new PhysicalProperties(DistributionSpecHash.merge(
-                            leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
-                case LEFT_SEMI_JOIN:
-                case LEFT_ANTI_JOIN:
-                case NULL_AWARE_LEFT_ANTI_JOIN:
-                case LEFT_OUTER_JOIN:
-                    return new PhysicalProperties(leftHashSpec);
-                case RIGHT_SEMI_JOIN:
-                case RIGHT_ANTI_JOIN:
-                case RIGHT_OUTER_JOIN:
-                    if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
-                        return new PhysicalProperties(rightHashSpec);
-                    } else {
-                        // retain left shuffle type, since coordinator use left most node to schedule fragment
-                        // forbid colocate join, since right table already shuffle
-                        return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
-                                leftHashSpec.getShuffleType()));
-                    }
-                case FULL_OUTER_JOIN:
-                    return PhysicalProperties.createAnyFromHash(leftHashSpec);
-                default:
-                    throw new AnalysisException("unknown join type " + hashJoin.getJoinType());
-            }
+            return computeShuffleJoinOutputProperties(hashJoin, leftHashSpec, rightHashSpec);
         }
 
         throw new RuntimeException("Could not derive hash join's output properties. join: " + hashJoin);
@@ -463,6 +454,61 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalWindow(PhysicalWindow<? extends Plan> window, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         return childrenOutputProperties.get(0);
+    }
+
+    private PhysicalProperties computeShuffleJoinOutputProperties(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
+            DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec) {
+        switch (hashJoin.getJoinType()) {
+            case INNER_JOIN:
+            case CROSS_JOIN:
+                return new PhysicalProperties(DistributionSpecHash.merge(
+                        leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
+            case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+            case LEFT_OUTER_JOIN:
+                return new PhysicalProperties(leftHashSpec);
+            case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
+            case RIGHT_OUTER_JOIN:
+                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
+                    return new PhysicalProperties(rightHashSpec);
+                } else {
+                    // retain left shuffle type, since coordinator use left most node to schedule fragment
+                    // forbid colocate join, since right table already shuffle
+                    return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
+                            leftHashSpec.getShuffleType()));
+                }
+            case FULL_OUTER_JOIN:
+                return PhysicalProperties.createAnyFromHash(leftHashSpec);
+            default:
+                throw new AnalysisException("unknown join type " + hashJoin.getJoinType());
+        }
+    }
+
+    private DistributionSpecHash mockAnotherSideSpecFromConjuncts(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, DistributionSpecHash oneSideSpec) {
+        List<ExprId> leftExprIds = hashJoin.getHashConjunctsExprIds().first;
+        List<ExprId> rightExprIds = hashJoin.getHashConjunctsExprIds().second;
+        Preconditions.checkState(!leftExprIds.isEmpty() && !rightExprIds.isEmpty()
+                && leftExprIds.size() == rightExprIds.size(), "invalid hash join conjuncts");
+        List<ExprId> anotherSideOrderedExprIds = Lists.newArrayList();
+        for (ExprId exprId : oneSideSpec.getOrderedShuffledColumns()) {
+            int index = leftExprIds.indexOf(exprId);
+            if (index == -1) {
+                Set<ExprId> equivalentExprIds = oneSideSpec.getEquivalenceExprIdsOf(exprId);
+                for (ExprId id : equivalentExprIds) {
+                    index = leftExprIds.indexOf(id);
+                    if (index >= 0) {
+                        break;
+                    }
+                }
+                Preconditions.checkState(index >= 0, "can't find exprId in equivalence set");
+            }
+            anotherSideOrderedExprIds.add(rightExprIds.get(index));
+        }
+        return new DistributionSpecHash(anotherSideOrderedExprIds, oneSideSpec.getShuffleType());
     }
 
     private boolean isSameHashValue(DataType originType, DataType castType) {

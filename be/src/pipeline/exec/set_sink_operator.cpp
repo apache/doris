@@ -122,6 +122,7 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
                     static_cast<void>(hash_table_build_process(arg, local_state._arena));
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
+                    __builtin_unreachable();
                 }
             },
             *local_state._shared_state->hash_table_variants);
@@ -139,21 +140,19 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        const auto* column = block.get_by_position(result_col_id).column.get();
-
-        if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
-            const auto& col_nested = nullable->get_nested_column();
-            if (local_state._shared_state->build_not_ignore_null[i]) {
-                raw_ptrs[i] = nullable;
-            } else {
-                raw_ptrs[i] = &col_nested;
-            }
-
-        } else {
-            raw_ptrs[i] = column;
+        // Do make nullable should not change the origin column and type in origin block
+        // which may cause coredump problem
+        if (local_state._shared_state->build_not_ignore_null[i]) {
+            auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
+            block.insert(
+                    {column_ptr, make_nullable(block.get_by_position(result_col_id).type), ""});
+            result_col_id = block.columns() - 1;
         }
+
+        const auto* column = block.get_by_position(result_col_id).column.get();
+        raw_ptrs[i] = column;
         DCHECK_GE(result_col_id, 0);
-        local_state._shared_state->build_col_idx.insert({result_col_id, i});
+        local_state._shared_state->build_col_idx.insert({i, result_col_id});
     }
     return Status::OK();
 }
@@ -162,29 +161,42 @@ template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _build_timer = ADD_TIMER(_profile, "BuildTime");
-
     auto& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
-    _child_exprs.resize(parent._child_exprs.size());
-    for (size_t i = 0; i < _child_exprs.size(); i++) {
-        RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));
-    }
-
-    _shared_state->child_quantity = parent._child_quantity;
-
+    DCHECK(parent._cur_child_id == 0);
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
     DCHECK(child_exprs_lists.empty() || child_exprs_lists.size() == parent._child_quantity);
     if (child_exprs_lists.empty()) {
         child_exprs_lists.resize(parent._child_quantity);
     }
+    _child_exprs.resize(parent._child_exprs.size());
+    for (size_t i = 0; i < _child_exprs.size(); i++) {
+        RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));
+    }
     child_exprs_lists[parent._cur_child_id] = _child_exprs;
+    _shared_state->child_quantity = parent._child_quantity;
+    return Status::OK();
+}
 
+template <bool is_intersect>
+Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::open(state));
+
+    auto& parent = _parent->cast<Parent>();
+    DCHECK(parent._cur_child_id == 0);
+    auto& child_exprs_lists = _shared_state->child_exprs_lists;
+    _shared_state->build_not_ignore_null.resize(child_exprs_lists[parent._cur_child_id].size());
     _shared_state->hash_table_variants = std::make_unique<vectorized::SetHashTableVariants>();
 
-    for (const auto& ctx : child_exprs_lists[0]) {
-        _shared_state->build_not_ignore_null.push_back(ctx->root()->is_nullable());
+    for (const auto& ctl : child_exprs_lists) {
+        for (int i = 0; i < ctl.size(); ++i) {
+            _shared_state->build_not_ignore_null[i] =
+                    _shared_state->build_not_ignore_null[i] || ctl[i]->root()->is_nullable();
+        }
     }
     _shared_state->hash_table_init();
     return Status::OK();

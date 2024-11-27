@@ -77,6 +77,8 @@ struct StrToDate {
 
     static bool is_variadic() { return false; }
 
+    static size_t get_number_of_arguments() { return 2; }
+
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
     }
@@ -245,6 +247,8 @@ struct MakeDateImpl {
 
     static bool is_variadic() { return false; }
 
+    static size_t get_number_of_arguments() { return 2; }
+
     static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
@@ -371,9 +375,10 @@ private:
     static void _execute_inner_loop(const int& l, const int& r, PaddedPODArray<ReturnType>& res,
                                     NullMap& null_map, size_t index) {
         auto& res_val = *reinterpret_cast<DateValueType*>(&res[index]);
+        // l checked outside
         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
             VecDateTimeValue ts_value = VecDateTimeValue();
-            ts_value.set_time(l, 1, 1, 0, 0, 0);
+            ts_value.unchecked_set_time(l, 1, 1, 0, 0, 0);
 
             TimeInterval interval(DAY, r - 1, false);
             res_val = ts_value;
@@ -383,7 +388,7 @@ private:
             }
             res_val.cast_to_date();
         } else {
-            res_val.set_time(l, 1, 1, 0, 0, 0, 0);
+            res_val.unchecked_set_time(l, 1, 1, 0, 0, 0, 0);
             TimeInterval interval(DAY, r - 1, false);
             if (!res_val.template date_add_interval<DAY>(interval)) {
                 null_map[index] = 1;
@@ -407,6 +412,8 @@ struct DateTrunc {
     using ArgType = date_cast::ValueTypeOfColumnV<ColumnType>;
 
     static bool is_variadic() { return true; }
+
+    static size_t get_number_of_arguments() { return 2; }
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DateType>(), std::make_shared<DataTypeString>()};
@@ -557,6 +564,13 @@ struct UnixTimeStampImpl {
             timestamp = 0;
         }
         return (Int32)timestamp;
+    }
+
+    static std::pair<Int32, Int32> trim_timestamp(std::pair<Int64, Int64> timestamp) {
+        if (timestamp.first < 0 || timestamp.first > INT_MAX) {
+            return {0, 0};
+        }
+        return std::make_pair((Int32)timestamp.first, (Int32)timestamp.second);
     }
 
     static DataTypes get_variadic_argument_types() { return {}; }
@@ -824,7 +838,7 @@ struct UnixTimeStampStrImpl {
         std::tie(col_right, format_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
-        auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, 0);
+        auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, 6);
         auto null_map = ColumnVector<UInt8>::create(input_rows_count);
         auto& col_result_data = col_result->get_data();
         auto& null_map_data = null_map->get_data();
@@ -835,8 +849,8 @@ struct UnixTimeStampStrImpl {
         const auto* col_source = assert_cast<const ColumnString*>(col_left.get());
         const auto* col_format = assert_cast<const ColumnString*>(col_right.get());
         for (int i = 0; i < input_rows_count; i++) {
-            StringRef source = col_source->get_data_at(i);
-            StringRef fmt = col_format->get_data_at(i);
+            StringRef source = col_source->get_data_at(index_check_const(i, source_const));
+            StringRef fmt = col_format->get_data_at(index_check_const(i, format_const));
 
             DateV2Value<DateTimeV2ValueType> ts_value;
             if (!ts_value.from_date_format_str(fmt.data, fmt.size, source.data, source.size)) {
@@ -846,16 +860,17 @@ struct UnixTimeStampStrImpl {
 
             std::pair<int64_t, int64_t> timestamp {};
             if (!ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj())) {
-                null_map_data[i] = true;
+                null_map_data[i] = true; // impossible now
             } else {
                 null_map_data[i] = false;
 
-                auto& [sec, ms] = timestamp;
-                sec = UnixTimeStampImpl::trim_timestamp(sec);
+                auto [sec, ms] = UnixTimeStampImpl::trim_timestamp(timestamp);
+                // trailing ms
                 auto ms_str = std::to_string(ms).substr(0, 6);
                 if (ms_str.empty()) {
                     ms_str = "0";
                 }
+
                 col_result_data[i] = Decimal64::from_int_frac(sec, std::stoll(ms_str), 6).value;
             }
         }
@@ -1111,17 +1126,17 @@ struct LastDayImpl {
                 continue;
             }
             int day = get_last_month_day(ts_value.year(), ts_value.month());
-
+            // day is definitely legal
             if constexpr (date_cast::IsV1<DateType>()) {
-                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0);
                 ts_value.set_type(TIME_DATE);
                 res_data[i] = binary_cast<VecDateTimeValue, Int64>(ts_value);
             } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
-                ts_value.template set_time_unit<TimeUnit::DAY>(day);
+                ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
             } else {
-                ts_value.template set_time_unit<TimeUnit::DAY>(day);
-                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
+                ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
@@ -1136,12 +1151,12 @@ struct LastDayImpl {
             auto ts_value = binary_cast<NativeType, DateValueType>(cur_data);
             DCHECK(ts_value.is_valid_date());
             int day = get_last_month_day(ts_value.year(), ts_value.month());
-            ts_value.template set_time_unit<TimeUnit::DAY>(day);
+            ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(day);
 
             if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
             } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
-                ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
@@ -1225,7 +1240,7 @@ struct MondayImpl {
             }
             if constexpr (date_cast::IsV1<DateType>()) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0);
+                    ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0);
                     ts_value.set_type(TIME_DATE);
                     res_data[i] = binary_cast<VecDateTimeValue, Int64>(ts_value);
                     continue;
@@ -1241,7 +1256,7 @@ struct MondayImpl {
 
             } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.template set_time_unit<TimeUnit::DAY>(1);
+                    ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(1);
                     res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
                     continue;
                 }
@@ -1254,7 +1269,7 @@ struct MondayImpl {
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
             } else {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
+                    ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
                     UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                     DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
                     continue;
@@ -1264,7 +1279,8 @@ struct MondayImpl {
                 int gap_of_monday = day_of_week - 1;
                 TimeInterval interval(DAY, gap_of_monday, true);
                 ts_value.template date_add_interval<DAY>(interval);
-                ts_value.set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0, 0, 0);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0,
+                                            0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
@@ -1281,7 +1297,7 @@ struct MondayImpl {
             DCHECK(ts_value.is_valid_date());
             if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.template set_time_unit<TimeUnit::DAY>(1);
+                    ts_value.template unchecked_set_time_unit<TimeUnit::DAY>(1);
                     res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
                     continue;
                 }
@@ -1293,7 +1309,7 @@ struct MondayImpl {
                 res_data[i] = binary_cast<DateValueType, UInt32>(ts_value);
             } else if constexpr (std::is_same_v<DateType, DataTypeDateTimeV2>) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
-                    ts_value.set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
+                    ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), 1, 0, 0, 0, 0);
                     UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                     DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
                     continue;
@@ -1303,7 +1319,8 @@ struct MondayImpl {
                 int gap_of_monday = day_of_week - 1;
                 TimeInterval interval(DAY, gap_of_monday, true);
                 ts_value.template date_add_interval<DAY>(interval);
-                ts_value.set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0, 0, 0);
+                ts_value.unchecked_set_time(ts_value.year(), ts_value.month(), ts_value.day(), 0, 0,
+                                            0, 0);
                 UInt64 cast_value = binary_cast<DateValueType, UInt64>(ts_value);
                 DataTypeDateTimeV2::cast_to_date_v2(cast_value, res_data[i]);
             }
@@ -1324,7 +1341,7 @@ public:
 
     String get_name() const override { return name; }
 
-    size_t get_number_of_arguments() const override { return 2; }
+    size_t get_number_of_arguments() const override { return Impl::get_number_of_arguments(); }
 
     bool is_variadic() const override { return Impl::is_variadic(); }
 
@@ -1356,6 +1373,249 @@ public:
     }
 };
 
+struct FromIso8601DateV2 {
+    static constexpr auto name = "from_iso8601_date";
+
+    static size_t get_number_of_arguments() { return 1; }
+
+    static bool is_variadic() { return false; }
+
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeString>()}; }
+
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return make_nullable(std::make_shared<DataTypeDateV2>());
+    }
+
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        const auto* src_column_ptr = block.get_by_position(arguments[0]).column.get();
+
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+
+        ColumnDateV2::MutablePtr res = ColumnDateV2::create(input_rows_count);
+        auto& result_data = res->get_data();
+
+        static const std::tuple<std::vector<int>, int, std::string> ISO_STRING_FORMAT[] = {
+                {{
+                         8,
+                 },
+                 1,
+                 "%04d%02d%02d"},                         //YYYYMMDD
+                {{4, -1, 2, -1, 2}, 1, "%04d-%02d-%02d"}, //YYYY-MM-DD
+                {{4, -1, 2}, 2, "%04d-%02d"},             //YYYY-MM
+                {
+                        {
+                                4,
+                        },
+                        3,
+                        "%04d",
+                }, //YYYY
+                {
+                        {4, -1, 3},
+                        4,
+                        "%04d-%03d",
+                }, //YYYY-DDD
+                {
+                        {
+                                7,
+                        },
+                        4,
+                        "%04d%03d",
+                }, //YYYYDDD
+                {
+                        {4, -1, -2, 2},
+                        5,
+                        "%04d-W%02d",
+                }, //YYYY-Www
+                {
+                        {4, -2, 2},
+                        5,
+                        "%04dW%02d",
+                }, //YYYYWww
+                {
+                        {4, -1, -2, 2, -1, 1},
+                        6,
+                        "%04d-W%02d-%1d",
+                }, //YYYY-Www-D
+                {
+                        {4, -2, 3},
+                        6,
+                        "%04dW%02d%1d",
+                }, //YYYYWwwD
+        };
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            int year, month, day, week, day_of_year;
+            int weekday = 1; // YYYYWww  YYYY-Www  default D = 1
+            auto src_string = src_column_ptr->get_data_at(i).to_string_view();
+
+            int iso_string_format_value = 0;
+
+            vector<int> src_string_values;
+            src_string_values.reserve(10);
+
+            //The maximum length of the current iso8601 format is 10.
+            if (src_string.size() <= 10) {
+                // The calculation string corresponds to the iso8601 format.
+                // The integer represents the number of consecutive numbers.
+                // -1 represent char '-'.
+                // -2 represent char 'W'.
+                //  The calculated vector `src_string_values`  will be compared with `ISO_STRING_FORMAT[]` later.
+                for (int idx = 0; idx < src_string.size();) {
+                    char current = src_string[idx];
+                    if (current == '-') {
+                        src_string_values.emplace_back(-1);
+                        idx++;
+                        continue;
+                    } else if (current == 'W') {
+                        src_string_values.emplace_back(-2);
+                        idx++;
+                        continue;
+                    } else if (!isdigit(current)) {
+                        iso_string_format_value = -1;
+                        break;
+                    }
+                    int currLen = 0;
+                    for (; idx < src_string.size() && isdigit(src_string[idx]); ++idx) {
+                        ++currLen;
+                    }
+                    src_string_values.emplace_back(currLen);
+                }
+            } else {
+                iso_string_format_value = -1;
+            }
+
+            std::string_view iso_format_string;
+            if (iso_string_format_value != -1) {
+                for (const auto& j : ISO_STRING_FORMAT) {
+                    const auto& v = std::get<0>(j);
+                    if (v == src_string_values) {
+                        iso_string_format_value = std::get<1>(j);
+                        iso_format_string = std::get<2>(j);
+                        break;
+                    }
+                }
+            }
+
+            auto& ts_value = *reinterpret_cast<DateV2Value<DateV2ValueType>*>(&result_data[i]);
+            if (iso_string_format_value == 1) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year, &month, &day) != 3)
+                        [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                if (!(ts_value.template set_time_unit<YEAR>(year) &&
+                      ts_value.template set_time_unit<MONTH>(month) &&
+                      ts_value.template set_time_unit<DAY>(day))) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                }
+            } else if (iso_string_format_value == 2) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year, &month) != 2)
+                        [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                if (!(ts_value.template set_time_unit<YEAR>(year) &&
+                      ts_value.template set_time_unit<MONTH>(month) &&
+                      ts_value.template set_time_unit<DAY>(1))) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                }
+
+            } else if (iso_string_format_value == 3) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year) != 1) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                if (!(ts_value.template set_time_unit<YEAR>(year) &&
+                      ts_value.template set_time_unit<MONTH>(1) &&
+                      ts_value.template set_time_unit<DAY>(1))) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                }
+
+            } else if (iso_string_format_value == 5 || iso_string_format_value == 6) {
+                if (iso_string_format_value == 5) {
+                    if (sscanf(src_string.data(), iso_format_string.data(), &year, &week) != 2)
+                            [[unlikely]] {
+                        null_map->get_data().data()[i] = true;
+                        continue;
+                    }
+                } else {
+                    if (sscanf(src_string.data(), iso_format_string.data(), &year, &week,
+                               &weekday) != 3) [[unlikely]] {
+                        null_map->get_data().data()[i] = true;
+                        continue;
+                    }
+                }
+                // weekday [1,7]    week [1,53]
+                if (weekday < 1 || weekday > 7 || week < 1 || week > 53) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                auto first_day_of_week = getFirstDayOfISOWeek(year);
+                if (!(ts_value.template set_time_unit<YEAR>(
+                              first_day_of_week.year().operator int()) &&
+                      ts_value.template set_time_unit<MONTH>(
+                              first_day_of_week.month().operator unsigned int()) &&
+                      ts_value.template set_time_unit<DAY>(
+                              first_day_of_week.day().operator unsigned int()))) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                auto day_diff = (week - 1) * 7 + weekday - 1;
+                TimeInterval interval(DAY, day_diff, false);
+
+                ts_value.date_add_interval<DAY>(interval);
+            } else if (iso_string_format_value == 4) {
+                if (sscanf(src_string.data(), iso_format_string.data(), &year, &day_of_year) != 2)
+                        [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                if (is_leap(year)) {
+                    if (day_of_year < 0 || day_of_year > 366) [[unlikely]] {
+                        null_map->get_data().data()[i] = true;
+                    }
+                } else {
+                    if (day_of_year < 0 || day_of_year > 365) [[unlikely]] {
+                        null_map->get_data().data()[i] = true;
+                    }
+                }
+                if (!(ts_value.template set_time_unit<YEAR>(year) &&
+                      ts_value.template set_time_unit<MONTH>(1) &&
+                      ts_value.template set_time_unit<DAY>(1))) [[unlikely]] {
+                    null_map->get_data().data()[i] = true;
+                    continue;
+                }
+
+                TimeInterval interval(DAY, day_of_year - 1, false);
+                ts_value.template date_add_interval<DAY>(interval);
+            } else {
+                null_map->get_data().data()[i] = true;
+            }
+        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+
+private:
+    //Get the date corresponding to Monday of the first week of the year according to the ISO8601 standard.
+    static std::chrono::year_month_day getFirstDayOfISOWeek(int year) {
+        using namespace std::chrono;
+        auto jan4 = year_month_day {std::chrono::year(year) / January / 4};
+        auto jan4_sys_days = sys_days {jan4};
+        auto weekday_of_jan4 = weekday {jan4_sys_days};
+        auto first_day_of_week = jan4_sys_days - days {(weekday_of_jan4.iso_encoding() - 1)};
+        return year_month_day {floor<days>(first_day_of_week)};
+    }
+};
+
 using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate<DataTypeDate>>;
 using FunctionStrToDatetime = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTime>>;
 using FunctionStrToDateV2 = FunctionOtherTypesToDateType<StrToDate<DataTypeDateV2>>;
@@ -1365,6 +1625,7 @@ using FunctionDateTruncDate = FunctionOtherTypesToDateType<DateTrunc<DataTypeDat
 using FunctionDateTruncDateV2 = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateV2>>;
 using FunctionDateTruncDatetime = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateTime>>;
 using FunctionDateTruncDatetimeV2 = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateTimeV2>>;
+using FunctionFromIso8601DateV2 = FunctionOtherTypesToDateType<FromIso8601DateV2>;
 
 void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
@@ -1377,6 +1638,7 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTruncDateV2>();
     factory.register_function<FunctionDateTruncDatetime>();
     factory.register_function<FunctionDateTruncDatetimeV2>();
+    factory.register_function<FunctionFromIso8601DateV2>();
 
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampImpl>>();
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampDateImpl<DataTypeDate>>>();

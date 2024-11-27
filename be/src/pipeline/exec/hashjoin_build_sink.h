@@ -70,6 +70,10 @@ public:
         _profile->add_info_string("HashTableFilledBuckets", info);
     }
 
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+
+    Status close(RuntimeState* state, Status exec_status) override;
+
 protected:
     void _hash_table_init(RuntimeState* state);
     void _set_build_ignore_flag(vectorized::Block& block, const std::vector<int>& res_col_ids);
@@ -81,19 +85,21 @@ protected:
                                 vectorized::ColumnRawPtrs& raw_ptrs,
                                 const std::vector<int>& res_col_ids);
     friend class HashJoinBuildSinkOperatorX;
+    friend class PartitionedHashJoinSinkLocalState;
     template <class HashTableContext, typename Parent>
     friend struct vectorized::ProcessHashTableBuild;
-    template <typename Parent>
-    friend Status vectorized::process_runtime_filter_build(RuntimeState* state,
-                                                           vectorized::Block* block, Parent* parent,
-                                                           bool is_global);
 
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
+    std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
+
+    size_t _build_side_rows = 0;
+    std::vector<vectorized::Block> _build_blocks;
+
     vectorized::MutableBlock _build_side_mutable_block;
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
     bool _has_set_need_null_map_for_build = false;
@@ -106,6 +112,7 @@ protected:
      */
     bool _build_side_ignore_null = false;
     std::vector<int> _build_col_ids;
+    std::shared_ptr<Dependency> _finish_dependency;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
@@ -157,8 +164,15 @@ public:
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
-    bool is_shuffled_hash_join() const override {
+    bool require_shuffled_data_distribution() const override {
+        return _join_op != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !_is_broadcast_join;
+    }
+    bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
+    }
+    bool require_data_distribution() const override {
+        return _join_distribution == TJoinDistributionType::COLOCATE ||
+               _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE;
     }
 
 private:
@@ -172,6 +186,8 @@ private:
 
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;
+
+    std::vector<bool> _should_convert_to_nullable;
 
     bool _is_broadcast_join = false;
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller;

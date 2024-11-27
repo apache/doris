@@ -20,9 +20,11 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -37,6 +39,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Internal representation of partition-related metadata.
@@ -102,7 +105,7 @@ public class Partition extends MetaObject implements Writable {
     @SerializedName(value = "distributionInfo")
     private DistributionInfo distributionInfo;
 
-    private Partition() {
+    protected Partition() {
     }
 
     public Partition(long id, String name,
@@ -148,8 +151,8 @@ public class Partition extends MetaObject implements Writable {
     public void updateVersionForRestore(long visibleVersion) {
         this.setVisibleVersion(visibleVersion);
         this.nextVersion = this.visibleVersion + 1;
-        LOG.info("update partition {} version for restore: visible: {}, next: {}",
-                name, visibleVersion, nextVersion);
+        LOG.info("update partition {}({}) version for restore: visible: {}, next: {}",
+                name, id, visibleVersion, nextVersion);
     }
 
     public void updateVisibleVersion(long visibleVersion) {
@@ -166,6 +169,16 @@ public class Partition extends MetaObject implements Writable {
 
     public long getVisibleVersionTime() {
         return visibleVersionTime;
+    }
+
+    public static List<Long> getVisibleVersions(List<? extends Partition> partitions) throws RpcException {
+        if (Config.isCloudMode()) {
+            // Throwing RPC exceptions is to ensure compatibility with the caller's code
+            // and avoid different implementations in different versions
+            throw new RpcException("127.0.0.1", "not implement cloud in current version");
+        } else {
+            return partitions.stream().map(Partition::getVisibleVersion).collect(Collectors.toList());
+        }
     }
 
     /**
@@ -331,7 +344,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public static Partition read(DataInput in) throws IOException {
-        Partition partition = new Partition();
+        Partition partition = EnvFactory.createPartition();
         partition.readFields(in);
         return partition;
     }
@@ -460,5 +473,28 @@ public class Partition extends MetaObject implements Writable {
         if (distributionInfo.getType() == DistributionInfoType.HASH) {
             distributionInfo = ((HashDistributionInfo) distributionInfo).toRandomDistributionInfo();
         }
+    }
+
+    public boolean isRollupIndex(long id) {
+        return idToVisibleRollupIndex.containsKey(id);
+    }
+
+
+    public long getRowCount() {
+        return getBaseIndex().getRowCount();
+    }
+
+    public long getAvgRowLength() {
+        long rowCount = getBaseIndex().getRowCount();
+        long dataSize = getBaseIndex().getDataSize(false);
+        if (rowCount > 0) {
+            return dataSize / rowCount;
+        } else {
+            return 0;
+        }
+    }
+
+    public long getDataLength() {
+        return getBaseIndex().getDataSize(false);
     }
 }

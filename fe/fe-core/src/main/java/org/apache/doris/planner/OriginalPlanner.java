@@ -37,12 +37,10 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
@@ -99,6 +97,7 @@ public class OriginalPlanner extends Planner {
 
     public void plan(StatementBase queryStmt, TQueryOptions queryOptions)
             throws UserException {
+        this.queryOptions = queryOptions;
         createPlanFragments(queryStmt, analyzer, queryOptions);
     }
 
@@ -301,6 +300,7 @@ public class OriginalPlanner extends Planner {
                     // Cache them for later request better performance
                     analyzer.getPrepareStmt().cacheSerializedDescriptorTable(olapScanNode.getDescTable());
                     analyzer.getPrepareStmt().cacheSerializedOutputExprs(rootFragment.getOutputExprs());
+                    analyzer.getPrepareStmt().cacheSerializedQueryOptions(queryOptions);
                 }
             } else if (selectStmt.isTwoPhaseReadOptEnabled()) {
                 // Optimize query like `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...`
@@ -358,16 +358,11 @@ public class OriginalPlanner extends Planner {
      * The top plan fragment will only summarize the status of the exported result set and return it to fe.
      */
     private void pushDownResultFileSink(Analyzer analyzer) {
-        if (fragments.size() < 1) {
-            return;
-        }
-        if (!(fragments.get(0).getSink() instanceof ResultFileSink)) {
-            return;
-        }
-        if (!ConnectContext.get().getSessionVariable().isEnableParallelOutfile()) {
-            return;
-        }
-        if (!(fragments.get(0).getPlanRoot() instanceof ExchangeNode)) {
+        if (!ConnectContext.get().getSessionVariable().isEnableParallelOutfile()
+                || ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
+                || fragments.size() < 1
+                || !(fragments.get(0).getPlanRoot() instanceof ExchangeNode)
+                || !(fragments.get(0).getSink() instanceof ResultFileSink)) {
             return;
         }
         PlanFragment topPlanFragment = fragments.get(0);
@@ -385,7 +380,7 @@ public class OriginalPlanner extends Planner {
             return;
         }
         // create result file sink desc
-        TupleDescriptor fileStatusDesc = constructFileStatusTupleDesc(analyzer);
+        TupleDescriptor fileStatusDesc = ResultFileSink.constructFileStatusTupleDesc(analyzer.getDescTbl());
         resultFileSink.resetByDataStreamSink((DataStreamSink) secondPlanFragment.getSink());
         resultFileSink.setOutputTupleId(fileStatusDesc.getId());
         secondPlanFragment.setOutputExprs(topPlanFragment.getOutputExprs());
@@ -554,41 +549,6 @@ public class OriginalPlanner extends Planner {
         }
     }
 
-    /**
-     * Construct a tuple for file status, the tuple schema as following:
-     * | FileNumber | Int     |
-     * | TotalRows  | Bigint  |
-     * | FileSize   | Bigint  |
-     * | URL        | Varchar |
-     */
-    private TupleDescriptor constructFileStatusTupleDesc(Analyzer analyzer) {
-        TupleDescriptor resultFileStatusTupleDesc =
-                analyzer.getDescTbl().createTupleDescriptor("result_file_status");
-        resultFileStatusTupleDesc.setIsMaterialized(true);
-        SlotDescriptor fileNumber = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
-        fileNumber.setLabel("FileNumber");
-        fileNumber.setType(ScalarType.createType(PrimitiveType.INT));
-        fileNumber.setIsMaterialized(true);
-        fileNumber.setIsNullable(false);
-        SlotDescriptor totalRows = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
-        totalRows.setLabel("TotalRows");
-        totalRows.setType(ScalarType.createType(PrimitiveType.BIGINT));
-        totalRows.setIsMaterialized(true);
-        totalRows.setIsNullable(false);
-        SlotDescriptor fileSize = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
-        fileSize.setLabel("FileSize");
-        fileSize.setType(ScalarType.createType(PrimitiveType.BIGINT));
-        fileSize.setIsMaterialized(true);
-        fileSize.setIsNullable(false);
-        SlotDescriptor url = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
-        url.setLabel("URL");
-        url.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-        url.setIsMaterialized(true);
-        url.setIsNullable(false);
-        resultFileStatusTupleDesc.computeStatAndMemLayout();
-        return resultFileStatusTupleDesc;
-    }
-
     private static class QueryStatisticsTransferOptimizer {
         private final PlanFragment root;
 
@@ -675,13 +635,14 @@ public class OriginalPlanner extends Planner {
         List<Column> columns = new ArrayList<>(selectItems.size());
         List<String> columnLabels = parsedSelectStmt.getColLabels();
         List<String> data = new ArrayList<>();
+        FormatOptions options = FormatOptions.getDefault();
         for (int i = 0; i < selectItems.size(); i++) {
             SelectListItem item = selectItems.get(i);
             Expr expr = item.getExpr();
             String columnName = columnLabels.get(i);
             if (expr instanceof LiteralExpr) {
                 columns.add(new Column(columnName, expr.getType()));
-                data.add(((LiteralExpr) expr).getStringValueInFe());
+                data.add(((LiteralExpr) expr).getStringValueInFe(options));
             } else {
                 return Optional.empty();
             }
@@ -690,7 +651,4 @@ public class OriginalPlanner extends Planner {
         ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
         return Optional.of(resultSet);
     }
-
-    @Override
-    public void addHook(PlannerHook hook) {}
 }

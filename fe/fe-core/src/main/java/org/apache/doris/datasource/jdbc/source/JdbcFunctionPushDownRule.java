@@ -22,6 +22,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.base.Preconditions;
@@ -29,6 +30,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
@@ -41,6 +43,8 @@ public class JdbcFunctionPushDownRule {
     static {
         MYSQL_UNSUPPORTED_FUNCTIONS.add("date_trunc");
         MYSQL_UNSUPPORTED_FUNCTIONS.add("money_format");
+        MYSQL_UNSUPPORTED_FUNCTIONS.add("negative");
+        MYSQL_UNSUPPORTED_FUNCTIONS.addAll(Arrays.asList(Config.jdbc_mysql_unsupported_pushdown_functions));
     }
 
     private static final TreeSet<String> CLICKHOUSE_SUPPORTED_FUNCTIONS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);

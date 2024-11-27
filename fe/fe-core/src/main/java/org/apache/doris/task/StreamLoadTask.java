@@ -89,7 +89,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private boolean enableProfile = false;
 
     private boolean memtableOnSinkNode = false;
-    private int streamPerNode = 20;
+    private int streamPerNode = 2;
 
     private byte enclose = 0;
 

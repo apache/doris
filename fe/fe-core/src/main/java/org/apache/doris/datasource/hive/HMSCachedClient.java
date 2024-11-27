@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
@@ -34,6 +35,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * A hive metastore client pool for a specific catalog with hive configuration.
@@ -50,6 +52,8 @@ public interface HMSCachedClient {
 
     List<String> listPartitionNames(String dbName, String tblName);
 
+    List<Partition> listPartitions(String dbName, String tblName);
+
     List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum);
 
     Partition getPartition(String dbName, String tblName, List<String> partitionValues);
@@ -59,6 +63,8 @@ public interface HMSCachedClient {
     Table getTable(String dbName, String tblName);
 
     List<FieldSchema> getSchema(String dbName, String tblName);
+
+    Map<String, String> getDefaultColumnValues(String dbName, String tblName);
 
     List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName,
             List<String> columns);
@@ -89,5 +95,31 @@ public interface HMSCachedClient {
 
     void dropTable(String dbName, String tableName);
 
+    void truncateTable(String dbName, String tblName, List<String> partitions);
+
     void createTable(TableMetadata catalogTable, boolean ignoreIfExists);
+
+    void updateTableStatistics(
+            String dbName,
+            String tableName,
+            Function<HivePartitionStatistics, HivePartitionStatistics> update);
+
+    void updatePartitionStatistics(
+            String dbName,
+            String tableName,
+            String partitionName,
+            Function<HivePartitionStatistics, HivePartitionStatistics> update);
+
+    void addPartitions(String dbName, String tableName, List<HivePartitionWithStatistics> partitions);
+
+    void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData);
+
+    default void setHadoopAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
+        // Ignored by default
+    }
+
+    /**
+     * close the connection, eg, to hms
+     */
+    void close();
 }

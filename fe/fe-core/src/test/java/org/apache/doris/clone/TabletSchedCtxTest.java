@@ -17,25 +17,57 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletSchedCtx.Type;
+import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.MinMaxPriorityQueue;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.PriorityQueue;
 
 public class TabletSchedCtxTest {
 
     @Test
+    public void testAddTablet() {
+        List<TabletSchedCtx> tablets = Lists.newArrayList();
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
+        for (long i = 0; i < 20; i++) {
+            tablets.add(new TabletSchedCtx(Type.REPAIR, 1, 2, 3, 4,
+                    i, replicaAlloc, i));
+            tablets.add(new TabletSchedCtx(Type.BALANCE, 1, 2, 3, 4,
+                    1000 + i, replicaAlloc, i));
+        }
+        Collections.shuffle(tablets);
+        Config.max_scheduling_tablets = 5;
+        TabletScheduler scheduler = Env.getCurrentEnv().getTabletScheduler();
+        for (TabletSchedCtx tablet : tablets) {
+            scheduler.addTablet(tablet, false);
+        }
+
+        MinMaxPriorityQueue<TabletSchedCtx> queue = scheduler.getPendingTabletQueue();
+        List<TabletSchedCtx> gotTablets = Lists.newArrayList();
+        while (!queue.isEmpty()) {
+            gotTablets.add(queue.pollFirst());
+        }
+        Assert.assertEquals(Config.max_scheduling_tablets, gotTablets.size());
+        for (int i = 0; i < gotTablets.size(); i++) {
+            TabletSchedCtx tablet = gotTablets.get(i);
+            Assert.assertEquals(Type.REPAIR, tablet.getType());
+            Assert.assertEquals((long) i, tablet.getCreateTime());
+        }
+    }
+
+    @Test
     public void testPriorityCompare() {
         // equal priority, but info3's last visit time is earlier than info2 and info1, so info1 should ranks ahead
-        PriorityQueue<TabletSchedCtx> pendingTablets = new PriorityQueue<>();
+        MinMaxPriorityQueue<TabletSchedCtx> pendingTablets = MinMaxPriorityQueue.create();
         ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         TabletSchedCtx ctx1 = new TabletSchedCtx(Type.REPAIR,
                 1, 2, 3, 4, 1000, replicaAlloc, System.currentTimeMillis());
@@ -84,19 +116,19 @@ public class TabletSchedCtxTest {
         TabletSchedCtx.VersionCountComparator countComparator = new TabletSchedCtx.VersionCountComparator();
         List<Replica> replicaList = Lists.newArrayList();
         Replica replica1 = new Replica();
-        replica1.setVersionCount(100);
+        replica1.setVisibleVersionCount(100);
         replica1.setState(Replica.ReplicaState.NORMAL);
 
         Replica replica2 = new Replica();
-        replica2.setVersionCount(50);
+        replica2.setVisibleVersionCount(50);
         replica2.setState(Replica.ReplicaState.NORMAL);
 
         Replica replica3 = new Replica();
-        replica3.setVersionCount(-1);
+        replica3.setVisibleVersionCount(-1);
         replica3.setState(Replica.ReplicaState.NORMAL);
 
         Replica replica4 = new Replica();
-        replica4.setVersionCount(200);
+        replica4.setVisibleVersionCount(200);
         replica4.setState(Replica.ReplicaState.NORMAL);
 
         replicaList.add(replica1);
@@ -105,10 +137,10 @@ public class TabletSchedCtxTest {
         replicaList.add(replica4);
 
         Collections.sort(replicaList, countComparator);
-        Assert.assertEquals(50, replicaList.get(0).getVersionCount());
-        Assert.assertEquals(100, replicaList.get(1).getVersionCount());
-        Assert.assertEquals(200, replicaList.get(2).getVersionCount());
-        Assert.assertEquals(-1, replicaList.get(3).getVersionCount());
+        Assert.assertEquals(50, replicaList.get(0).getVisibleVersionCount());
+        Assert.assertEquals(100, replicaList.get(1).getVisibleVersionCount());
+        Assert.assertEquals(200, replicaList.get(2).getVisibleVersionCount());
+        Assert.assertEquals(-1, replicaList.get(3).getVisibleVersionCount());
     }
 
 }

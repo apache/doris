@@ -48,7 +48,7 @@ protected:
 private:
     Status _do_single_replica_compaction();
     Status _do_single_replica_compaction_impl();
-    bool _find_rowset_to_fetch(const std::vector<Version>& peer_versions, Version* peer_version);
+    bool _find_rowset_to_fetch(const std::vector<Version>& peer_versions, Version* proper_version);
     Status _get_rowset_verisons_from_peer(const TReplicaInfo& addr,
                                           std::vector<Version>* peer_versions);
     Status _fetch_rowset(const TReplicaInfo& addr, const std::string& token,
@@ -59,8 +59,7 @@ private:
     Status _download_files(DataDir* data_dir, const std::string& remote_url_prefix,
                            const std::string& local_path);
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
-    Status _finish_clone(const string& clone_dir, const Version& version);
-    std::string _mask_token(const std::string& str);
+    Status _finish_clone(const std::string& clone_dir, const Version& version);
     CompactionType _compaction_type;
 
     DISALLOW_COPY_AND_ASSIGN(SingleReplicaCompaction);

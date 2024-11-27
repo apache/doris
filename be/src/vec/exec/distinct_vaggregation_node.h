@@ -43,8 +43,9 @@ public:
     DistinctAggregationNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~DistinctAggregationNode() override = default;
     Status _distinct_pre_agg_with_serialized_key(Block* in_block, Block* out_block);
-    void set_num_rows_returned(int64_t rows) { _num_rows_returned = rows; }
+    void add_num_rows_returned(int64_t rows) { _num_rows_returned += rows; }
     vectorized::VExprContextSPtrs get_conjuncts() { return _conjuncts; }
+    bool is_stop_emplace_flag() const { return _stop_emplace_flag; }
 
 private:
     void _emplace_into_hash_table_to_distinct(IColumn::Selector& distinct_row,
@@ -52,6 +53,7 @@ private:
 
     char* dummy_mapped_data = nullptr;
     IColumn::Selector _distinct_row;
+    bool _stop_emplace_flag = false;
 };
 } // namespace vectorized
 } // namespace doris

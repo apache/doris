@@ -90,11 +90,7 @@ public class KeysDesc implements Writable {
         }
 
         if (clusterKeysColumnNames != null) {
-            if (type != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("Cluster keys only support unique keys table.");
-            }
-            clusterKeysColumnIds = Lists.newArrayList();
-            analyzeClusterKeys(cols);
+            throw new AnalysisException("Cluster key is not supported");
         }
 
         for (int i = 0; i < keysColumnNames.size(); ++i) {

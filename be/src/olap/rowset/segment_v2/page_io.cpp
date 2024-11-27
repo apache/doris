@@ -111,8 +111,8 @@ Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body
     return Status::OK();
 }
 
-Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
-                                        Slice* body, PageFooterPB* footer) {
+Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle* handle,
+                                         Slice* body, PageFooterPB* footer) {
     opts.sanity_check();
     opts.stats->total_pages_num++;
 
@@ -144,7 +144,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     }
 
     // hold compressed page at first, reset to decompressed page later
-    std::unique_ptr<DataPage> page = std::make_unique<DataPage>(page_size);
+    std::unique_ptr<DataPage> page =
+            std::make_unique<DataPage>(page_size, opts.use_page_cache, opts.type);
     Slice page_slice(page->data(), page_size);
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
@@ -182,8 +183,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
                     opts.file_reader->path().native());
         }
         SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
-        std::unique_ptr<DataPage> decompressed_page =
-                std::make_unique<DataPage>(footer->uncompressed_size() + footer_size + 4);
+        std::unique_ptr<DataPage> decompressed_page = std::make_unique<DataPage>(
+                footer->uncompressed_size() + footer_size + 4, opts.use_page_cache, opts.type);
 
         // decompress page body
         Slice compressed_body(page_slice.data, body_size);
@@ -210,8 +211,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         auto* pre_decoder = opts.encoding_info->get_data_page_pre_decoder();
         if (pre_decoder) {
             RETURN_IF_ERROR(pre_decoder->decode(
-                    &page, &page_slice,
-                    footer->data_page_footer().nullmap_size() + footer_size + 4));
+                    &page, &page_slice, footer->data_page_footer().nullmap_size() + footer_size + 4,
+                    opts.use_page_cache, opts.type));
         }
     }
 

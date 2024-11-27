@@ -42,6 +42,7 @@ import org.junit.rules.ExpectedException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class DatabaseTransactionMgrTest {
 
@@ -57,8 +58,8 @@ public class DatabaseTransactionMgrTest {
     private static Env slaveEnv;
     private static Map<String, Long> LabelToTxnId;
 
-    private TransactionState.TxnCoordinator transactionSource =
-            new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
+    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(
+            TransactionState.TxnSourceType.FE, 0, "localfe", System.currentTimeMillis());
 
     public static void setTransactionFinishPublish(TransactionState transactionState, List<Long> backendIds) {
         for (long backendId : backendIds) {
@@ -110,15 +111,21 @@ public class DatabaseTransactionMgrTest {
         transTablets.add(tabletCommitInfo3);
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1, transTablets);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1,
+                transTablets, null);
         TransactionState transactionState1 = fakeEditLog.getTransaction(transactionId1);
         setTransactionFinishPublish(transactionState1,
                 Lists.newArrayList(CatalogTestUtil.testBackendId1,
                         CatalogTestUtil.testBackendId2, CatalogTestUtil.testBackendId3));
-        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1);
+        Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
+        Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1,
+                partitionVisibleVersions, backendPartitions);
         labelToTxnId.put(CatalogTestUtil.testTxnLabel1, transactionId1);
 
-        TransactionState.TxnCoordinator beTransactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.BE, "be1");
+        // txn 2, 3, 4
+        TransactionState.TxnCoordinator beTransactionSource = new TransactionState.TxnCoordinator(
+                TransactionState.TxnSourceType.BE, 0, "be1", System.currentTimeMillis());
         long transactionId2 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLabel2,
                 beTransactionSource,
@@ -204,7 +211,7 @@ public class DatabaseTransactionMgrTest {
     @Test
     public void testGetTransactionIdByCoordinateBe() throws UserException {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
-        List<Pair<Long, Long>> transactionInfoList = masterDbTransMgr.getTransactionIdByCoordinateBe("be1", 10);
+        List<Pair<Long, Long>> transactionInfoList = masterDbTransMgr.getPrepareTransactionIdByCoordinateBe(0, "be1", 10);
         Assert.assertEquals(3, transactionInfoList.size());
         Assert.assertEquals(CatalogTestUtil.testDbId1, transactionInfoList.get(0).first.longValue());
         Assert.assertEquals(TransactionStatus.PREPARE,

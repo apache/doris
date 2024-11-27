@@ -44,7 +44,6 @@ public class TransposeSemiJoinLogicalJoin extends OneRewriteRuleFactory {
                         || topJoin.left().getJoinType().isLeftOuterJoin()
                         || topJoin.left().getJoinType().isRightOuterJoin())))
                 .whenNot(topJoin -> topJoin.hasDistributeHint() || topJoin.left().hasDistributeHint())
-                .whenNot(LogicalJoin::isMarkJoin)
                 .whenNot(topJoin -> topJoin.isLeadingJoin() || topJoin.left().isLeadingJoin())
                 .then(topSemiJoin -> {
                     LogicalJoin<Plan, Plan> bottomJoin = topSemiJoin.left();
@@ -55,7 +54,7 @@ public class TransposeSemiJoinLogicalJoin extends OneRewriteRuleFactory {
                     Set<ExprId> conjunctsIds = topSemiJoin.getConditionExprId();
                     ContainsType containsType = TransposeSemiJoinLogicalJoinProject.containsChildren(conjunctsIds,
                             a.getOutputExprIdSet(), b.getOutputExprIdSet());
-                    if (containsType == ContainsType.ALL) {
+                    if (containsType == ContainsType.ALL || containsType == ContainsType.NONE) {
                         return null;
                     }
                     if (containsType == ContainsType.LEFT) {

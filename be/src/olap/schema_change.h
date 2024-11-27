@@ -44,6 +44,7 @@
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
@@ -84,8 +85,8 @@ public:
     bool has_where() const { return _where_expr != nullptr; }
 
 private:
-    Status _check_cast_valid(vectorized::ColumnPtr ref_column, vectorized::ColumnPtr new_column,
-                             AlterTabletType type) const;
+    static Status _check_cast_valid(vectorized::ColumnPtr ref_column,
+                                    vectorized::ColumnPtr new_column);
 
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;
@@ -115,9 +116,8 @@ public:
 
         _filtered_rows = 0;
         _merged_rows = 0;
-
-        RETURN_IF_ERROR(_inner_process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema,
-                                       new_tablet_schema));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_inner_process(rowset_reader, rowset_writer, new_tablet,
+                                                          base_tablet_schema, new_tablet_schema));
 
         // Check row num changes
         if (!_check_row_nums(rowset_reader, *rowset_writer)) {
@@ -125,8 +125,11 @@ public:
         }
 
         LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()
+                  << ", source_filtered_rows=" << rowset_reader->filtered_rows()
+                  << ", source_merged_rows=" << rowset_reader->merged_rows()
                   << ", merged_rows=" << merged_rows() << ", filtered_rows=" << filtered_rows()
-                  << ", new_index_rows=" << rowset_writer->num_rows();
+                  << ", new_index_rows=" << rowset_writer->num_rows()
+                  << ", writer_filtered_rows=" << rowset_writer->num_rows_filtered();
         return Status::OK();
     }
 
@@ -146,16 +149,19 @@ protected:
     }
 
     virtual bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const {
-        if (reader->rowset()->num_rows() - reader->filtered_rows() !=
+        if (reader->rowset()->num_rows() - reader->filtered_rows() - reader->merged_rows() !=
             writer.num_rows() + writer.num_rows_filtered() + _merged_rows + _filtered_rows) {
             LOG(WARNING) << "fail to check row num! "
                          << "source_rows=" << reader->rowset()->num_rows()
                          << ", source_filtered_rows=" << reader->filtered_rows()
+                         << ", source_merged_rows=" << reader->merged_rows()
                          << ", written_rows=" << writer.num_rows()
                          << ", writer_filtered_rows=" << writer.num_rows_filtered()
                          << ", merged_rows=" << merged_rows()
                          << ", filtered_rows=" << filtered_rows();
-            return false;
+            if (!config::ignore_schema_change_check) {
+                return false;
+            }
         }
         return true;
     }
@@ -235,7 +241,9 @@ public:
                                                           bool sc_sorting, bool sc_directly) {
         if (sc_sorting) {
             return std::make_unique<VSchemaChangeWithSorting>(
-                    changer, config::memory_limitation_per_thread_for_schema_change_bytes);
+                    changer, ExecEnv::GetInstance()
+                                     ->get_storage_engine()
+                                     ->memory_limitation_bytes_per_thread_for_schema_change());
         }
 
         if (sc_directly) {

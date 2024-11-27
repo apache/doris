@@ -18,63 +18,107 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
+import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.statistics.Statistics;
 
-import java.util.List;
-import java.util.stream.Collectors;
+import com.google.common.collect.ImmutableList;
+
+import java.util.BitSet;
+import java.util.Optional;
 
 /**
  * The cache for materialized view cache
  */
 public class MTMVCache {
 
-    // the materialized view plan which should be optimized by the same rules to query
+    // The materialized view plan which should be optimized by the same rules to query
+    // and will remove top sink and unused sort
     private final Plan logicalPlan;
-    // this should be shuttle expression with lineage
-    private final List<NamedExpression> mvOutputExpressions;
+    // The original plan of mv def sql
+    private final Plan originalPlan;
+    private final Statistics statistics;
+    private final StructInfo structInfo;
 
-    public MTMVCache(Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
+    public MTMVCache(Plan logicalPlan, Plan originalPlan, Statistics statistics, StructInfo structInfo) {
         this.logicalPlan = logicalPlan;
-        this.mvOutputExpressions = mvOutputExpressions;
+        this.originalPlan = originalPlan;
+        this.statistics = statistics;
+        this.structInfo = structInfo;
     }
 
     public Plan getLogicalPlan() {
         return logicalPlan;
     }
 
-    public List<NamedExpression> getMvOutputExpressions() {
-        return mvOutputExpressions;
+    public Plan getOriginalPlan() {
+        return originalPlan;
     }
 
-    public static MTMVCache from(MTMV mtmv, ConnectContext connectContext) {
+    public Statistics getStatistics() {
+        return statistics;
+    }
+
+    public StructInfo getStructInfo() {
+        return structInfo;
+    }
+
+    public static MTMVCache from(MTMV mtmv, ConnectContext connectContext, boolean needCost) {
         LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(mtmv.getQuerySql());
-        // this will be removed in the future when support join derivation
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES, ELIMINATE_OUTER_JOIN");
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
                 new OriginStatement(mtmv.getQuerySql(), 0));
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
-        Plan mvRewrittenPlan =
-                planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
-        Plan mvPlan = mvRewrittenPlan instanceof LogicalResultSink
-                ? (Plan) ((LogicalResultSink) mvRewrittenPlan).child() : mvRewrittenPlan;
-        // use rewritten plan output expression currently, if expression rewrite fail,
-        // consider to use the analyzed plan for output expressions only
-        List<NamedExpression> mvOutputExpressions = mvPlan.getOutput().stream()
-                .map(NamedExpression.class::cast)
-                .collect(Collectors.toList());
-        return new MTMVCache(mvPlan, mvOutputExpressions);
+        // Can not convert to table sink, because use the same column from different table when self join
+        // the out slot is wrong
+        if (needCost) {
+            // Only in mv rewrite, we need plan with eliminated cost which is used for mv chosen
+            planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        } else {
+            // No need cost for performance
+            planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+        }
+        Plan originPlan = planner.getCascadesContext().getRewritePlan();
+        // Eliminate result sink because sink operator is useless in query rewrite by materialized view
+        // and the top sort can also be removed
+        Plan mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
+            @Override
+            public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, Object context) {
+                return logicalResultSink.child().accept(this, context);
+            }
+        }, null);
+        // Optimize by rules to remove top sort
+        CascadesContext parentCascadesContext = CascadesContext.initContext(mvSqlStatementContext, mvPlan,
+                PhysicalProperties.ANY);
+        mvPlan = MaterializedViewUtils.rewriteByRules(parentCascadesContext, childContext -> {
+            Rewriter.getCteChildrenRewriter(childContext,
+                    ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
+            return childContext.getRewritePlan();
+        }, mvPlan, originPlan);
+        // Construct structInfo once for use later
+        Optional<StructInfo> structInfoOptional = MaterializationContext.constructStructInfo(mvPlan, originPlan,
+                planner.getCascadesContext(),
+                new BitSet());
+        return new MTMVCache(mvPlan, originPlan, needCost
+                ? planner.getCascadesContext().getMemo().getRoot().getStatistics() : null,
+                structInfoOptional.orElseGet(() -> null));
     }
 }

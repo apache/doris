@@ -66,6 +66,9 @@ else()
     add_definitions(-DBOOST_STACKTRACE_USE_NOOP)
 endif()
 
+# enable glog custom prefix
+add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
+
 # Options
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 option(USE_LIBCPP "Use libc++" OFF)
@@ -279,9 +282,14 @@ if (COMPILER_CLANG)
                         -Wunused-volatile-lvalue
                         -Wunused-template
                         -Wunused-member-function
-                        -Wunused-macros)
-    add_compile_options(-Wno-vla-extension)
-    add_compile_options(-Wno-gnu-statement-expression)
+                        -Wunused-macros
+                        -Wconversion)
+    add_compile_options(-Wno-vla-extension
+                        -Wno-gnu-statement-expression
+                        -Wno-implicit-float-conversion
+                        -Wno-implicit-int-conversion
+                        -Wno-sign-conversion
+                        -Wno-shorten-64-to-32)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)

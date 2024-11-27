@@ -180,4 +180,8 @@ public class HashDistributionInfo extends DistributionInfo {
     public RandomDistributionInfo toRandomDistributionInfo() {
         return new RandomDistributionInfo(bucketNum);
     }
+
+    public void setDistributionColumns(List<Column> column) {
+        this.distributionColumns = column;
+    }
 }

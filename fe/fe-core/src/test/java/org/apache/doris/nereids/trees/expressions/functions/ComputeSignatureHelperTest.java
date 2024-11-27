@@ -49,6 +49,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 public class ComputeSignatureHelperTest {
 
@@ -417,6 +418,16 @@ public class ComputeSignatureHelperTest {
         @Override
         public int arity() {
             return 0;
+        }
+
+        @Override
+        public <T> Optional<T> getMutableState(String key) {
+            return Optional.empty();
+        }
+
+        @Override
+        public void setMutableState(String key, Object value) {
+
         }
 
         @Override

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 
@@ -71,11 +72,16 @@ public class MarkJoinSlotReference extends SlotReference {
 
     @Override
     public MarkJoinSlotReference withExprId(ExprId exprId) {
-        return new MarkJoinSlotReference(exprId, name, existsHasAgg);
+        return new MarkJoinSlotReference(exprId, name.get(), existsHasAgg);
     }
 
     @Override
     public SlotReference withName(String name) {
         return new MarkJoinSlotReference(exprId, name, existsHasAgg);
+    }
+
+    @Override
+    public Slot withIndexInSql(Pair<Integer, Integer> index) {
+        return this;
     }
 }

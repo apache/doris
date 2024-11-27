@@ -45,8 +45,8 @@ fe_daemon() {
         sleep 1
         output=$(mysql -P $FE_QUERY_PORT -h $MY_IP -u root --execute "SHOW FRONTENDS;")
         code=$?
-        health_log "$output"
         if [ $code -ne 0 ]; then
+            health_log "exec show frontends bad: $output"
             continue
         fi
         header=$(grep IsMaster <<<$output)
@@ -81,8 +81,30 @@ fe_daemon() {
     done
 }
 
-add_cloud_fe() {
+run_fe() {
+    health_log "run start_fe.sh"
+    bash $DORIS_HOME/bin/start_fe.sh --daemon $@ | tee -a $DORIS_HOME/log/fe.out
+}
+
+start_cloud_fe() {
     if [ -f "$REGISTER_FILE" ]; then
+        fe_daemon &
+        run_fe
+        return
+    fi
+
+    # Check if SQL_MODE_NODE_MGR is set to 1
+    if [ "${SQL_MODE_NODE_MGR}" = "1" ]; then
+        health_log "SQL_MODE_NODE_MGR is set to 1. Skipping add FE."
+
+        touch $REGISTER_FILE
+
+        fe_daemon &
+        run_fe
+
+        if [ "$MY_ID" == "1" ]; then
+            echo $MY_IP >$MASTER_FE_IP_FILE
+        fi
         return
     fi
 
@@ -94,6 +116,10 @@ add_cloud_fe() {
         wait_master_fe_ready
         action=add_node
         node_type=FE_OBSERVER
+    fi
+
+    if [ "a$IS_FE_FOLLOWER" == "a1" ]; then
+        node_type=FE_FOLLOWER
     fi
 
     nodes='{
@@ -139,6 +165,10 @@ add_cloud_fe() {
     fi
 
     touch $REGISTER_FILE
+
+    fe_daemon &
+    run_fe
+
     if [ "$MY_ID" == "1" ]; then
         echo $MY_IP >$MASTER_FE_IP_FILE
     fi
@@ -174,17 +204,12 @@ start_local_fe() {
 
     if [ -f $REGISTER_FILE ]; then
         fe_daemon &
-        bash $DORIS_HOME/bin/start_fe.sh --daemon
+        run_fe
     else
         add_local_fe
         fe_daemon &
-        bash $DORIS_HOME/bin/start_fe.sh --helper $MASTER_FE_IP:$FE_EDITLOG_PORT --daemon
+        run_fe --helper $MASTER_FE_IP:$FE_EDITLOG_PORT
     fi
-}
-
-start_cloud_fe() {
-    add_cloud_fe
-    bash $DORIS_HOME/bin/start_fe.sh --daemon
 }
 
 main() {

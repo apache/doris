@@ -31,9 +31,11 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -230,5 +232,9 @@ public class LogicalPlanBuilder {
         LogicalAssertNumRows<LogicalPlan> assertNumRows = new LogicalAssertNumRows<>(
                 new AssertNumRowsElement(numRows, "", assertion), this.plan);
         return from(assertNumRows);
+    }
+
+    public LogicalPlanBuilder intersect(List<Plan> children) {
+        return from(new LogicalIntersect(Qualifier.DISTINCT, children));
     }
 }

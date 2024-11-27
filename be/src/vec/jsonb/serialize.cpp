@@ -28,7 +28,6 @@
 #include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
-#include "util/bitmap_value.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
 #include "util/jsonb_writer.h"
@@ -55,7 +54,7 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
         jsonb_writer.writeStartObject();
         for (int j = 0; j < num_cols; ++j) {
             const auto& column = block.get_by_position(j).column;
-            const auto& tablet_column = schema.columns()[j];
+            const auto& tablet_column = *schema.columns()[j];
             if (tablet_column.is_row_store_column()) {
                 // ignore dst row store column
                 continue;

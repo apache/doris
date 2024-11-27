@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
-import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -41,31 +41,25 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
             StructInfo viewStructInfo,
             SlotMapping targetToSourceMapping,
             Plan tempRewritedPlan,
-            MaterializationContext materializationContext) {
+            MaterializationContext materializationContext,
+            CascadesContext cascadesContext) {
         // Rewrite top projects, represent the query projects by view
         List<Expression> expressionsRewritten = rewriteExpression(
                 queryStructInfo.getExpressions(),
-                queryStructInfo.getOriginalPlan(),
-                materializationContext.getMvExprToMvScanExprMapping(),
+                queryStructInfo.getTopPlan(),
+                materializationContext.getShuttledExprToScanExprMapping(),
                 targetToSourceMapping,
-                true
+                queryStructInfo.getTableBitSet()
         );
         // Can not rewrite, bail out
         if (expressionsRewritten.isEmpty()) {
-            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
-                    Pair.of("Rewrite expressions by view in join fail",
-                            String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
-                                            + "targetToSourceMapping = %s",
-                                    queryStructInfo.getExpressions(),
-                                    materializationContext.getMvExprToMvScanExprMapping(),
-                                    targetToSourceMapping)));
+            materializationContext.recordFailReason(queryStructInfo,
+                    "Rewrite expressions by view in join fail",
+                    () -> String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
+                                    + "targetToSourceMapping = %s", queryStructInfo.getExpressions(),
+                            materializationContext.getShuttledExprToScanExprMapping(),
+                            targetToSourceMapping));
             return null;
-        }
-        // record the group id in materializationContext, and when rewrite again in
-        // the same group, bail out quickly.
-        if (queryStructInfo.getOriginalPlan().getGroupExpression().isPresent()) {
-            materializationContext.addMatchedGroup(
-                    queryStructInfo.getOriginalPlan().getGroupExpression().get().getOwnerGroup().getGroupId());
         }
         return new LogicalProject<>(
                 expressionsRewritten.stream()
@@ -81,7 +75,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
      * Join condition should be slot reference equals currently.
      */
     @Override
-    protected boolean checkPattern(StructInfo structInfo) {
+    protected boolean checkQueryPattern(StructInfo structInfo, CascadesContext cascadesContext) {
         PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
         return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
                 && !checkContext.isContainsTopAggregate();

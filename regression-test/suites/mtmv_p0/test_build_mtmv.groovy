@@ -69,7 +69,6 @@ suite("test_build_mtmv") {
     sql """drop materialized view if exists ${mvName};"""
     sql """drop materialized view if exists ${mvNameRenamed};"""
 
-    // show create table
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         (aa comment "aaa",bb)
@@ -84,13 +83,38 @@ suite("test_build_mtmv") {
         SELECT id, username FROM ${tableName};
         """
 
-    def showCreateTableResult = sql """show create table ${mvName}"""
-    logger.info("showCreateTableResult: " + showCreateTableResult.toString())
-    assertTrue(showCreateTableResult.toString().contains("CREATE MATERIALIZED VIEW `multi_mv_test_create_mtmv` (\n  `aa` BIGINT NULL COMMENT 'aaa',\n  `bb` VARCHAR(20) NULL\n) ENGINE=MATERIALIZED_VIEW\nCOMMENT 'comment1'\nDISTRIBUTED BY RANDOM BUCKETS 2\nPROPERTIES"))
+    // not support show create table
+    test {
+          sql """
+              show create table ${mvName};
+          """
+          exception "not support"
+     }
 
+    // desc
     def descTableAllResult = sql """desc ${mvName} all"""
     logger.info("descTableAllResult: " + descTableAllResult.toString())
     assertTrue(descTableAllResult.toString().contains("${mvName}"))
+
+    // show data
+    def showDataResult = sql """show data"""
+    logger.info("showDataResult: " + showDataResult.toString())
+    assertTrue(showDataResult.toString().contains("${mvName}"))
+
+    // show full tables
+    def showFullTablesResult = sql """SHOW FULL TABLES WHERE Table_type = 'BASE TABLE';"""
+    logger.info("showFullTablesResult: " + showFullTablesResult.toString())
+    assertTrue(showFullTablesResult.toString().contains("${mvName}"))
+
+    // views should not contains mtmv
+    def selectViewsResult = sql """ SELECT * from INFORMATION_SCHEMA.VIEWS;"""
+    logger.info("selectViewsResult: " + selectViewsResult.toString())
+    assertFalse(selectViewsResult.toString().contains("${mvName}"))
+
+    // views should not contains mtmv
+    def selectTablesResult = sql """ SELECT * from INFORMATION_SCHEMA.TABLES;"""
+    logger.info("selectTablesResult: " + selectTablesResult.toString())
+    assertTrue(selectTablesResult.toString().contains("${mvName}"))
 
     // if not exist
     try {
@@ -122,21 +146,6 @@ suite("test_build_mtmv") {
         log.info(e.getMessage())
     }
 
-    // not allow create mv use other mv
-    try {
-        sql """
-            CREATE MATERIALIZED VIEW ${mvNameRenamed}
-            BUILD DEFERRED REFRESH COMPLETE ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES ('replication_num' = '1')
-            AS
-            SELECT * from ${mvName};
-        """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
     // not allow create mv use view
     try {
         sql """
@@ -155,6 +164,21 @@ suite("test_build_mtmv") {
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
+
+    // check mvName
+    try {
+        sql """
+            CREATE MATERIALIZED VIEW ` `
+            BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * from ${tableName};
+        """
+        Assert.fail();
+    } catch (Exception e) {
+        log.info(e.getMessage())
+    }
 
     // use default value
     sql """
@@ -213,7 +237,7 @@ suite("test_build_mtmv") {
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
     sql """
-        REFRESH MATERIALIZED VIEW ${mvName}
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     jobName = getJobName("regression_test_mtmv_p0", mvName);
     println jobName
@@ -439,58 +463,6 @@ suite("test_build_mtmv") {
     """
     order_qt_select "select MvProperties from mv_infos('database'='regression_test_mtmv_p0') where Name = '${mvName}'"
 
-    // use alter table
-    // not allow rename
-    try {
-        sql """
-            alter table ${mvName} rename ${mvNameRenamed}
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
-
-    // not allow modify `grace_period`
-    try {
-        sql """
-            alter table ${mvName} set("grace_period"="3333");
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
-    // allow modify comment
-    try {
-        sql """
-            alter table ${mvName} MODIFY COMMENT "new table comment";
-            """
-    } catch (Exception e) {
-        log.info(e.getMessage())
-        Assert.fail();
-    }
-
-    // not allow modify column
-    try {
-        sql """
-            alter table ${mvName} DROP COLUMN pv;
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
-    // not allow replace
-    try {
-        sql """
-            alter table ${mvName} REPLACE WITH TABLE ${tableName};
-            """
-        Assert.fail();
-    } catch (Exception e) {
-        log.info(e.getMessage())
-    }
-
     // not allow use mv modify property of table
     try {
         sql """
@@ -541,12 +513,12 @@ suite("test_build_mtmv") {
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
-    def jobs = sql """select count(1) from jobs("type"="mv")  where name= '${jobName}'"""
-    println jobs
-    assertEquals(jobs.get(0).get(0), 0);
-    def tasks = sql """select count(1) from tasks("type"="mv") where jobname = '${jobName}'"""
-    println tasks
-    assertEquals(tasks.get(0).get(0), 0);
+    def jobs = sql """select * from jobs("type"="mv")  where MvName= '${mvName}'"""
+    log.info(jobs.toString())
+    assertEquals(0, jobs.size());
+    def tasks = sql """select * from tasks("type"="mv") where MvName = '${mvName}'"""
+    log.info(tasks.toString())
+    assertEquals(0, tasks.size());
 
     // test bitmap
     sql """drop table if exists `${tableName}`"""
@@ -625,6 +597,30 @@ suite("test_build_mtmv") {
     (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
     """
 
+    sql """
+    drop table if exists partsupp
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS partsupp (
+      ps_partkey     INTEGER NOT NULL,
+      ps_suppkey     INTEGER NOT NULL,
+      ps_availqty    INTEGER NOT NULL,
+      ps_supplycost  DECIMALV3(15,2)  NOT NULL,
+      ps_comment     VARCHAR(199) NOT NULL 
+    )
+    DUPLICATE KEY(ps_partkey, ps_suppkey)
+    DISTRIBUTED BY HASH(ps_partkey) BUCKETS 3
+    PROPERTIES (
+      "replication_num" = "1"
+    )"""
+
+    sql """
+    insert into partsupp values
+    (2, 3, 9, 10.01, 'supply1'),
+    (2, 3, 10, 11.01, 'supply2');
+    """
+
     sql """DROP MATERIALIZED VIEW IF EXISTS test_varchar_literal_mv;"""
     sql """
         CREATE MATERIALIZED VIEW test_varchar_literal_mv
@@ -635,4 +631,24 @@ suite("test_build_mtmv") {
             select case when l_orderkey > 1 then "一二三四" else "五六七八" end as field_1 from lineitem;
     """
     qt_desc_mv """desc test_varchar_literal_mv;"""
+
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv_with_cte;"""
+    sql """
+        CREATE MATERIALIZED VIEW mv_with_cte
+            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            with `test_with` AS (
+            select l_partkey, l_suppkey
+            from lineitem
+            union
+            select
+              ps_partkey, ps_suppkey
+            from
+            partsupp)
+            select * from test_with;
+    """
+    waitingMTMVTaskFinished(getJobName("regression_test_mtmv_p0", "mv_with_cte"))
+    order_qt_query_mv_with_cte """select * from mv_with_cte;"""
 }

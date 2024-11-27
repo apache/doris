@@ -48,6 +48,47 @@ suite("group_concat") {
         sql "select group_concat(cast(number as string), NULL) from numbers('number'='10')"
         result([[null]])
     }
-    
-    
+
+    def testGroupByDistinct = {
+        sql "drop table if exists test_group_concat_distinct_tbl1"
+        sql """create table test_group_concat_distinct_tbl1(
+                        tbl1_id1 int
+                    ) distributed by hash(tbl1_id1)
+                    properties('replication_num'='1')
+                    """
+
+        sql "insert into test_group_concat_distinct_tbl1 values(1), (2), (3), (4), (5)"
+
+
+        sql "drop table if exists test_group_concat_distinct_tbl2"
+        sql """create table test_group_concat_distinct_tbl2(
+                        tbl2_id1 int,
+                        tbl2_id2 int,
+                    ) distributed by hash(tbl2_id1)
+                    properties('replication_num'='1')
+                    """
+        sql "insert into test_group_concat_distinct_tbl2 values(1, 11), (2, 22), (3, 33), (4, 44)"
+
+
+        sql "drop table if exists test_group_concat_distinct_tbl3"
+        sql """create table test_group_concat_distinct_tbl3(
+                        tbl3_id2 int,
+                        tbl3_name varchar(255)
+                    ) distributed by hash(tbl3_id2)
+                    properties('replication_num'='1')
+                    """
+        sql "insert into test_group_concat_distinct_tbl3 values(22, 'a'), (33, 'b'), (44, 'c')"
+
+        sql "sync"
+
+        order_qt_group_by_distinct """
+            SELECT
+                 tbl1.tbl1_id1,
+                 group_concat(DISTINCT tbl3.tbl3_name, ',') AS `names`
+             FROM test_group_concat_distinct_tbl1 tbl1
+             LEFT OUTER JOIN test_group_concat_distinct_tbl2 tbl2 ON tbl2.tbl2_id1 = tbl1.tbl1_id1
+             LEFT OUTER JOIN test_group_concat_distinct_tbl3 tbl3 ON tbl3.tbl3_id2 = tbl2.tbl2_id2
+             GROUP BY tbl1.tbl1_id1
+           """
+    }()
 }

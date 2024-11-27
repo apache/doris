@@ -63,6 +63,36 @@ public:
         std::mutex group_lock;
     };
 
+    enum class Type {
+        GLOBAL = 0,        // Life cycle is the same as the process, e.g. Cache and default Orphan
+        QUERY = 1,         // Count the memory consumption of all Query tasks.
+        LOAD = 2,          // Count the memory consumption of all Load tasks.
+        COMPACTION = 3,    // Count the memory consumption of all Base and Cumulative tasks.
+        SCHEMA_CHANGE = 4, // Count the memory consumption of all SchemaChange tasks.
+        OTHER = 5
+    };
+
+    static std::string type_string(Type type) {
+        switch (type) {
+        case Type::GLOBAL:
+            return "global";
+        case Type::QUERY:
+            return "query";
+        case Type::LOAD:
+            return "load";
+        case Type::COMPACTION:
+            return "compaction";
+        case Type::SCHEMA_CHANGE:
+            return "schema_change";
+        case Type::OTHER:
+            return "other";
+        default:
+            LOG(FATAL) << "not match type of mem tracker limiter :" << static_cast<int>(type);
+        }
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
+    }
+
     // A counter that keeps track of the current and peak value seen.
     // Relaxed ordering, not accurate in real time.
     class MemCounter {
@@ -70,7 +100,7 @@ public:
         MemCounter() : _current_value(0), _peak_value(0) {}
 
         void add(int64_t delta) {
-            auto value = _current_value.fetch_add(delta, std::memory_order_relaxed) + delta;
+            int64_t value = _current_value.fetch_add(delta, std::memory_order_relaxed) + delta;
             update_peak(value);
         }
 
@@ -79,8 +109,8 @@ public:
         }
 
         bool try_add(int64_t delta, int64_t max) {
-            auto cur_val = _current_value.load(std::memory_order_relaxed);
-            auto new_val = 0;
+            int64_t cur_val = _current_value.load(std::memory_order_relaxed);
+            int64_t new_val = 0;
             do {
                 new_val = cur_val + delta;
                 if (UNLIKELY(new_val > max)) {
@@ -100,7 +130,7 @@ public:
         }
 
         void update_peak(int64_t value) {
-            auto pre_value = _peak_value.load(std::memory_order_relaxed);
+            int64_t pre_value = _peak_value.load(std::memory_order_relaxed);
             while (value > pre_value && !_peak_value.compare_exchange_weak(
                                                 pre_value, value, std::memory_order_relaxed)) {
             }
@@ -127,6 +157,7 @@ public:
     }
 
 public:
+    Type type() const { return _type; }
     const std::string& label() const { return _label; }
     const std::string& parent_label() const { return _parent_label; }
     const std::string& set_parent_label() const { return _parent_label; }
@@ -160,6 +191,7 @@ public:
     // Specify group_num from mem_tracker_pool to generate snapshot.
     static void make_group_snapshot(std::vector<Snapshot>* snapshots, int64_t group_num,
                                     std::string parent_label);
+    static void make_all_trackers_snapshots(std::vector<Snapshot>* snapshots);
     static std::string log_usage(MemTracker::Snapshot snapshot);
 
     virtual std::string debug_string() {
@@ -173,6 +205,8 @@ public:
 protected:
     void bind_parent(MemTrackerLimiter* parent);
 
+    Type _type;
+
     // label used in the make snapshot, not guaranteed unique.
     std::string _label;
 
@@ -180,6 +214,7 @@ protected:
 
     // Tracker is located in group num in mem_tracker_pool
     int64_t _parent_group_num = 0;
+
     // Use _parent_label to correlate with parent limiter tracker.
     std::string _parent_label = "-";
 

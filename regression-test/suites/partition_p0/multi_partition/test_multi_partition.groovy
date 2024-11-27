@@ -465,4 +465,45 @@ suite("test_multi_partition") {
     assertTrue(result2[1][1].startsWith("p_"))
     sql "drop table multi_par12"
 
+
+    // create one table without datetime partition, but with date string
+    sql """set enable_fallback_to_original_planner=false"""
+    sql """
+        CREATE TABLE IF NOT EXISTS range_date_cast_to_datetime_multi_partition ( 
+            id int,
+            name string,
+            pdate DATETIME ) 
+        PARTITION BY RANGE(pdate)(
+            FROM ("2023-04-16") TO ("2023-04-20") INTERVAL 1 DAY
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1 properties("replication_num" = "1")
+        """
+    result1  = sql "show tables like 'range_date_cast_to_datetime_multi_partition'"
+    logger.info("${result1}")
+    assertEquals(result1.size(), 1)
+    result2  = sql "show partitions from range_date_cast_to_datetime_multi_partition"
+    logger.info("${result2}")
+    assertEquals(result2.size(), 4)
+    assertTrue(result2[1][1].startsWith("p_"))
+    sql "drop table range_date_cast_to_datetime_multi_partition"
+
+    sql """set enable_fallback_to_original_planner=true"""
+    sql """
+        CREATE TABLE IF NOT EXISTS range_date_cast_to_datetime_multi_partition ( 
+            id int,
+            name string,
+            pdate DATETIME ) 
+        PARTITION BY RANGE(pdate)(
+            FROM ("2023-04-16") TO ("2023-04-20") INTERVAL 1 DAY
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1 properties("replication_num" = "1")
+        """
+    result1  = sql "show tables like 'range_date_cast_to_datetime_multi_partition'"
+    logger.info("${result1}")
+    assertEquals(result1.size(), 1)
+    result2  = sql "show partitions from range_date_cast_to_datetime_multi_partition"
+    logger.info("${result2}")
+    assertEquals(result2.size(), 4)
+    assertTrue(result2[1][1].startsWith("p_"))
+    sql "drop table range_date_cast_to_datetime_multi_partition"
 }

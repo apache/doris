@@ -89,6 +89,7 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
 #include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_convert_tz.h"
 #include "vec/functions/function_helpers.h"
@@ -116,8 +117,8 @@ inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column
               check_and_get_data_type<DataTypeUInt16>(arg_type) ||
               check_and_get_data_type<DataTypeUInt8>(arg_type);
     if (!ok) {
-        LOG(FATAL) << fmt::format("Illegal type of toDecimal() scale {}",
-                                  named_column.type->get_name());
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Illegal type of toDecimal() scale {}",
+                               named_column.type->get_name());
     }
 
     Field field;
@@ -216,12 +217,12 @@ struct TimeCast {
     template <typename T, typename S>
     //requires {std::is_arithmetic_v<T> && std::is_arithmetic_v<S>}
     static bool try_parse_time(T from, S& x, const cctz::time_zone& local_time_zone) {
-        int64 seconds = from / 100;
+        int64 seconds = int64(from / 100);
         int64 hour = 0, minute = 0, second = 0;
-        second = from - 100 * seconds;
+        second = int64(from - 100 * seconds);
         from /= 100;
-        seconds = from / 100;
-        minute = from - 100 * seconds;
+        seconds = int64(from / 100);
+        minute = int64(from - 100 * seconds);
         hour = seconds;
         if (minute >= 60 || second >= 60) {
             return false;
@@ -345,13 +346,13 @@ struct ConvertImpl {
                                         vec_from.size());
                             } else if constexpr (IsDataTypeDecimal<FromDataType>) {
                                 convert_from_decimal<FromDataType, ToDataType, narrow_integral>(
-                                        vec_to.data(), vec_from.data(), vec_from.get_scale(),
-                                        min_result, max_result, size);
+                                        vec_to.data(), vec_from.data(), from_precision,
+                                        vec_from.get_scale(), min_result, max_result, size);
                             } else {
                                 convert_to_decimal<FromDataType, ToDataType, multiply_may_overflow,
-                                                   narrow_integral>(vec_to.data(), vec_from.data(),
-                                                                    from_scale, to_scale,
-                                                                    min_result, max_result, size);
+                                                   narrow_integral>(
+                                        vec_to.data(), vec_from.data(), from_scale, to_precision,
+                                        to_scale, min_result, max_result, size);
                             }
                         },
                         make_bool_variant(multiply_may_overflow),
@@ -388,7 +389,7 @@ struct ConvertImpl {
                             DataTypeDateTimeV2::cast_to_date_v2(vec_from[i], vec_to[i]);
                         } else {
                             UInt32 scale = additions;
-                            vec_to[i] = vec_from[i] / std::pow(10, 6 - scale);
+                            vec_to[i] = ToFieldType(vec_from[i] / std::pow(10, 6 - scale));
                         }
                     } else if constexpr (IsTimeType<ToDataType>) {
                         if constexpr (IsDateTimeType<ToDataType> && IsDateV2Type<FromDataType>) {
@@ -515,7 +516,7 @@ struct ConvertImplToTimeType {
                     [&](auto narrow_integral) {
                         for (size_t i = 0; i < size; ++i) {
                             auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
-                            vec_null_map_to[i] = !date_value.from_date_int64(vec_from[i]);
+                            vec_null_map_to[i] = !date_value.from_date_int64(int64_t(vec_from[i]));
                             // DateType of VecDateTimeValue should cast to date
                             if constexpr (IsDateType<ToDataType>) {
                                 date_value.cast_to_date();
@@ -582,6 +583,7 @@ struct ConvertImplGenericFromString {
             const bool is_complex = is_complex_type(data_type_to);
             DataTypeSerDe::FormatOptions format_options;
             format_options.converted_from_string = true;
+            format_options.escape_char = '\\';
 
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
@@ -646,6 +648,7 @@ struct ConvertImplNumberToJsonb {
                 writer.writeDouble(data[i]);
             } else {
                 LOG(FATAL) << "unsupported type ";
+                __builtin_unreachable();
             }
             column_string->insert_data(writer.getOutput()->getBuffer(),
                                        writer.getOutput()->getSize());
@@ -723,14 +726,25 @@ struct ConvertImplGenericFromJsonb {
                 }
                 // add string to string column
                 if (context->jsonb_string_as_string() && is_dst_string && value->isString()) {
-                    auto blob = static_cast<const JsonbBlobVal*>(value);
+                    const auto* blob = static_cast<const JsonbBlobVal*>(value);
                     assert_cast<ColumnString&>(*col_to).insert_data(blob->getBlob(),
                                                                     blob->getBlobLen());
                     (*vec_null_map_to)[i] = 0;
                     continue;
                 }
-                std::string json_str = JsonbToJson::jsonb_to_json_string(val.data, val.size);
-                ReadBuffer read_buffer((char*)(json_str.data()), json_str.size());
+                std::string input_str;
+                if (context->jsonb_string_as_string() && value->isString()) {
+                    const auto* blob = static_cast<const JsonbBlobVal*>(value);
+                    input_str = std::string(blob->getBlob(), blob->getBlobLen());
+                } else {
+                    input_str = JsonbToJson::jsonb_to_json_string(val.data, val.size);
+                }
+                if (input_str.empty()) {
+                    col_to->insert_default();
+                    (*vec_null_map_to)[i] = 1;
+                    continue;
+                }
+                ReadBuffer read_buffer((char*)(input_str.data()), input_str.size());
                 Status st = data_type_to->from_string(read_buffer, col_to);
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
@@ -761,29 +775,44 @@ struct ConvertImplGenericToJsonb {
         auto column_string = ColumnString::create();
         JsonbWriter writer;
 
+        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(col_from.size());
+        ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
+        DataTypeSerDe::FormatOptions format_options;
+        format_options.converted_from_string = true;
+        DataTypeSerDeSPtr from_serde = type.get_serde();
+        DataTypeSerDeSPtr to_serde = data_type_to->get_serde();
+        auto col_to = data_type_to->create_column();
+
         auto tmp_col = ColumnString::create();
+        vectorized::DataTypeSerDe::FormatOptions options;
+        options.escape_char = '\\';
         for (size_t i = 0; i < input_rows_count; i++) {
             // convert to string
             tmp_col->clear();
             VectorBufferWriter write_buffer(*tmp_col.get());
-            type.to_string(col_from, i, write_buffer);
+            Status st =
+                    from_serde->serialize_column_to_json(col_from, i, i + 1, write_buffer, options);
+            // if serialized failed, will return null
+            (*vec_null_map_to)[i] = !st.ok();
+            if (!st.ok()) {
+                col_to->insert_default();
+                continue;
+            }
             write_buffer.commit();
             writer.reset();
             auto str_ref = tmp_col->get_data_at(0);
-            ReadBuffer read_buffer((char*)(str_ref.data), str_ref.size);
+            Slice data((char*)(str_ref.data), str_ref.size);
             // first try to parse string
-            Status st = data_type_to->from_string(read_buffer, column_string.get());
+            st = to_serde->deserialize_one_cell_from_json(*col_to, data, format_options);
+            // if parsing failed, will return null
+            (*vec_null_map_to)[i] = !st.ok();
             if (!st.ok()) {
-                // write raw string to jsonb
-                writer.writeStartString();
-                writer.writeString(str_ref.data, str_ref.size);
-                writer.writeEndString();
-                column_string->insert_data(writer.getOutput()->getBuffer(),
-                                           writer.getOutput()->getSize());
+                col_to->insert_default();
             }
         }
 
-        block.replace_by_position(result, std::move(column_string));
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(col_to), std::move(col_null_map_to)));
         return Status::OK();
     }
 };
@@ -834,9 +863,35 @@ struct ConvertImplFromJsonb {
                     res[i] = 0;
                     continue;
                 }
-
                 if constexpr (type_index == TypeIndex::UInt8) {
+                    // cast from json value to boolean type
                     if (value->isTrue()) {
+                        res[i] = 1;
+                    } else if (value->isFalse()) {
+                        res[i] = 0;
+                    } else if (value->isInt()) {
+                        res[i] = ((const JsonbIntVal*)value)->val() == 0 ? 0 : 1;
+                    } else if (value->isDouble()) {
+                        res[i] = static_cast<ColumnType::value_type>(
+                                         ((const JsonbDoubleVal*)value)->val()) == 0
+                                         ? 0
+                                         : 1;
+                    } else {
+                        null_map[i] = 1;
+                        res[i] = 0;
+                    }
+                } else if constexpr (type_index == TypeIndex::Int8 ||
+                                     type_index == TypeIndex::Int16 ||
+                                     type_index == TypeIndex::Int32 ||
+                                     type_index == TypeIndex::Int64 ||
+                                     type_index == TypeIndex::Int128) {
+                    // cast from json value to integer types
+                    if (value->isInt()) {
+                        res[i] = ((const JsonbIntVal*)value)->val();
+                    } else if (value->isDouble()) {
+                        res[i] = static_cast<ColumnType::value_type>(
+                                ((const JsonbDoubleVal*)value)->val());
+                    } else if (value->isTrue()) {
                         res[i] = 1;
                     } else if (value->isFalse()) {
                         res[i] = 0;
@@ -844,48 +899,18 @@ struct ConvertImplFromJsonb {
                         null_map[i] = 1;
                         res[i] = 0;
                     }
-                } else if constexpr (type_index == TypeIndex::Int8) {
-                    if (value->isInt8()) {
-                        res[i] = (int8_t)((const JsonbIntVal*)value)->val();
-                    } else {
-                        null_map[i] = 1;
-                        res[i] = 0;
-                    }
-                } else if constexpr (type_index == TypeIndex::Int16) {
-                    if (value->isInt8() || value->isInt16()) {
-                        res[i] = (int16_t)((const JsonbIntVal*)value)->val();
-                    } else {
-                        null_map[i] = 1;
-                        res[i] = 0;
-                    }
-                } else if constexpr (type_index == TypeIndex::Int32) {
-                    if (value->isInt8() || value->isInt16() || value->isInt32()) {
-                        res[i] = (int32_t)((const JsonbIntVal*)value)->val();
-                    } else {
-                        null_map[i] = 1;
-                        res[i] = 0;
-                    }
-                } else if constexpr (type_index == TypeIndex::Int64) {
-                    if (value->isInt8() || value->isInt16() || value->isInt32() ||
-                        value->isInt64()) {
-                        res[i] = (int64_t)((const JsonbIntVal*)value)->val();
-                    } else {
-                        null_map[i] = 1;
-                        res[i] = 0;
-                    }
-                } else if constexpr (type_index == TypeIndex::Int128) {
-                    if (value->isInt8() || value->isInt16() || value->isInt32() ||
-                        value->isInt64() || value->isInt128()) {
-                        res[i] = (int128_t)((const JsonbIntVal*)value)->val();
-                    } else {
-                        null_map[i] = 1;
-                        res[i] = 0;
-                    }
-                } else if constexpr (type_index == TypeIndex::Float64) {
+                } else if constexpr (type_index == TypeIndex::Float64 ||
+                                     type_index == TypeIndex::Float32) {
+                    // cast from json value to floating point types
                     if (value->isDouble()) {
                         res[i] = ((const JsonbDoubleVal*)value)->val();
-                    } else if (value->isInt8() || value->isInt16() || value->isInt32() ||
-                               value->isInt64()) {
+                    } else if (value->isFloat()) {
+                        res[i] = ((const JsonbFloatVal*)value)->val();
+                    } else if (value->isTrue()) {
+                        res[i] = 1;
+                    } else if (value->isFalse()) {
+                        res[i] = 0;
+                    } else if (value->isInt()) {
                         res[i] = ((const JsonbIntVal*)value)->val();
                     } else {
                         null_map[i] = 1;
@@ -893,6 +918,7 @@ struct ConvertImplFromJsonb {
                     }
                 } else {
                     LOG(FATAL) << "unsupported type ";
+                    __builtin_unreachable();
                 }
             }
 
@@ -982,25 +1008,23 @@ struct NameToDateTime {
     static constexpr auto name = "toDateTime";
 };
 
-template <typename DataType, typename Additions = void*, typename FromDataType = void*>
-bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
-                    const cctz::time_zone& local_time_zone,
-                    Additions additions [[maybe_unused]] = Additions()) {
+template <typename DataType, typename FromDataType = void*>
+bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionContext* context,
+                    UInt32 scale [[maybe_unused]] = 0) {
     if constexpr (IsDateTimeType<DataType>) {
-        return try_read_datetime_text(x, rb, local_time_zone);
+        return try_read_datetime_text(x, rb, context->state()->timezone_obj());
     }
 
     if constexpr (IsDateType<DataType>) {
-        return try_read_date_text(x, rb, local_time_zone);
+        return try_read_date_text(x, rb, context->state()->timezone_obj());
     }
 
     if constexpr (IsDateV2Type<DataType>) {
-        return try_read_date_v2_text(x, rb, local_time_zone);
+        return try_read_date_v2_text(x, rb, context->state()->timezone_obj());
     }
 
     if constexpr (IsDateTimeV2Type<DataType>) {
-        UInt32 scale = additions;
-        return try_read_datetime_v2_text(x, rb, local_time_zone, scale);
+        return try_read_datetime_v2_text(x, rb, context->state()->timezone_obj(), scale);
     }
 
     if constexpr (IsIPv4Type<DataType>) {
@@ -1017,7 +1041,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
         auto len = rb.count();
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
-        auto ret = TimeCast::try_parse_time(s, len, x, local_time_zone);
+        auto ret = TimeCast::try_parse_time(s, len, x, context->state()->timezone_obj());
         x *= (1000 * 1000);
         return ret;
     }
@@ -1037,7 +1061,6 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
 
 template <typename DataType, typename Additions = void*>
 StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x, ReadBuffer& rb,
-                                                 const cctz::time_zone& local_time_zone,
                                                  Additions additions
                                                  [[maybe_unused]] = Additions()) {
     if constexpr (IsDataTypeDecimalV2<DataType>) {
@@ -1466,15 +1489,9 @@ private:
     const char* name;
 };
 
-struct NameCast {
-    static constexpr auto name = "CAST";
-};
-
-template <typename FromDataType, typename ToDataType, typename Name>
-struct ConvertThroughParsing {
-    static_assert(std::is_same_v<FromDataType, DataTypeString>,
-                  "ConvertThroughParsing is only applicable for String or FixedString data types");
-
+// always from DataTypeString
+template <typename ToDataType, typename Name>
+struct StringParsing {
     using ToFieldType = typename ToDataType::FieldType;
 
     static bool is_all_read(ReadBuffer& in) { return in.eof(); }
@@ -1487,48 +1504,38 @@ struct ConvertThroughParsing {
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
 
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
-        const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
+        const auto* col_from_string = check_and_get_column<ColumnString>(col_from);
 
-        if (std::is_same_v<FromDataType, DataTypeString> && !col_from_string) {
+        if (!col_from_string) {
             return Status::RuntimeError("Illegal column {} of first argument of function {}",
                                         col_from->get_name(), Name::name);
         }
 
-        size_t size = input_rows_count;
+        size_t row = input_rows_count;
         typename ColVecTo::MutablePtr col_to = nullptr;
 
         if constexpr (IsDataTypeDecimal<ToDataType>) {
             UInt32 scale = ((PrecisionScaleArg)additions).scale;
             ToDataType::check_type_scale(scale);
-            col_to = ColVecTo::create(size, scale);
+            col_to = ColVecTo::create(row, scale);
         } else {
-            col_to = ColVecTo::create(size);
+            col_to = ColVecTo::create(row);
         }
 
         typename ColVecTo::Container& vec_to = col_to->get_data();
 
         ColumnUInt8::MutablePtr col_null_map_to;
         ColumnUInt8::Container* vec_null_map_to [[maybe_unused]] = nullptr;
-        col_null_map_to = ColumnUInt8::create(size);
+        col_null_map_to = ColumnUInt8::create(row);
         vec_null_map_to = &col_null_map_to->get_data();
 
-        const ColumnString::Chars* chars = nullptr;
-        const IColumn::Offsets* offsets = nullptr;
-        size_t fixed_string_size = 0;
-
-        if constexpr (std::is_same_v<FromDataType, DataTypeString>) {
-            chars = &col_from_string->get_chars();
-            offsets = &col_from_string->get_offsets();
-        }
+        const ColumnString::Chars* chars = &col_from_string->get_chars();
+        const IColumn::Offsets* offsets = &col_from_string->get_offsets();
 
         size_t current_offset = 0;
-        for (size_t i = 0; i < size; ++i) {
-            size_t next_offset = std::is_same_v<FromDataType, DataTypeString>
-                                         ? (*offsets)[i]
-                                         : (current_offset + fixed_string_size);
-            size_t string_size = std::is_same_v<FromDataType, DataTypeString>
-                                         ? next_offset - current_offset
-                                         : fixed_string_size;
+        for (size_t i = 0; i < row; ++i) {
+            size_t next_offset = (*offsets)[i];
+            size_t string_size = next_offset - current_offset;
 
             ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
@@ -1536,20 +1543,18 @@ struct ConvertThroughParsing {
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 ToDataType::check_type_precision((PrecisionScaleArg(additions).precision));
                 StringParser::ParseResult res = try_parse_decimal_impl<ToDataType>(
-                        vec_to[i], read_buffer, context->state()->timezone_obj(),
-                        PrecisionScaleArg(additions));
+                        vec_to[i], read_buffer, PrecisionScaleArg(additions));
                 parsed = (res == StringParser::PARSE_SUCCESS ||
                           res == StringParser::PARSE_OVERFLOW ||
                           res == StringParser::PARSE_UNDERFLOW);
             } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
                 const auto* type = assert_cast<const DataTypeDateTimeV2*>(
                         block.get_by_position(result).type.get());
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
-                                                    context->state()->timezone_obj(),
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context,
                                                     type->get_scale());
             } else {
-                parsed = try_parse_impl<ToDataType, void*, FromDataType>(
-                        vec_to[i], read_buffer, context->state()->timezone_obj());
+                parsed =
+                        try_parse_impl<ToDataType, DataTypeString>(vec_to[i], read_buffer, context);
             }
             (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
             current_offset = next_offset;
@@ -1563,25 +1568,27 @@ struct ConvertThroughParsing {
 
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal32>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal32>, Name> {};
+        : StringParsing<DataTypeDecimal<Decimal32>, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal64>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal64>, Name> {};
+        : StringParsing<DataTypeDecimal<Decimal64>, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V2>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128V2>, Name> {};
+        : StringParsing<DataTypeDecimal<Decimal128V2>, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V3>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128V3>, Name> {};
+        : StringParsing<DataTypeDecimal<Decimal128V3>, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal256>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal256>, Name> {};
+        : StringParsing<DataTypeDecimal<Decimal256>, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeIPv4, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeIPv4, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeIPv4, Name> : StringParsing<DataTypeIPv4, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeIPv6, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeIPv6, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeIPv6, Name> : StringParsing<DataTypeIPv6, Name> {};
+
+struct NameCast {
+    static constexpr auto name = "CAST";
+};
 
 template <typename ToDataType, typename Name>
 class FunctionConvertFromString : public IFunction {
@@ -1600,8 +1607,10 @@ public:
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         DataTypePtr res;
         if constexpr (IsDataTypeDecimal<ToDataType>) {
-            LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
-
+            auto error_type = std::make_shared<ToDataType>();
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "something wrong type in function {}.", get_name(),
+                                   error_type->get_name());
         } else {
             res = std::make_shared<ToDataType>();
         }
@@ -1614,8 +1623,8 @@ public:
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
         if (check_and_get_data_type<DataTypeString>(from_type)) {
-            return ConvertThroughParsing<DataTypeString, ToDataType, Name>::execute(
-                    context, block, arguments, result, input_rows_count);
+            return StringParsing<ToDataType, Name>::execute(context, block, arguments, result,
+                                                            input_rows_count);
         }
 
         return Status::RuntimeError(
@@ -1819,7 +1828,6 @@ private:
     }
 
     WrapperType create_unsupport_wrapper(const String error_msg) const {
-        LOG(WARNING) << error_msg;
         return [error_msg](FunctionContext* /*context*/, Block& /*block*/,
                            const ColumnNumbers& /*arguments*/, const size_t /*result*/,
                            size_t /*input_rows_count*/) {
@@ -1908,7 +1916,7 @@ private:
         return [nested_function, from_nested_type, to_nested_type](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                        const size_t result, size_t /*input_rows_count*/) -> Status {
-            auto& from_column = block.get_by_position(arguments.front()).column;
+            ColumnPtr from_column = block.get_by_position(arguments.front()).column;
 
             const ColumnArray* from_col_array =
                     check_and_get_column<ColumnArray>(from_column.get());
@@ -2083,7 +2091,6 @@ private:
             const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
             auto& from_type = col_with_type_and_name.type;
             auto& col_from = col_with_type_and_name.column;
-
             // set variant root column/type to from column/type
             auto variant = ColumnObject::create(true /*always nullable*/);
             variant->create_root(from_type, col_from->assume_mutable());

@@ -44,8 +44,10 @@ Status TableFunctionOperator::close(doris::RuntimeState* state) {
 TableFunctionLocalState::TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<>(state, parent), _child_block(vectorized::Block::create_unique()) {}
 
-Status TableFunctionLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+Status TableFunctionLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(PipelineXLocalState<>::exec_time_counter());
+    SCOPED_TIMER(PipelineXLocalState<>::_open_timer);
+    RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     auto& p = _parent->cast<TableFunctionOperatorX>();
     _vfn_ctxs.resize(p._vfn_ctxs.size());
     for (size_t i = 0; i < _vfn_ctxs.size(); i++) {
@@ -185,16 +187,14 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
             if (skip_child_row = _is_inner_and_empty(); skip_child_row) {
                 continue;
             }
-            if (p._fn_num == 1) {
-                _current_row_insert_times += _fns[0]->get_value(
-                        columns[p._child_slots.size()],
-                        state->batch_size() - columns[p._child_slots.size()]->size());
-            } else {
-                for (int i = 0; i < p._fn_num; i++) {
-                    _fns[i]->get_value(columns[i + p._child_slots.size()]);
-                }
-                _current_row_insert_times++;
-                _fns[p._fn_num - 1]->forward();
+
+            DCHECK_LE(1, p._fn_num);
+            auto repeat_times = _fns[p._fn_num - 1]->get_value(
+                    columns[p._child_slots.size() + p._fn_num - 1],
+                    state->batch_size() - columns[p._child_slots.size()]->size());
+            _current_row_insert_times += repeat_times;
+            for (int i = 0; i < p._fn_num - 1; i++) {
+                _fns[i]->get_same_many_values(columns[i + p._child_slots.size()], repeat_times);
             }
         }
     }
@@ -241,9 +241,6 @@ TableFunctionOperatorX::TableFunctionOperatorX(ObjectPool* pool, const TPlanNode
 
 Status TableFunctionOperatorX::_prepare_output_slot_ids(const TPlanNode& tnode) {
     // Prepare output slot ids
-    if (tnode.table_function_node.outputSlotIds.empty()) {
-        return Status::InternalError("Output slots of table function node is empty");
-    }
     SlotId max_id = -1;
     for (auto slot_id : tnode.table_function_node.outputSlotIds) {
         if (slot_id > max_id) {

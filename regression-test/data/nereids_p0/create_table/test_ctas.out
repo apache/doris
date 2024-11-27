@@ -21,3 +21,9 @@ r2	{"title":"Amount","value":2.1}
 2.1	2.20000	2.3	2.400000	2.500000	2.600000
 2.1	2.20000	2.3	2.400000	2.500000	2.600000
 
+-- !desc --
+__substring_0	varchar(30)	Yes	true	\N	
+
+-- !desc --
+__substring_0	varchar(30)	Yes	true	\N	
+

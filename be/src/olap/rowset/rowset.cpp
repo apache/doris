@@ -20,14 +20,27 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "olap/olap_define.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "util/time.h"
+#include "vec/common/schema_util.h"
 
 namespace doris {
 
+static bvar::Adder<size_t> g_total_rowset_num("doris_total_rowset_num");
+
 Rowset::Rowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta)
         : _rowset_meta(rowset_meta), _refs_by_reader(0) {
-    _is_pending = !_rowset_meta->has_version();
+    _is_pending = true;
+
+    // Generally speaking, as long as a rowset has a version, it can be considered not to be in a pending state.
+    // However, if the rowset was created through ingesting binlogs, it will have a version but should still be
+    // considered in a pending state because the ingesting txn has not yet been committed.
+    if (_rowset_meta->has_version() && _rowset_meta->start_version() > 0 &&
+        _rowset_meta->rowset_state() != COMMITTED) {
+        _is_pending = false;
+    }
+
     if (_is_pending) {
         _is_cumulative = false;
     } else {
@@ -36,6 +49,11 @@ Rowset::Rowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset
     }
     // build schema from RowsetMeta.tablet_schema or Tablet.tablet_schema
     _schema = _rowset_meta->tablet_schema() ? _rowset_meta->tablet_schema() : schema;
+    g_total_rowset_num << 1;
+}
+
+Rowset::~Rowset() {
+    g_total_rowset_num << -1;
 }
 
 Status Rowset::load(bool use_cache) {
@@ -84,12 +102,33 @@ void Rowset::merge_rowset_meta(const RowsetMetaSharedPtr& other) {
     _rowset_meta->set_num_segments(num_segments() + other->num_segments());
     _rowset_meta->set_num_rows(num_rows() + other->num_rows());
     _rowset_meta->set_data_disk_size(data_disk_size() + other->data_disk_size());
+    _rowset_meta->set_total_disk_size(total_disk_size() + other->total_disk_size());
     _rowset_meta->set_index_disk_size(index_disk_size() + other->index_disk_size());
     std::vector<KeyBoundsPB> key_bounds;
     other->get_segments_key_bounds(&key_bounds);
     for (auto key_bound : key_bounds) {
         _rowset_meta->add_segment_key_bounds(key_bound);
     }
+
+    // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
+    // Otherwise the schema is stale and lead to wrong data read
+    if (tablet_schema()->num_variant_columns() > 0) {
+        // merge extracted columns
+        TabletSchemaSPtr merged_schema;
+        static_cast<void>(vectorized::schema_util::get_least_common_schema(
+                {tablet_schema(), other->tablet_schema()}, nullptr, merged_schema));
+        if (*_schema != *merged_schema) {
+            _rowset_meta->set_tablet_schema(merged_schema);
+        }
+        // rowset->meta_meta()->tablet_schema() maybe updated so make sure _schema is
+        // consistent with rowset meta
+        _schema = _rowset_meta->tablet_schema();
+    }
+}
+
+void Rowset::clear_cache() {
+    SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
+    clear_inverted_index_cache();
 }
 
 } // namespace doris

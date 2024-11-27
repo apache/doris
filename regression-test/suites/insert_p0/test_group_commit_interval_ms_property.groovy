@@ -51,7 +51,7 @@ suite("test_group_commit_interval_ms_property") {
                 v bigint
                 )  
                 UNIQUE KEY(k)  
-                DISTRIBUTED BY HASH (v) BUCKETS 8
+                DISTRIBUTED BY HASH (k) BUCKETS 8
                 PROPERTIES(  
                 "replication_num" = "1",
                 "group_commit_interval_ms"="10000"

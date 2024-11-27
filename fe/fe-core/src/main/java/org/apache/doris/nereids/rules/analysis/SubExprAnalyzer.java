@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -34,7 +34,9 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -49,8 +51,7 @@ import java.util.Optional;
 /**
  * Use the visitor to iterate sub expression.
  */
-class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
-
+class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
     private final Scope scope;
     private final CascadesContext cascadesContext;
 
@@ -60,7 +61,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitNot(Not not, CascadesContext context) {
+    public Expression visitNot(Not not, T context) {
         Expression child = not.child();
         if (child instanceof Exists) {
             return visitExistsSubquery(
@@ -73,7 +74,12 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitExistsSubquery(Exists exists, CascadesContext context) {
+    public Expression visitExistsSubquery(Exists exists, T context) {
+        LogicalPlan queryPlan = exists.getQueryPlan();
+        // distinct is useless, remove it
+        if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
+            exists = exists.withSubquery(((LogicalProject) queryPlan).withDistinct(false));
+        }
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
         if (analyzedResult.rootIsLimitZero()) {
             return BooleanLiteral.of(exists.isNot());
@@ -87,7 +93,12 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitInSubquery(InSubquery expr, CascadesContext context) {
+    public Expression visitInSubquery(InSubquery expr, T context) {
+        LogicalPlan queryPlan = expr.getQueryPlan();
+        // distinct is useless, remove it
+        if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
+            expr = expr.withSubquery(((LogicalProject) queryPlan).withDistinct(false));
+        }
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
@@ -101,21 +112,28 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     @Override
-    public Expression visitScalarSubquery(ScalarSubquery scalar, CascadesContext context) {
+    public Expression visitScalarSubquery(ScalarSubquery scalar, T context) {
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
         checkHasAgg(analyzedResult);
         checkHasNoGroupBy(analyzedResult);
 
-        return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
-    }
+        // if scalar subquery is like select '2024-02-02 00:00:00'
+        // we can just return the constant expr '2024-02-02 00:00:00'
+        if (analyzedResult.getLogicalPlan() instanceof LogicalProject) {
+            LogicalProject project = (LogicalProject) analyzedResult.getLogicalPlan();
+            if (project.child() instanceof LogicalOneRowRelation
+                    && project.getProjects().size() == 1
+                    && project.getProjects().get(0) instanceof Alias) {
+                Alias alias = (Alias) project.getProjects().get(0);
+                if (alias.isConstant()) {
+                    return alias.child();
+                }
+            }
+        }
 
-    private boolean childrenAtLeastOneInOrExistsSub(BinaryOperator binaryOperator) {
-        return binaryOperator.left().anyMatch(InSubquery.class::isInstance)
-                || binaryOperator.left().anyMatch(Exists.class::isInstance)
-                || binaryOperator.right().anyMatch(InSubquery.class::isInstance)
-                || binaryOperator.right().anyMatch(Exists.class::isInstance);
+        return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
     }
 
     private void checkOutputColumn(LogicalPlan plan) {
@@ -165,6 +183,9 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     private AnalyzedResult analyzeSubquery(SubqueryExpr expr) {
+        if (cascadesContext == null) {
+            throw new IllegalStateException("Missing CascadesContext");
+        }
         CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
                 cascadesContext, expr.getQueryPlan(), cascadesContext.getCteContext());
         Scope subqueryScope = genScopeWithSubquery(expr);

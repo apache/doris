@@ -83,8 +83,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 List<Slot> output = olapScan.getOutput();
                 List<Slot> baseOutput = olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId());
                 List<ExprId> hashColumns = Lists.newArrayList();
-                for (Slot slot : output) {
-                    for (Column column : hashDistributionInfo.getDistributionColumns()) {
+                for (Column column : hashDistributionInfo.getDistributionColumns()) {
+                    for (Slot slot : output) {
                         if (((SlotReference) slot).getColumn().get().getNameWithoutMvPrefix()
                                 .equals(column.getName())) {
                             hashColumns.add(slot.getExprId());
@@ -92,8 +92,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                     }
                 }
                 if (hashColumns.size() != hashDistributionInfo.getDistributionColumns().size()) {
-                    for (Slot slot : baseOutput) {
-                        for (Column column : hashDistributionInfo.getDistributionColumns()) {
+                    for (Column column : hashDistributionInfo.getDistributionColumns()) {
+                        for (Slot slot : baseOutput) {
                             // If the length of the column in the bucket key changes after DDL, the length cannot be
                             // determined. As a result, some bucket fields are lost in the query execution plan.
                             // So here we use the column name to avoid this problem
@@ -109,8 +109,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Slot> output = olapScan.getOutput();
                 List<ExprId> hashColumns = Lists.newArrayList();
-                for (Slot slot : output) {
-                    for (Column column : hashDistributionInfo.getDistributionColumns()) {
+                for (Column column : hashDistributionInfo.getDistributionColumns()) {
+                    for (Slot slot : output) {
                         // If the length of the column in the bucket key changes after DDL, the length cannot be
                         // determined. As a result, some bucket fields are lost in the query execution plan.
                         // So here we use the column name to avoid this problem

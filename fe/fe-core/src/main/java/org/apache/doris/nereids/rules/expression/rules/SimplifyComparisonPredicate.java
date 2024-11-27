@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -55,17 +57,18 @@ import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.List;
 
 /**
  * simplify comparison
  * such as: cast(c1 as DateV2) >= DateV2Literal --> c1 >= DateLiteral
  *          cast(c1 AS double) > 2.0 --> c1 >= 2 (c1 is integer like type)
  */
-public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
-
+public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule implements ExpressionPatternRuleFactory {
     public static SimplifyComparisonPredicate INSTANCE = new SimplifyComparisonPredicate();
 
     enum AdjustType {
@@ -75,9 +78,19 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
     }
 
     @Override
-    public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
-        cp = (ComparisonPredicate) visit(cp, context);
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesType(ComparisonPredicate.class).then(SimplifyComparisonPredicate::simplify)
+        );
+    }
 
+    @Override
+    public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
+        return simplify(cp);
+    }
+
+    /** simplify */
+    public static Expression simplify(ComparisonPredicate cp) {
         if (cp.left() instanceof Literal && !(cp.right() instanceof Literal)) {
             cp = cp.commute();
         }
@@ -146,7 +159,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         return comparisonPredicate;
     }
 
-    private Expression processDateLikeTypeCoercion(ComparisonPredicate cp, Expression left, Expression right) {
+    private static Expression processDateLikeTypeCoercion(ComparisonPredicate cp, Expression left, Expression right) {
         if (left instanceof Cast && right instanceof DateLiteral) {
             Cast cast = (Cast) left;
             if (cast.child().getDataType() instanceof DateTimeType) {
@@ -196,7 +209,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         }
     }
 
-    private Expression processFloatLikeTypeCoercion(ComparisonPredicate comparisonPredicate,
+    private static Expression processFloatLikeTypeCoercion(ComparisonPredicate comparisonPredicate,
             Expression left, Expression right) {
         if (left instanceof Cast && left.child(0).getDataType().isIntegerLikeType()
                 && (right instanceof DoubleLiteral || right instanceof FloatLiteral)) {
@@ -209,21 +222,22 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         }
     }
 
-    private Expression processDecimalV3TypeCoercion(ComparisonPredicate comparisonPredicate,
+    private static Expression processDecimalV3TypeCoercion(ComparisonPredicate comparisonPredicate,
             Expression left, Expression right) {
         if (left instanceof Cast && right instanceof DecimalV3Literal) {
             Cast cast = (Cast) left;
             left = cast.child();
             DecimalV3Literal literal = (DecimalV3Literal) right;
             if (left.getDataType().isDecimalV3Type()) {
-                if (((DecimalV3Type) left.getDataType())
-                        .getScale() < ((DecimalV3Type) literal.getDataType()).getScale()) {
+                DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
+                DecimalV3Type literalType = (DecimalV3Type) literal.getDataType();
+                if (leftType.getScale() < literalType.getScale()) {
                     int toScale = ((DecimalV3Type) left.getDataType()).getScale();
                     if (comparisonPredicate instanceof EqualTo) {
                         try {
-                            return comparisonPredicate.withChildren(left,
-                                    new DecimalV3Literal((DecimalV3Type) left.getDataType(),
-                                            literal.getValue().setScale(toScale)));
+                            return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                    comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                            literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             if (left.nullable()) {
                                 // TODO: the ideal way is to return an If expr like:
@@ -240,31 +254,31 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
                         }
                     } else if (comparisonPredicate instanceof NullSafeEqual) {
                         try {
-                            return comparisonPredicate.withChildren(left,
-                                    new DecimalV3Literal((DecimalV3Type) left.getDataType(),
-                                            literal.getValue().setScale(toScale)));
+                            return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                    comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                            literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             return BooleanLiteral.of(false);
                         }
                     } else if (comparisonPredicate instanceof GreaterThan
                             || comparisonPredicate instanceof LessThanEqual) {
-                        return comparisonPredicate.withChildren(left, literal.roundFloor(toScale));
+                        return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                comparisonPredicate.withChildren(left, literal.roundFloor(toScale)));
                     } else if (comparisonPredicate instanceof LessThan
                             || comparisonPredicate instanceof GreaterThanEqual) {
-                        return comparisonPredicate.withChildren(left,
-                                literal.roundCeiling(toScale));
+                        return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                comparisonPredicate.withChildren(left, literal.roundCeiling(toScale)));
                     }
                 }
             } else if (left.getDataType().isIntegerLikeType()) {
-                return processIntegerDecimalLiteralComparison(comparisonPredicate, left,
-                        literal.getValue());
+                return processIntegerDecimalLiteralComparison(comparisonPredicate, left, literal.getValue());
             }
         }
 
         return comparisonPredicate;
     }
 
-    private Expression processIntegerDecimalLiteralComparison(
+    private static Expression processIntegerDecimalLiteralComparison(
             ComparisonPredicate comparisonPredicate, Expression left, BigDecimal literal) {
         // we only process isIntegerLikeType, which are tinyint, smallint, int, bigint
         if (literal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0) {
@@ -306,7 +320,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         return comparisonPredicate;
     }
 
-    private IntegerLikeLiteral convertDecimalToIntegerLikeLiteral(BigDecimal decimal) {
+    private static IntegerLikeLiteral convertDecimalToIntegerLikeLiteral(BigDecimal decimal) {
         Preconditions.checkArgument(
                 decimal.scale() <= 0 && decimal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0,
                 "decimal literal must have 0 scale and smaller than Long.MAX_VALUE");
@@ -322,23 +336,24 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         }
     }
 
-    private Expression migrateToDateTime(DateTimeV2Literal l) {
+    private static Expression migrateToDateTime(DateTimeV2Literal l) {
         return new DateTimeLiteral(l.getYear(), l.getMonth(), l.getDay(), l.getHour(), l.getMinute(), l.getSecond());
     }
 
-    private boolean cannotAdjust(DateTimeLiteral l, ComparisonPredicate cp) {
+    private static boolean cannotAdjust(DateTimeLiteral l, ComparisonPredicate cp) {
         return cp instanceof EqualTo && (l.getHour() != 0 || l.getMinute() != 0 || l.getSecond() != 0);
     }
 
-    private Expression migrateToDateV2(DateTimeLiteral l, AdjustType type) {
+    private static Expression migrateToDateV2(DateTimeLiteral l, AdjustType type) {
         DateV2Literal d = new DateV2Literal(l.getYear(), l.getMonth(), l.getDay());
         if (type == AdjustType.UPPER && (l.getHour() != 0 || l.getMinute() != 0 || l.getSecond() != 0)) {
-            d = ((DateV2Literal) d.plusDays(1));
+            return d.plusDays(1);
+        } else {
+            return d;
         }
-        return d;
     }
 
-    private Expression migrateToDate(DateV2Literal l) {
+    private static Expression migrateToDate(DateV2Literal l) {
         return new DateLiteral(l.getYear(), l.getMonth(), l.getDay());
     }
 }

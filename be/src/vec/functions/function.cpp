@@ -141,7 +141,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         return Status::OK();
     }
 
-    // now all columns is const.
+    // now all columns are const.
     Block temporary_block;
 
     size_t arguments_size = args.size();
@@ -179,7 +179,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
     } else {
         result_column = temporary_block.get_by_position(arguments_size).column;
     }
-
+    // We shuold handle the case where the result column is also a ColumnConst.
     block.get_by_position(result).column = ColumnConst::create(result_column, input_rows_count);
     *executed = true;
     return Status::OK();

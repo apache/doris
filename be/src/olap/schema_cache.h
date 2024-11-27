@@ -44,78 +44,51 @@ using SegmentIteratorUPtr = std::unique_ptr<SegmentIterator>;
 // eliminating the need for frequent allocation and deallocation during usage.
 // This caching mechanism proves immensely advantageous, particularly in scenarios
 // with high concurrency, where queries are executed simultaneously.
-class SchemaCache : public LRUCachePolicy {
+class SchemaCache : public LRUCachePolicyTrackingManual {
 public:
-    enum class Type { TABLET_SCHEMA = 0, SCHEMA = 1 };
-
     static SchemaCache* instance();
 
     static void create_global_instance(size_t capacity);
 
-    // get cache schema key, delimiter with SCHEMA_DELIMITER
-    static std::string get_schema_key(int32_t tablet_id, const TabletSchemaSPtr& schema,
-                                      const std::vector<uint32_t>& column_ids, int32_t version,
-                                      Type type);
-    static std::string get_schema_key(int32_t tablet_id, const std::vector<TColumn>& columns,
-                                      int32_t version, Type type);
+    static std::string get_schema_key(int64_t tablet_id, const std::vector<TColumn>& columns,
+                                      int32_t version);
 
     // Get a shared cached schema from cache, schema_key is a subset of column unique ids
-    template <typename SchemaType>
-    SchemaType get_schema(const std::string& schema_key) {
+    TabletSchemaSPtr get_schema(const std::string& schema_key) {
         if (!instance() || schema_key.empty()) {
             return {};
         }
-        auto lru_handle = cache()->lookup(schema_key);
+        auto* lru_handle = lookup(schema_key);
         if (lru_handle) {
-            Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
-            auto value = (CacheValue*)cache()->value(lru_handle);
+            Defer release([cache = this, lru_handle] { cache->release(lru_handle); });
+            auto* value = (CacheValue*)LRUCachePolicy::value(lru_handle);
             VLOG_DEBUG << "use cache schema";
-            if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
-                return value->tablet_schema;
-            }
-            if constexpr (std::is_same_v<SchemaType, SchemaSPtr>) {
-                return value->schema;
-            }
+            return value->tablet_schema;
         }
         return {};
     }
 
     // Insert a shared Schema into cache, schema_key is full column unique ids
-    template <typename SchemaType>
-    void insert_schema(const std::string& key, SchemaType schema) {
+    void insert_schema(const std::string& key, TabletSchemaSPtr schema) {
         if (!instance() || key.empty()) {
             return;
         }
-        CacheValue* value = new CacheValue;
-        if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
-            value->type = Type::TABLET_SCHEMA;
-            value->tablet_schema = schema;
-        } else if constexpr (std::is_same_v<SchemaType, SchemaSPtr>) {
-            value->type = Type::SCHEMA;
-            value->schema = schema;
-        }
-        auto deleter = [](const doris::CacheKey& key, void* value) {
-            CacheValue* cache_value = (CacheValue*)value;
-            delete cache_value;
-        };
-        auto lru_handle =
-                cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, schema->mem_size());
-        cache()->release(lru_handle);
+        auto* value = new CacheValue;
+        value->tablet_schema = schema;
+
+        auto* lru_handle = insert(key, value, 1, schema->mem_size(), CachePriority::NORMAL);
+        release(lru_handle);
     }
 
-    // Try to prune the cache if expired.
-    Status prune();
-
-    struct CacheValue {
-        Type type;
-        // either tablet_schema or schema
+    class CacheValue : public LRUCacheValueBase {
+    public:
         TabletSchemaSPtr tablet_schema = nullptr;
-        SchemaSPtr schema = nullptr;
     };
 
     SchemaCache(size_t capacity)
-            : LRUCachePolicy(CachePolicy::CacheType::SCHEMA_CACHE, capacity, LRUCacheType::NUMBER,
-                             config::schema_cache_sweep_time_sec) {}
+            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::SCHEMA_CACHE, capacity,
+                                           LRUCacheType::NUMBER,
+                                           config::schema_cache_sweep_time_sec) {}
 
 private:
     static constexpr char SCHEMA_DELIMITER = '-';

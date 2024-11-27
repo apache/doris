@@ -86,7 +86,7 @@ public class FlightBearerTokenAuthenticator implements CallHeaderAuthenticator {
             return createAuthResultWithBearerToken(token);
         } catch (IllegalArgumentException e) {
             LOG.error("Bearer token validation failed.", e);
-            throw CallStatus.UNAUTHENTICATED.toRuntimeException();
+            throw CallStatus.UNAUTHENTICATED.withCause(e).withDescription(e.getMessage()).toRuntimeException();
         }
     }
 

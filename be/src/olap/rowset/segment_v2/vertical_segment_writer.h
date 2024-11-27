@@ -58,6 +58,7 @@ class FileWriter;
 } // namespace io
 
 namespace segment_v2 {
+class InvertedIndexFileWriter;
 
 struct VerticalSegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
@@ -99,6 +100,11 @@ public:
     }
     [[nodiscard]] size_t inverted_index_file_size() const { return _inverted_index_file_size; }
     [[nodiscard]] uint32_t num_rows_written() const { return _num_rows_written; }
+
+    // for partial update
+    [[nodiscard]] int64_t num_rows_updated() const { return _num_rows_updated; }
+    [[nodiscard]] int64_t num_rows_deleted() const { return _num_rows_deleted; }
+    [[nodiscard]] int64_t num_rows_new_added() const { return _num_rows_new_added; }
     [[nodiscard]] int64_t num_rows_filtered() const { return _num_rows_filtered; }
     [[nodiscard]] uint32_t row_count() const { return _row_count; }
     [[nodiscard]] uint32_t segment_id() const { return _segment_id; }
@@ -111,11 +117,14 @@ public:
     Slice min_encoded_key();
     Slice max_encoded_key();
 
+    TabletSchemaSPtr flush_schema() const { return _flush_schema; };
+
     void clear();
 
 private:
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
-    Status _create_column_writer(uint32_t cid, const TabletColumn& column);
+    Status _create_column_writer(uint32_t cid, const TabletColumn& column,
+                                 const TabletSchemaSPtr& schema);
     size_t _calculate_inverted_index_file_size();
     uint64_t _estimated_remaining_size();
     Status _write_ordinal_index();
@@ -140,10 +149,12 @@ private:
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
     void _serialize_block_to_row_column(vectorized::Block& block);
-    Status _append_block_with_partial_content(RowsInBlock& data);
+    Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
+    Status _append_block_with_variant_subcolumns(RowsInBlock& data);
     Status _fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
                                  const std::vector<bool>& use_default_or_null_flag,
-                                 bool has_default_or_nullable, const size_t& segment_start_pos);
+                                 bool has_default_or_nullable, const size_t& segment_start_pos,
+                                 const vectorized::Block* block);
 
 private:
     uint32_t _segment_id;
@@ -154,6 +165,7 @@ private:
 
     // Not owned. owned by RowsetWriter
     io::FileWriter* _file_writer = nullptr;
+    std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
 
     SegmentFooterPB _footer;
     size_t _num_key_columns;
@@ -173,8 +185,14 @@ private:
 
     // _num_rows_written means row count already written in this current column group
     uint32_t _num_rows_written = 0;
+
+    /** for partial update stats **/
+    int64_t _num_rows_updated = 0;
+    int64_t _num_rows_new_added = 0;
+    int64_t _num_rows_deleted = 0;
     // number of rows filtered in strict mode partial update
     int64_t _num_rows_filtered = 0;
+
     // _row_count means total row count of this segment
     // In vertical compaction row count is recorded when key columns group finish
     //  and _num_rows_written will be updated in value column group
@@ -190,6 +208,9 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
     std::vector<RowsInBlock> _batched_blocks;
+
+    // contains auto generated columns, should be nullptr if no variants's subcolumns
+    TabletSchemaSPtr _flush_schema = nullptr;
 };
 
 } // namespace segment_v2

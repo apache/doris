@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -108,6 +109,11 @@ public class ShowCreateTableStmt extends ShowStmt {
         TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(tbl.getCtl())
                 .getDbOrAnalysisException(tbl.getDb()).getTableOrAnalysisException(tbl.getTbl());
+
+        if (tableIf instanceof MTMV) {
+            ErrorReport.reportAnalysisException("not support async materialized view, "
+                    + "please use `show create materialized view`");
+        }
 
         PrivPredicate wanted;
         if (tableIf instanceof View) {

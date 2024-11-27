@@ -19,17 +19,14 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TIPv6Literal;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.regex.Pattern;
 
 public class IPv6Literal extends LiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(IPv6Literal.class);
 
     public static final String IPV6_MIN = "0:0:0:0:0:0:0:0";
     public static final String IPV6_MAX = "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff";
@@ -105,7 +102,7 @@ public class IPv6Literal extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray() {
-        return "\"" + getStringValue() + "\"";
+    public String getStringValueForArray(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
     }
 }

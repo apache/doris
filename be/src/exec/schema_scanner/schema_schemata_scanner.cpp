@@ -40,6 +40,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaSchemataScanner::_s_columns = {
         {"DEFAULT_CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"DEFAULT_COLLATION_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"SQL_PATH", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"DEFAULT_ENCRYPTION", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
 SchemaSchemataScanner::SchemaSchemataScanner()
@@ -80,7 +81,7 @@ Status SchemaSchemataScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaSchemataScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaSchemataScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before Initialized.");
     }
@@ -145,6 +146,16 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // SQL_PATH
     { RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, null_datas)); }
+
+    // DEFAULT_ENCRYPTION
+    {
+        std::string src = "NO";
+        StringRef str = StringRef(src.c_str(), src.size());
+        for (int i = 0; i < dbs_num; ++i) {
+            datas[i] = &str;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
+    }
     return Status::OK();
 }
 

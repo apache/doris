@@ -249,7 +249,7 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
             RETURN_IF_CANCELLED(state);
 
             // get all slots from schema table.
-            RETURN_IF_ERROR(_schema_scanner->get_next_block(&src_block, &schema_eos));
+            RETURN_IF_ERROR(_schema_scanner->get_next_block_internal(&src_block, &schema_eos));
 
             if (schema_eos) {
                 *eos = true;

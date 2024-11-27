@@ -270,6 +270,8 @@ echo "Finished patching ${MYSQL_SOURCE}"
 cd "${TP_SOURCE_DIR}/${LIBEVENT_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
     patch -p1 <"${TP_PATCH_DIR}/libevent.patch"
+    patch -p1 <"${TP_PATCH_DIR}/libevent-1532.patch"
+    patch -p1 <"${TP_PATCH_DIR}/libevent-keepalive-accepted-socket.patch"
     touch "${PATCHED_MARK}"
 fi
 cd -
@@ -392,10 +394,65 @@ if [[ "${BRPC_SOURCE}" == 'brpc-1.4.0' ]]; then
     cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         for patch_file in "${TP_PATCH_DIR}"/brpc-*; do
-            patch -p1 <"${patch_file}"
+            echo "patch ${patch_file}"
+            patch -p1 --ignore-whitespace <"${patch_file}"
         done
         touch "${PATCHED_MARK}"
     fi
     cd -
 fi
 echo "Finished patching ${BRPC_SOURCE}"
+
+# patch ali sdk
+if [[ "${ALI_SDK_SOURCE}" = "aliyun-openapi-cpp-sdk-1.36.1586" ]]; then
+    cd "${TP_SOURCE_DIR}/${ALI_SDK_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/ali-sdk-1.36.1586.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${ALI_SDK_SOURCE}"
+
+# patch base64
+if [[ "${BASE64_SOURCE}" = "base64-0.5.2" ]]; then
+    cd "${TP_SOURCE_DIR}/${BASE64_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/base64-0.5.2.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${BASE64_SOURCE}"
+
+# patch krb
+if [[ "${KRB5_SOURCE}" = "krb5-1.19" ]]; then
+    cd "${TP_SOURCE_DIR}/${KRB5_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/krb5-1.19.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+fi
+echo "Finished patching ${KRB5_SOURCE}"
+
+# patch bitshuffle
+MACHINE_OS=$(uname -s)
+
+if [[ "${MACHINE_OS}" == "Darwin" ]]; then
+    echo "MacOS. Skipping BITSHUFFLE patching."
+else
+    if [[ " ${TP_ARCHIVES[*]} " =~ " BITSHUFFLE " ]]; then
+        if [[ "${BITSHUFFLE_SOURCE}" = "bitshuffle-0.5.1" ]]; then
+            cd "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}"
+            if [[ ! -f "${PATCHED_MARK}" ]]; then
+                patch -p1 <"${TP_PATCH_DIR}/bitshuffle-0.5.1.patch"
+                touch "${PATCHED_MARK}"
+            fi
+            cd -
+        fi
+        echo "Finished patching ${BITSHUFFLE_SOURCE}"
+    fi
+fi
+
+# vim: ts=4 sw=4 ts=4 tw=100:

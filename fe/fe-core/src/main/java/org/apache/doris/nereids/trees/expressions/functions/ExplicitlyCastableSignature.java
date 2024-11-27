@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.analyzer.ComplexDataType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -48,6 +49,9 @@ public interface ExplicitlyCastableSignature extends ComputeSignature {
         }
         if (realType instanceof NullType) {
             return true;
+        }
+        if (signatureType instanceof ComplexDataType && !(realType instanceof ComplexDataType)) {
+            return false;
         }
         try {
             // TODO: copy canCastTo method to DataType

@@ -17,6 +17,7 @@
 
 #include "vec/olap/olap_data_convertor.h"
 
+#include <memory>
 #include <new>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -42,6 +43,7 @@
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
@@ -57,7 +59,7 @@ OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema
     assert(tablet_schema);
     const auto& columns = tablet_schema->columns();
     for (const auto& col : columns) {
-        _convertors.emplace_back(create_olap_column_data_convertor(col));
+        _convertors.emplace_back(create_olap_column_data_convertor(*col));
     }
 }
 
@@ -206,24 +208,40 @@ void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, 
     size_t cid = 0;
     for (const auto& typed_column : *block) {
         if (typed_column.column->size() != block->rows()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "input invalid block, block={}",
-                            block->dump_structure());
+            throw Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "input invalid block, column_size={} != block_rows_num={}, column={}, block={}",
+                    typed_column.column->size(), block->rows(), typed_column.dump_structure(),
+                    block->dump_structure());
         }
         _convertors[cid]->set_source_column(typed_column, row_pos, num_rows);
         ++cid;
     }
 }
 
-void OlapBlockDataConvertor::set_source_content_with_specifid_columns(
+Status OlapBlockDataConvertor::set_source_content_with_specifid_column(
+        const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows, uint32_t cid) {
+    DCHECK(num_rows > 0);
+    DCHECK(row_pos + num_rows <= typed_column.column->size());
+    DCHECK(cid < _convertors.size());
+    RETURN_IF_CATCH_EXCEPTION(
+            { _convertors[cid]->set_source_column(typed_column, row_pos, num_rows); });
+    return Status::OK();
+}
+
+Status OlapBlockDataConvertor::set_source_content_with_specifid_columns(
         const vectorized::Block* block, size_t row_pos, size_t num_rows,
         std::vector<uint32_t> cids) {
     DCHECK(block != nullptr);
     DCHECK(num_rows > 0);
     DCHECK(row_pos + num_rows <= block->rows());
-    for (auto i : cids) {
-        DCHECK(i < _convertors.size());
-        _convertors[i]->set_source_column(block->get_by_position(i), row_pos, num_rows);
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (auto i : cids) {
+            DCHECK(i < _convertors.size());
+            _convertors[i]->set_source_column(block->get_by_position(i), row_pos, num_rows);
+        }
+    });
+    return Status::OK();
 }
 
 void OlapBlockDataConvertor::clear_source_content() {
@@ -235,7 +253,11 @@ void OlapBlockDataConvertor::clear_source_content() {
 std::pair<Status, IOlapColumnDataAccessor*> OlapBlockDataConvertor::convert_column_data(
         size_t cid) {
     assert(cid < _convertors.size());
-    auto status = _convertors[cid]->convert_to_olap();
+    auto convert_func = [&]() -> Status {
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_convertors[cid]->convert_to_olap());
+        return Status::OK();
+    };
+    auto status = convert_func();
     return {status, _convertors[cid].get()};
 }
 
@@ -1071,8 +1093,6 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
                     ? assert_cast<const vectorized::ColumnObject&>(*typed_column.column)
                     : assert_cast<const vectorized::ColumnObject&>(
                               nullable_column->get_nested_column());
-
-    const_cast<ColumnObject&>(variant).finalize_if_not();
     if (variant.is_null_root()) {
         auto root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
         auto root_col = root_type->create_column();
@@ -1080,19 +1100,25 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
         const_cast<ColumnObject&>(variant).create_root(root_type, std::move(root_col));
         variant.check_consistency();
     }
-    auto root_of_variant = variant.get_root();
-    auto nullable = assert_cast<const ColumnNullable*>(root_of_variant.get());
-    CHECK(nullable);
-    _root_data_column = assert_cast<const ColumnString*>(&nullable->get_nested_column());
-    _root_data_convertor->set_source_column({root_of_variant->get_ptr(), nullptr, ""}, row_pos,
-                                            num_rows);
+    // ensure data finalized
+    _source_column_ptr = &const_cast<ColumnObject&>(variant);
+    _source_column_ptr->finalize(false);
+    _root_data_convertor = std::make_unique<OlapColumnDataConvertorVarChar>(true);
+    _root_data_convertor->set_source_column(
+            {_source_column_ptr->get_root()->get_ptr(), nullptr, ""}, row_pos, num_rows);
     OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
                                                                            num_rows);
 }
 
 // convert root data
 Status OlapBlockDataConvertor::OlapColumnDataConvertorVariant::convert_to_olap() {
-    RETURN_IF_ERROR(_root_data_convertor->convert_to_olap(_nullmap, _root_data_column));
+    RETURN_IF_ERROR(vectorized::schema_util::encode_variant_sparse_subcolumns(*_source_column_ptr));
+#ifndef NDEBUG
+    _source_column_ptr->check_consistency();
+#endif
+    const auto* nullable = assert_cast<const ColumnNullable*>(_source_column_ptr->get_root().get());
+    const auto* root_column = assert_cast<const ColumnString*>(&nullable->get_nested_column());
+    RETURN_IF_ERROR(_root_data_convertor->convert_to_olap(_nullmap, root_column));
     return Status::OK();
 }
 

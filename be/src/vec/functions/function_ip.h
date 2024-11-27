@@ -26,13 +26,16 @@
 #include <vector>
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/format_ip.h"
 #include "vec/common/ipv6_to_binary.h"
+#include "vec/common/unaligned.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -418,7 +421,6 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
     const Chars& vec_src = string_column.get_chars();
 
     size_t src_offset = 0;
-    char src_ipv4_buf[sizeof("::ffff:") + IPV4_MAX_TEXT_LENGTH + 1] = "::ffff:";
 
     /// ColumnString contains not null terminated strings. But functions parseIPv6, parseIPv4 expect null terminated string.
     /// TODO fix this - now parseIPv6/parseIPv4 accept end iterator, so can be parsed in-place
@@ -434,6 +436,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
 
         const char* src_value = nullptr;
         auto* res_value = reinterpret_cast<unsigned char*>(&vec_res[out_offset]);
+        char src_ipv4_buf[sizeof("::ffff:") + IPV4_MAX_TEXT_LENGTH + 1] = "::ffff:";
 
         if constexpr (std::is_same_v<StringColumnType, ColumnString>) {
             src_value = reinterpret_cast<const char*>(&vec_src[src_offset]);
@@ -473,7 +476,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
         size_t string_length = src_next_offset - src_offset;
         if (string_length != 0) {
             if (try_parse_ipv4(src_value, dummy_result)) {
-                strcat(src_ipv4_buf, src_value);
+                strncat(src_ipv4_buf, src_value, sizeof(src_ipv4_buf) - strlen(src_ipv4_buf) - 1);
                 parse_result = parse_ipv6_whole(src_ipv4_buf, res_value);
             } else {
                 parse_result = parse_ipv6_whole(src_value, res_value);
@@ -672,8 +675,10 @@ public:
         const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
         WhichDataType addr_type(addr_column_with_type_and_name.type);
         WhichDataType cidr_type(cidr_column_with_type_and_name.type);
-        const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
-        const ColumnPtr& cidr_column = cidr_column_with_type_and_name.column;
+        const auto& [addr_column, addr_const] =
+                unpack_if_const(addr_column_with_type_and_name.column);
+        const auto& [cidr_column, cidr_const] =
+                unpack_if_const(cidr_column_with_type_and_name.column);
         const ColumnString* str_addr_column = nullptr;
         const ColumnString* str_cidr_column = nullptr;
         const NullMap* null_map_addr = nullptr;
@@ -715,18 +720,22 @@ public:
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map_addr && (*null_map_addr)[i]) {
+            auto addr_idx = index_check_const(i, addr_const);
+            auto cidr_idx = index_check_const(i, cidr_const);
+            if (null_map_addr && (*null_map_addr)[addr_idx]) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "The arguments of function {} must be String, not NULL",
                                 get_name());
             }
-            if (null_map_cidr && (*null_map_cidr)[i]) {
+            if (null_map_cidr && (*null_map_cidr)[cidr_idx]) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "The arguments of function {} must be String, not NULL",
                                 get_name());
             }
-            const auto addr = IPAddressVariant(str_addr_column->get_data_at(i).to_string_view());
-            const auto cidr = parse_ip_with_cidr(str_cidr_column->get_data_at(i).to_string_view());
+            const auto addr =
+                    IPAddressVariant(str_addr_column->get_data_at(addr_idx).to_string_view());
+            const auto cidr =
+                    parse_ip_with_cidr(str_cidr_column->get_data_at(cidr_idx).to_string_view());
             col_res_data[i] = is_address_in_range(addr, cidr) ? 1 : 0;
         }
 
@@ -770,8 +779,8 @@ public:
         ColumnWithTypeAndName& ip_column = block.get_by_position(arguments[0]);
         ColumnWithTypeAndName& cidr_column = block.get_by_position(arguments[1]);
 
-        const ColumnPtr& ip_column_ptr = ip_column.column;
-        const ColumnPtr& cidr_column_ptr = cidr_column.column;
+        const auto& [ip_column_ptr, ip_col_const] = unpack_if_const(ip_column.column);
+        const auto& [cidr_column_ptr, cidr_col_const] = unpack_if_const(cidr_column.column);
 
         const auto* col_ip_column = check_and_get_column<ColumnVector<IPv4>>(ip_column_ptr.get());
         const auto* col_cidr_column =
@@ -787,15 +796,41 @@ public:
 
         static constexpr UInt8 max_cidr_mask = IPV4_BINARY_LENGTH * 8;
 
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            auto ip = vec_ip_input[i];
-            auto cidr = vec_cidr_input[i];
-            if (0 <= cidr && cidr <= max_cidr_mask) {
+        if (ip_col_const) {
+            auto ip = vec_ip_input[0];
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto cidr = vec_cidr_input[i];
+                if (cidr < 0 || cidr > max_cidr_mask) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
+                                    std::to_string(cidr));
+                }
                 auto range = apply_cidr_mask(ip, cidr);
                 vec_lower_range_output[i] = range.first;
                 vec_upper_range_output[i] = range.second;
-            } else {
-                return Status::InvalidArgument("Invalid row {}, cidr is out of range", i);
+            }
+        } else if (cidr_col_const) {
+            auto cidr = vec_cidr_input[0];
+            if (cidr < 0 || cidr > max_cidr_mask) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
+                                std::to_string(cidr));
+            }
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto ip = vec_ip_input[i];
+                auto range = apply_cidr_mask(ip, cidr);
+                vec_lower_range_output[i] = range.first;
+                vec_upper_range_output[i] = range.second;
+            }
+        } else {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto ip = vec_ip_input[i];
+                auto cidr = vec_cidr_input[i];
+                if (cidr < 0 || cidr > max_cidr_mask) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
+                                    std::to_string(cidr));
+                }
+                auto range = apply_cidr_mask(ip, cidr);
+                vec_lower_range_output[i] = range.first;
+                vec_upper_range_output[i] = range.second;
             }
         }
 
@@ -855,17 +890,22 @@ public:
         const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
         WhichDataType addr_type(addr_column_with_type_and_name.type);
         WhichDataType cidr_type(cidr_column_with_type_and_name.type);
-        const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
-        const ColumnPtr& cidr_column = cidr_column_with_type_and_name.column;
+        const auto& [addr_column, add_col_const] =
+                unpack_if_const(addr_column_with_type_and_name.column);
+        const auto& [cidr_column, col_const] =
+                unpack_if_const(cidr_column_with_type_and_name.column);
+
         const auto* cidr_col = assert_cast<const ColumnInt16*>(cidr_column.get());
         ColumnPtr col_res = nullptr;
 
         if (addr_type.is_ipv6()) {
             const auto* ipv6_addr_column = check_and_get_column<ColumnIPv6>(addr_column.get());
-            col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, *cidr_col, input_rows_count);
+            col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, *cidr_col, input_rows_count,
+                                               add_col_const, col_const);
         } else if (addr_type.is_string()) {
             const auto* str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
-            col_res = execute_impl<ColumnString>(*str_addr_column, *cidr_col, input_rows_count);
+            col_res = execute_impl<ColumnString>(*str_addr_column, *cidr_col, input_rows_count,
+                                                 add_col_const, col_const);
         } else {
             return Status::RuntimeError(
                     "Illegal column {} of argument of function {}, Expected IPv6 or String",
@@ -878,7 +918,8 @@ public:
 
     template <typename FromColumn>
     static ColumnPtr execute_impl(const FromColumn& from_column, const ColumnInt16& cidr_column,
-                                  size_t input_rows_count) {
+                                  size_t input_rows_count, bool is_addr_const = false,
+                                  bool is_cidr_const = false) {
         auto col_res_lower_range = ColumnIPv6::create(input_rows_count, 0);
         auto col_res_upper_range = ColumnIPv6::create(input_rows_count, 0);
         auto& vec_res_lower_range = col_res_lower_range->get_data();
@@ -886,26 +927,67 @@ public:
 
         static constexpr UInt8 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
 
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            auto cidr = cidr_column.get_int(i);
+        if (is_addr_const) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto cidr = cidr_column.get_int(i);
+                if (cidr < 0 || cidr > max_cidr_mask) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
+                                    std::to_string(cidr));
+                }
+                if constexpr (std::is_same_v<FromColumn, ColumnString>) {
+                    // 16 bytes ipv6 string is stored in big-endian byte order
+                    // so transfer to little-endian firstly
+                    auto* src_data = const_cast<char*>(from_column.get_data_at(0).data);
+                    std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
+                    apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                    reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
+                } else {
+                    apply_cidr_mask(from_column.get_data_at(0).data,
+                                    reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                    reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
+                }
+            }
+        } else if (is_cidr_const) {
+            auto cidr = cidr_column.get_int(0);
             if (cidr < 0 || cidr > max_cidr_mask) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
                                 std::to_string(cidr));
             }
-            if constexpr (std::is_same_v<FromColumn, ColumnString>) {
-                // 16 bytes ipv6 string is stored in big-endian byte order
-                // so transfer to little-endian firstly
-                auto* src_data = const_cast<char*>(from_column.get_data_at(i).data);
-                std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
-                apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
-            } else {
-                apply_cidr_mask(from_column.get_data_at(i).data,
-                                reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                if constexpr (std::is_same_v<FromColumn, ColumnString>) {
+                    // 16 bytes ipv6 string is stored in big-endian byte order
+                    // so transfer to little-endian firstly
+                    auto* src_data = const_cast<char*>(from_column.get_data_at(i).data);
+                    std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
+                    apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                    reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
+                } else {
+                    apply_cidr_mask(from_column.get_data_at(i).data,
+                                    reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                    reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
+                }
+            }
+        } else {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto cidr = cidr_column.get_int(i);
+                if (cidr < 0 || cidr > max_cidr_mask) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
+                                    std::to_string(cidr));
+                }
+                if constexpr (std::is_same_v<FromColumn, ColumnString>) {
+                    // 16 bytes ipv6 string is stored in big-endian byte order
+                    // so transfer to little-endian firstly
+                    auto* src_data = const_cast<char*>(from_column.get_data_at(i).data);
+                    std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
+                    apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                    reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
+                } else {
+                    apply_cidr_mask(from_column.get_data_at(i).data,
+                                    reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                    reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
+                }
             }
         }
-
         return ColumnStruct::create(
                 Columns {std::move(col_res_lower_range), std::move(col_res_upper_range)});
     }
@@ -1144,6 +1226,143 @@ public:
         }
 
         return Status::OK();
+    }
+};
+
+class FunctionIPv4ToIPv6 : public IFunction {
+public:
+    static constexpr auto name = "ipv4_to_ipv6";
+    static FunctionPtr create() { return std::make_shared<FunctionIPv4ToIPv6>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeIPv6>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const auto& ipv4_column_with_type_and_name = block.get_by_position(arguments[0]);
+        const auto& [ipv4_column, ipv4_const] =
+                unpack_if_const(ipv4_column_with_type_and_name.column);
+        const auto* ipv4_addr_column = assert_cast<const ColumnIPv4*>(ipv4_column.get());
+        const auto& ipv4_column_data = ipv4_addr_column->get_data();
+        auto col_res = ColumnIPv6::create(input_rows_count, 0);
+        auto& col_res_data = col_res->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto ipv4_idx = index_check_const(i, ipv4_const);
+            map_ipv4_to_ipv6(ipv4_column_data[ipv4_idx],
+                             reinterpret_cast<UInt8*>(&col_res_data[i]));
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    static void map_ipv4_to_ipv6(IPv4 ipv4, UInt8* buf) {
+        unaligned_store<UInt64>(buf, 0x0000FFFF00000000ULL | static_cast<UInt64>(ipv4));
+        unaligned_store<UInt64>(buf + 8, 0);
+    }
+};
+
+class FunctionCutIPv6 : public IFunction {
+public:
+    static constexpr auto name = "cut_ipv6";
+    static FunctionPtr create() { return std::make_shared<FunctionCutIPv6>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const auto& ipv6_column_with_type_and_name = block.get_by_position(arguments[0]);
+        const auto& bytes_to_cut_for_ipv6_column_with_type_and_name =
+                block.get_by_position(arguments[1]);
+        const auto& bytes_to_cut_for_ipv4_column_with_type_and_name =
+                block.get_by_position(arguments[2]);
+
+        const auto& [ipv6_column, ipv6_const] =
+                unpack_if_const(ipv6_column_with_type_and_name.column);
+        const auto& [bytes_to_cut_for_ipv6_column, bytes_to_cut_for_ipv6_const] =
+                unpack_if_const(bytes_to_cut_for_ipv6_column_with_type_and_name.column);
+        const auto& [bytes_to_cut_for_ipv4_column, bytes_to_cut_for_ipv4_const] =
+                unpack_if_const(bytes_to_cut_for_ipv4_column_with_type_and_name.column);
+
+        const auto* ipv6_addr_column = assert_cast<const ColumnIPv6*>(ipv6_column.get());
+        const auto* to_cut_for_ipv6_bytes_column =
+                assert_cast<const ColumnInt8*>(bytes_to_cut_for_ipv6_column.get());
+        const auto* to_cut_for_ipv4_bytes_column =
+                assert_cast<const ColumnInt8*>(bytes_to_cut_for_ipv4_column.get());
+
+        const auto& ipv6_addr_column_data = ipv6_addr_column->get_data();
+        const auto& to_cut_for_ipv6_bytes_column_data = to_cut_for_ipv6_bytes_column->get_data();
+        const auto& to_cut_for_ipv4_bytes_column_data = to_cut_for_ipv4_bytes_column->get_data();
+
+        auto col_res = ColumnString::create();
+        ColumnString::Chars& chars_res = col_res->get_chars();
+        ColumnString::Offsets& offsets_res = col_res->get_offsets();
+        chars_res.resize(input_rows_count * (IPV6_MAX_TEXT_LENGTH + 1)); // + 1 for ending '\0'
+        offsets_res.resize(input_rows_count);
+        auto* begin = reinterpret_cast<char*>(chars_res.data());
+        auto* pos = begin;
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto ipv6_idx = index_check_const(i, ipv6_const);
+            auto bytes_to_cut_for_ipv6_idx = index_check_const(i, bytes_to_cut_for_ipv6_const);
+            auto bytes_to_cut_for_ipv4_idx = index_check_const(i, bytes_to_cut_for_ipv4_const);
+            // the current function logic is processed in big endian manner
+            // But ipv6 in doris is stored in little-endian byte order
+            // need transfer to big-endian byte order first, so we can't deal this process in column
+            auto val_128 = ipv6_addr_column_data[ipv6_idx];
+            auto* address = reinterpret_cast<unsigned char*>(&val_128);
+
+            Int8 bytes_to_cut_for_ipv6_count =
+                    to_cut_for_ipv6_bytes_column_data[bytes_to_cut_for_ipv6_idx];
+            Int8 bytes_to_cut_for_ipv4_count =
+                    to_cut_for_ipv4_bytes_column_data[bytes_to_cut_for_ipv4_idx];
+
+            if (bytes_to_cut_for_ipv6_count > IPV6_BINARY_LENGTH) [[unlikely]] {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Illegal value for argument 2 {} of function {}",
+                                bytes_to_cut_for_ipv6_column_with_type_and_name.type->get_name(),
+                                get_name());
+            }
+
+            if (bytes_to_cut_for_ipv4_count > IPV6_BINARY_LENGTH) [[unlikely]] {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Illegal value for argument 3 {} of function {}",
+                                bytes_to_cut_for_ipv4_column_with_type_and_name.type->get_name(),
+                                get_name());
+            }
+
+            UInt8 bytes_to_cut_count = is_ipv4_mapped(address) ? bytes_to_cut_for_ipv4_count
+                                                               : bytes_to_cut_for_ipv6_count;
+            cut_address(address, pos, bytes_to_cut_count);
+            offsets_res[i] = pos - begin;
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    static bool is_ipv4_mapped(const UInt8* address) {
+        return (unaligned_load_little_endian<UInt64>(address + 8) == 0) &&
+               ((unaligned_load_little_endian<UInt64>(address) & 0xFFFFFFFF00000000ULL) ==
+                0x0000FFFF00000000ULL);
+    }
+
+    static void cut_address(unsigned char* address, char*& dst, UInt8 zeroed_tail_bytes_count) {
+        format_ipv6(address, dst, zeroed_tail_bytes_count);
     }
 };
 

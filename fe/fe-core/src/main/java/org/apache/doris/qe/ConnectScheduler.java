@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.DebugUtil;
@@ -144,11 +145,11 @@ public class ConnectScheduler {
         return null;
     }
 
-    public void cancelQuery(String queryId) {
+    public void cancelQuery(String queryId, String cancelReason) {
         for (ConnectContext ctx : connectionMap.values()) {
             TUniqueId qid = ctx.queryId();
             if (qid != null && DebugUtil.printId(qid).equals(queryId)) {
-                ctx.cancelQuery();
+                ctx.cancelQuery(cancelReason);
                 break;
             }
         }
@@ -163,7 +164,7 @@ public class ConnectScheduler {
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
             if (!ctx.getQualifiedUser().equals(user) && !Env.getCurrentEnv().getAccessManager()
-                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                 continue;
             }
 
@@ -173,10 +174,17 @@ public class ConnectScheduler {
     }
 
     // used for thrift
-    public List<List<String>> listConnectionWithoutAuth(boolean isShowFullSql, boolean isShowFeHost) {
+    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql,
+            boolean isShowFeHost) {
         List<List<String>> list = new ArrayList<>();
         long nowMs = System.currentTimeMillis();
         for (ConnectContext ctx : connectionMap.values()) {
+            // Check auth
+            if (!ctx.getCurrentUserIdentity().equals(userIdentity) && !Env.getCurrentEnv()
+                    .getAccessManager()
+                    .checkGlobalPriv(userIdentity, PrivPredicate.GRANT)) {
+                continue;
+            }
             list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs, isShowFeHost));
         }
         return list;

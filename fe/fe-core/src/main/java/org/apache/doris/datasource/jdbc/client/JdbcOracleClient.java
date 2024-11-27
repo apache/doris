@@ -20,7 +20,9 @@ package org.apache.doris.datasource.jdbc.client;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.sql.Connection;
@@ -28,6 +30,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Set;
 
 public class JdbcOracleClient extends JdbcClient {
 
@@ -35,45 +38,25 @@ public class JdbcOracleClient extends JdbcClient {
         super(jdbcClientConfig);
     }
 
-    @Override
-    protected String getDatabaseQuery() {
-        return "SELECT DISTINCT OWNER FROM all_tables";
+    protected JdbcOracleClient(JdbcClientConfig jdbcClientConfig, String dbType) {
+        super(jdbcClientConfig);
+        this.dbType = dbType;
     }
 
     @Override
-    protected String getCatalogName(Connection conn) throws SQLException {
-        return conn.getCatalog();
-    }
-
-    @Override
-    public List<String> getDatabaseNameList() {
-        Connection conn = getConnection();
-        ResultSet rs = null;
-        if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
-            return getSpecifiedDatabase(conn);
-        }
-        List<String> databaseNames = Lists.newArrayList();
-        try {
-            rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
-            while (rs.next()) {
-                databaseNames.add(rs.getString("TABLE_SCHEM"));
-            }
-        } catch (SQLException e) {
-            throw new JdbcClientException("failed to get database name list from jdbc", e);
-        } finally {
-            close(rs, conn);
-        }
-        return filterDatabaseNames(databaseNames);
+    public String getTestQuery() {
+        return "SELECT 1 FROM dual";
     }
 
     @Override
     public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
-        Connection conn = getConnection();
+        Connection conn = null;
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
         String remoteDbName = getRemoteDatabaseName(localDbName);
         String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
+            conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
             String modifiedTableName;
@@ -93,27 +76,7 @@ public class JdbcOracleClient extends JdbcClient {
                 if (isModify && isTableModified(rs.getString("TABLE_NAME"), remoteTableName)) {
                     continue;
                 }
-                JdbcFieldSchema field = new JdbcFieldSchema();
-                field.setColumnName(rs.getString("COLUMN_NAME"));
-                field.setDataType(rs.getInt("DATA_TYPE"));
-                field.setDataTypeName(rs.getString("TYPE_NAME"));
-                /*
-                   We used this method to retrieve the key column of the JDBC table, but since we only tested mysql,
-                   we kept the default key behavior in the parent class and only overwrite it in the mysql subclass
-                */
-                field.setColumnSize(rs.getInt("COLUMN_SIZE"));
-                field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
-                field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
-                /*
-                   Whether it is allowed to be NULL
-                   0 (columnNoNulls)
-                   1 (columnNullable)
-                   2 (columnNullableUnknown)
-                 */
-                field.setAllowNull(rs.getInt("NULLABLE") != 0);
-                field.setRemarks(rs.getString("REMARKS"));
-                field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
-                tableSchema.add(field);
+                tableSchema.add(new JdbcFieldSchema(rs));
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, remoteTableName,
@@ -135,8 +98,22 @@ public class JdbcOracleClient extends JdbcClient {
     }
 
     @Override
+    protected Set<String> getFilterInternalDatabases() {
+        return ImmutableSet.<String>builder()
+                .add("ctxsys")
+                .add("flows_files")
+                .add("mdsys")
+                .add("outln")
+                .add("sys")
+                .add("system")
+                .add("xdb")
+                .add("xs$null")
+                .build();
+    }
+
+    @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
-        String oracleType = fieldSchema.getDataTypeName();
+        String oracleType = fieldSchema.getDataTypeName().orElse("unknown");
         if (oracleType.startsWith("INTERVAL")) {
             oracleType = oracleType.substring(0, 8);
         } else if (oracleType.startsWith("TIMESTAMP")) {
@@ -144,7 +121,7 @@ public class JdbcOracleClient extends JdbcClient {
                 return Type.UNSUPPORTED;
             }
             // oracle can support nanosecond, will lose precision
-            int scale = fieldSchema.getDecimalDigits();
+            int scale = fieldSchema.getDecimalDigits().orElse(0);
             if (scale > 6) {
                 scale = 6;
             }
@@ -170,8 +147,8 @@ public class JdbcOracleClient extends JdbcClient {
              *    In this case, doris can not determine p and s, so doris can not determine data type.
              */
             case "NUMBER":
-                int precision = fieldSchema.getColumnSize();
-                int scale = fieldSchema.getDecimalDigits();
+                int precision = fieldSchema.getColumnSize().orElse(0);
+                int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale <= 0) {
                     precision -= scale;
                     if (precision < 3) {

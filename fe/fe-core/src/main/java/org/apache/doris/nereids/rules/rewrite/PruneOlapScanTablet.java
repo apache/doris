@@ -34,7 +34,7 @@ import org.apache.doris.planner.PartitionColumnFilter;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
-import com.google.common.collect.Maps;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 
 import java.util.Collection;
 import java.util.HashSet;
@@ -47,33 +47,31 @@ import java.util.Set;
  * prune bucket
  */
 public class PruneOlapScanTablet extends OneRewriteRuleFactory {
-
     @Override
     public Rule build() {
-        return logicalFilter(logicalOlapScan())
-                .then(filter -> {
-                    LogicalOlapScan olapScan = filter.child();
-                    OlapTable table = olapScan.getTable();
-                    Builder<Long> selectedTabletIdsBuilder = ImmutableList.builder();
-                    if (olapScan.getSelectedTabletIds().isEmpty()) {
-                        for (Long id : olapScan.getSelectedPartitionIds()) {
-                            Partition partition = table.getPartition(id);
-                            MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
-                            selectedTabletIdsBuilder
-                                    .addAll(getSelectedTabletIds(filter.getConjuncts(), index,
-                                            olapScan.getSelectedIndexId() == olapScan.getTable()
-                                                    .getBaseIndexId(),
-                                            partition.getDistributionInfo()));
-                        }
-                    } else {
-                        selectedTabletIdsBuilder.addAll(olapScan.getSelectedTabletIds());
-                    }
-                    List<Long> selectedTabletIds = selectedTabletIdsBuilder.build();
-                    if (new HashSet(selectedTabletIds).equals(new HashSet(olapScan.getSelectedTabletIds()))) {
-                        return null;
-                    }
-                    return filter.withChildren(olapScan.withSelectedTabletIds(selectedTabletIds));
-                }).toRule(RuleType.OLAP_SCAN_TABLET_PRUNE);
+        return logicalFilter(logicalOlapScan()).then(filter -> {
+            LogicalOlapScan olapScan = filter.child();
+            OlapTable table = olapScan.getTable();
+            Builder<Long> selectedTabletIdsBuilder = ImmutableList.builder();
+            if (olapScan.getSelectedTabletIds().isEmpty()) {
+                for (Long id : olapScan.getSelectedPartitionIds()) {
+                    Partition partition = table.getPartition(id);
+                    MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
+                    selectedTabletIdsBuilder
+                            .addAll(getSelectedTabletIds(filter.getConjuncts(), index,
+                                    olapScan.getSelectedIndexId() == olapScan.getTable()
+                                            .getBaseIndexId(),
+                                    partition.getDistributionInfo()));
+                }
+            } else {
+                selectedTabletIdsBuilder.addAll(olapScan.getSelectedTabletIds());
+            }
+            List<Long> selectedTabletIds = selectedTabletIdsBuilder.build();
+            if (new HashSet<>(selectedTabletIds).equals(new HashSet<>(olapScan.getSelectedTabletIds()))) {
+                return null;
+            }
+            return filter.withChildren(olapScan.withSelectedTabletIds(selectedTabletIds));
+        }).toRule(RuleType.OLAP_SCAN_TABLET_PRUNE);
     }
 
     private Collection<Long> getSelectedTabletIds(Set<Expression> expressions,
@@ -82,7 +80,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
             return index.getTabletIdsInOrder();
         }
         HashDistributionInfo hashInfo = (HashDistributionInfo) info;
-        Map<String, PartitionColumnFilter> filterMap = Maps.newHashMap();
+        Map<String, PartitionColumnFilter> filterMap = new CaseInsensitiveMap();
         expressions.stream().map(ExpressionUtils::checkAndMaybeCommute).filter(Optional::isPresent)
                 .forEach(expr -> new ExpressionColumnFilterConverter(filterMap).convert(expr.get()));
         return new HashDistributionPruner(index.getTabletIdsInOrder(),

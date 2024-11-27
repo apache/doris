@@ -156,7 +156,7 @@ public class AnalysisJob {
                                 + queryState.getErrorMessage());
             }
         } finally {
-            AuditLogHelper.logAuditLog(stmtExecutor.getContext(), stmtExecutor.getOriginStmt().toString(),
+            AuditLogHelper.logAuditLog(stmtExecutor.getContext(), stmtExecutor.getOriginStmt().originStmt,
                     stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(),
                     true);
         }
@@ -180,13 +180,13 @@ public class AnalysisJob {
     public void deregisterJob() {
         analysisManager.removeJob(jobInfo.jobId);
         for (BaseAnalysisTask task : queryingTask) {
-            task.info.colToPartitions.clear();
+            task.info.jobColumns.clear();
             if (task.info.partitionNames != null) {
                 task.info.partitionNames.clear();
             }
         }
         for (BaseAnalysisTask task : queryFinished) {
-            task.info.colToPartitions.clear();
+            task.info.jobColumns.clear();
             if (task.info.partitionNames != null) {
                 task.info.partitionNames.clear();
             }

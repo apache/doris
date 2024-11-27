@@ -244,7 +244,7 @@ void serialize_and_deserialize_arrow_test() {
                                       decimal_column.get())
                                      ->get_data();
                 for (int i = 0; i < row_num; ++i) {
-                    __int128_t value = i * pow(10, 9) + i * pow(10, 8);
+                    __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
                     data.push_back(value);
                 }
                 vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
@@ -364,13 +364,13 @@ void serialize_and_deserialize_arrow_test() {
                         std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
                 DataTypePtr au = std::make_shared<DataTypeArray>(s);
                 Array a1, a2;
-                a1.push_back(String("sss"));
+                a1.push_back(Field(String("sss")));
                 a1.push_back(Null());
-                a1.push_back(String("clever amory"));
-                a2.push_back(String("hello amory"));
+                a1.push_back(Field(String("clever amory")));
+                a2.push_back(Field(String("hello amory")));
                 a2.push_back(Null());
-                a2.push_back(String("cute amory"));
-                a2.push_back(String("sf"));
+                a2.push_back(Field(String("cute amory")));
+                a2.push_back(Field(String("sf")));
                 MutableColumnPtr array_column = au->create_column();
                 array_column->reserve(2);
                 array_column->insert(a1);
@@ -434,10 +434,10 @@ void serialize_and_deserialize_arrow_test() {
                 DataTypePtr st =
                         std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
                 Tuple t1, t2;
-                t1.push_back(String("amory cute"));
+                t1.push_back(Field(String("amory cute")));
                 t1.push_back(__int128_t(37));
                 t1.push_back(true);
-                t2.push_back("null");
+                t2.push_back(Field("null"));
                 t2.push_back(__int128_t(26));
                 t2.push_back(false);
                 MutableColumnPtr struct_column = st->create_column();
@@ -489,15 +489,17 @@ void serialize_and_deserialize_arrow_test() {
     RowDescriptor row_desc(&tuple_desc, true);
     // arrow schema
     std::shared_ptr<arrow::Schema> _arrow_schema;
-    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema), Status::OK());
+    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema, "UTC"), Status::OK());
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
     std::cout << "block data: " << block.dump_data(0, row_num) << std::endl;
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
-    static_cast<void>(
-            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
+    cctz::time_zone timezone_obj;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    static_cast<void>(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
+                                             &result, timezone_obj));
     Block new_block = block.clone_empty();
     EXPECT_TRUE(result != nullptr);
     std::cout << "result: " << result->ToString() << std::endl;
@@ -621,15 +623,17 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     RowDescriptor row_desc(&tuple_desc, true);
     // arrow schema
     std::shared_ptr<arrow::Schema> _arrow_schema;
-    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema), Status::OK());
+    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema, "UTC"), Status::OK());
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
     std::cout << "block structure: " << block.dump_structure() << std::endl;
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
-    static_cast<void>(
-            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
+    cctz::time_zone timezone_obj;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    static_cast<void>(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
+                                             &result, timezone_obj));
     Block new_block = block.clone_empty();
     EXPECT_TRUE(result != nullptr);
     std::cout << "result: " << result->ToString() << std::endl;

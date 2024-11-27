@@ -23,6 +23,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -191,6 +193,9 @@ public class SearchSignature {
                 nonStrictMatched++;
                 if (sigArgType instanceof DateV2Type && realType instanceof DateType) {
                     dateToDateV2Count++;
+                } else if (sigArgType instanceof DateTimeV2Type && (realType instanceof DateTimeType
+                        || realType instanceof DateV2Type || realType instanceof DateType)) {
+                    dateToDateV2Count++;
                 }
             }
         }
@@ -202,13 +207,14 @@ public class SearchSignature {
         int arity = arguments.size();
         for (int i = 0; i < arity; i++) {
             DataType sigArgType = sig.getArgType(i);
-            DataType realType = arguments.get(i).getDataType();
+            Expression argument = arguments.get(i);
+            DataType realType = argument.getDataType();
             // we need to try to do string literal coercion when search signature.
             // for example, FUNC_A has two signature FUNC_A(datetime) and FUNC_A(string)
             // if SQL block is `FUNC_A('2020-02-02 00:00:00')`, we should return signature FUNC_A(datetime).
-            if (arguments.get(i).isLiteral() && realType.isStringLikeType()) {
-                realType = TypeCoercionUtils.characterLiteralTypeCoercion(((Literal) arguments.get(i)).getStringValue(),
-                        sigArgType).orElse(arguments.get(i)).getDataType();
+            if (!argument.isNullLiteral() && argument.isLiteral() && realType.isStringLikeType()) {
+                realType = TypeCoercionUtils.characterLiteralTypeCoercion(((Literal) argument).getStringValue(),
+                        sigArgType).orElse(argument).getDataType();
             }
             if (!typePredicate.apply(sigArgType, realType)) {
                 return false;

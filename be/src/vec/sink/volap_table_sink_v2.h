@@ -56,13 +56,9 @@ public:
 
     ~VOlapTableSinkV2() override;
 
-    Status init(const TDataSink& sink) override;
-
     Status close(RuntimeState* state, Status exec_status) override;
 
 private:
-    ObjectPool* _pool = nullptr;
-
     Status _close_status = Status::OK();
 };
 

@@ -42,9 +42,6 @@ JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argumen
 Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    if (env == nullptr) {
-        return Status::InternalError("Failed to get/create JVM");
-    }
 
     if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
         std::shared_ptr<JniContext> jni_ctx = std::make_shared<JniContext>();
@@ -55,11 +52,15 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
         {
             std::string local_location;
             auto function_cache = UserFunctionCache::instance();
-            RETURN_IF_ERROR(function_cache->get_jarpath(fn_.id, fn_.hdfs_location, fn_.checksum,
-                                                        &local_location));
             TJavaUdfExecutorCtorParams ctor_params;
             ctor_params.__set_fn(fn_);
-            ctor_params.__set_location(local_location);
+            // get jar path if both file path location and checksum are null
+            if (!fn_.hdfs_location.empty() && !fn_.checksum.empty()) {
+                RETURN_IF_ERROR(function_cache->get_jarpath(fn_.id, fn_.hdfs_location, fn_.checksum,
+                                                            &local_location));
+                ctor_params.__set_location(local_location);
+            }
+
             jbyteArray ctor_params_bytes;
 
             // Pushed frame will be popped when jni_frame goes out-of-scope.

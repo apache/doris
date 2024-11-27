@@ -20,9 +20,9 @@
 namespace doris {
 
 ObjLRUCache::ObjLRUCache(int64_t capacity, uint32_t num_shards)
-        : LRUCachePolicy(CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE, capacity,
-                         LRUCacheType::NUMBER, config::common_obj_lru_cache_stale_sweep_time_sec,
-                         num_shards) {
+        : LRUCachePolicyTrackingManual(
+                  CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE, capacity, LRUCacheType::NUMBER,
+                  config::common_obj_lru_cache_stale_sweep_time_sec, num_shards) {
     _enabled = (capacity > 0);
 }
 
@@ -30,19 +30,26 @@ bool ObjLRUCache::lookup(const ObjKey& key, CacheHandle* handle) {
     if (!_enabled) {
         return false;
     }
-    auto lru_handle = cache()->lookup(key.key);
+    auto* lru_handle = LRUCachePolicy::lookup(key.key);
     if (!lru_handle) {
         // cache miss
         return false;
     }
-    *handle = CacheHandle(cache(), lru_handle);
+    *handle = CacheHandle(this, lru_handle);
     return true;
 }
 
 void ObjLRUCache::erase(const ObjKey& key) {
     if (_enabled) {
-        cache()->erase(key.key);
+        LRUCachePolicy::erase(key.key);
     }
+}
+
+bool ObjLRUCache::exceed_prune_limit() {
+    // just return true to prune all cached obj.
+    // Because ObjLRUCache is counted with number, not memory.
+    // Simple prune all
+    return true;
 }
 
 } // namespace doris

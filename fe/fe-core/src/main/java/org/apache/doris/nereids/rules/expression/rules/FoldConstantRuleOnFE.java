@@ -20,9 +20,19 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
+import org.apache.doris.nereids.rules.expression.ExpressionListenerMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionTraverseListener;
+import org.apache.doris.nereids.rules.expression.ExpressionTraverseListenerFactory;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
@@ -37,7 +47,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -45,6 +55,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
@@ -56,6 +67,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
@@ -77,23 +89,93 @@ import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import org.apache.commons.codec.digest.DigestUtils;
 
+import java.time.DateTimeException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BiFunction;
+import java.util.function.Predicate;
 
 /**
  * evaluate an expression on fe.
  */
-public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
+public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
+        implements ExpressionPatternRuleFactory, ExpressionTraverseListenerFactory {
 
-    public static final FoldConstantRuleOnFE INSTANCE = new FoldConstantRuleOnFE();
+    public static final FoldConstantRuleOnFE VISITOR_INSTANCE = new FoldConstantRuleOnFE(true);
+    public static final FoldConstantRuleOnFE PATTERN_MATCH_INSTANCE = new FoldConstantRuleOnFE(false);
+
+    // record whether current expression is in an aggregate function with distinct,
+    // if is, we will skip to fold constant
+    private static final ListenAggDistinct LISTEN_AGG_DISTINCT = new ListenAggDistinct();
+    private static final CheckWhetherUnderAggDistinct NOT_UNDER_AGG_DISTINCT = new CheckWhetherUnderAggDistinct();
+
+    private final boolean deepRewrite;
+
+    public FoldConstantRuleOnFE(boolean deepRewrite) {
+        this.deepRewrite = deepRewrite;
+    }
+
+    public static Expression evaluate(Expression expression, ExpressionRewriteContext expressionRewriteContext) {
+        return VISITOR_INSTANCE.rewrite(expression, expressionRewriteContext);
+    }
+
+    @Override
+    public List<ExpressionListenerMatcher<? extends Expression>> buildListeners() {
+        return ImmutableList.of(
+                listenerType(AggregateFunction.class)
+                        .when(AggregateFunction::isDistinct)
+                        .then(LISTEN_AGG_DISTINCT.as()),
+
+                listenerType(AggregateExpression.class)
+                        .when(AggregateExpression::isDistinct)
+                        .then(LISTEN_AGG_DISTINCT.as())
+        );
+    }
+
+    @Override
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matches(EncryptKeyRef.class, this::visitEncryptKeyRef),
+                matches(EqualTo.class, this::visitEqualTo),
+                matches(GreaterThan.class, this::visitGreaterThan),
+                matches(GreaterThanEqual.class, this::visitGreaterThanEqual),
+                matches(LessThan.class, this::visitLessThan),
+                matches(LessThanEqual.class, this::visitLessThanEqual),
+                matches(NullSafeEqual.class, this::visitNullSafeEqual),
+                matches(Not.class, this::visitNot),
+                matches(Database.class, this::visitDatabase),
+                matches(CurrentUser.class, this::visitCurrentUser),
+                matches(CurrentCatalog.class, this::visitCurrentCatalog),
+                matches(User.class, this::visitUser),
+                matches(ConnectionId.class, this::visitConnectionId),
+                matches(And.class, this::visitAnd),
+                matches(Or.class, this::visitOr),
+                matches(Cast.class, this::visitCast),
+                matches(BoundFunction.class, this::visitBoundFunction),
+                matches(BinaryArithmetic.class, this::visitBinaryArithmetic),
+                matches(CaseWhen.class, this::visitCaseWhen),
+                matches(If.class, this::visitIf),
+                matches(InPredicate.class, this::visitInPredicate),
+                matches(IsNull.class, this::visitIsNull),
+                matches(TimestampArithmetic.class, this::visitTimestampArithmetic),
+                matches(Password.class, this::visitPassword),
+                matches(Array.class, this::visitArray),
+                matches(Date.class, this::visitDate),
+                matches(Version.class, this::visitVersion),
+                matches(LastQueryId.class, this::visitLastQueryId)
+        );
+    }
 
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
@@ -119,6 +201,16 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     }
 
     @Override
+    public Expression visitMatch(Match match, ExpressionRewriteContext context) {
+        match = rewriteChildren(match, context);
+        Optional<Expression> checkedExpr = preProcess(match);
+        if (checkedExpr.isPresent()) {
+            return checkedExpr.get();
+        }
+        return super.visitMatch(match, context);
+    }
+
+    @Override
     public Expression visitEncryptKeyRef(EncryptKeyRef encryptKeyRef, ExpressionRewriteContext context) {
         String dbName = encryptKeyRef.getDbName();
         ConnectContext connectContext = context.cascadesContext.getConnectContext();
@@ -127,6 +219,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         }
         if ("".equals(dbName)) {
             throw new AnalysisException("DB " + dbName + "not found");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                        dbName, PrivPredicate.SHOW)) {
+            String message = ErrorCode.ERR_DB_ACCESS_DENIED_ERROR.formatErrorMsg(
+                    PrivPredicate.SHOW.getPrivs().toString(), dbName);
+            throw new AnalysisException(message);
         }
         org.apache.doris.catalog.Database database =
                 Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
@@ -244,6 +343,16 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     }
 
     @Override
+    public Expression visitLastQueryId(LastQueryId queryId, ExpressionRewriteContext context) {
+        String res = "Not Available";
+        TUniqueId id = context.cascadesContext.getConnectContext().getLastQueryId();
+        if (id != null) {
+            res = DebugUtil.printId(id);
+        }
+        return new VarcharLiteral(res);
+    }
+
+    @Override
     public Expression visitConnectionId(ConnectionId connectionId, ExpressionRewriteContext context) {
         return new BigIntLiteral(context.cascadesContext.getConnectContext().getConnectionId());
     }
@@ -253,7 +362,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         List<Expression> nonTrueLiteral = Lists.newArrayList();
         int nullCount = 0;
         for (Expression e : and.children()) {
-            e = e.accept(this, context);
+            e = deepRewrite ? e.accept(this, context) : e;
             if (BooleanLiteral.FALSE.equals(e)) {
                 return BooleanLiteral.FALSE;
             } else if (e instanceof NullLiteral) {
@@ -294,7 +403,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         List<Expression> nonFalseLiteral = Lists.newArrayList();
         int nullCount = 0;
         for (Expression e : or.children()) {
-            e = e.accept(this, context);
+            e = deepRewrite ? e.accept(this, context) : e;
             if (BooleanLiteral.TRUE.equals(e)) {
                 return BooleanLiteral.TRUE;
             } else if (e instanceof NullLiteral) {
@@ -331,11 +440,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     }
 
     @Override
-    public Expression visitLike(Like like, ExpressionRewriteContext context) {
-        return like;
-    }
-
-    @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = rewriteChildren(cast, context);
         Optional<Expression> checkedExpr = preProcess(cast);
@@ -357,6 +461,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
                     // If cast is from type coercion, we don't use NULL literal and will throw exception.
                     throw t;
                 }
+            } catch (DateTimeException e) {
+                return new NullLiteral(dataType);
             }
         }
         try {
@@ -412,9 +518,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             }
         }
 
-        Expression defaultResult = caseWhen.getDefaultValue().isPresent()
-                ? rewrite(caseWhen.getDefaultValue().get(), context)
-                : null;
+        Expression defaultResult = null;
+        if (caseWhen.getDefaultValue().isPresent()) {
+            defaultResult = caseWhen.getDefaultValue().get();
+        }
         if (foundNewDefault) {
             defaultResult = newDefault;
         }
@@ -537,28 +644,86 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         return new StringLiteral(GlobalVariable.version);
     }
 
-    private <E> E rewriteChildren(Expression expr, ExpressionRewriteContext ctx) {
-        return (E) super.visit(expr, ctx);
-    }
-
-    private boolean allArgsIsAllLiteral(Expression expression) {
-        return ExpressionUtils.isAllLiteral(expression.getArguments());
-    }
-
-    private boolean argsHasNullLiteral(Expression expression) {
-        return ExpressionUtils.hasNullLiteral(expression.getArguments());
+    private <E extends Expression> E rewriteChildren(E expr, ExpressionRewriteContext context) {
+        if (!deepRewrite) {
+            return expr;
+        }
+        switch (expr.arity()) {
+            case 1: {
+                Expression originChild = expr.child(0);
+                Expression newChild = originChild.accept(this, context);
+                return (originChild != newChild) ? (E) expr.withChildren(ImmutableList.of(newChild)) : expr;
+            }
+            case 2: {
+                Expression originLeft = expr.child(0);
+                Expression newLeft = originLeft.accept(this, context);
+                Expression originRight = expr.child(1);
+                Expression newRight = originRight.accept(this, context);
+                return (originLeft != newLeft || originRight != newRight)
+                        ? (E) expr.withChildren(ImmutableList.of(newLeft, newRight))
+                        : expr;
+            }
+            case 0: {
+                return expr;
+            }
+            default: {
+                boolean hasNewChildren = false;
+                Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(expr.arity());
+                for (Expression child : expr.children()) {
+                    Expression newChild = child.accept(this, context);
+                    if (newChild != child) {
+                        hasNewChildren = true;
+                    }
+                    newChildren.add(newChild);
+                }
+                return hasNewChildren ? (E) expr.withChildren(newChildren.build()) : expr;
+            }
+        }
     }
 
     private Optional<Expression> preProcess(Expression expression) {
         if (expression instanceof AggregateFunction || expression instanceof TableGeneratingFunction) {
             return Optional.of(expression);
         }
-        if (expression instanceof PropagateNullable && argsHasNullLiteral(expression)) {
+        if (ExpressionUtils.hasNullLiteral(expression.getArguments())
+                && (expression instanceof PropagateNullLiteral || expression instanceof PropagateNullable)) {
             return Optional.of(new NullLiteral(expression.getDataType()));
         }
-        if (!allArgsIsAllLiteral(expression)) {
+        if (!ExpressionUtils.isAllLiteral(expression.getArguments())) {
             return Optional.of(expression);
         }
         return Optional.empty();
+    }
+
+    private static class ListenAggDistinct implements ExpressionTraverseListener<Expression> {
+        @Override
+        public void onEnter(ExpressionMatchingContext<Expression> context) {
+            context.cascadesContext.incrementDistinctAggLevel();
+        }
+
+        @Override
+        public void onExit(ExpressionMatchingContext<Expression> context, Expression rewritten) {
+            context.cascadesContext.decrementDistinctAggLevel();
+        }
+    }
+
+    private static class CheckWhetherUnderAggDistinct implements Predicate<ExpressionMatchingContext<Expression>> {
+        @Override
+        public boolean test(ExpressionMatchingContext<Expression> context) {
+            return context.cascadesContext.getDistinctAggLevel() == 0;
+        }
+
+        public <E extends Expression> Predicate<ExpressionMatchingContext<E>> as() {
+            return (Predicate) this;
+        }
+    }
+
+    private <E extends Expression> ExpressionPatternMatcher<? extends Expression> matches(
+            Class<E> clazz, BiFunction<E, ExpressionRewriteContext, Expression> visitMethod) {
+        return matchesType(clazz)
+                .whenCtx(ctx -> !ctx.cascadesContext.getConnectContext().getSessionVariable()
+                        .isDebugSkipFoldConstant())
+                .whenCtx(NOT_UNDER_AGG_DISTINCT.as())
+                .thenApply(ctx -> visitMethod.apply(ctx.expr, ctx.rewriteContext));
     }
 }

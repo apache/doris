@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_in_expr", "query,arrow_flight_sql") {
+suite("test_in_expr", "query") { // "arrow_flight_sql", groovy not support print arrow array type, throw IndexOutOfBoundsException.
     def nullTableName = "in_expr_test_null"
     def notNullTableName = "in_expr_test_not_null"
 
@@ -128,7 +128,7 @@ suite("test_in_expr", "query,arrow_flight_sql") {
     qt_select "SELECT  (abs(1)=1) IN (null) FROM t11;"
 
     qt_select """
-    SELECT CASE (TIMESTAMP '1970-12-04 03:51:34' NOT BETWEEN TIMESTAMP '1970-11-11 16:41:26' AND TIMESTAMP 'CURRENT_TIMESTAMP')  WHEN (0.7532032132148743 BETWEEN 0.7817240953445435 AND CAST('.' AS FLOAT) ) THEN (- (- 2093562249))  WHEN CAST((true IN (false)) AS BOOLEAN)  THEN (+ 1351956476) END  FROM t11 WHERE (NULL IN (CASE CAST('-658171195' AS BOOLEAN)   WHEN ((TIMESTAMP '1970-02-25 22:11:59') IS NOT NULL) THEN NULL  WHEN ((true) IS NULL) THEN NULL END )) GROUP BY t11.c0 ORDER BY 1;
+    SELECT CASE (TIMESTAMP '1970-12-04 03:51:34' NOT BETWEEN TIMESTAMP '1970-11-11 16:41:26' AND CURRENT_TIMESTAMP())  WHEN (0.7532032132148743 BETWEEN 0.7817240953445435 AND CAST('.' AS FLOAT) ) THEN (- (- 2093562249))  WHEN CAST((true IN (false)) AS BOOLEAN)  THEN (+ 1351956476) END  FROM t11 WHERE (NULL IN (CASE CAST('-658171195' AS BOOLEAN)   WHEN ((TIMESTAMP '1970-02-25 22:11:59') IS NOT NULL) THEN NULL  WHEN ((true) IS NULL) THEN NULL END )) GROUP BY t11.c0 ORDER BY 1;
     """
 
     sql " drop table if exists `array_in_test` "
@@ -145,10 +145,7 @@ suite("test_in_expr", "query,arrow_flight_sql") {
 
     sql """ INSERT INTO `array_in_test` VALUES (1, [1,2,3,4,5]); """
 
-    test {
-        sql """ select c_array, c_array in (null) from array_in_test; """
-        exception "errCode"
-    }
+    qt_select """ select c_array, c_array in (null) from array_in_test; """
 
     sql " drop table if exists `json_in_test` "
     sql """

@@ -187,7 +187,7 @@ private:
 
         Status init(bool get_data_by_ref = false) override;
 
-        virtual void init_for_union(bool get_data_by_ref) override;
+        void init_for_union(bool get_data_by_ref) override;
 
         /* For unique and agg, rows is aggregated in block_reader, which access
          * first row so we need prepare the first row ref while duplicated

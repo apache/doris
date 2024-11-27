@@ -122,7 +122,7 @@ public class CatalogFactory {
                 catalog = new EsExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "jdbc":
-                catalog = new JdbcExternalCatalog(catalogId, name, resource, props, comment, isReplay);
+                catalog = new JdbcExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "iceberg":
                 catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props, comment);
@@ -142,15 +142,18 @@ public class CatalogFactory {
             default:
                 throw new DdlException("Unknown catalog type: " + catalogType);
         }
+
+        // set some default properties if missing when creating catalog.
+        // both replaying the creating logic will call this method.
+        catalog.setDefaultPropsIfMissing(isReplay);
+
         if (!isReplay) {
-            // set some default properties when creating catalog.
-            // do not call this method when replaying edit log. Because we need to keey the original properties.
-            catalog.setDefaultPropsWhenCreating(isReplay);
+            catalog.checkWhenCreating();
             // This will check if the customized access controller can be created successfully.
             // If failed, it will throw exception and the catalog will not be created.
             try {
                 catalog.initAccessController(true);
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 LOG.warn("Failed to init access controller", e);
                 throw new DdlException("Failed to init access controller: " + e.getMessage());
             }

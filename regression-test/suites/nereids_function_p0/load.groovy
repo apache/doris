@@ -264,4 +264,28 @@ suite("load") {
     sql """
         insert into fn_test_bitmap_not_nullable select * from fn_test_bitmap where id is not null
     """
+
+    sql """ set enable_decimal256 = true """
+    sql """ drop table if exists fn_test_array_with_large_decimal """
+    sql """
+    create table IF NOT EXISTS fn_test_array_with_large_decimal(id int, a array<tinyint>, b array<decimal(10,0)>, c array<decimal(76,56)>) properties('replication_num' = '1');
+    """
+    streamLoad {
+        table "fn_test_array_with_large_decimal"
+        db "regression_test_nereids_function_p0"
+        set 'column_separator', ';'
+        file "test_array_large_decimal.csv"
+        time 60000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(100, json.NumberTotalRows)
+            assertEquals(100, json.NumberLoadedRows)
+            }
+     }
+
 }

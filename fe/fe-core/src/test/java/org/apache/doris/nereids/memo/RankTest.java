@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.memo;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -35,8 +36,11 @@ import java.util.HashSet;
 import java.util.Set;
 
 class RankTest extends TestWithFeService {
+
     @Test
-    void test() {
+    void test() throws Exception {
+        FeConstants.runningUnitTest = true;
+        createDatabase("test");
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN));
         hyperGraphBuilder.init(0, 1, 2);
         Plan plan = hyperGraphBuilder
@@ -45,7 +49,7 @@ class RankTest extends TestWithFeService {
                 .buildPlan();
         plan = new LogicalProject(plan.getOutput(), plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-        hyperGraphBuilder.initStats(cascadesContext);
+        hyperGraphBuilder.initStats("test", cascadesContext);
         PhysicalPlan bestPlan = PlanChecker.from(cascadesContext)
                 .optimize()
                 .getBestPlanTree();

@@ -21,8 +21,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -36,9 +34,7 @@ import java.util.Set;
  * It like a SlotRef except that it is not a real column exist in table.
  */
 public class VirtualSlotRef extends SlotRef {
-    private static final Logger LOG = LogManager.getLogger(VirtualSlotRef.class);
     // results of analysis slot
-
     private TupleDescriptor tupleDescriptor;
     private List<Expr> realSlots;
 
