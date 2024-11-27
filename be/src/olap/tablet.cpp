@@ -1731,8 +1731,13 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         }
 
         if (!res.ok()) {
-            tablet->set_last_cumu_compaction_failure_time(UnixMillis());
             permits = 0;
+            // if we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
+            // no need to wait 5s.
+            if (!(res.msg() == "_last_delete_version.first not equal to -1")) {
+                DCHECK(res.is<CUMULATIVE_NO_SUITABLE_VERSION>());
+                tablet->set_last_cumu_compaction_failure_time(UnixMillis());
+            }
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 return Status::InternalError("prepare cumulative compaction with err: {}", res);
@@ -1740,6 +1745,12 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             // return OK if OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
+            LOG_INFO(
+                    "cumulative compaction meet delete rowset, increase cumu point without other "
+                    "operation.")
+                    .tag("tablet id:", tablet->tablet_id())
+                    .tag("after cumulative compaction, cumu point:",
+                         tablet->cumulative_layer_point());
             return Status::OK();
         }
     } else if (compaction_type == CompactionType::BASE_COMPACTION) {
