@@ -84,7 +84,7 @@ public class LogicalHudiScan extends LogicalFileScan {
     public LogicalHudiScan(RelationId id, ExternalTable table, List<String> qualifier,
             Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                ((HMSExternalTable) table).initHudiSelectedPartitions(tableSnapshot), tableSample, tableSnapshot,
+                SelectedPartitions.NOT_PRUNED, tableSample, tableSnapshot,
                 Optional.empty(), Optional.empty());
     }
 
