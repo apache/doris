@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
@@ -47,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
@@ -75,6 +77,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
@@ -104,6 +107,7 @@ import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 
 /** CommandVisitor. */
@@ -384,6 +388,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(alterWorkloadGroupCommand, context);
     }
 
+    default R visitAlterWorkloadPolicyCommand(AlterWorkloadPolicyCommand alterWorkloadPolicyCommand, C context) {
+        return visitCommand(alterWorkloadPolicyCommand, context);
+    }
+
     default R visitCleanAllProfileCommand(CleanAllProfileCommand cleanAllProfileCommand, C context) {
         return visitCommand(cleanAllProfileCommand, context);
     }
@@ -445,12 +453,20 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showReplicaDistributedCommand, context);
     }
 
+    default R visitDropWorkloadPolicyCommand(DropWorkloadPolicyCommand dropWorkloadPolicyCommand, C context) {
+        return visitCommand(dropWorkloadPolicyCommand, context);
+    }
+
     default R visitShowTableIdCommand(ShowTableIdCommand showTableIdCommand, C context) {
         return visitCommand(showTableIdCommand, context);
     }
 
     default R visitSyncCommand(SyncCommand syncCommand, C context) {
         return visitCommand(syncCommand, context);
+    }
+
+    default R visitShowEventsCommand(ShowEventsCommand showEventsCommand, C context) {
+        return visitCommand(showEventsCommand, context);
     }
 
     default R visitShowDeleteCommand(ShowDeleteCommand showDeleteCommand, C context) {
@@ -463,5 +479,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTabletsBelongCommand(ShowTabletsBelongCommand showTabletBelongCommand, C context) {
         return visitCommand(showTabletBelongCommand, context);
+    }
+
+    default R visitCreateRoutineLoadCommand(CreateRoutineLoadCommand createRoutineLoadCommand, C context) {
+        return visitCommand(createRoutineLoadCommand, context);
     }
 }

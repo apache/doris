@@ -84,7 +84,7 @@ suite("txn_insert_concurrent_insert_update") {
     }
     sql """ sync """
 
-    def dbName = "regression_test_insert_p2"
+    def dbName = "regression_test_insert_p2_transaction"
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, dbName).replace("&useServerPrepStmts=true", "") + "&useLocalSessionState=true"
     logger.info("url: ${url}")
 

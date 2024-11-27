@@ -58,13 +58,11 @@ statementBase
     | supportedUnsetStatement           #supportedUnsetStatementAlias
     | supportedRefreshStatement         #supportedRefreshStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
+    | supportedLoadStatement            #supportedLoadStatementAlias
     | supportedRecoverStatement         #supportedRecoverStatementAlias
-    | supportedLoadStatement            #supportedLoadfStatementAlias
     | supportedAdminStatement           #supportedAdminStatementAlias
     | unsupportedStatement              #unsupported
     ;
-
-
 
 unsupportedStatement
     : unsupportedUseStatement
@@ -196,6 +194,8 @@ supportedAlterStatement
     | ALTER ROLE role=identifier commentSpec                                        #alterRole
     | ALTER WORKLOAD GROUP name=identifierOrText
         properties=propertyClause?                                                  #alterWorkloadGroup
+    | ALTER WORKLOAD POLICY name=identifierOrText
+        properties=propertyClause?                                                  #alterWorkloadPolicy
     ;
 
 supportedDropStatement
@@ -205,6 +205,7 @@ supportedDropStatement
     | DROP SQL_BLOCK_RULE (IF EXISTS)? identifierSeq                            #dropSqlBlockRule
     | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
     | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText                    #dropWorkloadGroup
+    | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
     ;
 
 supportedShowStatement
@@ -212,6 +213,7 @@ supportedShowStatement
     | SHOW AUTHORS                                                                  #showAuthors
     | SHOW BROKER                                                                   #showBroker
     | SHOW DYNAMIC PARTITION TABLES ((FROM | IN) database=multipartIdentifier)?     #showDynamicPartition
+    | SHOW EVENTS ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showEvents
     | SHOW LAST INSERT                                                              #showLastInsert 
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW ALL? GRANTS                                                              #showGrants
@@ -240,11 +242,12 @@ supportedShowStatement
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW WHITELIST                                                                #showWhitelist
     | SHOW TABLETS BELONG
-        tabletIds+=INTEGER_VALUE (COMMA tabletIds+=INTEGER_VALUE)*                  #showTabletsBelong    
+        tabletIds+=INTEGER_VALUE (COMMA tabletIds+=INTEGER_VALUE)*                  #showTabletsBelong
     ;
 
 supportedLoadStatement
     : SYNC                                                                          #sync
+    | createRoutineLoad                                                             #createRoutineLoadAlias
     ;
 
 unsupportedOtherStatement
@@ -286,7 +289,6 @@ unsupportedShowStatement
     | SHOW FULL? VIEWS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showViews
     | SHOW FULL? PROCESSLIST                                                        #showProcessList
     | SHOW (GLOBAL | SESSION | LOCAL)? STATUS wildWhere?                            #showStatus
-    | SHOW EVENTS ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showEvents
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW CREATE (DATABASE | SCHEMA) name=multipartIdentifier                      #showCreateDatabase
@@ -356,6 +358,14 @@ unsupportedShowStatement
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     ;
 
+createRoutineLoad
+    : CREATE ROUTINE LOAD label=multipartIdentifier (ON table=identifier)?
+              (WITH (APPEND | DELETE | MERGE))?
+              (loadProperty (COMMA loadProperty)*)? propertyClause? FROM type=identifier
+              LEFT_PAREN customProperties=propertyItemList RIGHT_PAREN
+              commentSpec?
+    ;
+
 unsupportedLoadStatement
     : LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
@@ -367,11 +377,6 @@ unsupportedLoadStatement
     | STOP SYNC JOB name=multipartIdentifier                                        #stopDataSyncJob
     | RESUME SYNC JOB name=multipartIdentifier                                      #resumeDataSyncJob
     | PAUSE SYNC JOB name=multipartIdentifier                                       #pauseDataSyncJob
-    | CREATE ROUTINE LOAD label=multipartIdentifier (ON table=identifier)?
-        (WITH (APPEND | DELETE | MERGE))?
-        (loadProperty (COMMA loadProperty)*)? propertyClause? FROM type=identifier
-        LEFT_PAREN customProperties=propertyItemList RIGHT_PAREN
-        commentSpec?                                                                #createRoutineLoadJob
     | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
     | PAUSE ALL ROUTINE LOAD                                                        #pauseAllRoutineLoad
     | RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
@@ -381,11 +386,6 @@ unsupportedLoadStatement
     | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
     | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
     | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
-    | importSequenceStatement                                                       #importSequenceStatementAlias
-    | importPrecedingFilterStatement                                                #importPrecedingFilterStatementAlias
-    | importWhereStatement                                                          #importWhereStatementAlias
-    | importDeleteOnStatement                                                       #importDeleteOnStatementAlias
-    | importColumnsStatement                                                        #importColumnsStatementAlias
     ;
 
 loadProperty
@@ -565,8 +565,6 @@ unsupportedAlterStatement
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
-    | ALTER WORKLOAD POLICY name=identifierOrText
-        properties=propertyClause?                                                  #alterWorkloadPolicy
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?               #alterSqlBlockRule
@@ -677,7 +675,6 @@ unsupportedDropStatement
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
     | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
-    | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
         ON tableName=multipartIdentifier
         (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
