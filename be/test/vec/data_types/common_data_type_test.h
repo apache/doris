@@ -66,8 +66,6 @@ protected:
                 << "serder size: " << serders.size() << " column size: " << columns.size();
         ASSERT_EQ(serders.size(), idxes.size())
                 << "serder size: " << serders.size() << " idxes size: " << idxes.size();
-        ASSERT_EQ(serders.size(), *idxes.end())
-                << "serder size: " << serders.size() << " idxes size: " << *idxes.end();
         std::ifstream file(file_path);
         if (!file) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "can not open the file: {} ",
@@ -115,7 +113,6 @@ public:
         size_t scale = -1;
         bool is_null_literal = true;
         bool is_value_represented_by_number = false;
-        bool is_value_represented_by_integer = false;
         bool is_value_represented_by_unsigned_integer = false;
         PColumnMeta* pColumnMeta = nullptr;
         DataTypeSerDeSPtr serde = nullptr;
@@ -148,8 +145,6 @@ public:
         ASSERT_EQ(data_type->is_null_literal(), meta_info.is_null_literal);
         ASSERT_EQ(data_type->is_value_represented_by_number(),
                   meta_info.is_value_represented_by_number);
-        ASSERT_EQ(data_type->is_value_represented_by_integer(),
-                  meta_info.is_value_represented_by_integer);
         ASSERT_EQ(data_type->is_value_represented_by_unsigned_integer(),
                   meta_info.is_value_represented_by_unsigned_integer);
         //        ASSERT_EQ(data_type->is_value_unambiguously_represented_in_contiguous_memory_region(), meta_info.is_value_unambiguously_represented_in_contiguous_memory_region);
@@ -185,6 +180,14 @@ public:
             ASSERT_EQ(Status::OK(), data_type->from_string(rb, assert_column.get()));
             ASSERT_EQ(assert_column->operator[](i), mutableColumn->operator[](i));
         }
+    }
+
+    // should all datatype is compare?
+    void assert_compare_behavior(DataTypePtr l_dt, DataTypePtr& r_dt) {
+        ASSERT_TRUE(l_dt->is_comparable());
+        ASSERT_TRUE(r_dt->is_comparable());
+        // compare
+        ASSERT_FALSE(l_dt->equals(*r_dt));
     }
 };
 

@@ -32,6 +32,7 @@
 #include "vec/core/sort_block.h"
 #include "vec/core/sort_description.h"
 #include "vec/core/types.h"
+#include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -94,8 +95,6 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .scale = size_t(-1),
             .is_null_literal = false,
             .is_value_represented_by_number = true,
-            // why ipv4/ipv6 is represented by integer
-            .is_value_represented_by_integer = true,
             .is_value_represented_by_unsigned_integer = true,
             .pColumnMeta = col_meta.get()
             //                .is_value_unambiguously_represented_in_contiguous_memory_region = true
@@ -117,7 +116,6 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .scale = size_t(-1),
             .is_null_literal = false,
             .is_value_represented_by_number = true,
-            .is_value_represented_by_integer = true,
             .is_value_represented_by_unsigned_integer = true,
             .pColumnMeta = col_meta6.get()
             //                .is_value_unambiguously_represented_in_contiguous_memory_region = true
@@ -149,6 +147,57 @@ TEST_F(DataTypeIPTest, FromAndToStringTest) {
     assert_to_string_from_string_assert(ip_cols[0]->get_ptr(), dt_ipv4);
     // test ipv6
     assert_to_string_from_string_assert(ip_cols[1]->get_ptr(), dt_ipv6);
+}
+
+TEST_F(DataTypeIPTest, CompareTest) {
+    assert_compare_behavior(dt_ipv4, dt_ipv6);
+}
+
+TEST_F(DataTypeIPTest, SerdeHiveTextAndJsonFormatTest) {
+    auto serde_ipv4 = dt_ipv4->get_serde(1);
+    auto serde_ipv6 = dt_ipv6->get_serde(1);
+    auto column_ipv4 = dt_ipv4->create_column();
+    auto column_ipv6 = dt_ipv6->create_column();
+
+    // insert from data csv and assert insert result
+    MutableColumns ip_cols;
+    ip_cols.push_back(column_ipv4->get_ptr());
+    ip_cols.push_back(column_ipv6->get_ptr());
+    DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
+    CommonDataTypeSerdeTest::load_data_and_assert_from_csv<true>(serde, ip_cols, data_files[1], ';',
+                                                                 {1, 2});
+    CommonDataTypeSerdeTest::load_data_and_assert_from_csv<false>(serde, ip_cols, data_files[1],
+                                                                  ';', {1, 2});
+}
+
+TEST_F(DataTypeIPTest, SerdePbTest) {
+    auto serde_ipv4 = dt_ipv4->get_serde(1);
+    auto serde_ipv6 = dt_ipv6->get_serde(1);
+    auto column_ipv4 = dt_ipv4->create_column();
+    auto column_ipv6 = dt_ipv6->create_column();
+
+    // insert from data csv and assert insert result
+    MutableColumns ip_cols;
+    ip_cols.push_back(column_ipv4->get_ptr());
+    ip_cols.push_back(column_ipv6->get_ptr());
+    DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
+    CommonDataTypeSerdeTest::check_data(ip_cols, serde, ';', {1, 2}, data_files[0],
+                                        CommonDataTypeSerdeTest::assert_pb_format);
+}
+
+TEST_F(DataTypeIPTest, SerdeJsonbTest) {
+    auto serde_ipv4 = dt_ipv4->get_serde(1);
+    auto serde_ipv6 = dt_ipv6->get_serde(1);
+    auto column_ipv4 = dt_ipv4->create_column();
+    auto column_ipv6 = dt_ipv6->create_column();
+
+    // insert from data csv and assert insert result
+    MutableColumns ip_cols;
+    ip_cols.push_back(column_ipv4->get_ptr());
+    ip_cols.push_back(column_ipv6->get_ptr());
+    DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
+    CommonDataTypeSerdeTest::check_data(ip_cols, serde, ';', {1, 2}, data_files[0],
+                                        CommonDataTypeSerdeTest::assert_jsonb_format);
 }
 
 } // namespace doris::vectorized
