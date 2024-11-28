@@ -25,7 +25,7 @@ void WorkloadActionCancelQuery::exec(WorkloadQueryInfo* query_info) {
     std::stringstream msg;
     msg << "query " << query_info->query_id
         << " cancelled by workload policy: " << query_info->policy_name
-        << ", id:" << query_info->policy_id;
+        << ", id:" << query_info->policy_id << ", " << query_info->cond_eval_msg;
     std::string msg_str = msg.str();
     LOG(INFO) << "[workload_schedule]" << msg_str;
     ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
