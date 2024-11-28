@@ -92,4 +92,6 @@ suite("create_view_use_mv") {
     group by
     k1, k2, k3, k4, k5, l_orderkey, mv_o_orderkey"""
     qt_alter_view_from_mv "select * from v_for_alter order by 1"
+
+    sql """show view from orders""";
 }
