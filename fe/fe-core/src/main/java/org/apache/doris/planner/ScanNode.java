@@ -61,6 +61,7 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeRangeSet;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,7 +79,7 @@ public abstract class ScanNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(ScanNode.class);
     protected final TupleDescriptor desc;
     // for distribution prunner
-    protected Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
+    protected Map<String, PartitionColumnFilter> columnFilters = new CaseInsensitiveMap();
     // Use this if partition_prune_algorithm_version is 2.
     protected Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
     protected String sortColumn = null;
