@@ -71,6 +71,9 @@ public:
         // process ignore duplicate IN_FILTER
         std::unordered_set<int> has_in_filter;
         for (auto filter : _runtime_filters) {
+            if (filter->filter_id() == 20) {
+                LOG(WARNING) << "=======1 " << filter->debug_string();
+            }
             if (filter->get_ignored()) {
                 continue;
             }
@@ -98,6 +101,9 @@ public:
                 continue;
             }
             filter->set_ignored();
+            if (filter->filter_id() == 20) {
+                LOG(WARNING) << "=======2 " << filter->debug_string();
+            }
         }
         return Status::OK();
     }
@@ -112,6 +118,8 @@ public:
     Status init_filters(RuntimeState* state, uint64_t local_hash_table_size) {
         // process IN_OR_BLOOM_FILTER's real type
         for (auto filter : _runtime_filters) {
+            LOG(WARNING) << "=======3 " << filter->debug_string() << " " << local_hash_table_size
+                         << " " << filter->get_synced_size();
             if (filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
                 get_real_size(filter.get(), local_hash_table_size) >
                         state->runtime_filter_max_in_num()) {
