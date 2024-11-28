@@ -606,6 +606,9 @@ public class ExpressionUtils {
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
         ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(predicates.size());
         for (Expression predicate : predicates) {
+            if (predicate.isInferNotNull()) {
+                continue;
+            }
             for (Slot slot : predicate.getInputSlots()) {
                 Map<Expression, Expression> replaceMap = new HashMap<>();
                 Literal nullLiteral = new NullLiteral(slot.getDataType());
@@ -628,7 +631,7 @@ public class ExpressionUtils {
     public static Set<Expression> inferNotNull(Set<Expression> predicates, CascadesContext cascadesContext) {
         ImmutableSet.Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size());
         for (Slot slot : inferNotNullSlots(predicates, cascadesContext)) {
-            newPredicates.add(new Not(new IsNull(slot), false));
+            newPredicates.add(new Not(new IsNull(slot), false).withInferred(true));
         }
         return newPredicates.build();
     }

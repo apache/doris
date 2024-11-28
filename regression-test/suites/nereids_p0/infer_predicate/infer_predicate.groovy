@@ -61,4 +61,41 @@ suite("test_infer_predicate") {
         // However, in this case, pulling up seems to be OK, so note for now
         // contains "PREDICATES: (k2"
     }
+
+    sql '''drop table if exists test_infer1;'''
+    sql '''drop table if exists test_infer2;'''
+    sql '''drop table if exists test_infer3;'''
+    sql '''create table test_infer1(a int) properties("replication_num"="1");'''
+    sql '''create table test_infer2(b int) properties("replication_num"="1");'''
+    sql '''create table test_infer3(c int) properties("replication_num"="1");'''
+    explain {
+        sql "select\n" +
+                "    t1.a\n" +
+                "from\n" +
+                "    test_infer1 t1 \n" +
+                "    full outer join test_infer2 t2 on t1.a = t2.b \n" +
+                "    full outer join test_infer3 t3 on t3.c = t2.b\n" +
+                "where\n" +
+                "    t3.c = 10;"
+        contains("PREDICATES: (a")
+    }
+    explain {
+        sql "select * from test_infer1 t1 left join (select t3.c as c from test_infer2 t2 left join test_infer3 t3 on t2.b=t3.c) as y on t1.a = y.c where t1.a=1;"
+        contains("PREDICATES: (b")
+    }
+    explain {
+        sql "shape plan select\n" +
+                "    t1.a\n" +
+                "from\n" +
+                "    test_infer1 t1 \n" +
+                "    full outer join test_infer2 t2 on t1.a = t2.b \n" +
+                "    full outer join test_infer3 t3 on t3.c = t2.b\n" +
+                "where\n" +
+                "    t3.c = 10;"
+        notContains("FULL_OUTER")
+    }
+    explain {
+        sql "shape plan select * from test_infer1 t1 left join (select t3.c as c from test_infer2 t2 left join test_infer3 t3 on t2.b=t3.c) as y on t1.a = y.c where t1.a=1;"
+        contains("INNER_JOIN")
+    }
 }

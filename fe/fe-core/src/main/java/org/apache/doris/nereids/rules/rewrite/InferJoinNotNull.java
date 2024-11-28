@@ -68,6 +68,9 @@ public class InferJoinNotNull extends OneRewriteRuleFactory {
                             conjuncts, join.right().getOutputSet(), ctx.cascadesContext);
                     right = PlanUtils.filterOrSelf(rightNotNull, join.right());
                 }
+                for (Expression conjunct : conjuncts) {
+                    conjunct.setInferNotNull(true);
+                }
 
                 if (left.equals(join.left()) && right.equals(join.right())) {
                     return null;
