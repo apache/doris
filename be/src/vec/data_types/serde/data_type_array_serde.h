@@ -101,6 +101,8 @@ public:
         nested_serde->set_return_object_as_string(value);
     }
 
+    virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
