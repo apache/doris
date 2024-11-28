@@ -432,7 +432,7 @@ public class FunctionCallExpr extends Expr {
 
     protected FunctionCallExpr(FunctionCallExpr other) {
         super(other);
-        fnName = other.fnName;
+        fnName = other.fnName != null ? other.fnName.clone() : null;
         orderByElements = other.orderByElements;
         isAnalyticFnCall = other.isAnalyticFnCall;
         // aggOp = other.aggOp;
