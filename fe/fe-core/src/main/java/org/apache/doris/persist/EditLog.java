@@ -101,6 +101,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 /**
  * EditLog maintains a log of the memory modifications.
@@ -337,15 +338,18 @@ public class EditLog {
                 case OperationType.OP_DROP_ROLLUP: {
                     DropInfo info = (DropInfo) journal.getData();
                     env.getMaterializedViewHandler().replayDropRollup(info, env);
+                    env.getBinlogManager().addDropRollup(info, logId);
                     break;
                 }
                 case OperationType.OP_BATCH_DROP_ROLLUP: {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
-                    for (long indexId : batchDropInfo.getIndexIdSet()) {
-                        env.getMaterializedViewHandler().replayDropRollup(
-                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
-                                        batchDropInfo.getTableName(), indexId, false, false, 0),
-                                env);
+                    for (Map.Entry<Long, String> entry : batchDropInfo.getIndexNameMap().entrySet()) {
+                        long indexId = entry.getKey();
+                        String indexName = entry.getValue();
+                        DropInfo info = new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
+                                        batchDropInfo.getTableName(), indexId, indexName, false, false, 0);
+                        env.getMaterializedViewHandler().replayDropRollup(info, env);
+                        env.getBinlogManager().addDropRollup(info, logId);
                     }
                     break;
                 }
@@ -1418,11 +1422,20 @@ public class EditLog {
     }
 
     public void logDropRollup(DropInfo info) {
-        logEdit(OperationType.OP_DROP_ROLLUP, info);
+        long logId = logEdit(OperationType.OP_DROP_ROLLUP, info);
+        Env.getCurrentEnv().getBinlogManager().addDropRollup(info, logId);
     }
 
     public void logBatchDropRollup(BatchDropInfo batchDropInfo) {
-        logEdit(OperationType.OP_BATCH_DROP_ROLLUP, batchDropInfo);
+        long logId = logEdit(OperationType.OP_BATCH_DROP_ROLLUP, batchDropInfo);
+        for (Map.Entry<Long, String> entry : batchDropInfo.getIndexNameMap().entrySet()) {
+            DropInfo info = new DropInfo(batchDropInfo.getDbId(),
+                    batchDropInfo.getTableId(),
+                    batchDropInfo.getTableName(),
+                    entry.getKey(), entry.getValue(),
+                    false, true, 0);
+            Env.getCurrentEnv().getBinlogManager().addDropRollup(info, logId);
+        }
     }
 
     public void logFinishConsistencyCheck(ConsistencyCheckInfo info) {

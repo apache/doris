@@ -30,6 +30,7 @@ import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
+import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
@@ -404,8 +405,8 @@ public class BinlogManager {
         long timestamp = -1;
         TBinlogType type = TBinlogType.MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES;
         String data = info.toJson();
-
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
+        addBarrierLog(log, commitSeq);
     }
 
     public void addIndexChangeJob(IndexChangeJob indexChangeJob, long commitSeq) {
@@ -415,8 +416,22 @@ public class BinlogManager {
         long timestamp = -1;
         TBinlogType type = TBinlogType.INDEX_CHANGE_JOB;
         String data = indexChangeJob.toJson();
+        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
+        addBarrierLog(log, commitSeq);
+    }
 
-        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, indexChangeJob);
+    public void addDropRollup(DropInfo info, long commitSeq) {
+        if (StringUtils.isEmpty(info.getIndexName())) {
+            LOG.warn("skip drop rollup binlog, because indexName is empty. info: {}", info);
+            return;
+        }
+
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        TBinlogType type = TBinlogType.DROP_ROLLUP;
+        String data = info.toJson();
+        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
+        addBarrierLog(log, commitSeq);
     }
 
     // get binlog by dbId, return first binlog.version > version
