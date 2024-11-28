@@ -31,6 +31,7 @@
 #include "runtime/define_primitive_type.h"
 #include "serde/data_type_string_serde.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -92,6 +93,13 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeStringSerDe>(nesting_level);
     };
+    // Return Field.
+    Field get_type_field(const IColumn& column, size_t row) const override {
+        const auto& column_data = static_cast<const ColumnString&>(column);
+        Field field(String(column_data.get_data_at(row).data, column_data.get_data_at(row).size));
+        field.set_type_info(TypeIndex::String);
+        return field;
+    }
 };
 
 } // namespace doris::vectorized

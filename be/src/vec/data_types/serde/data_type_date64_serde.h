@@ -34,6 +34,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 class JsonbOutStream;
@@ -72,6 +73,12 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
+    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
+                                  int64_t row_num, const DataTypePtr& type) const override {
+        return DataTypeSerDe::write_one_cell_to_json(column, result, allocator, mem_pool, row_num,
+                                                     type);
+    }
 
 private:
     template <bool is_binary_format>

@@ -288,6 +288,9 @@ import org.apache.doris.nereids.DorisParser.UpdateAssignmentSeqContext;
 import org.apache.doris.nereids.DorisParser.UpdateContext;
 import org.apache.doris.nereids.DorisParser.UserIdentifyContext;
 import org.apache.doris.nereids.DorisParser.UserVariableContext;
+import org.apache.doris.nereids.DorisParser.VariantPredefinedFieldsContext;
+import org.apache.doris.nereids.DorisParser.VariantSubColTypeContext;
+import org.apache.doris.nereids.DorisParser.VariantSubColTypeListContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParser.WindowFrameContext;
 import org.apache.doris.nereids.DorisParser.WindowSpecContext;
@@ -640,6 +643,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -3167,6 +3171,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? visitPrimitiveDataType(((PrimitiveDataTypeContext) ctx.type))
                 : ctx.type instanceof ComplexDataTypeContext
                         ? visitComplexDataType((ComplexDataTypeContext) ctx.type)
+                    : ctx.type instanceof VariantPredefinedFieldsContext
+                            ? visitVariantPredefinedFields((VariantPredefinedFieldsContext) ctx.type)
                         : visitAggStateDataType((AggStateDataTypeContext) ctx.type);
         colType = colType.conversion();
         boolean isKey = ctx.KEY() != null;
@@ -4022,6 +4028,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public DataType visitVariantPredefinedFields(VariantPredefinedFieldsContext ctx) {
+        return new VariantType(visitVariantSubColTypeList(ctx.variantSubColTypeList()));
+    }
+
+    @Override
+    public List<StructField> visitVariantSubColTypeList(VariantSubColTypeListContext ctx) {
+        return ctx.variantSubColType().stream().map(
+                this::visitVariantSubColType).collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public StructField visitVariantSubColType(VariantSubColTypeContext ctx) {
+        String comment;
+        if (ctx.commentSpec() != null) {
+            comment = ctx.commentSpec().STRING_LITERAL().getText();
+            comment = LogicalPlanBuilderAssistant.escapeBackSlash(comment.substring(1, comment.length() - 1));
+        } else {
+            comment = "";
+        }
+        return new StructField(ctx.qualifiedName().getText(),
+                    typedVisit(ctx.dataType()), true, comment, true /*name case-sensitive*/);
+    }
+
+    @Override
     public DataType visitComplexDataType(ComplexDataTypeContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             switch (ctx.complex.getType()) {
@@ -4051,7 +4081,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             comment = "";
         }
-        return new StructField(ctx.identifier().getText(), typedVisit(ctx.dataType()), true, comment);
+        return new StructField(ctx.identifier().getText(),
+                    typedVisit(ctx.dataType()), true, comment, false /*name case-insensitive*/);
     }
 
     private String parseConstant(ConstantContext context) {

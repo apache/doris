@@ -24,6 +24,7 @@
 #include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -181,6 +182,13 @@ public:
     const TabletColumn& sparse_column_at(size_t oridinal) const;
     const std::vector<TabletColumnPtr>& sparse_columns() const;
     size_t num_sparse_columns() const { return _num_sparse_columns; }
+
+    void set_precision_frac(int32_t precision, int32_t frac) {
+        _precision = precision;
+        _frac = frac;
+    }
+
+    void set_is_decimal(bool is_decimal) { _is_decimal = is_decimal; }
 
     Status check_valid() const {
         if (type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&

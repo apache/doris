@@ -93,6 +93,11 @@ public:
         return Status::NotSupported("write_column_to_orc with type " + column.get_name());
     }
 
+    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
+                                  int64_t row_num,
+                                  const std::shared_ptr<const IDataType>& type) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
