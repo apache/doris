@@ -45,6 +45,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class FunctionArrayShuffle : public IFunction {
 public:
@@ -71,7 +72,7 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = assert_cast<const ColumnArray&>(*src_column);
 
-        uint32_t seed = time(nullptr);
+        size_t seed = time(nullptr);
         if (arguments.size() == 2) {
             ColumnPtr seed_column =
                     block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();

@@ -167,12 +167,12 @@ void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const Nul
     for (size_t i = start; i < end; ++i) {
         char buf[64];
         const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
-        int len = time_val->to_buffer(buf);
+        size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {
-            checkArrowStatus(string_builder.Append(buf, len), column.get_name(),
+            checkArrowStatus(string_builder.Append(buf, cast_set<int32_t>(len)), column.get_name(),
                              array_builder->type()->name());
         }
     }
@@ -305,8 +305,8 @@ Status DataTypeDate64SerDe::write_column_to_orc(const std::string& timezone, con
             continue;
         }
 
-        int len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id])
-                          .to_buffer(const_cast<char*>(bufferRef.data) + offset);
+        size_t len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id])
+                             .to_buffer(const_cast<char*>(bufferRef.data) + offset);
 
         REALLOC_MEMORY_FOR_ORC_WRITER()
 
