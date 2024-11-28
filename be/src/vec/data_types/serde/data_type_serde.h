@@ -77,6 +77,18 @@ struct ColumnVectorBatch;
         ++*num_deserialized;                                                             \
     }
 
+#define INIT_MEMORY_FOR_ORC_WRITER()                                                 \
+    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);                                     \
+    if (!ptr) {                                                                      \
+        return Status::InternalError(                                                \
+                "malloc memory error when write largeint column data to orc file."); \
+    }                                                                                \
+    StringRef bufferRef;                                                             \
+    bufferRef.data = ptr;                                                            \
+    bufferRef.size = BUFFER_UNIT_SIZE;                                               \
+    size_t offset = 0;                                                               \
+    buffer_list.emplace_back(bufferRef);
+
 #define REALLOC_MEMORY_FOR_ORC_WRITER()                                                  \
     while (bufferRef.size - BUFFER_RESERVED_SIZE < offset + len) {                       \
         char* new_ptr = (char*)malloc(bufferRef.size + BUFFER_UNIT_SIZE);                \
