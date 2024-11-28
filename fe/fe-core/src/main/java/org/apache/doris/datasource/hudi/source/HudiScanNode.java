@@ -261,6 +261,7 @@ public class HudiScanNode extends HiveScanNode {
         fileDesc.setColumnTypes(hudiSplit.getHudiColumnTypes());
         // TODO(gaoxin): support complex types
         // fileDesc.setNestedFields(hudiSplit.getNestedFields());
+        fileDesc.setHudiJniScanner(hudiSplit.getHudiJniScanner());
         tableFormatFileDesc.setHudiParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
@@ -503,6 +504,7 @@ public class HudiScanNode extends HiveScanNode {
         split.setHudiColumnNames(columnNames);
         split.setHudiColumnTypes(columnTypes);
         split.setInstantTime(queryInstant);
+        split.setHudiJniScanner(sessionVariable.getHudiJniScanner());
         return split;
     }
 
