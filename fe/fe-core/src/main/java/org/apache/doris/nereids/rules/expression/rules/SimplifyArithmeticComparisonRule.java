@@ -62,9 +62,9 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
             .put(Add.class, Subtract.class)
             .put(Subtract.class, Add.class)
             .put(Divide.class, Multiply.class)
-            // ATTN: YearsSub, MonthsSub can not reverse
+            // ATTN: YearsAdd, MonthsAdd can not reverse
             //       for example, months_add(date '2024-01-31', 1) = date '2024-02-29' can not reverse to
-            //       date '2024-01-31' = months_sub('2024-02-29')
+            //       date '2024-01-31' = months_sub('2024-02-29', 1)
             .put(WeeksSub.class, WeeksAdd.class)
             .put(WeeksAdd.class, WeeksSub.class)
             .put(DaysSub.class, DaysAdd.class)
