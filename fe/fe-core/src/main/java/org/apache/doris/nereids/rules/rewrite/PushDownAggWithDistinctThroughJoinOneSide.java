@@ -55,13 +55,19 @@ public class PushDownAggWithDistinctThroughJoinOneSide implements RewriteRuleFac
                 logicalAggregate(logicalProject(innerLogicalJoin()))
                         .when(agg -> agg.child().isAllSlots())
                         .when(agg -> agg.child().child().getOtherJoinConjuncts().isEmpty())
+                        .when(agg -> !agg.isGenerated())
+                        .whenNot(agg -> agg.getAggregateFunctions().isEmpty())
                         .whenNot(agg -> agg.child().children().stream().anyMatch(p -> p instanceof LogicalAggregate))
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
-                            return funcs.size() == 1 && funcs.stream()
-                                    .allMatch(f -> (f instanceof Min || f instanceof Max || f instanceof Sum
-                                            || f instanceof Count) && f.isDistinct()
-                                            && f.child(0) instanceof Slot);
+                            if (funcs.size() > 1) {
+                                return false;
+                            } else {
+                                return funcs.stream()
+                                        .allMatch(f -> (f instanceof Min || f instanceof Max || f instanceof Sum
+                                                || f instanceof Count) && f.isDistinct()
+                                                && f.child(0) instanceof Slot);
+                            }
                         })
                         .thenApply(ctx -> {
                             LogicalAggregate<LogicalProject<LogicalJoin<Plan, Plan>>> agg = ctx.root;
@@ -73,18 +79,20 @@ public class PushDownAggWithDistinctThroughJoinOneSide implements RewriteRuleFac
 
     private static LogicalAggregate<Plan> pushDownAggWithDistinct(LogicalAggregate<? extends Plan> agg,
             LogicalJoin<Plan, Plan> join, List<NamedExpression> projects) {
-        List<Slot> leftOutput = join.left().getOutput();
-        List<Slot> rightOutput = join.right().getOutput();
+        Plan leftJoin = join.left();
+        Plan rightJoin = join.right();
+        List<Slot> leftJoinOutput = leftJoin.getOutput();
+        List<Slot> rightJoinOutput = rightJoin.getOutput();
 
         List<AggregateFunction> leftFuncs = new ArrayList<>();
         List<AggregateFunction> rightFuncs = new ArrayList<>();
-        Set<Slot> middleAggGroupBy = new HashSet<>();
+        Set<Slot> newAggOverJoinGroupByKeys = new HashSet<>();
         for (AggregateFunction func : agg.getAggregateFunctions()) {
             Slot slot = (Slot) func.child(0);
-            middleAggGroupBy.add(slot);
-            if (leftOutput.contains(slot)) {
+            newAggOverJoinGroupByKeys.add(slot);
+            if (leftJoinOutput.contains(slot)) {
                 leftFuncs.add(func);
-            } else if (rightOutput.contains(slot)) {
+            } else if (rightJoinOutput.contains(slot)) {
                 rightFuncs.add(func);
             } else {
                 throw new IllegalStateException("Slot " + slot + " not found in join output");
@@ -96,59 +104,58 @@ public class PushDownAggWithDistinctThroughJoinOneSide implements RewriteRuleFac
             return null;
         }
 
-        Set<Slot> leftGroupBy = new HashSet<>();
-        Set<Slot> rightGroupBy = new HashSet<>();
+        Set<Slot> leftPushDownGroupBy = new HashSet<>();
+        Set<Slot> rightPushDownGroupBy = new HashSet<>();
         for (Expression e : agg.getGroupByExpressions()) {
             Slot slot = (Slot) e;
-            middleAggGroupBy.add(slot);
-            if (leftOutput.contains(slot)) {
-                leftGroupBy.add(slot);
-            } else if (rightOutput.contains(slot)) {
-                rightGroupBy.add(slot);
+            newAggOverJoinGroupByKeys.add(slot);
+            if (leftJoinOutput.contains(slot)) {
+                leftPushDownGroupBy.add(slot);
+            } else if (rightJoinOutput.contains(slot)) {
+                rightPushDownGroupBy.add(slot);
             } else {
                 return null;
             }
         }
         join.getHashJoinConjuncts().forEach(e -> e.getInputSlots().forEach(slot -> {
-            if (leftOutput.contains(slot)) {
-                leftGroupBy.add(slot);
-            } else if (rightOutput.contains(slot)) {
-                rightGroupBy.add(slot);
+            if (leftJoinOutput.contains(slot)) {
+                leftPushDownGroupBy.add(slot);
+            } else if (rightJoinOutput.contains(slot)) {
+                rightPushDownGroupBy.add(slot);
             } else {
                 throw new IllegalStateException("Slot " + slot + " not found in join output");
             }
         }));
-        Plan left = join.left();
-        Plan right = join.right();
+
         Map<Slot, NamedExpression> leftSlotToOutput = new HashMap<>();
         Map<Slot, NamedExpression> rightSlotToOutput = new HashMap<>();
         if (isLeftSideAggDistinct) {
-            leftGroupBy.add((Slot) leftFuncs.get(0).child(0));
+            leftPushDownGroupBy.add((Slot) leftFuncs.get(0).child(0));
             Builder<NamedExpression> leftAggOutputBuilder = ImmutableList.<NamedExpression>builder()
-                    .addAll(leftGroupBy);
+                    .addAll(leftPushDownGroupBy);
             leftFuncs.forEach(func -> {
-                Alias alias = func.alias(func.getName());
+                Alias alias = func.alias("PDADT_" + func.getName());
                 leftSlotToOutput.put((Slot) func.child(0), alias);
             });
-            left = new LogicalAggregate<>(ImmutableList.copyOf(leftGroupBy), leftAggOutputBuilder.build(), join.left());
+            leftJoin = new LogicalAggregate<>(ImmutableList.copyOf(leftPushDownGroupBy),
+                    leftAggOutputBuilder.build(), join.left());
         } else {
-            rightGroupBy.add((Slot) rightFuncs.get(0).child(0));
+            rightPushDownGroupBy.add((Slot) rightFuncs.get(0).child(0));
             Builder<NamedExpression> rightAggOutputBuilder = ImmutableList.<NamedExpression>builder()
-                    .addAll(rightGroupBy);
+                    .addAll(rightPushDownGroupBy);
             rightFuncs.forEach(func -> {
-                Alias alias = func.alias(func.getName());
+                Alias alias = func.alias("PDADT_" + func.getName());
                 rightSlotToOutput.put((Slot) func.child(0), alias);
                 rightAggOutputBuilder.add(alias);
             });
-            right = new LogicalAggregate<>(ImmutableList.copyOf(rightGroupBy), rightAggOutputBuilder.build(),
-                    join.right());
+            rightJoin = new LogicalAggregate<>(ImmutableList.copyOf(rightPushDownGroupBy),
+                    rightAggOutputBuilder.build(), join.right());
         }
 
-        Preconditions.checkState(left != join.left() || right != join.right());
-        Plan newJoin = join.withChildren(left, right);
-
-        LogicalAggregate<? extends Plan> middleAgg = agg.withChildGroupByAndOutput(
-                ImmutableList.copyOf(middleAggGroupBy), projects, newJoin);
+        Preconditions.checkState(leftJoin != join.left() || rightJoin != join.right());
+        Plan newJoin = join.withChildren(leftJoin, rightJoin);
+        LogicalAggregate<? extends Plan> newAggOverJoin = agg.withChildGroupByAndOutput(
+                ImmutableList.copyOf(newAggOverJoinGroupByKeys), projects, newJoin);
 
         List<NamedExpression> newOutputExprs = new ArrayList<>();
         for (NamedExpression ne : agg.getOutputExpressions()) {
@@ -168,13 +175,12 @@ public class PushDownAggWithDistinctThroughJoinOneSide implements RewriteRuleFac
                 newOutputExprs.add(ne);
             }
         }
-        return agg.withAggOutputChild(newOutputExprs, middleAgg);
+        return agg.withAggOutputChild(newOutputExprs, newAggOverJoin);
     }
 
     private static Expression discardDistinct(AggregateFunction func) {
         Preconditions.checkState(func.isDistinct(), "current aggregation function is not distinct");
         Set<Expression> aggChild = Sets.newLinkedHashSet(func.children());
-        AggregateFunction nonDistinct = func.withDistinctAndChildren(false, ImmutableList.copyOf(aggChild));
-        return nonDistinct;
+        return func.withDistinctAndChildren(false, ImmutableList.copyOf(aggChild));
     }
 }
