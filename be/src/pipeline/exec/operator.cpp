@@ -260,15 +260,17 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     }
     vectorized::Block input_block = *origin_block;
 
-    std::vector<int> result_column_ids;
-    for (const auto& projections : local_state->_intermediate_projections) {
-        result_column_ids.resize(projections.size());
-        for (int i = 0; i < projections.size(); i++) {
-            RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+    {
+        SCOPED_TIMER(local_state->_intermediate_projection_timer);
+        std::vector<int> result_column_ids;
+        for (const auto& projections : local_state->_intermediate_projections) {
+            result_column_ids.resize(projections.size());
+            for (int i = 0; i < projections.size(); i++) {
+                RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+            }
+            input_block.shuffle_columns(result_column_ids);
         }
-        input_block.shuffle_columns(result_column_ids);
     }
-
     DCHECK_EQ(rows, input_block.rows());
     auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
         if (to->is_nullable() && !from->is_nullable()) {
@@ -293,6 +295,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
                                                                        *_output_row_descriptor);
     if (rows != 0) {
+        SCOPED_TIMER(local_state->_final_projection_timer);
         auto& mutable_columns = mutable_block.mutable_columns();
         DCHECK(mutable_columns.size() == local_state->_projections.size());
         for (int i = 0; i < mutable_columns.size(); ++i) {
@@ -480,6 +483,8 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     _blocks_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
     _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
+    _intermediate_projection_timer = ADD_TIMER(_runtime_profile, "ProjectionIntermediateTime");
+    _final_projection_timer = ADD_TIMER(_runtime_profile, "ProjectionFinalTime");
     _init_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "InitTime", 1);
     _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);

@@ -204,6 +204,8 @@ protected:
     RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
     RuntimeProfile::Counter* _projection_timer = nullptr;
+    RuntimeProfile::Counter* _intermediate_projection_timer = nullptr;
+    RuntimeProfile::Counter* _final_projection_timer = nullptr;
     RuntimeProfile::Counter* _exec_timer = nullptr;
     // Account for peak memory used by this node
     RuntimeProfile::HighWaterMarkCounter* _peak_memory_usage_counter = nullptr;
