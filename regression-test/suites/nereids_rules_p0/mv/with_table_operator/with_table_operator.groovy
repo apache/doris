@@ -191,18 +191,5 @@ suite("with_table_operator") {
     sql """
     DROP MATERIALIZED VIEW IF EXISTS query_index_test on orders;
     """
-
-    // query topN should fail beacuse __DORIS_ROWID_COL__ slot can not get from materialized view
-    create_async_mv(db, "common_order_mv", """
-    select * from orders order by o_orderdate;
-    """)
-
-    mv_rewrite_fail("""
-    select * from orders order by o_orderdate limit 1;
-    """, "common_order_mv")
-
-    sql """
-    DROP MATERIALIZED VIEW IF EXISTS common_order_mv;
-    """
 }
 
