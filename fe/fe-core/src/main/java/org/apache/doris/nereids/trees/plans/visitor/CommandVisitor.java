@@ -25,8 +25,11 @@ import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
@@ -221,6 +224,18 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowCreateMTMVCommand(ShowCreateMTMVCommand showCreateMTMVCommand, C context) {
         return visitCommand(showCreateMTMVCommand, context);
+    }
+
+    default R visitCancelLoadCommand(CancelLoadCommand cancelLoadCommand, C context) {
+        return visitCommand(cancelLoadCommand, context);
+    }
+
+    default R visitCancelExportCommand(CancelExportCommand cancelExportCommand, C context) {
+        return visitCommand(cancelExportCommand, context);
+    }
+
+    default R visitCancelWarmUpJobCommand(CancelWarmUpJobCommand cancelWarmUpJobCommand, C context) {
+        return visitCommand(cancelWarmUpJobCommand, context);
     }
 
     default R visitCancelMTMVTaskCommand(CancelMTMVTaskCommand cancelMTMVTaskCommand, C context) {

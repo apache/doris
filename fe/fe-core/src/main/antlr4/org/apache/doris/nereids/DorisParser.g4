@@ -59,6 +59,7 @@ statementBase
     | supportedRefreshStatement         #supportedRefreshStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
     | supportedLoadStatement            #supportedLoadStatementAlias
+    | supportedCancelStatement          #supportedCancelStatementAlias
     | supportedRecoverStatement         #supportedRecoverStatementAlias
     | supportedAdminStatement           #supportedAdminStatementAlias
     | unsupportedStatement              #unsupported
@@ -455,10 +456,14 @@ unsupportedCleanStatement
     | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
     ;
 
-unsupportedCancelStatement
+supportedCancelStatement
     : CANCEL LOAD ((FROM | IN) database=identifier)? wildWhere?                     #cancelLoad
     | CANCEL EXPORT ((FROM | IN) database=identifier)? wildWhere?                   #cancelExport
-    | CANCEL ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
+    | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUpJob
+    ;
+
+unsupportedCancelStatement
+    : CANCEL ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
         FROM tableName=multipartIdentifier (LEFT_PAREN jobIds+=INTEGER_VALUE
             (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelAlterTable
     | CANCEL BUILD INDEX ON tableName=multipartIdentifier
@@ -468,7 +473,6 @@ unsupportedCancelStatement
         (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
     | CANCEL BACKUP ((FROM | IN) database=identifier)?                              #cancelBackup
     | CANCEL RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
-    | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUp
     ;
 
 supportedAdminStatement
