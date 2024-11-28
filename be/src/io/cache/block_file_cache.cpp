@@ -1678,13 +1678,16 @@ void BlockFileCache::check_disk_resource_limit() {
         LOG_ERROR("").tag("file cache path", _cache_base_path).tag("error", strerror(errno));
         return;
     }
-    auto [capacity_percentage, inode_percentage] = percent;
-    auto inode_is_insufficient = [](const int& inode_percentage) {
-        return inode_percentage >= config::file_cache_enter_disk_resource_limit_mode_percent;
+    auto [space_percentage, inode_percentage] = percent;
+    auto is_insufficient = [](const int& percentage) {
+        return percentage >= config::file_cache_enter_disk_resource_limit_mode_percent;
     };
-    DCHECK(capacity_percentage >= 0 && capacity_percentage <= 100);
-    DCHECK(inode_percentage >= 0 && inode_percentage <= 100);
-    // ATTN: due to that can be change, so if its invalid, set it to default value
+    DCHECK_GE(space_percentage, 0);
+    DCHECK_LE(space_percentage, 100);
+    DCHECK_GE(inode_percentage, 0);
+    DCHECK_LE(inode_percentage, 100);
+    // ATTN: due to that can be changed dynamically, set it to default value if it's invalid
+    // FIXME: reject with config validator
     if (config::file_cache_enter_disk_resource_limit_mode_percent <=
         config::file_cache_exit_disk_resource_limit_mode_percent) {
         LOG_WARNING("config error, set to default value")
@@ -1693,23 +1696,21 @@ void BlockFileCache::check_disk_resource_limit() {
         config::file_cache_enter_disk_resource_limit_mode_percent = 90;
         config::file_cache_exit_disk_resource_limit_mode_percent = 80;
     }
-    if (capacity_percentage >= config::file_cache_enter_disk_resource_limit_mode_percent ||
-        inode_is_insufficient(inode_percentage)) {
+    if (is_insufficient(space_percentage) || is_insufficient(inode_percentage)) {
         _disk_resource_limit_mode = true;
         _disk_limit_mode_metrics->set_value(1);
     } else if (_disk_resource_limit_mode &&
-               (capacity_percentage < config::file_cache_exit_disk_resource_limit_mode_percent) &&
+               (space_percentage < config::file_cache_exit_disk_resource_limit_mode_percent) &&
                (inode_percentage < config::file_cache_exit_disk_resource_limit_mode_percent)) {
         _disk_resource_limit_mode = false;
         _disk_limit_mode_metrics->set_value(0);
     }
     if (_disk_resource_limit_mode) {
-        // log per mins
-        LOG_EVERY_N(WARNING, 3) << "file cache background thread space percent="
-                                << capacity_percentage << " inode percent=" << inode_percentage
-                                << " is inode insufficient="
-                                << inode_is_insufficient(inode_percentage)
-                                << " mode run in resource limit";
+        LOG(WARNING) << "file_cache=" << get_base_path() << " space_percent=" << space_percentage
+                     << " inode_percent=" << inode_percentage
+                     << " is_space_insufficient=" << is_insufficient(space_percentage)
+                     << " is_inode_insufficient=" << is_insufficient(inode_percentage)
+                     << " mode run in resource limit";
     }
 }
 
