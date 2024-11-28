@@ -486,12 +486,10 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
 
     if (res != HS_SUCCESS) {
         *database = nullptr;
-        if (context) {
-            context->set_error("hs_compile regex pattern error");
-        }
-        return Status::RuntimeError("hs_compile regex pattern error:" +
-                                    std::string(compile_err->message));
+        std::string error_message = compile_err->message;
         hs_free_compile_error(compile_err);
+        // Do not call FunctionContext::set_error here, since we do not want to cancel the query here.
+        return Status::RuntimeError<false>("hs_compile regex pattern error:" + error_message);
     }
     hs_free_compile_error(compile_err);
 
@@ -499,10 +497,8 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
         hs_free_database(*database);
         *database = nullptr;
         *scratch = nullptr;
-        if (context) {
-            context->set_error("hs_alloc_scratch allocate scratch space error");
-        }
-        return Status::RuntimeError("hs_alloc_scratch allocate scratch space error");
+        // Do not call FunctionContext::set_error here, since we do not want to cancel the query here.
+        return Status::RuntimeError<false>("hs_alloc_scratch allocate scratch space error");
     }
 
     return Status::OK();
@@ -934,7 +930,8 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
     return Status::OK();
 }
 
-Status FunctionRegexp::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+Status FunctionRegexpLike::open(FunctionContext* context,
+                                FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::THREAD_LOCAL) {
         return Status::OK();
     }
@@ -1001,8 +998,8 @@ void register_function_like(SimpleFunctionFactory& factory) {
 }
 
 void register_function_regexp(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionRegexp>();
-    factory.register_alias(FunctionRegexp::name, FunctionRegexp::alias);
+    factory.register_function<FunctionRegexpLike>();
+    factory.register_alias(FunctionRegexpLike::name, FunctionRegexpLike::alias);
 }
 
 } // namespace doris::vectorized

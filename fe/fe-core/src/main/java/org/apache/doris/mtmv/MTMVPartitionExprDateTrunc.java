@@ -69,7 +69,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                     String.format("timeUnit not support: %s, only support: %s", this.timeUnit, timeUnits));
         }
         MTMVRelatedTableIf relatedTable = mvPartitionInfo.getRelatedTable();
-        PartitionType partitionType = relatedTable.getPartitionType();
+        PartitionType partitionType = relatedTable.getPartitionType(Optional.empty());
         if (partitionType == PartitionType.RANGE) {
             Type partitionColumnType = MTMVPartitionUtil
                     .getPartitionColumnType(mvPartitionInfo.getRelatedTable(), mvPartitionInfo.getRelatedCol());

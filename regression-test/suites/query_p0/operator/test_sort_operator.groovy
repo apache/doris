@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sort_operator", "query,p0,arrow_flight_sql") {
+suite("test_sort_operator", "query,p0") {
 
     sql """
         DROP TABLE IF EXISTS dim_org_ful;

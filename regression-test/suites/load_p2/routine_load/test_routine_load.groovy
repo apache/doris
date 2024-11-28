@@ -221,7 +221,7 @@ suite("test_routine_load_p2","p2,nonConcurrent") {
                 sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
 
                 def name = "routine_load_" + tableName
-                sql """
+                checkNereidsExecute("""
                     CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
                     COLUMNS(${columns[i]}),
                     COLUMNS TERMINATED BY "|"
@@ -239,7 +239,7 @@ suite("test_routine_load_p2","p2,nonConcurrent") {
                         "kafka_topic" = "${topics[i]}",
                         "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                     );
-                """
+                """)
                 sql "sync"
                 i++
             }
