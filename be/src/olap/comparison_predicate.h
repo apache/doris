@@ -584,7 +584,7 @@ private:
         }
     }
 
-     __attribute__((flatten)) int32_t _find_code_from_dictionary_column(
+    __attribute__((flatten)) int32_t _find_code_from_dictionary_column(
             const vectorized::ColumnDictI32& column) const {
         int32_t code = 0;
         if (_segment_id_to_cached_code.if_contains(
