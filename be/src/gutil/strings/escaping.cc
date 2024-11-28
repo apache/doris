@@ -4,10 +4,9 @@
 #include "gutil/strings/escaping.h"
 
 #include <assert.h>
-#include <glog/logging.h>
 #include <stdio.h>
 #include <string.h>
-
+#include <glog/logging.h>
 #include <limits>
 #include <ostream>
 
@@ -23,8 +22,8 @@ using std::vector;
 #include "gutil/integral_types.h"
 #include "gutil/port.h"
 #include "gutil/stl_util.h"
-#include "gutil/strings/strcat.h"
 #include "gutil/utf/utf.h" // for runetochar
+#include "gutil/strings/strcat.h"
 
 namespace strings {
 

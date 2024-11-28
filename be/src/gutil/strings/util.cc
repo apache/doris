@@ -14,7 +14,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h> // for FastTimeToBuffer()
-
 #include <algorithm>
 #include <iterator>
 #include <mutex>
