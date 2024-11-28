@@ -37,6 +37,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.RelatedTableInfo;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -44,6 +45,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Sets;
 
@@ -65,9 +71,12 @@ public class MTMVPartitionDefinition {
      * analyzeAndTransferToMTMVPartitionInfo
      *
      * @param planner planner
+     * @param ctx ctx
+     * @param logicalQuery logicalQuery
      * @return MTMVPartitionInfo
      */
-    public MTMVPartitionInfo analyzeAndTransferToMTMVPartitionInfo(NereidsPlanner planner) {
+    public MTMVPartitionInfo analyzeAndTransferToMTMVPartitionInfo(NereidsPlanner planner, ConnectContext ctx,
+            LogicalPlan logicalQuery) {
         MTMVPartitionInfo mtmvPartitionInfo = new MTMVPartitionInfo(partitionType);
         if (this.partitionType == MTMVPartitionType.SELF_MANAGE) {
             return mtmvPartitionInfo;
@@ -75,8 +84,9 @@ public class MTMVPartitionDefinition {
         String partitionColName;
         String timeUnit;
         if (this.partitionType == MTMVPartitionType.EXPR) {
-            if (functionCallExpression instanceof UnboundFunction && PARTITION_BY_FUNCTION_NAME
-                    .equalsIgnoreCase(((UnboundFunction) functionCallExpression).getName())) {
+            String functionName = ((UnboundFunction) functionCallExpression).getName();
+            if (functionCallExpression instanceof UnboundFunction
+                    && functionName.equalsIgnoreCase(PARTITION_BY_FUNCTION_NAME)) {
                 partitionColName = functionCallExpression.getArgument(0) instanceof UnboundSlot
                         ? ((UnboundSlot) functionCallExpression.getArgument(0)).getName() : null;
                 timeUnit = functionCallExpression.getArguments().get(1).isLiteral()
@@ -90,7 +100,7 @@ public class MTMVPartitionDefinition {
             timeUnit = null;
         }
         mtmvPartitionInfo.setPartitionCol(partitionColName);
-        RelatedTableInfo relatedTableInfo = getRelatedTableInfo(planner, partitionColName, timeUnit);
+        RelatedTableInfo relatedTableInfo = getRelatedTableInfo(planner, ctx, logicalQuery, partitionColName, timeUnit);
         mtmvPartitionInfo.setRelatedCol(relatedTableInfo.getColumn());
         mtmvPartitionInfo.setRelatedTable(relatedTableInfo.getTableInfo());
         if (relatedTableInfo.getPartitionExpression().isPresent()) {
@@ -115,32 +125,47 @@ public class MTMVPartitionDefinition {
         return mtmvPartitionInfo;
     }
 
-    // Should use rewritten plan without view and subQuery to get related partition table
-    private RelatedTableInfo getRelatedTableInfo(NereidsPlanner planner, String partitionColName, String timeUnit) {
+    private RelatedTableInfo getRelatedTableInfo(NereidsPlanner planner, ConnectContext ctx, LogicalPlan
+            logicalQuery,
+            String partitionColName,
+            String timeUnit) {
         CascadesContext cascadesContext = planner.getCascadesContext();
-
-        RelatedTableInfo relatedTableInfo = MaterializedViewUtils
-                .getRelatedTableInfo(partitionColName, timeUnit, planner.getRewrittenPlan(), cascadesContext);
-        if (!relatedTableInfo.isPctPossible()) {
-            throw new AnalysisException(String.format("Unable to find a suitable base table for partitioning,"
-                    + " the fail reason is %s", relatedTableInfo.getFailReason()));
-        }
-        MTMVRelatedTableIf mtmvBaseRelatedTable = MTMVUtil.getRelatedTable(relatedTableInfo.getTableInfo());
-        Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        Set<String> tempDisableRules = sessionVariable.getDisableNereidsRuleNames();
+        // Should not make table without data to empty relation when analyze the related table,
+        // so add disable rules
+        sessionVariable.setDisableNereidsRules(CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
+        cascadesContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         try {
-            partitionColumnNames.addAll(mtmvBaseRelatedTable.getPartitionColumnNames(Optional.empty()));
-        } catch (DdlException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
+            Plan mvRewrittenPlan =
+                    planner.planWithLock(logicalQuery, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
+            RelatedTableInfo relatedTableInfo = MaterializedViewUtils
+                    .getRelatedTableInfo(partitionColName, timeUnit, mvRewrittenPlan, cascadesContext);
+            if (!relatedTableInfo.isPctPossible()) {
+                throw new AnalysisException(String.format("Unable to find a suitable base table for partitioning,"
+                        + " the fail reason is %s", relatedTableInfo.getFailReason()));
+            }
+            MTMVRelatedTableIf mtmvBaseRealtedTable = MTMVUtil.getRelatedTable(relatedTableInfo.getTableInfo());
+            Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            try {
+                partitionColumnNames.addAll(mtmvBaseRealtedTable.getPartitionColumnNames(Optional.empty()));
+            } catch (DdlException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
 
-        if (!partitionColumnNames.contains(relatedTableInfo.getColumn())) {
-            throw new AnalysisException("error related column: " + relatedTableInfo.getColumn());
+            if (!partitionColumnNames.contains(relatedTableInfo.getColumn())) {
+                throw new AnalysisException("error related column: " + relatedTableInfo.getColumn());
+            }
+            if (!(mtmvBaseRealtedTable instanceof HMSExternalTable)
+                    && partitionColumnNames.size() != 1) {
+                throw new AnalysisException("only hms table support multi column partition.");
+            }
+            return relatedTableInfo;
+        } finally {
+            // after operate, roll back the disable rules
+            sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
+            cascadesContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         }
-        if (!(mtmvBaseRelatedTable instanceof HMSExternalTable)
-                && partitionColumnNames.size() != 1) {
-            throw new AnalysisException("only hms table support multi column partition.");
-        }
-        return relatedTableInfo;
     }
 
     private static List<Expr> convertToLegacyArguments(List<Expression> children) {

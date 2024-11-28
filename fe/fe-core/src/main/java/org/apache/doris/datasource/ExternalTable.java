@@ -31,6 +31,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -55,7 +56,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -373,17 +373,17 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     /**
      * Retrieve all partitions and initialize SelectedPartitions
      *
-     * @param snapshotId if not support mvcc, ignore this
+     * @param snapshot if not support mvcc, ignore this
      * @return
      */
-    public SelectedPartitions initSelectedPartitions(OptionalLong snapshotId) {
+    public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
         if (!supportPartitionPruned()) {
             return SelectedPartitions.NOT_PRUNED;
         }
-        if (CollectionUtils.isEmpty(this.getPartitionColumns(snapshotId))) {
+        if (CollectionUtils.isEmpty(this.getPartitionColumns(snapshot))) {
             return SelectedPartitions.NOT_PRUNED;
         }
-        Map<String, PartitionItem> nameToPartitionItems = getNameToPartitionItems(snapshotId);
+        Map<String, PartitionItem> nameToPartitionItems = getNameToPartitionItems(snapshot);
         return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false);
     }
 
@@ -391,10 +391,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * get partition map
      * If partition related operations are supported, this method needs to be implemented in the subclass
      *
-     * @param snapshotId if not support mvcc, ignore this
+     * @param snapshot if not support mvcc, ignore this
      * @return partitionName ==> PartitionItem
      */
-    public Map<String, PartitionItem> getNameToPartitionItems(OptionalLong snapshotId) {
+    public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
         return Collections.emptyMap();
     }
 
@@ -402,10 +402,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * get partition column list
      * If partition related operations are supported, this method needs to be implemented in the subclass
      *
-     * @param snapshotId if not support mvcc, ignore this
+     * @param snapshot if not support mvcc, ignore this
      * @return
      */
-    public List<Column> getPartitionColumns(OptionalLong snapshotId) {
+    public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
         return Collections.emptyList();
     }
 
