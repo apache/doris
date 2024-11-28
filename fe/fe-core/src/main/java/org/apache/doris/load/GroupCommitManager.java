@@ -332,7 +332,7 @@ public class GroupCommitManager {
                     return null;
                 }
                 Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                if (backend != null && backend.isActive() && !backend.isDecommissioned()) {
+                if (backend != null && backend.isAlive() && !backend.isDecommissioned()) {
                     return backend.getId();
                 } else {
                     tableToBeMap.remove(encode(cluster, tableId));
@@ -349,7 +349,7 @@ public class GroupCommitManager {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
         Collections.shuffle(backends);
         for (Backend backend : backends) {
-            if (backend.isActive() && !backend.isDecommissioned()) {
+            if (backend.isAlive() && !backend.isDecommissioned()) {
                 tableToBeMap.put(encode(cluster, tableId), backend.getId());
                 tableToPressureMap.put(tableId,
                         new SlidingWindowCounter(table.getGroupCommitIntervalMs() / 1000 + 1));
