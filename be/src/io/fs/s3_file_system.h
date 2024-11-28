@@ -120,7 +120,7 @@ protected:
             // so no need to concat with prefix
             abs_path = path;
         } else {
-            return std::filesystem::path(fmt::format("s3://{}/{}", _bucket, _prefix)) / path;
+            abs_path = std::filesystem::path(fmt::format("s3://{}/{}", _bucket, _prefix)) / path;
         }
         return Status::OK();
     }

@@ -459,7 +459,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         // No need to try again with another BE
         _pending_rs_guards = DORIS_TRY(_engine.snapshot_mgr()->convert_rowset_ids(
                 local_data_path, _clone_req.tablet_id, _clone_req.replica_id, _clone_req.table_id,
-                _clone_req.partition_id, _clone_req.schema_hash, 0));
+                _clone_req.partition_id, _clone_req.schema_hash, false, 0));
         break;
     } // clone copy from one backend
     return status;
