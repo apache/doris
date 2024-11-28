@@ -694,6 +694,11 @@ public:
                             reinterpret_cast<char*>(&cidr_range_ipv6_data[1]), cidr._prefix);
             min_ip = cidr_range_ipv6_data[0];
             max_ip = cidr_range_ipv6_data[1];
+        } else {
+            // if here param is invalid for current column to calcute min_ip|max_ip we just return
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, data type " + arg_type->get_name() +
+                    " can not support this cidr " + arg_column->get_data_at(0).to_string());
         }
         // apply for inverted index
         std::shared_ptr<roaring::Roaring> res_roaring = std::make_shared<roaring::Roaring>();
