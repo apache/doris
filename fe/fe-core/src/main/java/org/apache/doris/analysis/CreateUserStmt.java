@@ -153,8 +153,8 @@ public class CreateUserStmt extends DdlStmt implements NotFallbackInParser {
 
         userIdent.analyze();
 
-        if (userIdent.isSystemUser()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "Can not create system user");
+        if (userIdent.isRootUser()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "Can not create root user");
         }
 
         // convert plain password to hashed password

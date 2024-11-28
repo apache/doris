@@ -22,13 +22,7 @@ suite("test_system_user") {
           sql """
               create user `root`;
           """
-          exception "system"
-    }
-    test {
-          sql """
-              create user `admin`;
-          """
-          exception "system"
+          exception "root"
     }
     test {
           sql """
