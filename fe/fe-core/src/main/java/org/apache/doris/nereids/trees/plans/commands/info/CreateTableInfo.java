@@ -778,6 +778,10 @@ public class CreateTableInfo {
         }
 
         if (!clusterKeysColumnNames.isEmpty()) {
+            // forbid cluster key in 3.0 temporarily
+            throw new AnalysisException("Cluster key is not supported");
+        }
+        if (!clusterKeysColumnNames.isEmpty()) {
             // the same code as KeysDesc#analyzeClusterKeys
             if (Config.isCloudMode()) {
                 throw new AnalysisException("Cluster key is not supported in cloud mode");
