@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExchangeNode;
@@ -169,6 +170,10 @@ public class ExchangeNode extends PlanNode {
 
     @Override
     protected void toThrift(TPlanNode msg) {
+        // If this fragment has another scan node, this exchange node is serial or not should be decided by the scan
+        // node.
+        msg.setIsSerialOperator((isSerialOperator() || fragment.hasSerialScanNode())
+                && fragment.useSerialSource(ConnectContext.get()));
         msg.node_type = TPlanNodeType.EXCHANGE_NODE;
         msg.exchange_node = new TExchangeNode();
         for (TupleId tid : tupleIds) {
@@ -228,11 +233,17 @@ public class ExchangeNode extends PlanNode {
      */
     @Override
     public boolean isSerialOperator() {
-        return partitionType == TPartitionType.UNPARTITIONED && mergeInfo != null;
+        return (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isUseSerialExchange()
+                || partitionType == TPartitionType.UNPARTITIONED) && mergeInfo != null;
     }
 
     @Override
     public boolean hasSerialChildren() {
         return isSerialOperator();
+    }
+
+    @Override
+    public boolean hasSerialScanChildren() {
+        return false;
     }
 }
