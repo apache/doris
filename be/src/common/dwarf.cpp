@@ -180,9 +180,9 @@ Dwarf::Dwarf(const std::shared_ptr<Elf>& elf)
 
 Dwarf::Section::Section(std::string_view d) : is64_bit(false), data(d) {}
 
-#define SAFE_CHECK(cond, ...)                                          \
-    do {                                                               \
-        if (!(cond)) throw Exception(Status::FatalError(__VA_ARGS__)); \
+#define SAFE_CHECK(cond, ...)                                \
+    do {                                                     \
+        if (!(cond)) LOG(FATAL) << fmt::format(__VA_ARGS__); \
     } while (false)
 
 namespace {

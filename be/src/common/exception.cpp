@@ -29,8 +29,7 @@ Exception::Exception(int code, const std::string_view& msg) {
         _err_msg->_stack = get_stack_trace();
     }
     if (config::exit_on_exception) {
-        throw Exception(
-                Status::FatalError("[ExitOnException] error code: {}, message: {}", code, msg));
+        LOG(FATAL) << "[ExitOnException] error code: " << code << ", message: " << msg;
     }
 }
 } // namespace doris

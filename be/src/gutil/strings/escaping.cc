@@ -146,9 +146,9 @@ int UnescapeCEscapeSequences(const char* source, char* dest, vector<string>* err
                 if (IS_OCTAL_DIGIT(p[1]))     // safe (and easy) to do this twice
                     ch = ch * 8 + *++p - '0'; // now points at last digit
                 if (ch > 0xFF)
-                    LOG_STRING(ERROR, errors)
-                            << "Value of " << "\\" << string(octal_start, p + 1 - octal_start)
-                            << " exceeds 8 bits";
+                    LOG_STRING(ERROR, errors) << "Value of "
+                                              << "\\" << string(octal_start, p + 1 - octal_start)
+                                              << " exceeds 8 bits";
                 *d++ = ch;
                 break;
             }
@@ -169,8 +169,8 @@ int UnescapeCEscapeSequences(const char* source, char* dest, vector<string>* err
                     ch = (ch << 4) + hex_digit_to_int(*++p);
                 if (ch > 0xFF)
                     LOG_STRING(ERROR, errors)
-                            << "Value of " << "\\" << string(hex_start, p + 1 - hex_start)
-                            << " exceeds 8 bits";
+                            << "Value of "
+                            << "\\" << string(hex_start, p + 1 - hex_start) << " exceeds 8 bits";
                 *d++ = ch;
                 break;
             }
@@ -902,7 +902,8 @@ int Base64UnescapeInternal(const char* src, int szsrc, char* dest, int szdest,
     // of data bytes that must remain in the input to avoid aborting the
     // loop.
 #define GET_INPUT(label, remain)                              \
-    label : --szsrc;                                          \
+    label:                                                    \
+    --szsrc;                                                  \
     ch = *src++;                                              \
     decode = unbase64[ch];                                    \
     if (decode < 0) {                                         \

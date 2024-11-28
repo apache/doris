@@ -287,10 +287,9 @@ public:
         }
 
         if (number_of_arguments > MAX_ARGS) {
-            throw doris::Exception(
-                    ErrorCode::FATAL_ERROR,
+            throw doris::Exception(Status::FatalError(
                     "Maximum number of arguments for aggregate function with Nullable types is {}",
-                    size_t(MAX_ARGS));
+                    size_t(MAX_ARGS)));
         }
 
         for (size_t i = 0; i < number_of_arguments; ++i) {

@@ -323,8 +323,8 @@ Status DataDir::_check_incompatible_old_format_tablet() {
         } else {
             LOG(WARNING)
                     << "There are incompatible old format metas, current version does not support "
-                    << "and it may lead to data missing!!! " << "tablet_id = " << tablet_id
-                    << " schema_hash = " << schema_hash;
+                    << "and it may lead to data missing!!! "
+                    << "tablet_id = " << tablet_id << " schema_hash = " << schema_hash;
         }
         return false;
     };
@@ -460,7 +460,8 @@ Status DataDir::load() {
                      << ", loaded tablet: " << tablet_ids.size()
                      << ", error tablet: " << failed_tablet_ids.size() << ", path: " << _path;
     } else {
-        LOG(INFO) << "load tablet from meta finished" << ", loaded tablet: " << tablet_ids.size()
+        LOG(INFO) << "load tablet from meta finished"
+                  << ", loaded tablet: " << tablet_ids.size()
                   << ", error tablet: " << failed_tablet_ids.size() << ", path: " << _path;
     }
 
@@ -527,8 +528,8 @@ Status DataDir::load() {
         RowsetSharedPtr rowset;
         Status create_status = tablet->create_rowset(rowset_meta, &rowset);
         if (!create_status) {
-            LOG(WARNING) << "could not create rowset from rowsetmeta: " << " rowset_id: "
-                         << rowset_meta->rowset_id()
+            LOG(WARNING) << "could not create rowset from rowsetmeta: "
+                         << " rowset_id: " << rowset_meta->rowset_id()
                          << " rowset_type: " << rowset_meta->rowset_type()
                          << " rowset_state: " << rowset_meta->rowset_state();
             continue;

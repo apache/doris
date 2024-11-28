@@ -75,7 +75,6 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     _create_mutable_cols(local_state, block);
-
     auto st = std::visit(
             [&](auto&& arg) -> Status {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
@@ -83,8 +82,7 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
                     return _get_data_in_hashtable<HashTableCtxType>(local_state, arg, block,
                                                                     state->batch_size(), eos);
                 } else {
-                    static_assert(!std::is_same_v<decltype(arg), std::monostate>,
-                                  "FATAL: uninited hash table");
+                    LOG(FATAL) << "FATAL: uninited hash table";
                     __builtin_unreachable();
                 }
             },

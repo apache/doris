@@ -1434,7 +1434,8 @@ bool Tablet::do_tablet_meta_checkpoint() {
     std::shared_lock rdlock(_meta_lock);
     if (tablet_state() != TABLET_RUNNING) {
         LOG(INFO) << "tablet is under state=" << tablet_state()
-                  << ", not running, skip do checkpoint" << ", tablet=" << tablet_id();
+                  << ", not running, skip do checkpoint"
+                  << ", tablet=" << tablet_id();
         return false;
     }
     VLOG_NOTICE << "start to do tablet meta checkpoint, tablet=" << tablet_id();

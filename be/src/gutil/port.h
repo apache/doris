@@ -780,7 +780,7 @@ typedef int ssize_t;
 using std::ostream;
 inline ostream& operator<<(ostream& os, const unsigned __int64& num) {
     // Fake operator; doesn't actually do anything.
-    throw Exception(Statsu::FatalError("64-bit ostream operator << not supported in VC++ 6"));
+    LOG(FATAL) << "64-bit ostream operator << not supported in VC++ 6";
     return os;
 }
 #endif

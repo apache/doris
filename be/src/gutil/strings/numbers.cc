@@ -704,16 +704,12 @@ size_t u64tostr_base36(uint64 number, size_t buf_size, char* buffer) {
 }
 
 // Generate functions that wrap safe_strtoXXX_base.
-#define GEN_SAFE_STRTO(name, type)                               \
-    bool name##_base(const string& str, type* value, int base) { \
-        return name##_base(str.c_str(), value, base);            \
-    }                                                            \
-    bool name(const char* str, type* value) {                    \
-        return name##_base(str, value, 10);                      \
-    }                                                            \
-    bool name(const string& str, type* value) {                  \
-        return name##_base(str.c_str(), value, 10);              \
-    }
+#define GEN_SAFE_STRTO(name, type)                                                  \
+    bool name##_base(const string& str, type* value, int base) {                    \
+        return name##_base(str.c_str(), value, base);                               \
+    }                                                                               \
+    bool name(const char* str, type* value) { return name##_base(str, value, 10); } \
+    bool name(const string& str, type* value) { return name##_base(str.c_str(), value, 10); }
 GEN_SAFE_STRTO(safe_strto32, int32);
 GEN_SAFE_STRTO(safe_strtou32, uint32);
 GEN_SAFE_STRTO(safe_strto64, int64);

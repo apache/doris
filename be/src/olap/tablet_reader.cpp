@@ -184,8 +184,9 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
             }
         } else {
             if (compare_row_key(start_key, end_key) > 0) {
-                VLOG_NOTICE << "return EOF when lower key include=" << ", start_key="
-                            << start_key.to_string() << ", end_key=" << end_key.to_string();
+                VLOG_NOTICE << "return EOF when lower key include="
+                            << ", start_key=" << start_key.to_string()
+                            << ", end_key=" << end_key.to_string();
                 eof = true;
                 break;
             }

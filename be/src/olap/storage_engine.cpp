@@ -1299,8 +1299,8 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int
 
 Status StorageEngine::load_header(const string& shard_path, const TCloneReq& request,
                                   bool restore) {
-    LOG(INFO) << "begin to process load headers." << "tablet_id=" << request.tablet_id
-              << ", schema_hash=" << request.schema_hash;
+    LOG(INFO) << "begin to process load headers."
+              << "tablet_id=" << request.tablet_id << ", schema_hash=" << request.schema_hash;
     Status res = Status::OK();
 
     DataDir* store = nullptr;

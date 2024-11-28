@@ -1058,12 +1058,13 @@ public:
                     using ResultDataType =
                             typename BinaryOperationTraits<Operation, LeftDataType,
                                                            RightDataType>::ResultDataType;
-                    if constexpr (!std::is_same_v<ResultDataType, InvalidType> &&
-                                  (IsDataTypeDecimal<ExpectedResultDataType> ==
-                                   IsDataTypeDecimal<ResultDataType>) &&
-                                  (IsDataTypeDecimal<ExpectedResultDataType> ==
-                                   (IsDataTypeDecimal<LeftDataType> ||
-                                    IsDataTypeDecimal<RightDataType>))) {
+                    if constexpr (
+                            !std::is_same_v<ResultDataType, InvalidType> &&
+                            (IsDataTypeDecimal<ExpectedResultDataType> ==
+                             IsDataTypeDecimal<
+                                     ResultDataType>)&&(IsDataTypeDecimal<ExpectedResultDataType> ==
+                                                        (IsDataTypeDecimal<LeftDataType> ||
+                                                         IsDataTypeDecimal<RightDataType>))) {
                         if (check_overflow_for_decimal) {
                             // !is_to_null_type: plus, minus, multiply,
                             //                   pow, bitxor, bitor, bitand
