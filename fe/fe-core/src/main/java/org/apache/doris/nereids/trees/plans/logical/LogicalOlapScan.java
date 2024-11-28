@@ -261,7 +261,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), selectedIndexId, indexSelected, preAggStatus, cacheSlotWithSlotName,
-                selectedTabletIds, partitionPruned, manuallySpecifiedPartitions, manuallySpecifiedPartitions,
+                selectedTabletIds, partitionPruned, manuallySpecifiedTabletIds, manuallySpecifiedPartitions,
                 selectedPartitionIds, hints, tableSample);
     }
 
