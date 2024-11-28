@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_insert_overwrite_recover") {
-    def table = "test_insert_overwrite_recover"
+suite("test_truncate_recover") {
+    def table = "test_truncate_recover"
 
     // create table and insert data
     sql """ drop table if exists ${table}"""
@@ -47,18 +47,30 @@ suite("test_insert_overwrite_recover") {
 
     qt_select_check_1 """ select * from  ${table} order by id,name,da; """
 
-    sql """ insert overwrite  table ${table} values(3, 'a', '2024-01-02'); """
+    sql """ truncate  table ${table}; """
 
-    qt_select_check_1 """ select * from  ${table} order by id,name,da; """
+    qt_select_check_2 """ select * from  ${table} order by id,name,da; """
     
+    // after truncate , there would be new partition created,
+    // drop forcefully so that this partitions not kept in recycle bin.
     sql """ ALTER TABLE ${table} DROP PARTITION p3 force; """
     sql """ ALTER TABLE ${table} DROP PARTITION p4 force; """
     sql """ ALTER TABLE ${table} DROP PARTITION p5 force; """
 
+    // recover the data from the recycel bin , data present before truncate.
     sql """ recover partition p3  from ${table}; """
     sql """ recover partition p4  from ${table}; """
     sql """ recover partition p5  from ${table}; """    
 
-    qt_select_check_1 """ select * from  ${table} order by id,name,da; """
-
+    // data should match whatever before truncate.
+    qt_select_check_3 """ select * from  ${table} order by id,name,da; """
+    
+    // now lets test partition.
+    sql """ truncate  table ${table} PARTITION(p3); """
+    qt_select_check_4 """ select * from  ${table} order by id,name,da; """ 
+    // drop forcefully the partition which is created in the truncate partition process.
+    sql """ ALTER TABLE ${table} DROP PARTITION p3 force; """
+    // recover data from the partition before truncate partition process.
+    sql """ recover partition p3  from ${table}; """
+    qt_select_check_5 """ select * from  ${table} order by id,name,da; """
 }
