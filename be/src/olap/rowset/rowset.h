@@ -213,8 +213,6 @@ public:
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
 
-    virtual Status download(const StorageResource& dest_fs, const std::string& dir) = 0;
-
     virtual Status upload_to(const StorageResource& dest_fs, const RowsetId& new_rowset_id) = 0;
 
     virtual Status remove_old_files(std::vector<std::string>* files_to_remove) = 0;

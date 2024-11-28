@@ -519,6 +519,15 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                         }
                         prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables,
                                 copiedStoragePolicys);
+                        for (StoragePolicy policy : copiedStoragePolicys) {
+                            Resource resource = Env.getCurrentEnv().getResourceMgr()
+                                    .getResource(policy.getStorageResource());
+                            if (resource.getType() != Resource.ResourceType.S3) {
+                                status = new Status(ErrCode.COMMON_ERROR,
+                                        "backup job only support S3 type storage policy:" + resource.getType());
+                                return;
+                            }
+                        }
                         break;
                     case VIEW:
                         prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables);

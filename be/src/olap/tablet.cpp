@@ -2025,17 +2025,6 @@ Status Tablet::cooldown(RowsetSharedPtr rowset) {
     return Status::OK();
 }
 
-Status Tablet::download(RowsetSharedPtr rowset, const std::string& dir) {
-    Status st;
-    auto storage_resource = DORIS_TRY(get_resource_by_storage_policy_id(storage_policy_id()));
-
-    if (st = rowset->download(storage_resource, dir); !st.ok()) {
-        return st;
-    }
-
-    return Status::OK();
-}
-
 // hold SHARED `cooldown_conf_lock`
 Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
     DCHECK(_cooldown_conf.cooldown_replica_id == replica_id());

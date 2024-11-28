@@ -171,7 +171,9 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     new_tablet_meta_pb.set_tablet_id(tablet_id);
     *new_tablet_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
     new_tablet_meta_pb.set_replica_id(replica_id);
-    new_tablet_meta_pb.set_storage_policy_id(storage_policy_id);
+    if (storage_policy_id > 0) {
+        new_tablet_meta_pb.set_storage_policy_id(storage_policy_id);
+    }
     if (table_id > 0) {
         new_tablet_meta_pb.set_table_id(table_id);
     }
@@ -602,9 +604,9 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     std::string delimeter = "|";
 
                     if (!have_remote_file) {
-                        auto romote_file_info =
-                                fmt::format("{}/{}", schema_full_path, REMOTE_FILE_INFO);
-                        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(romote_file_info,
+                        auto romote_snapshot_info =
+                                fmt::format("{}/{}", schema_full_path, REMOTE_SNAPSHOT_INFO);
+                        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(romote_snapshot_info,
                                                                                    &file_writer));
                         RETURN_IF_ERROR(file_writer->append(
                                 std::to_string(rs->rowset_meta()->tablet_id())));

@@ -171,15 +171,7 @@ suite("test_backup_cooldown", "backup_cooldown_data") {
     """
 
     sql """
-    drop resource ${resource_name1};
-    """
-
-    sql """
     drop storage policy ${policy_name2};
-    """
-
-    sql """
-    drop resource ${resource_name2};
     """
 
     sql """
@@ -382,14 +374,19 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     // 2.3 restore 指定 （"reserve_storage_policy"="false"）预期成功，且不落冷
 
 
-    // 3 删除resource 和 policy
-    // 2.1 restore 不指定 预期成功，且落冷
-    // 2.2 restore 指定 （"reserve_storage_policy"="true"）预期成功，且落冷
-    // 2.3 restore 指定 （"reserve_storage_policy"="false"）预期成功，且不落冷
+    // 3 删除老表和policy
+    // 3.1 restore 不指定 预期成功，且落冷
+    // 3.2 restore 指定 （"reserve_storage_policy"="true"）预期成功，且落冷
+    // 3.3 restore 指定 （"reserve_storage_policy"="false"）预期成功，且不落冷
+
+    // 4 删除老表和resource、policy
+    // 4.1 restore 不指定 预期失败，resource不存在
+    // 4.2 restore 指定 （"reserve_storage_policy"="true"）预期失败，resource不存在
+    // 4.3 restore 指定 （"reserve_storage_policy"="false"）预期成功，且不落冷
 
 
     // 1. old table exist
-    // 1.1 restore normal fail 
+    // 1.1 restore normal fail
     // 1.2 restore with（"reserve_storage_policy"="true") fail
     // 1.3 restore with（"reserve_storage_policy"="false") success and don't cooldown
     logger.info(" ====================================== 1.1 ==================================== ")
@@ -408,7 +405,7 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
 
     // restore failed 
     records = sql_return_maparray "SHOW restore FROM ${dbName}"
-    row = records[records.size() - 1] 
+    row = records[records.size() - 1]
     assertTrue(row.Status.contains("Can't restore remote partition"))
          
     result = sql "SELECT * FROM ${dbName}.${tableName}"
@@ -569,7 +566,7 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     assertEquals(found, 0)
 
 
-    // 3. drop old table and resource and policy
+    // 3. drop old table and policy
     // 3.1 restore normal success and cooldown
     // 3.2 restore with（"reserve_storage_policy"="true"）success and cooldown
     // 3.3 restore with（"reserve_storage_policy"="false"）success and don't cooldown
@@ -577,9 +574,6 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     try_sql """
     drop storage policy ${policy_name1};
-    """
-    try_sql """
-    drop resource ${resource_name1};
     """
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
@@ -618,9 +612,6 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     try_sql """
     drop storage policy ${policy_name1};
-    """
-    try_sql """
-    drop resource ${resource_name1};
     """
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
@@ -661,6 +652,121 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     try_sql """
     drop storage policy ${policy_name1};
     """
+    sql """
+        RESTORE SNAPSHOT ${dbName}.${snapshotName}
+        FROM `${repoName}`
+        ON ( `${tableName}`)
+        PROPERTIES
+        (
+            "backup_timestamp" = "${snapshot}",
+            "reserve_replica" = "true",
+            "reserve_storage_policy"="false"
+        )
+    """
+
+    syncer.waitAllRestoreFinish(dbName)
+
+    result = sql "SELECT * FROM ${dbName}.${tableName}"
+    assertEquals(result.size(), values.size());
+
+    // check table don't have storage_policy
+    records = sql_return_maparray "show storage policy using"
+    found = 0
+    for (def res2 : records) {
+        if (res2.Database.equals(dbName) && res2.Table.equals(tableName)) {
+            found = 1
+            break
+        }
+    }
+    assertEquals(found, 0)
+
+    // check storage policy ${policy_name1} not exist
+    records = sql_return_maparray "show storage policy"
+    found = 0
+    for (def res2 : records) {
+        if (res2.PolicyName.equals(policy_name1)) {
+            found = 1
+            break
+        }
+    }
+    assertEquals(found, 0)
+
+    // check resource ${resource_name1} not exist
+    records = sql_return_maparray "show storage policy"
+    found = 0
+    for (def res2 : records) {
+        if (res2.Name.equals(resource_name1)) {
+            found = 1
+            break
+        }
+    }
+    assertEquals(found, 0)
+
+
+    // 4. drop old table and resource and policy
+    // 4.1 restore normal fail
+    // 4.2 restore with（"reserve_storage_policy"="true"） fail
+    // 4.3 restore with（"reserve_storage_policy"="false"）success and don't cooldown
+    logger.info(" ====================================== 4.1 ==================================== ")
+    sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
+    try_sql """
+    drop storage policy ${policy_name1};
+    """
+    try_sql """
+    drop resource ${resource_name1};
+    """
+    sql """
+        RESTORE SNAPSHOT ${dbName}.${snapshotName}
+        FROM `${repoName}`
+        ON ( `${tableName}`)
+        PROPERTIES
+        (
+            "backup_timestamp" = "${snapshot}",
+            "reserve_replica" = "true"
+        )
+    """
+
+    syncer.waitAllRestoreFinish(dbName)
+
+    // restore failed with local restore is not exist
+    records = sql_return_maparray "SHOW restore FROM ${dbName}"
+    row = records[records.size() - 1]
+    assertTrue(row.Status.contains("is not exist"))
+
+
+    logger.info(" ====================================== 4.2 ==================================== ")
+    sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
+    try_sql """
+    drop storage policy ${policy_name1};
+    """
+    try_sql """
+    drop resource ${resource_name1};
+    """
+    sql """
+        RESTORE SNAPSHOT ${dbName}.${snapshotName}
+        FROM `${repoName}`
+        ON ( `${tableName}`)
+        PROPERTIES
+        (
+            "backup_timestamp" = "${snapshot}",
+            "reserve_replica" = "true",
+            "reserve_storage_policy"="true"
+        )
+    """
+
+    syncer.waitAllRestoreFinish(dbName)
+
+    // restore failed with local restore is not exist
+    records = sql_return_maparray "SHOW restore FROM ${dbName}"
+    row = records[records.size() - 1] 
+    assertTrue(row.Status.contains("is not exist"))
+
+
+    logger.info(" ====================================== 4.3 ==================================== ")
+    sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
+    try_sql """
+    drop storage policy ${policy_name1};
+    """
     try_sql """
     drop resource ${resource_name1};
     """
@@ -689,7 +795,7 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
             found = 1
             break
         }
-    }    
+    }
     assertEquals(found, 0)
 
     // check storage policy ${policy_name1} not exist
@@ -700,7 +806,7 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
             found = 1
             break
         }
-    }    
+    }
     assertEquals(found, 0)
 
     // check resource ${resource_name1} not exist
@@ -711,13 +817,31 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
             found = 1
             break
         }
-    }    
+    }
     assertEquals(found, 0)
 
-
-    // 4. alter policy and success
-    logger.info(" ====================================== 4.1 ==================================== ")
+    // 5. alter policy and success
+    logger.info(" ====================================== 5.1 ==================================== ")
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
+    try_sql """
+    drop resource ${resource_name1};
+    """
+    sql """
+      CREATE RESOURCE IF NOT EXISTS "${resource_name1}"
+      PROPERTIES(
+          "type"="s3",
+          "AWS_ENDPOINT" = "${getS3Endpoint()}",
+          "AWS_REGION" = "${getS3Region()}",
+          "AWS_ROOT_PATH" = "regression/cooldown1",
+          "AWS_ACCESS_KEY" = "${getS3AK()}",
+          "AWS_SECRET_KEY" = "${getS3SK()}",
+          "AWS_MAX_CONNECTIONS" = "50",
+          "AWS_REQUEST_TIMEOUT_MS" = "3000",
+          "AWS_CONNECTION_TIMEOUT_MS" = "1000",
+          "AWS_BUCKET" = "${getS3BucketName()}",
+          "s3_validity_check" = "true"
+      );
+    """
     sql """
     ALTER STORAGE POLICY ${policy_name2} PROPERTIES ("cooldown_ttl" = "11");
     """
@@ -762,7 +886,7 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
             found = 1
             break
         }
-    }    
+    }
     assertEquals(found, 1)
 
 
@@ -965,8 +1089,6 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
     // 4.2 restore 指定 （"storage_resource"="resource_name_not_exist", "reserve_storage_policy"="false"), 预期失败，resource不存在
     // 4.3 restore 指定 （"storage_resource"="resource_new_name", "reserve_storage_policy"="true"), 预期成功,且落冷
     // 4.4 restore 指定 （"storage_resource"="resource_new_name", "reserve_storage_policy"="false"), 预期成功，且不落冷
-
-
 
 
 
@@ -1184,7 +1306,7 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
             found = 1
             break
         }
-    }    
+    }
     assertEquals(found, 1)
 
     // check plocy_name2 storage_resource change to resource_new_name
@@ -1300,7 +1422,7 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
             found = 1
             break
         }
-    }    
+    }
     assertEquals(found, 1)
 
     // wait cooldown
@@ -1357,7 +1479,7 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
             found = 1
             break
         }
-    }    
+    }
     assertEquals(found, 0)
   
 

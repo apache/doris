@@ -46,6 +46,7 @@
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "olap/olap_define.h"
 #include "olap/data_dir.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
@@ -163,16 +164,16 @@ static Status download_and_upload_one_file(io::RemoteFileSystem& dest_fs,
 
 static Status upload_remote_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet_id,
                                    const std::string& local_path, const std::string& dest_path,
-                                   io::RemoteFileSystem* cold_fs, const std::string& rowset,
+                                   io::RemoteFileSystem* cold_fs, const std::string& rowset_id,
                                    int segments, int have_inverted_index) {
     Status res = Status::OK();
 
     std::string remote_tablet_path = fmt::format("{}/{}", DATA_PREFIX, tablet_id);
 
     for (int i = 0; i < segments; i++) {
-        std::string remote_seg_path = fmt::format("{}/{}_{}.dat", remote_tablet_path, rowset, i);
-        std::string local_seg_path = fmt::format("{}/{}_{}.dat", local_path, rowset, i);
-        std::string dest_seg_path = fmt::format("{}/{}_{}.dat", dest_path, rowset, i);
+        std::string remote_seg_path = fmt::format("{}/{}_{}.dat", remote_tablet_path, rowset_id, i);
+        std::string local_seg_path = fmt::format("{}/{}_{}.dat", local_path, rowset_id, i);
+        std::string dest_seg_path = fmt::format("{}/{}_{}.dat", dest_path, rowset_id, i);
 
         RETURN_IF_ERROR(download_and_upload_one_file(dest_fs, cold_fs, remote_seg_path,
                                                      local_seg_path, dest_seg_path));
@@ -183,7 +184,7 @@ static Status upload_remote_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet
     }
 
     std::vector<std::string> remote_index_files;
-    RETURN_IF_ERROR(list_segment_inverted_index_file(cold_fs, remote_tablet_path, rowset,
+    RETURN_IF_ERROR(list_segment_inverted_index_file(cold_fs, remote_tablet_path, rowset_id,
                                                      &remote_index_files));
 
     for (auto& index_file : remote_index_files) {
@@ -199,12 +200,12 @@ static Status upload_remote_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet
 
 static Status upload_remote_file(io::RemoteFileSystem& dest_fs, int64_t tablet_id,
                                  const std::string& local_path, const std::string& dest_path,
-                                 const std::string& remote_file) {
+                                 const std::string& remote_snapshot_info) {
     io::FileReaderSPtr file_reader;
     Status res = Status::OK();
 
-    std::string full_remote_path = local_path + '/' + remote_file;
-    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(full_remote_path, &file_reader));
+    std::string full_remote_snapshot_info_path = local_path + '/' + remote_snapshot_info;
+    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(full_remote_snapshot_info_path, &file_reader));
     size_t bytes_read = 0;
     char* buff = (char*)malloc(file_reader->size() + 1);
     RETURN_IF_ERROR(file_reader->read_at(0, {buff, file_reader->size()}, &bytes_read));
@@ -300,7 +301,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
         for (auto& local_file : local_files) {
             RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
                                           TTaskType::type::UPLOAD));
-            if (local_file.compare("remote_file_info") == 0) {
+            if (local_file.compare(REMOTE_SNAPSHOT_INFO) == 0) {
                 RETURN_IF_ERROR(upload_remote_file(*_remote_fs, tablet_id, src_path, dest_path,
                                                    local_file));
             }
@@ -421,7 +422,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             const FileStat& file_stat = iter.second;
             auto find = std::find(local_files.begin(), local_files.end(), remote_file);
             if (find == local_files.end()) {
-                if (remote_file.compare(REMOTE_FILE_INFO) == 0) {
+                if (remote_file.compare(REMOTE_SNAPSHOT_INFO) == 0) {
                     continue;
                 }
                 // remote file does not exist in local, download it
@@ -430,7 +431,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
                 if (_end_with(remote_file, ".hdr")) {
                     // this is a header file, download it.
                     need_download = true;
-                } else if (remote_file.compare(REMOTE_FILE_INFO) == 0) {
+                } else if (remote_file.compare(REMOTE_SNAPSHOT_INFO) == 0) {
                     continue;
                 } else {
                     // check checksum

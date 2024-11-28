@@ -99,7 +99,7 @@ static const std::string INCREMENTAL_DELTA_PREFIX = "incremental_delta";
 static const std::string CLONE_PREFIX = "clone";
 static const std::string SPILL_DIR_PREFIX = "spill";
 static const std::string SPILL_GC_DIR_PREFIX = "spill_gc";
-static const std::string REMOTE_FILE_INFO = "remote_file_info";
+static const std::string REMOTE_SNAPSHOT_INFO = "remote_snapshot_info";
 
 static inline std::string local_segment_path(std::string_view tablet_path,
                                              std::string_view rowset_id, int64_t seg_id) {

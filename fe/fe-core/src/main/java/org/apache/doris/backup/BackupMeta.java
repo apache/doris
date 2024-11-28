@@ -60,7 +60,7 @@ public class BackupMeta implements Writable, GsonPostProcessable {
     private BackupMeta() {
     }
 
-    public BackupMeta(List<Table> tables, List<Resource> resources, List<StoragePolicy> storagePolicys) {
+    public BackupMeta(List<Table> tables, List<Resource> resources, List<StoragePolicy> storagePolicies) {
         for (Table table : tables) {
             tblNameMap.put(table.getName(), table);
             tblIdMap.put(table.getId(), table);
@@ -69,7 +69,7 @@ public class BackupMeta implements Writable, GsonPostProcessable {
             resourceNameMap.put(resource.getName(), resource);
         }
 
-        for (StoragePolicy policy : storagePolicys) {
+        for (StoragePolicy policy : storagePolicies) {
             storagePolicyNameMap.put(policy.getName(), policy);
 
             if (resourceNameMap.get(policy.getStorageResource()) != null) {
@@ -77,6 +77,9 @@ public class BackupMeta implements Writable, GsonPostProcessable {
             }
             Resource resource = Env.getCurrentEnv().getResourceMgr()
                     .getResource(policy.getStorageResource());
+            if (resource.getType() != Resource.ResourceType.S3) {
+                continue;
+            }
             Resource copiedResource = resource.clone();
             if (copiedResource == null) {
                 continue;
