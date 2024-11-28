@@ -400,9 +400,7 @@ public class BinlogManager {
 
     public void addModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info, long commitSeq) {
         long dbId = info.getDbId();
-        List<Long> tableIds = Lists.newArrayList();
-        tableIds.add(info.getTableId());
-        long timestamp = -1;
+        long tableId = info.getTableId();
         TBinlogType type = TBinlogType.MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES;
         String data = info.toJson();
         BarrierLog log = new BarrierLog(dbId, tableId, type, data);
@@ -411,9 +409,7 @@ public class BinlogManager {
 
     public void addIndexChangeJob(IndexChangeJob indexChangeJob, long commitSeq) {
         long dbId = indexChangeJob.getDbId();
-        List<Long> tableIds = Lists.newArrayList();
-        tableIds.add(indexChangeJob.getTableId());
-        long timestamp = -1;
+        long tableId = indexChangeJob.getTableId();
         TBinlogType type = TBinlogType.INDEX_CHANGE_JOB;
         String data = indexChangeJob.toJson();
         BarrierLog log = new BarrierLog(dbId, tableId, type, data);
