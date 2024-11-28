@@ -49,6 +49,7 @@ import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AddConstraintContext;
+import org.apache.doris.nereids.DorisParser.AdminDiagnoseTabletContext;
 import org.apache.doris.nereids.DorisParser.AdminShowReplicaDistributionContext;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
@@ -4563,6 +4564,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowDiagnoseTablet(ShowDiagnoseTabletContext ctx) {
+        long tabletId = Long.parseLong(ctx.INTEGER_VALUE().getText());
+        return new ShowDiagnoseTabletCommand(tabletId);
+    }
+
+    @Override
+    public LogicalPlan visitAdminDiagnoseTablet(AdminDiagnoseTabletContext ctx) {
         long tabletId = Long.parseLong(ctx.INTEGER_VALUE().getText());
         return new ShowDiagnoseTabletCommand(tabletId);
     }
