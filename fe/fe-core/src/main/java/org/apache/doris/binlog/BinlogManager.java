@@ -336,6 +336,24 @@ public class BinlogManager {
         addBarrierLog(log, commitSeq);
     }
 
+    public void addRollupRename(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        TBinlogType type = TBinlogType.RENAME_ROLLUP;
+        String data = info.toJson();
+        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
+        addBarrierLog(log, commitSeq);
+    }
+
+    public void addPartitionRename(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        TBinlogType type = TBinlogType.RENAME_PARTITION;
+        String data = info.toJson();
+        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
+        addBarrierLog(log, commitSeq);
+    }
+
     public void addColumnRename(TableRenameColumnInfo info, long commitSeq) {
         long dbId = info.getDbId();
         long tableId = info.getTableId();
