@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_insert_overwrite_recover") {
-    def table = "test_insert_overwrite_recover"
+suite("test_insert_overwrite_multiple") {
+    def table = "test_insert_overwrite_multiple"
 
     // create table and insert data
     sql """ drop table if exists ${table}"""
@@ -49,8 +49,12 @@ suite("test_insert_overwrite_recover") {
 
     sql """ insert overwrite  table ${table} values(3, 'a', '2024-01-02'); """
 
-    qt_select_check_1 """ select * from  ${table} order by id,name,da; """
-    
+    qt_select_check__value_should_be_3 """ select * from  ${table} order by id,name,da; """
+
+    sql """ insert overwrite  table ${table} values(2, 'a', '2024-01-02'); """
+
+    qt_select_check__value_should_be_2 """ select * from  ${table} order by id,name,da; """
+
     sql """ ALTER TABLE ${table} DROP PARTITION p3 force; """
     sql """ ALTER TABLE ${table} DROP PARTITION p4 force; """
     sql """ ALTER TABLE ${table} DROP PARTITION p5 force; """
@@ -59,6 +63,6 @@ suite("test_insert_overwrite_recover") {
     sql """ recover partition p4  from ${table}; """
     sql """ recover partition p5  from ${table}; """    
 
-    qt_select_check_1 """ select * from  ${table} order by id,name,da; """
+    qt_select_check__value_should_be_3 """ select * from  ${table} order by id,name,da; """
 
 }
