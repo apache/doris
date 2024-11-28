@@ -101,6 +101,12 @@ suite("test_hudi_timetravel", "p2,external,hudi,external_remote,external_remote_
     test_hudi_timetravel_querys("user_activity_log_cow_partition", timestamps_cow_partition)
     test_hudi_timetravel_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
     test_hudi_timetravel_querys("user_activity_log_mor_partition", timestamps_mor_partition)
+    sql """set force_jni_scanner=true;"""
+    test_hudi_timetravel_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
+    test_hudi_timetravel_querys("user_activity_log_cow_partition", timestamps_cow_partition)
+    test_hudi_timetravel_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
+    test_hudi_timetravel_querys("user_activity_log_mor_partition", timestamps_mor_partition)
+    sql """set force_jni_scanner=false;"""
 
     sql """drop catalog if exists ${catalog_name};"""
 }
