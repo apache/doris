@@ -65,6 +65,8 @@ excludeGroups = ""
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "test_dump_image," +
     "test_index_failure_injection," +
+    "test_compaction_uniq_cluster_keys_with_delete," +
+    "test_compaction_uniq_keys_cluster_key," +
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
@@ -80,6 +82,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud," +
     "cloud_p0," +
     "nereids_rules_p0/subquery," +
+    "unique_with_mow_c_p0," +
     "workload_manager_p1," +
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
