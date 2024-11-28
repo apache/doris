@@ -53,6 +53,7 @@ class ColumnSorter;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /// PaddedPODArray extended by Decimal scale
 template <typename T>
@@ -261,7 +262,7 @@ protected:
         for (U i = 0; i < s; ++i) res[i] = i;
 
         auto sort_end = res.end();
-        if (limit && limit < s / 8.0) {
+        if (limit && limit < static_cast<double>(s) / 8.0L) {
             sort_end = res.begin() + limit;
             if (reverse)
                 std::partial_sort(res.begin(), sort_end, res.end(),
@@ -305,3 +306,4 @@ template <typename T>
 using ColumnVectorOrDecimal = typename ColumnVectorOrDecimalT<T, IsDecimalNumber<T>>::Col;
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

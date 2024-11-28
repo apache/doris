@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_with_and_two_phase_agg", "arrow_flight_sql") {
+suite("test_with_and_two_phase_agg") {
     def tableName = "test_with_and_two_phase_agg_table"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """

@@ -19,6 +19,9 @@ import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
 suite("test_partial_update_insert_light_schema_change", "p0") {
+    if (isClusterKeyEnabled()) {
+        return
+    }
 
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database

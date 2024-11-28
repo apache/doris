@@ -268,6 +268,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_STORAGE_DATA_DISTRIBUTION = "ignore_storage_data_distribution";
 
+    public static final String USE_SERIAL_EXCHANGE = "use_serial_exchange";
+
     public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
 
     // Limit the max count of scanners to prevent generate too many scanners.
@@ -1011,7 +1013,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_ODBC_TRANSCATION)
     public boolean enableOdbcTransaction = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE)
+    @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE, fuzzy = true)
     public boolean enableSqlCache = false;
 
     @VariableMgr.VarAttr(name = ENABLE_QUERY_CACHE)
@@ -1111,6 +1113,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
     private boolean ignoreStorageDataDistribution = true;
+
+    @VariableMgr.VarAttr(name = USE_SERIAL_EXCHANGE, fuzzy = true,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private boolean useSerialExchange = false;
 
     @VariableMgr.VarAttr(
             name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
@@ -2309,7 +2315,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COOLDOWN_REPLICA_AFFINITY, needForward = true)
     public boolean enableCooldownReplicaAffinity = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_AUTO_CREATE_WHEN_OVERWRITE, description = {
+    @VariableMgr.VarAttr(name = ENABLE_AUTO_CREATE_WHEN_OVERWRITE, needForward = true, description = {
         "开启后对自动分区表的 insert overwrite 操作会对没有找到分区的插入数据按自动分区规则创建分区，默认关闭",
         "The insert overwrite operation on an auto-partitioned table will create partitions for inserted data"
                 + " for which no partition is found according to the auto-partitioning rules, which is turned off"
@@ -2353,6 +2359,7 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
+        this.useSerialExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
@@ -2433,6 +2440,8 @@ public class SessionVariable implements Serializable, Writable {
 
             this.runtimeFilterType = 1 << randomInt;
             this.enableParallelScan = Config.pull_request_id % 2 == 0 ? randomInt % 2 == 0 : randomInt % 1 == 0;
+            this.enableRuntimeFilterPrune = (randomInt % 2) == 0;
+
             switch (randomInt) {
                 case 0:
                     this.parallelScanMaxScannersCount = 32;
@@ -4559,6 +4568,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableCooldownReplicaAffinity() {
         return enableCooldownReplicaAffinity;
+    }
+
+    public boolean isUseSerialExchange() {
+        return useSerialExchange && getEnableLocalExchange();
     }
 
     public void setDisableInvertedIndexV1ForVaraint(boolean disableInvertedIndexV1ForVaraint) {

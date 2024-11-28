@@ -57,7 +57,7 @@ public abstract class RangePartitionValueIterator<C extends Comparable, L extend
             current = doGetNext(current);
             return toLiteral.apply(value);
         }
-        throw new NoSuchElementException();
+        throw new NoSuchElementException("RangePartitionValueIterator is empty");
     }
 
     protected abstract C doGetNext(C current);
