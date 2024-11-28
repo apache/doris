@@ -23,9 +23,11 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -38,31 +40,35 @@ public interface MTMVRelatedTableIf extends TableIf {
      * Note: This method is called every time there is a refresh and transparent rewrite,
      * so if this method is slow, it will significantly reduce query performance
      *
+     * @param snapshot
      * @return partitionName->PartitionItem
      */
-    Map<String, PartitionItem> getAndCopyPartitionItems() throws AnalysisException;
+    Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) throws AnalysisException;
 
     /**
      * getPartitionType LIST/RANGE/UNPARTITIONED
      *
+     * @param snapshot
      * @return
      */
-    PartitionType getPartitionType();
+    PartitionType getPartitionType(Optional<MvccSnapshot> snapshot);
 
     /**
      * getPartitionColumnNames
      *
+     * @param snapshot
      * @return
      * @throws DdlException
      */
-    Set<String> getPartitionColumnNames() throws DdlException;
+    Set<String> getPartitionColumnNames(Optional<MvccSnapshot> snapshot) throws DdlException;
 
     /**
      * getPartitionColumns
      *
+     * @param snapshot
      * @return
      */
-    List<Column> getPartitionColumns();
+    List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot);
 
     /**
      * getPartitionSnapshot
@@ -70,12 +76,14 @@ public interface MTMVRelatedTableIf extends TableIf {
      * If snapshots have already been obtained in bulk in the context,
      * the results should be obtained directly from the context
      *
+     * @param snapshot
      * @param partitionName
      * @param context
      * @return partition snapshot at current time
      * @throws AnalysisException
      */
-    MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context) throws AnalysisException;
+    MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
+            Optional<MvccSnapshot> snapshot) throws AnalysisException;
 
     /**
      * getTableSnapshot
@@ -83,11 +91,13 @@ public interface MTMVRelatedTableIf extends TableIf {
      * If snapshots have already been obtained in bulk in the context,
      * the results should be obtained directly from the context
      *
+     * @param snapshot
      * @param context
      * @return table snapshot at current time
      * @throws AnalysisException
      */
-    MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) throws AnalysisException;
+    MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
+            throws AnalysisException;
 
     /**
      * Does the current type of table allow timed triggering
