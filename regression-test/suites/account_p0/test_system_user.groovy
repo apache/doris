@@ -20,25 +20,25 @@ import org.junit.Assert;
 suite("test_system_user") {
     test {
           sql """
-              create user root;
+              create user `root`;
           """
           exception "system"
     }
     test {
           sql """
-              create user admin;
+              create user `admin`;
           """
           exception "system"
     }
     test {
           sql """
-              drop user root;
+              drop user `root`;
           """
           exception "system"
     }
     test {
           sql """
-              drop user admin;
+              drop user `admin`;
           """
           exception "system"
     }
