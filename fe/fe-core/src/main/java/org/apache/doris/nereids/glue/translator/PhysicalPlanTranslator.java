@@ -1659,9 +1659,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             nestedLoopJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
         }
         PlanNode rightPlanRoot = rightFragment.getPlanRoot();
-        Preconditions.checkState(rightPlanRoot instanceof ExchangeNode,
-                "right child of nested loop join must be ExchangeNode but it is " + rightPlanRoot);
-        ((ExchangeNode) rightPlanRoot).setRightChildOfBroadcastHashJoin(true);
+        // right seems could be empty node
+        if (rightPlanRoot instanceof ExchangeNode) {
+            ((ExchangeNode) rightPlanRoot).setRightChildOfBroadcastHashJoin(true);
+        }
         nestedLoopJoinNode.setChild(0, leftFragment.getPlanRoot());
         nestedLoopJoinNode.setChild(1, rightFragment.getPlanRoot());
         setPlanRoot(leftFragment, nestedLoopJoinNode, nestedLoopJoin);
