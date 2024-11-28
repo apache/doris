@@ -32,8 +32,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,7 +40,6 @@ import java.util.List;
  * show database id command
  */
 public class ShowDatabaseIdCommand extends ShowCommand {
-    public static final Logger LOG = LogManager.getLogger(ShowFrontendsCommand.class);
     private final Long dbId;
 
     /**
@@ -57,7 +54,7 @@ public class ShowDatabaseIdCommand extends ShowCommand {
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // check access first
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLE");
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW DATABASE");
         }
         List<List<String>> rows = Lists.newArrayList();
         DatabaseIf database = ctx.getCurrentCatalog().getDbNullable(dbId);
