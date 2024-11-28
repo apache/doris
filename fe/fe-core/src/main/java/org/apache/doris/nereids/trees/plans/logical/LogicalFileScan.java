@@ -36,7 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalLong;
 
 /**
  * Logical file scan for external catalog.
@@ -64,7 +63,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
                            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot) {
         // todo: real snapshotId
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                table.initSelectedPartitions(OptionalLong.empty()), tableSample, tableSnapshot);
+                table.initSelectedPartitions(Optional.empty()), tableSample, tableSnapshot);
     }
 
     public SelectedPartitions getSelectedPartitions() {

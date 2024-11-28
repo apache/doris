@@ -15,21 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv;
+package org.apache.doris.datasource.mvcc;
 
-import org.apache.doris.common.AnalysisException;
-
-import java.util.Map;
-import java.util.Optional;
+import org.apache.doris.catalog.TableIf;
 
 /**
- * get all related partition descs
+ * The table that needs to query data based on the version needs to implement this interface.
  */
-public class MTMVRelatedPartitionDescInitGenerator implements MTMVRelatedPartitionDescGeneratorService {
-
-    @Override
-    public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult) throws AnalysisException {
-        lastResult.setItems(mvPartitionInfo.getRelatedTable().getAndCopyPartitionItems(Optional.empty()));
-    }
+public interface MvccTable extends TableIf {
+    /**
+     * Retrieve the current snapshot information of the table,
+     * and the returned result will be used for the entire process of this query
+     *
+     * @return MvccSnapshot
+     */
+    MvccSnapshot loadSnapshot();
 }
