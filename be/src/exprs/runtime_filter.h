@@ -356,7 +356,7 @@ public:
 
     int64_t get_synced_size() const {
         if (_synced_size == -1) {
-            return Status::InternalError("sync filter size meet error, filter: {}", debug_string());
+            throw Status::InternalError("sync filter size meet error, filter: {}", debug_string());
         }
         return _synced_size;
     }
