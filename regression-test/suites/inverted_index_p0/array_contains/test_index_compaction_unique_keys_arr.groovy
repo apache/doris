@@ -252,30 +252,32 @@ suite("test_index_compaction_unique_keys_arr", "array_contains_inverted_index") 
 
         run_test.call(tableName)
 
-        tableName = "test_index_compaction_unique_keys_arr_cluster_key"
-        sql """ DROP TABLE IF EXISTS ${tableName}; """
-        sql """
-            CREATE TABLE ${tableName} (
-                `id` int(11) NULL,
-                `name` varchar(255) NULL,
-                `hobbies` text NULL,
-                `score` int(11) NULL,
-                index index_name (name) using inverted,
-                index index_hobbies (hobbies) using inverted properties("parser"="english"),
-                index index_score (score) using inverted
-            ) ENGINE=OLAP
-            UNIQUE KEY(`id`)
-            CLUSTER BY (`score`)
-            COMMENT 'OLAP'
-            DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( 
-                "replication_num" = "1",
-                "disable_auto_compaction" = "true",
-                "enable_unique_key_merge_on_write" = "true"
-            );
-        """
-        run_test.call(tableName)
-
+        // cluster key is not supported in cloud mode at branch-3.0
+        if (!isCloudMode) {
+            tableName = "test_index_compaction_unique_keys_arr_cluster_key"
+            sql """ DROP TABLE IF EXISTS ${tableName}; """
+            sql """
+                CREATE TABLE ${tableName} (
+                    `id` int(11) NULL,
+                    `name` varchar(255) NULL,
+                    `hobbies` text NULL,
+                    `score` int(11) NULL,
+                    index index_name (name) using inverted,
+                    index index_hobbies (hobbies) using inverted properties("parser"="english"),
+                    index index_score (score) using inverted
+                ) ENGINE=OLAP
+                UNIQUE KEY(`id`)
+                CLUSTER BY (`score`)
+                COMMENT 'OLAP'
+                DISTRIBUTED BY HASH(`id`) BUCKETS 1
+                PROPERTIES ( 
+                    "replication_num" = "1",
+                    "disable_auto_compaction" = "true",
+                    "enable_unique_key_merge_on_write" = "true"
+                );
+            """
+            run_test.call(tableName)
+        }
     } finally {
         if (has_update_be_config) {
             set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
