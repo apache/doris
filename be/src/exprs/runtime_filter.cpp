@@ -1121,9 +1121,6 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
         std::lock_guard l(*local_merge_filters->lock);
         local_merge_filters->merge_size_times--;
         local_merge_filters->local_merged_size += local_filter_size;
-        if (_has_local_target) {
-            set_synced_size(local_filter_size);
-        }
         if (local_merge_filters->merge_size_times) {
             return Status::OK();
         } else {
@@ -1546,9 +1543,10 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile(uint64_t local_merge_
 std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
             "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, "
-            "build_bf_cardinality: {},  error_msg: {}",
+            "build_bf_cardinality: {}, ignored: {},  error_msg: {}",
             _filter_id, to_string(_runtime_filter_type), _is_broadcast_join,
-            _wrapper->get_build_bf_cardinality(), _wrapper->_context->err_msg);
+            _wrapper->get_build_bf_cardinality(), _wrapper->is_ignored(),
+            _wrapper->_context->err_msg);
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
