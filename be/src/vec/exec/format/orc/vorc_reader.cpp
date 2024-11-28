@@ -632,7 +632,7 @@ bool OrcReader::_check_slot_can_push_down(const VExprSPtr& expr) {
     }
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     // check if the slot exists in orc file and not partition column
-    if (!_col_name_to_file_col_name.contains(slot_ref->expr_name()) &&
+    if (!_col_name_to_file_col_name.contains(slot_ref->expr_name()) ||
         _lazy_read_ctx.predicate_partition_columns.contains(slot_ref->expr_name())) {
         return false;
     }
