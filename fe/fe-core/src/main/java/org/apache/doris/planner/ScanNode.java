@@ -727,15 +727,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return scanRangeLocation;
     }
 
-    public boolean ignoreStorageDataDistribution(ConnectContext context, int numBackends) {
-        return context != null
-                && context.getSessionVariable().isIgnoreStorageDataDistribution()
-                && !fragment.hasNullAwareLeftAntiJoin()
-                && getScanRangeNum()
-                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum()
-                * (numScanBackends() > 0 ? numScanBackends() : numBackends);
-    }
-
     public int numScanBackends() {
         return scanBackendIds.size();
     }
