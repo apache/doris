@@ -78,6 +78,7 @@ public class HadoopHudiJniScanner extends JniScanner {
     private final String[] requiredFields;
     private List<Integer> requiredColumnIds;
     private ColumnType[] requiredTypes;
+    // private final String[] nestedFields;
 
     // Hadoop info
     private RecordReader<NullWritable, ArrayWritable> reader;

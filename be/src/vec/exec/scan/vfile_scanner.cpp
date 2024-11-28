@@ -754,9 +754,14 @@ Status VFileScanner::_get_next_reader() {
         // JNI reader can only push down column value range
         bool push_down_predicates =
                 !_is_load && _params->format_type != TFileFormatType::FORMAT_JNI;
-        if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
-            if (range.table_format_params.table_format_type == "paimon" &&
-                !range.table_format_params.paimon_params.__isset.paimon_split) {
+        if (!_params->force_jni_reader && format_type == TFileFormatType::FORMAT_JNI &&
+            range.__isset.table_format_params) {
+            if (range.table_format_params.table_format_type == "hudi" &&
+                range.table_format_params.hudi_params.delta_logs.empty()) {
+                // fall back to native reader if there is no log file
+                format_type = TFileFormatType::FORMAT_PARQUET;
+            } else if (range.table_format_params.table_format_type == "paimon" &&
+                       !range.table_format_params.paimon_params.__isset.paimon_split) {
                 // use native reader
                 auto format = range.table_format_params.paimon_params.file_format;
                 if (format == "orc") {
