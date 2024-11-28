@@ -774,5 +774,27 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select append_trailing_char_if_absent('hello', ' ')")
     // Expected Output: 'hello '
 
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AAA','A', -5)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AAA','A', -4)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AAA','A', -3)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AAA','A', -2)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AAA','A', -1)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AAA','A', 0)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AAA','A', 1)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AAA','A', 2)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AAA','A', 3)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AAA','A', 4)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AAA','A', 5)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AA+','A', -4)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AA+','A', -3)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AA+','A', -2)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AA+','A', -1)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AA+','A', 0)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AA+','A', 1)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AA+','A', 2)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AA+','A', 3)")
+    testFoldConst("SELECT SUBSTRING_INDEX('哈哈哈AA+','A', 4)")
+
+
 
 }

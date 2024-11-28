@@ -695,7 +695,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "substring_index")
     public static Expression substringIndex(StringLikeLiteral first, StringLikeLiteral chr, IntegerLiteral number) {
-        String[] parts = first.getValue().split(chr.getValue());
+        String[] parts = first.getValue().split(chr.getValue(), -1);
         if (Math.abs(number.getValue()) >= parts.length) {
             return first;
         }
