@@ -17,10 +17,17 @@
 
 #include "vec/exec/format/table/iceberg/arrow_schema_util.h"
 
+#include <arrow/api.h>
+#include <arrow/io/api.h>
+#include <arrow/status.h>
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
 #include <gtest/gtest.h>
+#include <parquet/api/reader.h>
+#include <parquet/arrow/writer.h>
+#include <parquet/schema.h>
 
+#include "io/fs/local_file_system.h"
 #include "vec/exec/format/table/iceberg/schema.h"
 #include "vec/exec/format/table/iceberg/schema_parser.h"
 
@@ -215,6 +222,82 @@ TEST(ArrowSchemaUtilTest, test_list_field) {
     EXPECT_EQ(1, arrow_list->fields().size());
     EXPECT_EQ("element", arrow_list->value_field()->name());
     EXPECT_EQ("32", arrow_list->value_field()->metadata()->Get(pfid).ValueUnsafe());
+}
+
+TEST(ArrowSchemaUtilTest, test_parquet_filed_id) {
+    std::string test_dir = "ut_dir/test_parquet_filed_id";
+    Status st;
+    st = io::global_local_filesystem()->delete_directory(test_dir);
+    ASSERT_TRUE(st.ok()) << st;
+    st = io::global_local_filesystem()->create_directory(test_dir);
+    ASSERT_TRUE(st.ok()) << st;
+
+    std::shared_ptr<arrow::Array> id_array;
+    std::shared_ptr<arrow::Array> name_array;
+
+    arrow::Int32Builder id_builder;
+    ASSERT_TRUE(id_builder.Append(1).ok());
+    ASSERT_TRUE(id_builder.Append(2).ok());
+    ASSERT_TRUE(id_builder.Append(3).ok());
+    auto&& result_id = id_builder.Finish();
+    ASSERT_TRUE(result_id.ok());
+    id_array = std::move(result_id).ValueUnsafe();
+
+    arrow::StringBuilder name_builder;
+    ASSERT_TRUE(name_builder.Append("Alice").ok());
+    ASSERT_TRUE(name_builder.Append("Bob").ok());
+    ASSERT_TRUE(name_builder.Append("Charlie").ok());
+    auto&& result_name = name_builder.Finish();
+    ASSERT_TRUE(result_name.ok());
+    name_array = std::move(result_name).ValueUnsafe();
+
+    // 定义表的 Schema
+    std::vector<NestedField> nested_fields;
+    nested_fields.reserve(2);
+    NestedField field1(false, 17, "field_1", std::make_unique<IntegerType>(), std::nullopt);
+    NestedField field2(false, 36, "field_2", std::make_unique<StringType>(), std::nullopt);
+    nested_fields.emplace_back(std::move(field1));
+    nested_fields.emplace_back(std::move(field2));
+
+    Schema schema(1, std::move(nested_fields));
+
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    st = ArrowSchemaUtil::convert(&schema, "utc", fields);
+    auto arrow_schema = arrow::schema(fields);
+
+    // create arrow table
+    auto table = arrow::Table::Make(arrow_schema, {id_array, name_array});
+
+    std::string file_path = test_dir + "/f1.parquet";
+    std::shared_ptr<arrow::io::FileOutputStream> outfile;
+    auto&& result_file = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(result_file.ok());
+    outfile = std::move(result_file).ValueUnsafe();
+
+    // arrow table to parquet file
+    PARQUET_THROW_NOT_OK(
+            parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), outfile, 1024));
+
+    // open parquet with parquet's API
+    std::unique_ptr<parquet::ParquetFileReader> parquet_reader =
+            parquet::ParquetFileReader::OpenFile(file_path, false);
+
+    // get MessageType
+    std::shared_ptr<parquet::FileMetaData> file_metadata = parquet_reader->metadata();
+    auto schema_descriptor = file_metadata->schema();
+    const parquet::schema::Node& root = *schema_descriptor->group_node();
+    const auto& group_node = static_cast<const parquet::schema::GroupNode&>(root);
+
+    EXPECT_EQ(2, group_node.field_count());
+    auto filed1 = group_node.field(0);
+    auto filed2 = group_node.field(1);
+    EXPECT_EQ("field_1", filed1->name());
+    EXPECT_EQ(17, filed1->field_id());
+    EXPECT_EQ("field_2", filed2->name());
+    EXPECT_EQ(36, filed2->field_id());
+
+    st = io::global_local_filesystem()->delete_directory(test_dir);
+    EXPECT_TRUE(st.ok()) << st;
 }
 
 } // namespace iceberg
