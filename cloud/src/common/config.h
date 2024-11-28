@@ -82,6 +82,10 @@ CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
 // log a warning if a recycle task takes longer than this duration
 CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 
+// force recycler to recycle all useless object.
+// **just for TEST**
+CONF_Bool(force_immediate_recycle, "false");
+
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
 CONF_String(test_s3_endpoint, "");
