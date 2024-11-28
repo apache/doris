@@ -63,7 +63,7 @@ template <FieldType type>
 Status write_bloom_filter_index_file(const std::string& file_name, const void* values,
                                      size_t value_count, size_t null_count,
                                      ColumnIndexMetaPB* index_meta,
-                                     bool use_primary_key_bloom_filter = false) {
+                                     bool use_primary_key_bloom_filter = false, double fpp = 0.05) {
     const auto* type_info = get_scalar_type_info<type>();
     using CppType = typename CppTypeTraits<type>::CppType;
     std::string fname = dname + "/" + file_name;
@@ -75,7 +75,7 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
 
         std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
         BloomFilterOptions bf_options;
-
+        bf_options.fpp = fpp; // Set the expected FPP
         if (use_primary_key_bloom_filter) {
             RETURN_IF_ERROR(PrimaryKeyBloomFilterIndexWriterImpl::create(
                     bf_options, type_info, &bloom_filter_index_writer));
@@ -93,13 +93,13 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
                 bloom_filter_index_writer->add_nulls(null_count);
             }
             RETURN_IF_ERROR(bloom_filter_index_writer->flush());
-            auto bf_size = BloomFilter::optimal_bit_num(num, 0.05) / 8;
+            auto bf_size = BloomFilter::optimal_bit_num(num, fpp) / 8;
             expect_size += bf_size + 1;
             i += 1024;
         }
         if (value_count == 3072) {
             RETURN_IF_ERROR(bloom_filter_index_writer->add_values(vals + 3071, 1));
-            auto bf_size = BloomFilter::optimal_bit_num(1, 0.05) / 8;
+            auto bf_size = BloomFilter::optimal_bit_num(1, fpp) / 8;
             expect_size += bf_size + 1;
         }
         RETURN_IF_ERROR(bloom_filter_index_writer->finish(file_writer.get(), index_meta));
@@ -732,5 +732,75 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_unsupported_type) {
     EXPECT_EQ(st.code(), TStatusCode::NOT_IMPLEMENTED_ERROR);
 }
 
+// Test function for verifying Bloom Filter FPP
+void test_bloom_filter_fpp(double expected_fpp) {
+    size_t n = 10000;  // Number of elements to insert into the Bloom Filter
+    size_t m = 100000; // Number of non-existent elements to test for false positives
+
+    // Generate and insert elements into the Bloom Filter index
+    std::vector<int64_t> insert_values;
+    for (size_t i = 0; i < n; ++i) {
+        int64_t val = static_cast<int64_t>(i);
+        insert_values.push_back(val);
+    }
+
+    // Write the Bloom Filter index to file
+    std::string file_name = "bloom_filter_fpp_test";
+    ColumnIndexMetaPB index_meta;
+    Status st = write_bloom_filter_index_file<FieldType::OLAP_FIELD_TYPE_BIGINT>(
+            file_name, insert_values.data(), n, 0, &index_meta, false, expected_fpp);
+    EXPECT_TRUE(st.ok());
+
+    // Read the Bloom Filter index
+    BloomFilterIndexReader* reader = nullptr;
+    std::unique_ptr<BloomFilterIndexIterator> iter;
+    get_bloom_filter_reader_iter(file_name, index_meta, &reader, &iter);
+
+    // Read the Bloom Filter (only one page since we flushed once)
+    std::unique_ptr<BloomFilter> bf;
+    st = iter->read_bloom_filter(0, &bf);
+    EXPECT_TRUE(st.ok());
+
+    // Generate non-existent elements for testing false positive rate
+    std::unordered_set<int64_t> inserted_elements(insert_values.begin(), insert_values.end());
+    std::unordered_set<int64_t> non_exist_elements;
+    std::vector<int64_t> test_values;
+    size_t max_value = n + m * 10; // Ensure test values are not in the inserted range
+    boost::mt19937_64 rng(12345);  // Seed the random number generator for reproducibility
+    std::uniform_int_distribution<int64_t> dist(static_cast<int64_t>(n + 1),
+                                                static_cast<int64_t>(max_value));
+    while (non_exist_elements.size() < m) {
+        int64_t val = dist(rng);
+        if (inserted_elements.find(val) == inserted_elements.end()) {
+            non_exist_elements.insert(val);
+            test_values.push_back(val);
+        }
+    }
+
+    // Test non-existent elements and count false positives
+    size_t fp_count = 0;
+    for (const auto& val : test_values) {
+        if (bf->test_bytes(reinterpret_cast<const char*>(&val), sizeof(int64_t))) {
+            fp_count++;
+        }
+    }
+
+    // Compute actual false positive probability
+    double actual_fpp = static_cast<double>(fp_count) / static_cast<double>(m);
+    std::cout << "Expected FPP: " << expected_fpp << ", Actual FPP: " << actual_fpp << std::endl;
+
+    // Verify that actual FPP is within the allowable error range
+    EXPECT_LE(actual_fpp, expected_fpp);
+
+    delete reader;
+}
+
+// Test case to run FPP tests with multiple expected FPP values
+TEST_F(BloomFilterIndexReaderWriterTest, test_bloom_filter_fpp_multiple) {
+    std::vector<double> fpp_values = {0.01, 0.02, 0.05};
+    for (double fpp : fpp_values) {
+        test_bloom_filter_fpp(fpp);
+    }
+}
 } // namespace segment_v2
 } // namespace doris
