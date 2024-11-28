@@ -231,8 +231,8 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cnt_val->filter = cnt_val->pool->add(new IRuntimeFilter(_state, runtime_filter_desc));
 
     auto filter_id = runtime_filter_desc->filter_id;
-    RETURN_IF_ERROR(cnt_val->filter->init_with_desc(&cnt_val->runtime_filter_desc, query_options,
-                                                    -1));
+    RETURN_IF_ERROR(
+            cnt_val->filter->init_with_desc(&cnt_val->runtime_filter_desc, query_options, -1));
     cnt_val->filter->set_ignored();
     _filter_map.emplace(filter_id, cnt_val);
     return Status::OK();
