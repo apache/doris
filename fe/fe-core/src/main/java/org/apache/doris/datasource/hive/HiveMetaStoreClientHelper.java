@@ -75,6 +75,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -93,6 +94,18 @@ public class HiveMetaStoreClientHelper {
     public static final String COMMENT = "comment";
 
     private static final Pattern digitPattern = Pattern.compile("(\\d+)");
+
+    private static final Map<Character, String> PropStringConvertor = new HashMap<Character, String>() {{
+            put((char) 8, "\\b");
+            put((char) 9, "\\t");
+            put((char) 10, "\\n");
+            put((char) 12, "\\f");
+            put((char) 13, "\\r");
+            put((char) 34, "\\\"");
+            put((char) 39, "\\'");
+            put((char) 59, "\\;");
+            put((char) 92, "\\\\");
+        }};
 
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
@@ -760,7 +773,9 @@ public class HiveMetaStoreClientHelper {
             if (descriptor.getSerdeInfo().isSetParameters()) {
                 output.append("WITH SERDEPROPERTIES (\n")
                         .append(descriptor.getSerdeInfo().getParameters().entrySet().stream()
-                        .map(entry -> String.format("  '%s' = '%s'", entry.getKey(), entry.getValue()))
+                        .map(entry -> String.format("  '%s' = '%s'",
+                            propStringConverter(entry.getKey()),
+                            propStringConverter(entry.getValue())))
                         .collect(Collectors.joining(",\n")))
                         .append(")\n");
             }
@@ -789,7 +804,9 @@ public class HiveMetaStoreClientHelper {
                 Iterator<Map.Entry<String, String>> params = parameters.entrySet().iterator();
                 while (params.hasNext()) {
                     Map.Entry<String, String> param = params.next();
-                    output.append(String.format("  '%s'='%s'", param.getKey(), param.getValue()));
+                    output.append(String.format("  '%s'='%s'",
+                            propStringConverter(param.getKey()),
+                            propStringConverter(param.getValue())));
                     if (params.hasNext()) {
                         output.append(",\n");
                     }
@@ -798,6 +815,21 @@ public class HiveMetaStoreClientHelper {
             }
         }
         return output.toString();
+    }
+
+    // Print invisible characters in hive table properties.
+    public static String propStringConverter(String s) {
+        StringBuilder sb = new StringBuilder();
+        for (char c : s.toCharArray()) {
+            if (PropStringConvertor.containsKey(c)) {
+                sb.append(PropStringConvertor.get(c));
+            } else if (c < 32 || c == 127) {
+                sb.append(String.format("\\%o", (int) c));
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     public static Schema getHudiTableSchema(HMSExternalTable table) {
