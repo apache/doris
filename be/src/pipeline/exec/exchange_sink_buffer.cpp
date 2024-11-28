@@ -36,6 +36,7 @@
 #include <ostream>
 #include <utility>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/pipeline_fragment_context.h"
@@ -169,7 +170,7 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
         }
     }
     if (send_now) {
-        RETURN_IF_ERROR(_send_rpc(ins_id));
+        RETURN_IF_ERROR(_send_rpc(ins_id, []() {}));
     }
 
     return Status::OK();
@@ -202,15 +203,15 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
         _instance_to_broadcast_package_queue[ins_id].emplace(request);
     }
     if (send_now) {
-        RETURN_IF_ERROR(_send_rpc(ins_id));
+        RETURN_IF_ERROR(_send_rpc(ins_id, []() {}));
     }
 
     return Status::OK();
 }
 
-Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
+Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id, std::function<void()> pre_do) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
-
+    pre_do();
     DCHECK(_rpc_channel_is_idle[id] == false);
 
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
@@ -227,9 +228,9 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto& request = q.front();
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
-        brpc_request->set_packet_seq(_instance_to_seq[id]++);
+        brpc_request->set_packet_seq(_instance_to_seq[id]);
         if (request.block && !request.block->column_metas().empty()) {
-            brpc_request->set_allocated_block(request.block.get());
+            brpc_request->mutable_block()->CopyFrom(*request.block);
         }
         if (!request.exec_status.ok()) {
             request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
@@ -249,7 +250,13 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
-            _failed(id, err);
+
+            LOG_WARNING("exchange send error").tag("err", err);
+            auto s = _send_rpc(id, []() {});
+            if (!s) {
+                _failed(id,
+                        fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
+            }
         });
         send_callback->start_rpc_time = GetCurrentTimeNanos();
         send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
@@ -276,7 +283,10 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             } else if (eos) {
                 _ended(id);
             } else {
-                s = _send_rpc(id);
+                s = _send_rpc(id, [&, id]() {
+                    _instance_to_seq[id]++;
+                    _instance_to_package_queue[id].pop();
+                });
                 if (!s) {
                     _failed(id, fmt::format("exchange req success but status isn't ok: {}",
                                             s.to_string()));
@@ -297,11 +307,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                                  std::move(send_remote_block_closure));
             }
         }
-        if (request.block) {
-            COUNTER_UPDATE(_parent->memory_used_counter(), -request.block->ByteSizeLong());
-            static_cast<void>(brpc_request->release_block());
-        }
-        q.pop();
         _total_queue_size--;
         if (_queue_dependency && _total_queue_size <= _queue_capacity) {
             _queue_dependency->set_ready();
@@ -311,10 +316,10 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto& request = broadcast_q.front();
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
-        brpc_request->set_packet_seq(_instance_to_seq[id]++);
+        brpc_request->set_packet_seq(_instance_to_seq[id]);
         if (request.block_holder->get_block() &&
             !request.block_holder->get_block()->column_metas().empty()) {
-            brpc_request->set_allocated_block(request.block_holder->get_block());
+            brpc_request->mutable_block()->CopyFrom(*request.block_holder->get_block());
         }
         auto send_callback = request.channel->get_send_callback(id, request.eos);
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
@@ -330,7 +335,12 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
-            _failed(id, err);
+            LOG_WARNING("exchange send error").tag("err", err);
+            auto s = _send_rpc(id, []() {});
+            if (!s) {
+                _failed(id,
+                        fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
+            }
         });
         send_callback->start_rpc_time = GetCurrentTimeNanos();
         send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
@@ -357,7 +367,10 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             } else if (eos) {
                 _ended(id);
             } else {
-                s = _send_rpc(id);
+                s = _send_rpc(id, [&, id]() {
+                    _instance_to_seq[id]++;
+                    _instance_to_broadcast_package_queue[id].pop();
+                });
                 if (!s) {
                     _failed(id, fmt::format("exchange req success but status isn't ok: {}",
                                             s.to_string()));
@@ -378,10 +391,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                                  std::move(send_remote_block_closure));
             }
         }
-        if (request.block_holder->get_block()) {
-            static_cast<void>(brpc_request->release_block());
-        }
-        broadcast_q.pop();
     } else {
         _rpc_channel_is_idle[id] = true;
     }

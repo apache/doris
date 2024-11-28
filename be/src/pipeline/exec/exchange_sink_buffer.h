@@ -25,6 +25,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -162,11 +163,50 @@ public:
     }
     int64_t start_rpc_time;
 
-private:
+protected:
     std::function<void(const InstanceLoId&, const std::string&)> _fail_fn;
     std::function<void(const InstanceLoId&, const bool&, const Response&, const int64_t&)> _suc_fn;
     InstanceLoId _id;
     bool _eos;
+};
+
+class MockExchangeSendCallback : public ExchangeSendCallback<PTransmitDataResult> {
+    ENABLE_FACTORY_CREATOR(MockExchangeSendCallback);
+
+public:
+    MockExchangeSendCallback() = default;
+    ~MockExchangeSendCallback() override = default;
+    MockExchangeSendCallback(const MockExchangeSendCallback& other) = delete;
+    MockExchangeSendCallback& operator=(const MockExchangeSendCallback& other) = delete;
+
+    void call() noexcept override {
+        try {
+            if (fake_fail()) {
+                _fail_fn(_id, "MockExchangeSendCallback fake error");
+                return;
+            }
+            if (::doris::DummyBrpcCallback<PTransmitDataResult>::cntl_->Failed()) {
+                std::string err = fmt::format(
+                        "failed to send brpc when exchange, error={}, error_text={}, client: {}, "
+                        "latency = {}",
+                        berror(::doris::DummyBrpcCallback<PTransmitDataResult>::cntl_->ErrorCode()),
+                        ::doris::DummyBrpcCallback<PTransmitDataResult>::cntl_->ErrorText(),
+                        BackendOptions::get_localhost(),
+                        ::doris::DummyBrpcCallback<PTransmitDataResult>::cntl_->latency_us());
+                _fail_fn(_id, err);
+            } else {
+                _suc_fn(_id, _eos, *(::doris::DummyBrpcCallback<PTransmitDataResult>::response_),
+                        start_rpc_time);
+            }
+        } catch (const std::exception& exp) {
+            LOG(FATAL) << "brpc callback error: " << exp.what();
+        } catch (...) {
+            LOG(FATAL) << "brpc callback error.";
+            __builtin_unreachable();
+        }
+    }
+    inline static bool fake_fail() { return (flag++) % 5 == 0; }
+    inline static std::atomic_int64_t flag = 0;
 };
 
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
@@ -236,7 +276,7 @@ private:
     RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;
 
-    Status _send_rpc(InstanceLoId);
+    Status _send_rpc(InstanceLoId, std::function<void()> pre_do);
     // must hold the _instance_to_package_queue_mutex[id] mutex to opera
     void _construct_request(InstanceLoId id, PUniqueId);
     inline void _ended(InstanceLoId id);

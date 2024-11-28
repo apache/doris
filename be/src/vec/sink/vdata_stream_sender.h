@@ -174,7 +174,8 @@ public:
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
             InstanceLoId id, bool eos) {
         if (!_send_callback) {
-            _send_callback = pipeline::ExchangeSendCallback<PTransmitDataResult>::create_shared();
+            _send_callback = pipeline::MockExchangeSendCallback::create_shared();
+            //_send_callback = pipeline::ExchangeSendCallback<PTransmitDataResult>::create_shared();
         } else {
             _send_callback->cntl_->Reset();
         }

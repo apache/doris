@@ -160,6 +160,7 @@ private:
 
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
+    RuntimeProfile::Counter* _duplicate_block_sender_counter = nullptr;
     RuntimeProfile::Counter* _max_wait_worker_time = nullptr;
     RuntimeProfile::Counter* _max_wait_to_process_time = nullptr;
     RuntimeProfile::Counter* _max_find_recvr_time = nullptr;
@@ -296,6 +297,9 @@ protected:
     // sender_id
     std::unordered_set<int> _sender_eos_set;
     // be_number => packet_seq
+    // Used to record the packet_seq sent by each sender.
+    // Note that be_number can distinguish each sender.
+    // The packet_seq starts at 0 and increments sequentially (0, 1, 2, 3, 4, ...).
     std::unordered_map<int, int64_t> _packet_seq_map;
     std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
 

@@ -150,18 +150,21 @@ Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, 
         if (_is_cancelled) {
             return Status::OK();
         }
-        auto iter = _packet_seq_map.find(be_number);
-        if (iter != _packet_seq_map.end()) {
-            if (iter->second >= packet_seq) {
-                LOG(WARNING) << fmt::format(
-                        "packet already exist [cur_packet_id= {} receive_packet_id={}]",
-                        iter->second, packet_seq);
-                return Status::OK();
-            }
-            iter->second = packet_seq;
-        } else {
-            _packet_seq_map.emplace(be_number, packet_seq);
+        // _packet_seq_map is initialized to -1, and each packet_seq must be exactly 1 greater than the value in _packet_seq_map.
+        if (!_packet_seq_map.contains(be_number)) {
+            _packet_seq_map.emplace(be_number, -1);
         }
+        if (packet_seq != _packet_seq_map[be_number] + 1) {
+            // A block might be processed by the current queue but encounter an error when calling back the sender.
+            // In this case, the sender will resend the block.
+            COUNTER_UPDATE(_recvr->_duplicate_block_sender_counter, 1);
+            return Status::OK();
+        }
+
+        // LOG_WARNING("VDataStreamRecvr get block from")
+        //         .tag("be_number", be_number)
+        //         .tag("packet_seq", packet_seq);
+        _packet_seq_map[be_number]++;
 
         DCHECK(_num_remaining_senders >= 0);
         if (_num_remaining_senders == 0) {
@@ -361,6 +364,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, pipeline::Exchang
     _decompress_bytes = ADD_COUNTER(_profile, "DecompressBytes", TUnit::BYTES);
     _blocks_produced_counter = ADD_COUNTER(_profile, "BlocksProduced", TUnit::UNIT);
     _max_wait_worker_time = ADD_COUNTER(_profile, "MaxWaitForWorkerTime", TUnit::UNIT);
+    _duplicate_block_sender_counter = ADD_COUNTER(_profile, "DuplicateBlockSender", TUnit::UNIT);
     _max_wait_to_process_time = ADD_COUNTER(_profile, "MaxWaitToProcessTime", TUnit::UNIT);
     _max_find_recvr_time = ADD_COUNTER(_profile, "MaxFindRecvrTime(NS)", TUnit::UNIT);
 }
