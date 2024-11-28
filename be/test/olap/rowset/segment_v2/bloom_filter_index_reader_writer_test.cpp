@@ -589,7 +589,7 @@ Status write_ngram_bloom_filter_index_file(const std::string& file_name, Slice* 
         EXPECT_TRUE(st.ok());
         i += num;
     }
-
+    bf_index_writer->add_nulls(1);
     st = bf_index_writer->finish(file_writer.get(), meta);
     EXPECT_TRUE(st.ok()) << "Writer finish status: " << st.to_string();
     EXPECT_TRUE(file_writer->close().ok());

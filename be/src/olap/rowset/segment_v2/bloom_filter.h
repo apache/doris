@@ -186,7 +186,7 @@ public:
 
     /// Checks if this contains everything from another bloom filter.
     /// Bloom filters must have equal size and seed.
-    virtual bool contains(const BloomFilter& bf_) const = 0;
+    virtual bool contains(const BloomFilter& bf_) const { return true; };
 
     virtual char* data() const { return _data; }
 
