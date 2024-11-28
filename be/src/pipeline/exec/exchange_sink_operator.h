@@ -89,6 +89,7 @@ public:
     void set_reach_limit() { _reach_limit = true; };
 
     [[nodiscard]] int sender_id() const { return _sender_id; }
+    [[nodiscard]] int be_number() const { return _state->be_number(); }
 
     std::string name_suffix() override;
     segment_v2::CompressionTypePB compression_type() const;
@@ -112,7 +113,7 @@ private:
     friend class vectorized::Channel;
     friend class vectorized::BlockSerializer;
 
-    std::unique_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
+    std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
     RuntimeProfile::Counter* _compress_timer = nullptr;
     RuntimeProfile::Counter* _bytes_sent_counter = nullptr;
@@ -209,6 +210,14 @@ public:
     DataDistribution required_data_distribution() const override;
     bool is_serial_operator() const override { return true; }
 
+    // For a normal shuffle scenario, if the concurrency is n,
+    // there can be up to n * n RPCs in the current fragment.
+    // Therefore, a shared sink buffer is used here to limit the number of concurrent RPCs.
+    // (Note: This does not reduce the total number of RPCs.)
+    // In a merge sort scenario, there are only n RPCs, so a shared sink buffer is not needed.
+    /// TODO: Modify this to let FE handle the judgment instead of BE.
+    std::shared_ptr<ExchangeSinkBuffer> get_sink_buffer();
+
 private:
     friend class ExchangeSinkLocalState;
 
@@ -225,6 +234,12 @@ private:
                                      size_t num_channels,
                                      std::vector<std::vector<uint32_t>>& channel2rows,
                                      vectorized::Block* block, bool eos);
+
+    // Use ExchangeSinkOperatorX to create a sink buffer.
+    // The sink buffer can be shared among multiple ExchangeSinkLocalState instances,
+    // or each ExchangeSinkLocalState can have its own sink buffer.
+    std::shared_ptr<ExchangeSinkBuffer> _create_buffer();
+    std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeState* _state = nullptr;
 
     const std::vector<TExpr> _texprs;
