@@ -236,11 +236,13 @@ supportedShowStatement
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE CATALOG name=identifier                                           #showCreateCatalog
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
+    | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
         ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers    
+    | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
     | SHOW FRONTENDS name=identifier?                                               #showFrontends 
     | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
@@ -293,7 +295,6 @@ unsupportedShowStatement
     | SHOW FULL? VIEWS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showViews
     | SHOW FULL? PROCESSLIST                                                        #showProcessList
     | SHOW (GLOBAL | SESSION | LOCAL)? STATUS wildWhere?                            #showStatus
-    | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW CREATE (DATABASE | SCHEMA) name=multipartIdentifier                      #showCreateDatabase
     | SHOW CREATE (GLOBAL | SESSION | LOCAL)? FUNCTION functionIdentifier
@@ -355,7 +356,6 @@ unsupportedShowStatement
     | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
     | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
     | SHOW TABLET STORAGE FORMAT VERBOSE?                                           #showTabletStorageFormat
-    | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
     | SHOW COPY ((FROM | IN) database=multipartIdentifier)?
         whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
@@ -869,7 +869,7 @@ unsupportedUseStatement
     ;
 
 unsupportedDmlStatement
-    : TRUNCATE TABLE multipartIdentifier specifiedPartition?                        #truncateTable
+    : TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?                 #truncateTable
     | COPY INTO name=multipartIdentifier columns=identifierList? FROM
         (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
             FROM stageAndPattern whereClause? RIGHT_PAREN))

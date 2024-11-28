@@ -79,8 +79,10 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
@@ -397,6 +399,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showCreateMtlzViewCommand, context);
     }
 
+    default R visitShowCreateViewCommand(ShowCreateViewCommand showCreateViewCommand, C context) {
+        return visitCommand(showCreateViewCommand, context);
+    }
+
     default R visitAlterRoleCommand(AlterRoleCommand alterRoleCommand, C context) {
         return visitCommand(alterRoleCommand, context);
     }
@@ -431,6 +437,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitRecoverDatabaseCommand(RecoverDatabaseCommand recoverDatabaseCommand, C context) {
         return visitCommand(recoverDatabaseCommand, context);
+    }
+
+    default R visitShowDiagnoseTabletCommand(ShowDiagnoseTabletCommand showDiagnoseTabletCommand, C context) {
+        return visitCommand(showDiagnoseTabletCommand, context);
     }
 
     default R visitRecoverTableCommand(RecoverTableCommand recoverTableCommand, C context) {

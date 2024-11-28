@@ -230,8 +230,10 @@ import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMaterializedViewContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateTableContext;
+import org.apache.doris.nereids.DorisParser.ShowCreateViewContext;
 import org.apache.doris.nereids.DorisParser.ShowDatabaseIdContext;
 import org.apache.doris.nereids.DorisParser.ShowDeleteContext;
+import org.apache.doris.nereids.DorisParser.ShowDiagnoseTabletContext;
 import org.apache.doris.nereids.DorisParser.ShowDynamicPartitionContext;
 import org.apache.doris.nereids.DorisParser.ShowEventsContext;
 import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
@@ -515,8 +517,10 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
@@ -4560,9 +4564,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowDiagnoseTablet(ShowDiagnoseTabletContext ctx) {
+        long tabletId = Long.parseLong(ctx.INTEGER_VALUE().getText());
+        return new ShowDiagnoseTabletCommand(tabletId);
+    }
+
+    @Override
     public LogicalPlan visitShowCreateTable(ShowCreateTableContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         return new ShowCreateTableCommand(new TableNameInfo(nameParts), ctx.BRIEF() != null);
+    }
+
+    @Override
+    public LogicalPlan visitShowCreateView(ShowCreateViewContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        return new ShowCreateViewCommand(new TableNameInfo(nameParts));
     }
 
     @Override
@@ -4650,6 +4666,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+
     public LogicalPlan visitShowBroker(ShowBrokerContext ctx) {
         return new ShowBrokerCommand();
     }
