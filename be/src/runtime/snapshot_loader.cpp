@@ -200,50 +200,32 @@ static Status upload_remote_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet
 
 static Status upload_remote_file(io::RemoteFileSystem& dest_fs, int64_t tablet_id,
                                  const std::string& local_path, const std::string& dest_path,
-                                 const std::string& remote_snapshot_info) {
-    io::FileReaderSPtr file_reader;
+                                 const std::string& hdr_file) {
     Status res = Status::OK();
 
-    std::string full_remote_snapshot_info_path = local_path + '/' + remote_snapshot_info;
-    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(full_remote_snapshot_info_path, &file_reader));
-    size_t bytes_read = 0;
-    char* buff = (char*)malloc(file_reader->size() + 1);
-    RETURN_IF_ERROR(file_reader->read_at(0, {buff, file_reader->size()}, &bytes_read));
-    string str(buff, file_reader->size());
-    size_t start = 0;
-    string delimiter = "|";
-    size_t end = str.find(delimiter);
-    int64_t tablet_id_tmp = std::stol(str.substr(start, end - start));
-    start = end + delimiter.length();
-
-    if (tablet_id_tmp != tablet_id) {
-        return Status::InternalError("Invalid tablet {}", tablet_id_tmp);
+    auto tablet_meta = std::make_shared<TabletMeta>();
+    res = tablet_meta->create_from_file(local_path + "/" + hdr_file);
+    if (!res.ok()) {
+         return Status::Error<ErrorCode::ENGINE_LOAD_INDEX_TABLE_ERROR>(
+                "fail to load tablet_meta. file_path={}", local_path + "/" + hdr_file);
     }
 
-    end = str.find(delimiter, start); //
-    int64_t storage_policy_id = std::stol(str.substr(start, end - start));
-    start = end + delimiter.length();
+    if (tablet_meta->tablet_id() != tablet_id) {
+        return Status::InternalError("Invalid tablet {}", tablet_meta->tablet_id());
+    }
 
     string rowset_id;
     int segments;
     int have_inverted_index;
 
-    auto storage_resource = DORIS_TRY(get_resource_by_storage_policy_id(storage_policy_id));
+    auto storage_resource = DORIS_TRY(get_resource_by_storage_policy_id(tablet_meta->storage_policy_id()));
 
-    while (end != std::string::npos) {
-        end = str.find(delimiter, start); //
-        rowset_id = str.substr(start, end - start);
-        start = end + delimiter.length();
+    for (auto rowset_meta : tablet_meta->all_rs_metas()) {
+        rowset_id = rowset_meta->rowset_id().to_string();
+        segments = rowset_meta->num_segments();
+        have_inverted_index = rowset_meta->tablet_schema()->has_inverted_index();
 
-        end = str.find(delimiter, start);
-        segments = std::stoi(str.substr(start, end - start));
-        start = end + delimiter.length();
-
-        end = str.find(delimiter, start);
-        have_inverted_index = std::stoi(str.substr(start, end - start));
-        start = end + delimiter.length();
-
-        if (segments > 0) {
+        if (segments > 0 && !rowset_meta->is_local()) {
             RETURN_IF_ERROR(upload_remote_rowset(dest_fs, tablet_id, local_path, dest_path,
                                                  storage_resource.fs.get(), rowset_id, segments,
                                                  have_inverted_index));
@@ -252,6 +234,62 @@ static Status upload_remote_file(io::RemoteFileSystem& dest_fs, int64_t tablet_i
 
     return res;
 }
+
+
+// static Status upload_remote_file(io::RemoteFileSystem& dest_fs, int64_t tablet_id,
+//                                  const std::string& local_path, const std::string& dest_path,
+//                                  const std::string& remote_snapshot_info) {
+//     io::FileReaderSPtr file_reader;
+//     Status res = Status::OK();
+
+//     std::string full_remote_snapshot_info_path = local_path + '/' + remote_snapshot_info;
+//     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(full_remote_snapshot_info_path, &file_reader));
+//     size_t bytes_read = 0;
+//     char* buff = (char*)malloc(file_reader->size() + 1);
+//     RETURN_IF_ERROR(file_reader->read_at(0, {buff, file_reader->size()}, &bytes_read));
+//     string str(buff, file_reader->size());
+//     size_t start = 0;
+//     string delimiter = "|";
+//     size_t end = str.find(delimiter);
+//     int64_t tablet_id_tmp = std::stol(str.substr(start, end - start));
+//     start = end + delimiter.length();
+
+//     if (tablet_id_tmp != tablet_id) {
+//         return Status::InternalError("Invalid tablet {}", tablet_id_tmp);
+//     }
+
+//     end = str.find(delimiter, start); //
+//     int64_t storage_policy_id = std::stol(str.substr(start, end - start));
+//     start = end + delimiter.length();
+
+//     string rowset_id;
+//     int segments;
+//     int have_inverted_index;
+
+//     auto storage_resource = DORIS_TRY(get_resource_by_storage_policy_id(storage_policy_id));
+
+//     while (end != std::string::npos) {
+//         end = str.find(delimiter, start); //
+//         rowset_id = str.substr(start, end - start);
+//         start = end + delimiter.length();
+
+//         end = str.find(delimiter, start);
+//         segments = std::stoi(str.substr(start, end - start));
+//         start = end + delimiter.length();
+
+//         end = str.find(delimiter, start);
+//         have_inverted_index = std::stoi(str.substr(start, end - start));
+//         start = end + delimiter.length();
+
+//         if (segments > 0) {
+//             RETURN_IF_ERROR(upload_remote_rowset(dest_fs, tablet_id, local_path, dest_path,
+//                                                  storage_resource.fs.get(), rowset_id, segments,
+//                                                  have_inverted_index));
+//         }
+//     }
+
+//     return res;
+// }
 
 Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_dest_path,
                               std::map<int64_t, std::vector<std::string>>* tablet_files) {
@@ -301,7 +339,11 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
         for (auto& local_file : local_files) {
             RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
                                           TTaskType::type::UPLOAD));
-            if (local_file.compare(REMOTE_SNAPSHOT_INFO) == 0) {
+            //if (local_file.compare(REMOTE_SNAPSHOT_INFO) == 0) {
+            if (_end_with(local_file, ".hdr")) {
+                //  auto cloned_tablet_meta = std::make_shared<TabletMeta>();
+                //  cloned_tablet_meta->create_from_file(src_path + "/" + local_file);
+
                 RETURN_IF_ERROR(upload_remote_file(*_remote_fs, tablet_id, src_path, dest_path,
                                                    local_file));
             }
@@ -422,17 +464,12 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             const FileStat& file_stat = iter.second;
             auto find = std::find(local_files.begin(), local_files.end(), remote_file);
             if (find == local_files.end()) {
-                if (remote_file.compare(REMOTE_SNAPSHOT_INFO) == 0) {
-                    continue;
-                }
                 // remote file does not exist in local, download it
                 need_download = true;
             } else {
                 if (_end_with(remote_file, ".hdr")) {
                     // this is a header file, download it.
                     need_download = true;
-                } else if (remote_file.compare(REMOTE_SNAPSHOT_INFO) == 0) {
-                    continue;
                 } else {
                     // check checksum
                     std::string local_md5sum;
