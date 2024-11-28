@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.rewrite.ExtractInPredicateFromFilter;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -471,7 +472,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
                 return new EqualTo(reference, values.iterator().next());
 
                 // this condition should as same as OrToIn, or else meet dead loop
-            } else if (values.size() < OrToIn.REWRITE_OR_TO_IN_PREDICATE_THRESHOLD) {
+            } else if (values.size() < ExtractInPredicateFromFilter.REWRITE_OR_TO_IN_PREDICATE_THRESHOLD) {
                 Iterator<Literal> iterator = values.iterator();
                 return new Or(new EqualTo(reference, iterator.next()), new EqualTo(reference, iterator.next()));
             } else {

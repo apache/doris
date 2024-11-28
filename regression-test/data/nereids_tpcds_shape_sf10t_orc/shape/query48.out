@@ -13,15 +13,14 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF0 s_store_sk->[ss_store_sk]
 ------------------------PhysicalProject
---------------------------filter((store_sales.ss_net_profit <= 25000.00) and (store_sales.ss_net_profit >= 0.00) and (store_sales.ss_sales_price <= 200.00) and (store_sales.ss_sales_price >= 50.00))
-----------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
+--------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[store]
 --------------------PhysicalProject
 ----------------------filter(((((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = 'Unknown')) OR ((customer_demographics.cd_marital_status = 'W') AND (customer_demographics.cd_education_status = 'College'))) OR ((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Primary'))) and cd_education_status IN ('College', 'Primary', 'Unknown') and cd_marital_status IN ('D', 'M', 'W'))
 ------------------------PhysicalOlapScan[customer_demographics]
 ----------------PhysicalProject
-------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('FL', 'GA', 'KY', 'MI', 'NH', 'NY', 'OH', 'SD', 'TX'))
+------------------filter(((((customer_address.ca_country = 'United States') AND ca_state IN ('GA', 'MI', 'NH')) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('KY', 'SD', 'TX'))) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('FL', 'NY', 'OH'))) and (customer_address.ca_country = 'United States') and ca_state IN ('FL', 'GA', 'KY', 'MI', 'NH', 'NY', 'OH', 'SD', 'TX'))
 --------------------PhysicalOlapScan[customer_address]
 ------------PhysicalProject
 --------------filter((date_dim.d_year = 1998))

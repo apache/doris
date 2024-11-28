@@ -15,24 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.expression.rules;
+package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.rules.expression.ExpressionBottomUpRewriter;
-import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
-import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
-import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.MutableState;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -43,100 +37,113 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
- * dependends on SimplifyRange rule
- *
+ * ExtractSingleTableInPredicate
  */
-public class OrToIn implements ExpressionPatternRuleFactory {
-
-    public static final OrToIn INSTANCE = new OrToIn();
-
+public class ExtractInPredicateFromFilter implements RewriteRuleFactory {
     public static final int REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = 2;
 
     @Override
-    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
-        return ImmutableList.of(
-                matchesTopType(Or.class).then(OrToIn.INSTANCE::rewrite)
-        );
+    public List<Rule> buildRules() {
+        return ImmutableList.of(logicalFilter().then(
+                this::tryToExtractSingleTablePredicate
+        ).toRule(RuleType.EXTRACT_IN_PREDICATE_FROM_FILTER));
     }
 
-    public Expression rewriteTree(Expression expr, ExpressionRewriteContext context) {
-        if (expr instanceof CompoundPredicate) {
-            expr = SimplifyRange.rewrite((CompoundPredicate) expr, context);
+    /**
+     * tryToExtractSingleTablePredicate
+     */
+    public LogicalFilter<Plan> tryToExtractSingleTablePredicate(LogicalFilter<Plan> filter) {
+        Set<Expression> conjuncts = filter.getConjuncts();
+        Set<Expression> inOrEqual = Sets.newHashSet();
+        // "a=1 or a=2" is converted to a in (1, 2), and no need to keep "a=1 or a=2",
+        // "(a=1 and c=1) or (a=2 and d=2)" is converted to "a in (1, 2) and (a=1 and c=1) or (a=2 and d=2)"
+        // (a=1 and c=1) or (a=2 and d=2) is put to the remainConjuncts
+        List<Expression> remainConjuncts = Lists.newArrayList();
+        boolean hasNewInOrEuqal = false;
+        for (Expression conjunct : conjuncts) {
+            if (conjunct instanceof EqualTo) {
+                inOrEqual.add(conjunct);
+            } else if (conjunct instanceof InPredicate) {
+                inOrEqual.add(conjunct);
+            } else if (conjunct instanceof Or) {
+                ExtractResult extractResult = tryToRewriteOr((Or) conjunct);
+                for (Expression extracted : extractResult.extracted) {
+                    if (!inOrEqual.contains(extracted)) {
+                        inOrEqual.add(extracted);
+                        hasNewInOrEuqal = true;
+                    }
+                    extractResult.optOr.ifPresent(remainConjuncts::add);
+                }
+            } else {
+                remainConjuncts.add(conjunct);
+            }
         }
-        ExpressionBottomUpRewriter bottomUpRewriter = ExpressionRewrite.bottomUp(this);
-        return bottomUpRewriter.rewrite(expr, context);
+        if (hasNewInOrEuqal) {
+            inOrEqual.addAll(remainConjuncts);
+            return filter.withConjuncts(inOrEqual);
+        }
+        return null;
     }
 
-    private Expression rewrite(Or or) {
-        if (or.getMutableState(MutableState.KEY_OR_TO_IN).isPresent()) {
-            return or;
+    private static class ExtractResult {
+        List<Expression> extracted; // extracted In-predicate or EqualTo
+        Optional<Or> optOr;
+
+        ExtractResult(List<Expression> extracted, Or or) {
+            this.extracted = extracted;
+            this.optOr = Optional.ofNullable(or);
         }
-        Pair<Expression, Expression> pair = extractCommonConjunct(or);
-        Expression result = tryToRewriteIn(pair.second);
-        if (pair.first != null) {
-            result = new And(pair.first, result);
-        }
-        result.setMutableState(MutableState.KEY_OR_TO_IN, 1);
-        return result;
     }
 
-    private Expression tryToRewriteIn(Expression or) {
-        or.setMutableState(MutableState.KEY_OR_TO_IN, 1);
+    /*
+   it is not necessary to rewrite "a like 'xyz' or a=1 or a=2" to "a like 'xyz' or a in (1, 2)",
+   because we cannot push "a in (1, 2)" into storage layer
+ */
+    private boolean hasInOrEqualChildren(Expression disjunct) {
+        List<Expression> conjuncts = ExpressionUtils.extractConjunction(disjunct);
+        for (Expression conjunct : conjuncts) {
+            if (conjunct instanceof EqualTo || conjunct instanceof InPredicate) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private ExtractResult tryToRewriteOr(Or or) {
         List<Expression> disjuncts = ExpressionUtils.extractDisjunction(or);
         for (Expression disjunct : disjuncts) {
             if (!hasInOrEqualChildren(disjunct)) {
-                return or;
+                return new ExtractResult(ImmutableList.of(), or);
             }
         }
 
         Map<Expression, Set<Literal>> candidates = getCandidates(disjuncts.get(0));
         if (candidates.isEmpty()) {
-            return or;
+            return new ExtractResult(ImmutableList.of(), or);
         }
 
         // verify each candidate
         for (int i = 1; i < disjuncts.size(); i++) {
             Map<Expression, Set<Literal>> otherCandidates = getCandidates(disjuncts.get(i));
             if (otherCandidates.isEmpty()) {
-                return or;
+                return new ExtractResult(ImmutableList.of(), or);
             }
             candidates = mergeCandidates(candidates, otherCandidates);
             if (candidates.isEmpty()) {
-                return or;
+                return new ExtractResult(ImmutableList.of(), or);
             }
         }
-        if (!candidates.isEmpty()) {
-            Expression conjunct = candidatesToFinalResult(candidates);
-            boolean keep = keepOriginalOrExpression(disjuncts);
-            if (keep) {
-                return new And(conjunct, or);
-            } else {
-                return conjunct;
-            }
+        List<Expression> extracted = candidatesToFinalResult(candidates);
+        boolean keep = keepOriginalOrExpression(disjuncts);
+        if (keep) {
+            return new ExtractResult(extracted, or);
+        } else {
+            return new ExtractResult(extracted, null);
         }
-        return or;
-    }
-
-    private boolean keepOriginalOrExpression(List<Expression> disjuncts) {
-        for (Expression disjunct : disjuncts) {
-            List<Expression> conjuncts = ExpressionUtils.extractConjunction(disjunct);
-            if (conjuncts.size() > 1) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean containsAny(Set a, Set b) {
-        for (Object x : a) {
-            if (b.contains(x)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private Map<Expression, Set<Literal>> mergeCandidates(
@@ -156,7 +163,7 @@ public class OrToIn implements ExpressionPatternRuleFactory {
         return result;
     }
 
-    private Expression candidatesToFinalResult(Map<Expression, Set<Literal>> candidates) {
+    private List<Expression> candidatesToFinalResult(Map<Expression, Set<Literal>> candidates) {
         List<Expression> conjuncts = new ArrayList<>();
         for (Expression key : candidates.keySet()) {
             Set<Literal> literals = candidates.get(key);
@@ -168,41 +175,7 @@ public class OrToIn implements ExpressionPatternRuleFactory {
                 conjuncts.add(new InPredicate(key, ImmutableList.copyOf(literals)));
             }
         }
-        return ExpressionUtils.and(conjuncts);
-    }
-
-    /*
-       it is not necessary to rewrite "a like 'xyz' or a=1 or a=2" to "a like 'xyz' or a in (1, 2)",
-       because we cannot push "a in (1, 2)" into storage layer
-     */
-    private boolean hasInOrEqualChildren(Expression disjunct) {
-        List<Expression> conjuncts = ExpressionUtils.extractConjunction(disjunct);
-        for (Expression conjunct : conjuncts) {
-            if (conjunct instanceof EqualTo || conjunct instanceof InPredicate) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // conjuncts.get(idx) has different input slots
-    private boolean independentConjunct(int idx, List<Expression> conjuncts) {
-        Expression conjunct = conjuncts.get(idx);
-        Set<Slot> targetSlots = conjunct.getInputSlots();
-        if (conjuncts.size() == 1) {
-            return true;
-        }
-        for (int i = 0; i < conjuncts.size(); i++) {
-            if (i != idx) {
-                Set<Slot> otherInput = Sets.newHashSet();
-                otherInput.addAll(conjuncts.get(i).getInputSlots());
-                otherInput.retainAll(targetSlots);
-                if (!otherInput.isEmpty()) {
-                    return false;
-                }
-            }
-        }
-        return true;
+        return conjuncts;
     }
 
     private Map<Expression, Set<Literal>> getCandidates(Expression disjunct) {
@@ -210,9 +183,6 @@ public class OrToIn implements ExpressionPatternRuleFactory {
         Map<Expression, Set<Literal>> candidates = new LinkedHashMap<>();
         // collect candidates from the first disjunction
         for (int idx = 0; idx < conjuncts.size(); idx++) {
-            if (!independentConjunct(idx, conjuncts)) {
-                continue;
-            }
             // find pattern: A=1 / A in (1, 2, 3 ...)
             // candidates: A->[1] / A -> [1, 2, 3, ...]
             Expression conjunct = conjuncts.get(idx);
@@ -270,43 +240,14 @@ public class OrToIn implements ExpressionPatternRuleFactory {
         return candidates;
     }
 
-    /**
-     * (a and b and ...) or (a and c and ...)
-     * =>
-     * a and [(b and ...) or (c and ...)]
-     * extract the common part: a
-     * and remaining part (b and ...) or (c and ...)
-     * @returns Pair (common, remaining)
-     */
-    private Pair<Expression, Expression> extractCommonConjunct(Or or) {
-        List<Expression> disjuncts = ExpressionUtils.extractDisjunction(or);
-        List<List<Expression>> conjunctsList = Lists.newArrayList();
+    private boolean keepOriginalOrExpression(List<Expression> disjuncts) {
         for (Expression disjunct : disjuncts) {
-            conjunctsList.add(ExpressionUtils.extractConjunction(disjunct));
-        }
-        List<Expression> commons = Lists.newArrayList();
-        for (Expression a : conjunctsList.get(0)) {
-            boolean isCommon = true;
-            for (int i = 1; i < disjuncts.size(); i++) {
-                if (!conjunctsList.get(i).contains(a)) {
-                    isCommon = false;
-                    break;
-                }
-            }
-            if (isCommon) {
-                commons.add(a);
+            List<Expression> conjuncts = ExpressionUtils.extractConjunction(disjunct);
+            if (conjuncts.size() > 1) {
+                return true;
             }
         }
-        if (!commons.isEmpty()) {
-            List<Expression> remainPart = Lists.newArrayList();
-            for (int i = 0; i < disjuncts.size(); i++) {
-                conjunctsList.get(i).removeAll(commons);
-                remainPart.add(ExpressionUtils.and(conjunctsList.get(i)));
-            }
-            Expression remainOr = ExpressionUtils.or(remainPart);
-            return Pair.of(ExpressionUtils.and(commons), remainOr);
-        } else {
-            return Pair.of(null, or);
-        }
+        return false;
     }
+
 }
