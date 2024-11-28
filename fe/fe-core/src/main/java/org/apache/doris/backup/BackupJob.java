@@ -1063,6 +1063,19 @@ public class BackupJob extends AbstractJob {
     }
 
     public synchronized List<String> getInfo() {
+        String unfinishedTaskIdsStr = unfinishedTaskIds.entrySet().stream()
+                .map(e -> "[" + e.getKey() + "=" + e.getValue() + "]")
+                .limit(100)
+                .collect(Collectors.joining(", "));
+        String taskProgressStr = taskProgress.entrySet().stream()
+                .map(e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]")
+                .limit(100)
+                .collect(Collectors.joining(", "));
+        String taskErrMsgStr = taskErrMsg.entrySet().stream()
+                .map(e -> "[" + e.getKey() + ": " + e.getValue() + "]")
+                .limit(100)
+                .collect(Collectors.joining(", "));
+
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
         info.add(label);
@@ -1073,12 +1086,9 @@ public class BackupJob extends AbstractJob {
         info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
         info.add(TimeUtils.longToTimeString(snapshotUploadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
-        info.add(Joiner.on(", ").join(unfinishedTaskIds.entrySet()));
-        info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
-                e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
-                        Collectors.toList())));
-        info.add(Joiner.on(", ").join(taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
-                + "]").collect(Collectors.toList())));
+        info.add(unfinishedTaskIdsStr);
+        info.add(taskProgressStr);
+        info.add(taskErrMsgStr);
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
         return info;
