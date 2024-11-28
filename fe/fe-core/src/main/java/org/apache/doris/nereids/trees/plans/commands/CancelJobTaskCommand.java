@@ -36,7 +36,7 @@ import org.apache.doris.qe.StmtExecutor;
 /**
  * base class for all drop commands
  */
-public class CancelJobTaskCommand extends Command implements ForwardWithSync {
+public class CancelJobTaskCommand extends CancelCommand implements ForwardWithSync {
     private static final String jobNameKey = "jobName";
 
     private static final String taskIdKey = "taskId";

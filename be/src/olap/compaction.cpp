@@ -662,15 +662,28 @@ Status Compaction::do_inverted_index_compaction() {
         try {
             std::vector<std::unique_ptr<DorisCompoundReader>> src_idx_dirs(src_segment_num);
             for (int src_segment_id = 0; src_segment_id < src_segment_num; src_segment_id++) {
-                src_idx_dirs[src_segment_id] =
-                        DORIS_TRY(inverted_index_file_readers[src_segment_id]->open(index_meta));
+                auto res = inverted_index_file_readers[src_segment_id]->open(index_meta);
+                DBUG_EXECUTE_IF("Compaction::open_inverted_index_file_reader", {
+                    res = ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "debug point: Compaction::open_index_file_reader error"));
+                })
+                if (!res.has_value()) {
+                    throw Exception(ErrorCode::INVERTED_INDEX_COMPACTION_ERROR, res.error().msg());
+                }
+                src_idx_dirs[src_segment_id] = std::move(res.value());
             }
             for (int dest_segment_id = 0; dest_segment_id < dest_segment_num; dest_segment_id++) {
-                auto dest_dir =
-                        DORIS_TRY(inverted_index_file_writers[dest_segment_id]->open(index_meta));
+                auto res = inverted_index_file_writers[dest_segment_id]->open(index_meta);
+                DBUG_EXECUTE_IF("Compaction::open_inverted_index_file_writer", {
+                    res = ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "debug point: Compaction::open_inverted_index_file_writer error"));
+                })
+                if (!res.has_value()) {
+                    throw Exception(ErrorCode::INVERTED_INDEX_COMPACTION_ERROR, res.error().msg());
+                }
                 // Destination directories in dest_index_dirs do not need to be deconstructed,
                 // but their lifecycle must be managed by inverted_index_file_writers.
-                dest_index_dirs[dest_segment_id] = dest_dir.get();
+                dest_index_dirs[dest_segment_id] = res.value().get();
             }
             auto st = compact_column(index_meta->index_id(), src_idx_dirs, dest_index_dirs,
                                      index_tmp_path.native(), trans_vec, dest_segment_num_rows);
@@ -679,6 +692,9 @@ Status Compaction::do_inverted_index_compaction() {
                 status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
             }
         } catch (CLuceneError& e) {
+            error_handler(index_meta->index_id(), column_uniq_id);
+            status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
+        } catch (const Exception& e) {
             error_handler(index_meta->index_id(), column_uniq_id);
             status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
         }

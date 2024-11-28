@@ -59,7 +59,9 @@ statementBase
     | supportedRefreshStatement         #supportedRefreshStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
     | supportedLoadStatement            #supportedLoadStatementAlias
+    | supportedCancelStatement          #supportedCancelStatementAlias
     | supportedRecoverStatement         #supportedRecoverStatementAlias
+    | supportedAdminStatement           #supportedAdminStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -204,6 +206,8 @@ supportedDropStatement
     | DROP SQL_BLOCK_RULE (IF EXISTS)? identifierSeq                            #dropSqlBlockRule
     | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
     | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText                    #dropWorkloadGroup
+    | DROP FILE name=STRING_LITERAL
+        ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
     ;
 
@@ -233,10 +237,13 @@ supportedShowStatement
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE CATALOG name=identifier                                           #showCreateCatalog
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
+    | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
         ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
     | SHOW BACKENDS                                                                 #showBackends
+    | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers    
+    | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
     | SHOW FRONTENDS name=identifier?                                               #showFrontends 
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW WHITELIST                                                                #showWhitelist
@@ -287,7 +294,6 @@ unsupportedShowStatement
     | SHOW FULL? TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTables
     | SHOW FULL? VIEWS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showViews
     | SHOW (GLOBAL | SESSION | LOCAL)? STATUS wildWhere?                            #showStatus
-    | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW CREATE (DATABASE | SCHEMA) name=multipartIdentifier                      #showCreateDatabase
     | SHOW CREATE (GLOBAL | SESSION | LOCAL)? FUNCTION functionIdentifier
@@ -349,9 +355,7 @@ unsupportedShowStatement
     | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters
     | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
     | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
-    | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showREplicaDistribution
     | SHOW TABLET STORAGE FORMAT VERBOSE?                                           #showTabletStorageFormat
-    | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
     | SHOW COPY ((FROM | IN) database=multipartIdentifier)?
         whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
@@ -452,10 +456,14 @@ unsupportedCleanStatement
     | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
     ;
 
-unsupportedCancelStatement
+supportedCancelStatement
     : CANCEL LOAD ((FROM | IN) database=identifier)? wildWhere?                     #cancelLoad
     | CANCEL EXPORT ((FROM | IN) database=identifier)? wildWhere?                   #cancelExport
-    | CANCEL ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
+    | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUpJob
+    ;
+
+unsupportedCancelStatement
+    : CANCEL ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
         FROM tableName=multipartIdentifier (LEFT_PAREN jobIds+=INTEGER_VALUE
             (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelAlterTable
     | CANCEL BUILD INDEX ON tableName=multipartIdentifier
@@ -465,7 +473,10 @@ unsupportedCancelStatement
         (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
     | CANCEL BACKUP ((FROM | IN) database=identifier)?                              #cancelBackup
     | CANCEL RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
-    | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUp
+    ;
+
+supportedAdminStatement
+    : ADMIN SHOW REPLICA DISTRIBUTION FROM baseTableRef                             #adminShowReplicaDistribution
     ;
 
 supportedRecoverStatement
@@ -478,7 +489,6 @@ supportedRecoverStatement
 
 unsupportedAdminStatement
     : ADMIN SHOW REPLICA STATUS FROM baseTableRef wildWhere?                        #adminShowReplicaStatus
-    | ADMIN SHOW REPLICA DISTRIBUTION FROM baseTableRef                             #adminShowReplicaDistribution
     | ADMIN SET REPLICA STATUS PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN   #adminSetReplicaStatus
     | ADMIN SET REPLICA VERSION PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN  #adminSetReplicaVersion
     | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
@@ -667,8 +677,6 @@ unsupportedDropStatement
     | DROP TABLE (IF EXISTS)? name=multipartIdentifier FORCE?                   #dropTable
     | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
     | DROP REPOSITORY name=identifier                                           #dropRepository
-    | DROP FILE name=STRING_LITERAL
-        ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
     | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
@@ -861,7 +869,7 @@ unsupportedUseStatement
     ;
 
 unsupportedDmlStatement
-    : TRUNCATE TABLE multipartIdentifier specifiedPartition?                        #truncateTable
+    : TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?                 #truncateTable
     | COPY INTO name=multipartIdentifier columns=identifierList? FROM
         (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
             FROM stageAndPattern whereClause? RIGHT_PAREN))

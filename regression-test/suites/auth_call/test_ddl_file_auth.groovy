@@ -81,7 +81,7 @@ suite("test_ddl_file_auth","p0,auth_call") {
         def res = sql """SHOW FILE FROM ${dbName};"""
         assertTrue(res.size() == 1)
 
-        sql """DROP FILE "${fileName}" from ${dbName} properties("catalog" = "internal");"""
+        checkNereidsExecute("""DROP FILE "${fileName}" from ${dbName} properties("catalog" = "internal");""")
         res = sql """SHOW FILE FROM ${dbName};"""
         assertTrue(res.size() == 0)
     }
