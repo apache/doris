@@ -2207,6 +2207,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public synchronized List<String> getInfo(boolean isBrief) {
+        String unfinishedTaskIdsStr = unfinishedSignatureToId.entrySet().stream()
+                .map(e -> "[" + e.getKey() + "=" + e.getValue() + "]")
+                .limit(100)
+                .collect(Collectors.joining(", "));
+
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
         info.add(label);
@@ -2226,13 +2231,18 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
         info.add(TimeUtils.longToTimeString(downloadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
-        info.add(Joiner.on(", ").join(unfinishedSignatureToId.entrySet()));
+        info.add(unfinishedTaskIdsStr);
         if (!isBrief) {
-            info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
-                    e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
-                    Collectors.toList())));
-            info.add(Joiner.on(", ").join(taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": "
-                    + n.getValue() + "]").collect(Collectors.toList())));
+            String taskProgressStr = taskProgress.entrySet().stream()
+                    .map(e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]")
+                    .limit(100)
+                    .collect(Collectors.joining(", "));
+            String taskErrMsgStr = taskErrMsg.entrySet().stream()
+                    .map(n -> "[" + n.getKey() + ": " + n.getValue() + "]")
+                    .limit(100)
+                    .collect(Collectors.joining(", "));
+            info.add(taskProgressStr);
+            info.add(taskErrMsgStr);
         }
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
