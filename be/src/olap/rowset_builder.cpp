@@ -148,7 +148,12 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
 }
 
 Status RowsetBuilder::check_tablet_version_count() {
-    if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
+    bool injection = false;
+    DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
+                    { injection = true; });
+    if (injection) {
+        // do not return if injection
+    } else if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
         GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::OK();
     }
