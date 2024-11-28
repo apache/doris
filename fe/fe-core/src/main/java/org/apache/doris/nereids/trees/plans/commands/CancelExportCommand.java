@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.ExportJobState;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -55,7 +55,7 @@ public class CancelExportCommand extends CancelCommand implements ForwardWithSyn
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
-        ctx.getEnv().getExportMgr().cancelExportJob(label, state, (BinaryOperator) whereClause, dbName);
+        ctx.getEnv().getExportMgr().cancelExportJob(label, state, (CompoundPredicate) whereClause, dbName);
     }
 
     private void validate(ConnectContext ctx) throws UserException {
