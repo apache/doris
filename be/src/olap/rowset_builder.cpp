@@ -154,7 +154,7 @@ Status RowsetBuilder::check_tablet_version_count() {
     if (injection) {
         // do not return if injection
     } else if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
-        GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+               GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::OK();
     }
     //trigger compaction
