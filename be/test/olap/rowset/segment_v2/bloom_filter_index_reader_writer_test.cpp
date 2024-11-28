@@ -144,7 +144,7 @@ Status test_bloom_filter_index_reader_writer_template(
         BloomFilterIndexReader* reader = nullptr;
         std::unique_ptr<BloomFilterIndexIterator> iter;
         get_bloom_filter_reader_iter(file_name, meta, &reader, &iter);
-
+        EXPECT_EQ(reader->algorithm(), BloomFilterAlgorithmPB::BLOCK_BLOOM_FILTER);
         // page 0
         std::unique_ptr<BloomFilter> bf;
         RETURN_IF_ERROR(iter->read_bloom_filter(0, &bf));
@@ -604,6 +604,7 @@ Status read_and_test_ngram_bloom_filter_index_file(const std::string& file_name,
     BloomFilterIndexReader* reader = nullptr;
     std::unique_ptr<BloomFilterIndexIterator> iter;
     get_bloom_filter_reader_iter(file_name, meta, &reader, &iter);
+    EXPECT_EQ(reader->algorithm(), BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER);
 
     NgramTokenExtractor extractor(gram_size);
     uint16_t gram_bf_size = bf_size;
