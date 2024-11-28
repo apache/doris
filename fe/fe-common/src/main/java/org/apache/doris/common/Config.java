@@ -164,7 +164,7 @@ public class Config extends ConfigBase {
             "MySQL Jdbc Catalog mysql does not support pushdown functions"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
-    @ConfField(description = {"强制 SQLServer Jdbc Catalog 加密为 false",
+    @ConfField(mutable = true, masterOnly = true, description = {"强制 SQLServer Jdbc Catalog 加密为 false",
             "Force SQLServer Jdbc Catalog encrypt to false"})
     public static boolean force_sqlserver_jdbc_encrypt_false = false;
 
