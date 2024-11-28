@@ -441,8 +441,17 @@ public class InternalCatalog implements CatalogIf<Database> {
                     ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, fullDbName);
                 }
             } else {
-                unprotectCreateDb(db);
-                Env.getCurrentEnv().getEditLog().logCreateDb(db);
+                if (!db.tryWriteLock(100, TimeUnit.SECONDS)) {
+                    LOG.warn("try lock failed, create database failed {}", fullDbName);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT,
+                            "create database " + fullDbName + " time out");
+                }
+                try {
+                    unprotectCreateDb(db);
+                    Env.getCurrentEnv().getEditLog().logCreateDb(db);
+                } finally {
+                    db.writeUnlock();
+                }
             }
         } finally {
             unlock();
@@ -2937,6 +2946,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (colocateGroup != null) {
                 if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
                     throw new AnalysisException("Random distribution for colocate table is unsupported");
+                }
+                if (isAutoBucket) {
+                    throw new AnalysisException("Auto buckets for colocate table is unsupported");
                 }
                 String fullGroupName = GroupId.getFullGroupName(db.getId(), colocateGroup);
                 ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);

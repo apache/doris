@@ -27,8 +27,6 @@
 
 namespace doris {
 
-static bvar::Adder<size_t> g_total_rowset_num("doris_total_rowset_num");
-
 Rowset::Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
                std::string tablet_path)
         : _rowset_meta(std::move(rowset_meta)),
@@ -56,11 +54,6 @@ Rowset::Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
     }
     // build schema from RowsetMeta.tablet_schema or Tablet.tablet_schema
     _schema = _rowset_meta->tablet_schema() ? _rowset_meta->tablet_schema() : schema;
-    g_total_rowset_num << 1;
-}
-
-Rowset::~Rowset() {
-    g_total_rowset_num << -1;
 }
 
 Status Rowset::load(bool use_cache) {

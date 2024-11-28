@@ -61,6 +61,7 @@ class ColumnSorter;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /** Stuff for comparing numbers.
   * Integer values are compared as usual.
@@ -178,10 +179,9 @@ public:
     void insert_range_of_integer(T begin, T end) {
         if constexpr (std::is_integral_v<T>) {
             auto old_size = data.size();
-            data.resize(old_size + (end - begin));
-            for (int i = 0; i < end - begin; i++) {
-                data[old_size + i] = begin + i;
-            }
+            auto new_size = old_size + static_cast<size_t>(end - begin);
+            data.resize(new_size);
+            std::iota(data.begin() + old_size, data.begin() + new_size, begin);
         } else {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "double column not support insert_range_of_integer");
@@ -373,8 +373,6 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    bool is_fixed_and_contiguous() const override { return true; }
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
     StringRef get_raw_data() const override {
         return StringRef(reinterpret_cast<const char*>(data.data()), data.size());
     }
@@ -411,3 +409,4 @@ protected:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

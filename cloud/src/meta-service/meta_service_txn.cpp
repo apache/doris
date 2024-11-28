@@ -912,6 +912,69 @@ void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stat
     }
 }
 
+// process mow table, check lock and remove pending key
+void process_mow_when_commit_txn(
+        const CommitTxnRequest* request, const std::string& instance_id, MetaServiceCode& code,
+        std::string& msg, std::unique_ptr<Transaction>& txn,
+        std::unordered_map<int64_t, std::vector<int64_t>>& table_id_tablet_ids) {
+    int64_t txn_id = request->txn_id();
+    std::stringstream ss;
+    std::vector<std::string> lock_keys;
+    lock_keys.reserve(request->mow_table_ids().size());
+    for (auto table_id : request->mow_table_ids()) {
+        lock_keys.push_back(meta_delete_bitmap_update_lock_key({instance_id, table_id, -1}));
+    }
+    std::vector<std::optional<std::string>> lock_values;
+    TxnErrorCode err = txn->batch_get(&lock_values, lock_keys);
+    if (err != TxnErrorCode::TXN_OK) {
+        ss << "failed to get delete bitmap update lock key info, instance_id=" << instance_id
+           << " err=" << err;
+        msg = ss.str();
+        code = cast_as<ErrCategory::READ>(err);
+        LOG(WARNING) << msg << " txn_id=" << txn_id;
+        return;
+    }
+    size_t total_locks = lock_keys.size();
+    for (size_t i = 0; i < total_locks; i++) {
+        int64_t table_id = request->mow_table_ids(i);
+        // When the key does not exist, it means the lock has been acquired
+        // by another transaction and successfully committed.
+        if (!lock_values[i].has_value()) {
+            ss << "get delete bitmap update lock info, lock is expired"
+               << " table_id=" << table_id << " key=" << hex(lock_keys[i]);
+            code = MetaServiceCode::LOCK_EXPIRED;
+            msg = ss.str();
+            LOG(WARNING) << msg << " txn_id=" << txn_id;
+            return;
+        }
+
+        DeleteBitmapUpdateLockPB lock_info;
+        if (!lock_info.ParseFromString(lock_values[i].value())) [[unlikely]] {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse DeleteBitmapUpdateLockPB";
+            LOG(WARNING) << msg << " txn_id=" << txn_id;
+            return;
+        }
+        if (lock_info.lock_id() != request->txn_id()) {
+            msg = "lock is expired";
+            code = MetaServiceCode::LOCK_EXPIRED;
+            return;
+        }
+        txn->remove(lock_keys[i]);
+        LOG(INFO) << "xxx remove delete bitmap lock, lock_key=" << hex(lock_keys[i])
+                  << " txn_id=" << txn_id;
+
+        for (auto tablet_id : table_id_tablet_ids[table_id]) {
+            std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+            txn->remove(pending_key);
+            LOG(INFO) << "xxx remove delete bitmap pending key, pending_key=" << hex(pending_key)
+                      << " txn_id=" << txn_id;
+        }
+    }
+    lock_keys.clear();
+    lock_values.clear();
+}
+
 /**
  * 0. Extract txn_id from request
  * 1. Get db id from TxnKv with txn_id
@@ -1173,61 +1236,11 @@ void commit_txn_immediately(
             stats.num_segs += i.num_segments();
         } // for tmp_rowsets_meta
 
-        // process mow table, check lock and remove pending key
-        std::vector<std::string> lock_keys;
-        lock_keys.reserve(request->mow_table_ids().size());
-        for (auto table_id : request->mow_table_ids()) {
-            lock_keys.push_back(meta_delete_bitmap_update_lock_key({instance_id, table_id, -1}));
-        }
-        std::vector<std::optional<std::string>> lock_values;
-        err = txn->batch_get(&lock_values, lock_keys);
-        if (err != TxnErrorCode::TXN_OK) {
-            ss << "failed to get delete bitmap update lock key info, instance_id=" << instance_id
-               << " err=" << err;
-            msg = ss.str();
-            code = cast_as<ErrCategory::READ>(err);
-            LOG(WARNING) << msg << " txn_id=" << txn_id;
+        process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
             return;
         }
-        size_t total_locks = lock_keys.size();
-        for (size_t i = 0; i < total_locks; i++) {
-            int64_t table_id = request->mow_table_ids(i);
-            // When the key does not exist, it means the lock has been acquired
-            // by another transaction and successfully committed.
-            if (!lock_values[i].has_value()) {
-                ss << "get delete bitmap update lock info, lock is expired"
-                   << " table_id=" << table_id << " key=" << hex(lock_keys[i]);
-                code = MetaServiceCode::LOCK_EXPIRED;
-                msg = ss.str();
-                LOG(WARNING) << msg << " txn_id=" << txn_id;
-                return;
-            }
-
-            DeleteBitmapUpdateLockPB lock_info;
-            if (!lock_info.ParseFromString(lock_values[i].value())) [[unlikely]] {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = "failed to parse DeleteBitmapUpdateLockPB";
-                LOG(WARNING) << msg << " txn_id=" << txn_id;
-                return;
-            }
-            if (lock_info.lock_id() != request->txn_id()) {
-                msg = "lock is expired";
-                code = MetaServiceCode::LOCK_EXPIRED;
-                return;
-            }
-            txn->remove(lock_keys[i]);
-            LOG(INFO) << "xxx remove delete bitmap lock, lock_key=" << hex(lock_keys[i])
-                      << " txn_id=" << txn_id;
-
-            for (auto tablet_id : table_id_tablet_ids[table_id]) {
-                std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
-                txn->remove(pending_key);
-                LOG(INFO) << "xxx remove delete bitmap pending key, pending_key="
-                          << hex(pending_key) << " txn_id=" << txn_id;
-            }
-        }
-        lock_keys.clear();
-        lock_values.clear();
 
         // Save rowset meta
         for (auto& i : rowsets) {
@@ -1810,61 +1823,11 @@ void commit_txn_eventually(
             response->add_versions(i.second + 1);
         }
 
-        // process mow table, check lock and remove pending key
-        std::vector<std::string> lock_keys;
-        lock_keys.reserve(request->mow_table_ids().size());
-        for (auto table_id : request->mow_table_ids()) {
-            lock_keys.push_back(meta_delete_bitmap_update_lock_key({instance_id, table_id, -1}));
-        }
-        std::vector<std::optional<std::string>> lock_values;
-        err = txn->batch_get(&lock_values, lock_keys);
-        if (err != TxnErrorCode::TXN_OK) {
-            ss << "failed to get delete bitmap update lock key info, instance_id=" << instance_id
-               << " err=" << err;
-            msg = ss.str();
-            code = cast_as<ErrCategory::READ>(err);
-            LOG(WARNING) << msg << " txn_id=" << txn_id;
+        process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
             return;
         }
-
-        for (size_t i = 0; i < lock_keys.size(); i++) {
-            int64_t table_id = request->mow_table_ids(i);
-            // When the key does not exist, it means the lock has been acquired
-            // by another transaction and successfully committed.
-            if (!lock_values[i].has_value()) {
-                ss << "get delete bitmap update lock info, lock is expired"
-                   << " table_id=" << table_id << " key=" << hex(lock_keys[i]);
-                code = MetaServiceCode::LOCK_EXPIRED;
-                msg = ss.str();
-                LOG(WARNING) << msg << " txn_id=" << txn_id;
-                return;
-            }
-
-            DeleteBitmapUpdateLockPB lock_info;
-            if (!lock_info.ParseFromString(lock_values[i].value())) [[unlikely]] {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = "failed to parse DeleteBitmapUpdateLockPB";
-                LOG(WARNING) << msg << " txn_id=" << txn_id;
-                return;
-            }
-            if (lock_info.lock_id() != request->txn_id()) {
-                msg = "lock is expired";
-                code = MetaServiceCode::LOCK_EXPIRED;
-                return;
-            }
-            txn->remove(lock_keys[i]);
-            LOG(INFO) << "xxx remove delete bitmap lock, lock_key=" << hex(lock_keys[i])
-                      << " txn_id=" << txn_id;
-
-            for (auto tablet_id : table_id_tablet_ids[table_id]) {
-                std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
-                txn->remove(pending_key);
-                LOG(INFO) << "xxx remove delete bitmap pending key, pending_key="
-                          << hex(pending_key) << " txn_id=" << txn_id;
-            }
-        }
-        lock_keys.clear();
-        lock_values.clear();
 
         // Save table versions
         for (auto& i : table_id_tablet_ids) {
@@ -2280,6 +2243,12 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
             ++stats.num_rowsets;
             stats.num_segs += i.num_segments();
         } // for tmp_rowsets_meta
+    }
+
+    process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
+    if (code != MetaServiceCode::OK) {
+        LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
+        return;
     }
 
     // Save rowset meta

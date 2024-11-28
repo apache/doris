@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
@@ -31,6 +32,7 @@ import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
@@ -195,15 +197,21 @@ public class InsertTask extends AbstractTask {
                 return;
             }
             command.runWithUpdateInfo(ctx, stmtExecutor, loadStatistic);
+            if (ctx.getState().getStateType() != QueryState.MysqlStateType.OK) {
+                throw new JobException(ctx.getState().getErrorMessage());
+            }
         } catch (Exception e) {
             log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),
                     getTaskId(), sql, e);
-            throw new JobException(e);
+            throw new JobException(Util.getRootCauseMessage(e));
         }
     }
 
     @Override
     public void onFail() throws JobException {
+        if (isCanceled.get()) {
+            return;
+        }
         isFinished.set(true);
         super.onFail();
     }
@@ -237,15 +245,7 @@ public class InsertTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(jobName));
         trow.addToColumnValue(new TCell().setStringVal(getJobId() + LABEL_SPLITTER + getTaskId()));
         trow.addToColumnValue(new TCell().setStringVal(jobInfo.getState().name()));
-        // err msg
-        String errorMsg = "";
-        if (failMsg != null) {
-            errorMsg = failMsg.getMsg();
-        }
-        if (StringUtils.isNotBlank(getErrMsg())) {
-            errorMsg = getErrMsg();
-        }
-        trow.addToColumnValue(new TCell().setStringVal(errorMsg));
+        trow.addToColumnValue(new TCell().setStringVal(getErrorMsg()));
         // create time
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? ""
@@ -275,7 +275,7 @@ public class InsertTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(jobName));
         trow.addToColumnValue(new TCell().setStringVal(getJobId() + LABEL_SPLITTER + getTaskId()));
         trow.addToColumnValue(new TCell().setStringVal(getStatus().name()));
-        trow.addToColumnValue(new TCell().setStringVal(""));
+        trow.addToColumnValue(new TCell().setStringVal(getErrorMsg()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? ""
                 : TimeUtils.longToTimeString(getStartTimeMs())));
@@ -287,4 +287,15 @@ public class InsertTask extends AbstractTask {
         return trow;
     }
 
+    private String getErrorMsg() {
+        // err msg
+        String errorMsg = "";
+        if (failMsg != null) {
+            errorMsg = failMsg.getMsg();
+        }
+        if (StringUtils.isNotBlank(getErrMsg())) {
+            errorMsg = getErrMsg();
+        }
+        return errorMsg;
+    }
 }

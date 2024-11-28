@@ -18,6 +18,7 @@
 package org.apache.doris.binlog;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.IndexChangeJob;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -35,6 +36,7 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
+import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
@@ -335,6 +337,26 @@ public class BinlogManager {
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
+    public void addRollupRename(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RENAME_ROLLUP;
+        String data = info.toJson();
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addPartitionRename(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RENAME_PARTITION;
+        String data = info.toJson();
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
     public void addModifyComment(ModifyCommentOperationLog info, long commitSeq) {
         long dbId = info.getDbId();
         List<Long> tableIds = Lists.newArrayList();
@@ -383,6 +405,28 @@ public class BinlogManager {
         String data = info.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addIndexChangeJob(IndexChangeJob indexChangeJob, long commitSeq) {
+        long dbId = indexChangeJob.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(indexChangeJob.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.INDEX_CHANGE_JOB;
+        String data = indexChangeJob.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, indexChangeJob);
     }
 
     // get binlog by dbId, return first binlog.version > version

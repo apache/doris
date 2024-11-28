@@ -80,10 +80,10 @@ import java.util.function.BiFunction;
  *
  * you can see the process steps in the comment of PartitionSlotInput.columnRanges
  */
-public class OneRangePartitionEvaluator
+public class OneRangePartitionEvaluator<K>
         extends ExpressionVisitor<EvaluateRangeResult, EvaluateRangeInput>
-        implements OnePartitionEvaluator {
-    private final long partitionId;
+        implements OnePartitionEvaluator<K> {
+    private final K partitionIdent;
     private final List<Slot> partitionSlots;
     private final RangePartitionItem partitionItem;
     private final ExpressionRewriteContext expressionRewriteContext;
@@ -95,9 +95,9 @@ public class OneRangePartitionEvaluator
     private final Map<Slot, PartitionSlotType> slotToType;
 
     /** OneRangePartitionEvaluator */
-    public OneRangePartitionEvaluator(long partitionId, List<Slot> partitionSlots,
+    public OneRangePartitionEvaluator(K partitionIdent, List<Slot> partitionSlots,
             RangePartitionItem partitionItem, CascadesContext cascadesContext, int expandThreshold) {
-        this.partitionId = partitionId;
+        this.partitionIdent = partitionIdent;
         this.partitionSlots = Objects.requireNonNull(partitionSlots, "partitionSlots cannot be null");
         this.partitionItem = Objects.requireNonNull(partitionItem, "partitionItem cannot be null");
         this.expressionRewriteContext = new ExpressionRewriteContext(
@@ -155,8 +155,8 @@ public class OneRangePartitionEvaluator
     }
 
     @Override
-    public long getPartitionId() {
-        return partitionId;
+    public K getPartitionIdent() {
+        return partitionIdent;
     }
 
     @Override
