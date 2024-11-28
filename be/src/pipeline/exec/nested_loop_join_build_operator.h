@@ -78,6 +78,12 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
+    bool should_dry_run(RuntimeState* state) override {
+        return !state->get_sink_local_state()
+                        ->cast<NestedLoopJoinBuildSinkLocalState>()
+                        ._should_collected_blocks;
+    }
+
     DataDistribution required_data_distribution() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};

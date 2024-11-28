@@ -84,7 +84,7 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
         }
     }
 
-    profile()->add_info_string("ShareCollectedEnabled",
+    profile()->add_info_string("SharedCollectedEnabled",
                                std::to_string(state->enable_share_hash_table_for_broadcast_join()));
     profile()->add_info_string("ShouldCollectedBlocks", std::to_string(_should_collected_blocks));
     if (!_should_collected_blocks) {
@@ -147,12 +147,12 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
 
     auto rows = block->rows();
     if (rows != 0) {
+        COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)rows);
         if (_match_all_build || _is_right_semi_anti) {
             local_state._shared_state->build_side_visited_flags.emplace_back(
                     vectorized::ColumnUInt8::create(rows, 0));
         }
         if (local_state._should_collected_blocks) {
-            COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)rows);
             auto mem_usage = block->allocated_bytes();
             local_state._build_rows += rows;
             local_state._total_mem_usage += mem_usage;
@@ -199,7 +199,6 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
                 print_id(_shared_collected_data_controller->get_builder_fragment_instance_id(
                         node_id())));
     }
-
     if (eos) {
         // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338
         if (_is_output_left_side_only && ((_join_op == TJoinOp::type::LEFT_SEMI_JOIN &&
