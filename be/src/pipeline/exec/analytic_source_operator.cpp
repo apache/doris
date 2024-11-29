@@ -169,6 +169,7 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _execute_timer = ADD_TIMER(profile(), "ExecuteTime");
     _get_next_timer = ADD_TIMER(profile(), "GetNextTime");
     _get_result_timer = ADD_TIMER(profile(), "GetResultsTime");
+    _filtered_rows_counter = ADD_COUNTER(profile(), "FilteredRows", TUnit::UNIT);
     return Status::OK();
 }
 
@@ -551,8 +552,10 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         }
     }
     RETURN_IF_ERROR(local_state.output_current_block(block));
+    auto output_rows = block->rows();
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                            block->columns()));
+    COUNTER_UPDATE(local_state._filtered_rows_counter, output_rows - block->rows());
     local_state.reached_limit(block, eos);
     return Status::OK();
 }

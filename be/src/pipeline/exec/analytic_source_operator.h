@@ -99,6 +99,7 @@ private:
     RuntimeProfile::Counter* _execute_timer = nullptr;
     RuntimeProfile::Counter* _get_next_timer = nullptr;
     RuntimeProfile::Counter* _get_result_timer = nullptr;
+    RuntimeProfile::Counter* _filtered_rows_counter = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 
     using vectorized_get_next = std::function<Status(size_t rows)>;
