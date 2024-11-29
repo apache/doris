@@ -1803,126 +1803,267 @@ TEST(BlockTest, MemoryAndSize) {
 }
 
 TEST(BlockTest, DumpMethods) {
-    vectorized::Block block;
-
     // Test empty block
-    EXPECT_EQ("", block.dump_names());
-    EXPECT_EQ("", block.dump_types());
-    EXPECT_TRUE(block.dump_structure().empty());
-
-    // Add first column (Int32)
-    auto col1 = vectorized::ColumnVector<Int32>::create();
-    vectorized::DataTypePtr type1(std::make_shared<vectorized::DataTypeInt32>());
-    col1->insert_value(123);
-    col1->insert_value(456);
-    block.insert({col1->get_ptr(), type1, "col1"});
-
-    // Test single column
-    EXPECT_EQ("col1", block.dump_names());
-    EXPECT_EQ("Int32", block.dump_types());
-
-    // Add second column (String)
-    auto col2 = vectorized::ColumnString::create();
-    vectorized::DataTypePtr type2(std::make_shared<vectorized::DataTypeString>());
-    col2->insert_data("hello", 5);
-    col2->insert_data("world", 5);
-    block.insert({col2->get_ptr(), type2, "col2"});
-
-    // Test multiple columns
-    EXPECT_EQ("col1, col2", block.dump_names());
-    EXPECT_EQ("Int32, String", block.dump_types());
-
-    // Test dump_data with different parameters
     {
-        // Default parameters
-        std::string data = block.dump_data();
-        EXPECT_FALSE(data.empty());
-        EXPECT_TRUE(data.find("col1(Int32)") != std::string::npos);
-        EXPECT_TRUE(data.find("col2(String)") != std::string::npos);
-        EXPECT_TRUE(data.find("123") != std::string::npos);
-        EXPECT_TRUE(data.find("hello") != std::string::npos);
+        vectorized::Block empty_block;
+        EXPECT_EQ("", empty_block.dump_names());
+        EXPECT_EQ("", empty_block.dump_types());
+        EXPECT_TRUE(empty_block.dump_structure().empty());
+        EXPECT_FALSE(empty_block.dump_data().empty());
     }
 
+    // Test with regular columns
     {
-        // Test with begin offset
-        std::string data = block.dump_data(1);
-        EXPECT_TRUE(data.find("456") != std::string::npos);
-        EXPECT_TRUE(data.find("world") != std::string::npos);
-        EXPECT_FALSE(data.find("123") != std::string::npos);
-    }
+        vectorized::Block block;
+        
+        // Add Int32 column
+        auto col1 = vectorized::ColumnVector<Int32>::create();
+        vectorized::DataTypePtr type1(std::make_shared<vectorized::DataTypeInt32>());
+        col1->insert_value(123);
+        col1->insert_value(456);
+        block.insert({col1->get_ptr(), type1, "col1"});
 
-    {
-        // Test with row limit
-        std::string data = block.dump_data(0, 1);
-        LOG(INFO) << "dump_data with limit:\n" << data;
-        EXPECT_TRUE(data.find("123") != std::string::npos);
-        EXPECT_FALSE(data.find("456") != std::string::npos);
-    }
+        // Test single column dumps
+        EXPECT_EQ("col1", block.dump_names());
+        EXPECT_EQ("Int32", block.dump_types());
+        EXPECT_FALSE(block.dump_structure().empty());
 
-    // Test dump_one_line
-    {
-        std::string line = block.dump_one_line(0, 2);
-        EXPECT_EQ("123 hello", line);
+        // Add String column
+        auto col2 = vectorized::ColumnString::create();
+        vectorized::DataTypePtr type2(std::make_shared<vectorized::DataTypeString>());
+        col2->insert_data("hello", 5);
+        col2->insert_data("world", 5);
+        block.insert({col2->get_ptr(), type2, "col2"});
 
-        line = block.dump_one_line(1, 2);
-        EXPECT_EQ("456 world", line);
+        // Test multiple columns dumps
+        EXPECT_EQ("col1, col2", block.dump_names());
+        EXPECT_EQ("Int32, String", block.dump_types());
 
-        line = block.dump_one_line(0, 1);
-        EXPECT_EQ("123", line);
-    }
+        // Test dump_data variations
+        std::string full_data = block.dump_data();
+        EXPECT_FALSE(full_data.empty());
+        EXPECT_TRUE(full_data.find("col1(Int32)") != std::string::npos);
+        EXPECT_TRUE(full_data.find("col2(String)") != std::string::npos);
+        EXPECT_TRUE(full_data.find("123") != std::string::npos);
+        EXPECT_TRUE(full_data.find("hello") != std::string::npos);
 
-    // Test dump_structure
-    {
-        std::string structure = block.dump_structure();
-        LOG(INFO) << "Structure:\n" << structure;
-        EXPECT_TRUE(structure.find("col1") != std::string::npos);
-        EXPECT_TRUE(structure.find("Int32") != std::string::npos);
-        EXPECT_TRUE(structure.find("col2") != std::string::npos);
-        EXPECT_TRUE(structure.find("String") != std::string::npos);
-    }
+        std::string offset_data = block.dump_data(1);
+        EXPECT_TRUE(offset_data.find("456") != std::string::npos);
+        EXPECT_FALSE(offset_data.find("123") != std::string::npos);
 
-    // Test with nullable column
-    auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(type1);
-    auto null_map = vectorized::ColumnUInt8::create();
-    auto nested_col = col1->clone();
-    auto nullable_col =
-            vectorized::ColumnNullable::create(nested_col->get_ptr(), null_map->get_ptr());
-    block.insert({nullable_col->get_ptr(), nullable_type, "nullable_col"});
+        std::string limited_data = block.dump_data(0, 1);
+        EXPECT_TRUE(limited_data.find("123") != std::string::npos);
+        EXPECT_FALSE(limited_data.find("456") != std::string::npos);
 
-    {
-        std::string data = block.dump_data(0, 100, true);
-        LOG(INFO) << "dump_data with nullable:\n" << data;
-        EXPECT_TRUE(data.find("nullable_col") != std::string::npos);
-        EXPECT_TRUE(data.find("Nullable(Int32)") != std::string::npos);
-    }
+        // Test dump_one_line
+        EXPECT_EQ("123 hello", block.dump_one_line(0, 2));
+        EXPECT_EQ("456 world", block.dump_one_line(1, 2));
+        EXPECT_EQ("123", block.dump_one_line(0, 1));
 
-    // Test dump_column static method
-    {
-        // Test Int32 column
+        // Test dump_column
         std::string int_dump = vectorized::Block::dump_column(col1->get_ptr(), type1);
-        EXPECT_FALSE(int_dump.empty());
         EXPECT_TRUE(int_dump.find("123") != std::string::npos);
         EXPECT_TRUE(int_dump.find("456") != std::string::npos);
 
-        // Test String column
         std::string str_dump = vectorized::Block::dump_column(col2->get_ptr(), type2);
-        LOG(INFO) << "String column dump:\n" << str_dump;
-        EXPECT_FALSE(str_dump.empty());
         EXPECT_TRUE(str_dump.find("hello") != std::string::npos);
         EXPECT_TRUE(str_dump.find("world") != std::string::npos);
+    }
 
-        // Test Nullable column
-        std::string nullable_dump =
-                vectorized::Block::dump_column(nullable_col->get_ptr(), nullable_type);
-        LOG(INFO) << "Nullable column dump:\n" << nullable_dump;
-        EXPECT_FALSE(nullable_dump.empty());
-        EXPECT_FALSE(nullable_dump.find("123") != std::string::npos);
+    // Test with const columns
+    {
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
 
-        // Test empty column
-        auto empty_col = vectorized::ColumnVector<Int32>::create();
-        auto empty_dump = vectorized::Block::dump_column(empty_col->get_ptr(), type1);
-        LOG(INFO) << "Empty column dump:\n" << empty_dump;
-        EXPECT_FALSE(empty_dump.empty()); // Should still return formatted empty table
+        // Create and insert const columns
+        auto base_col1 = vectorized::ColumnVector<Int32>::create();
+        base_col1->insert_value(42);
+        auto const_col1 = vectorized::ColumnConst::create(base_col1->get_ptr(), 2);
+        block.insert({const_col1->get_ptr(), type, "const_col1"});
+
+        auto base_col2 = vectorized::ColumnVector<Int32>::create();
+        base_col2->insert_value(24);
+        auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), 2);
+        block.insert({const_col2->get_ptr(), type, "const_col2"});
+
+        // Test basic dumps
+        EXPECT_EQ("const_col1, const_col2", block.dump_names());
+        EXPECT_EQ("Int32, Int32", block.dump_types());
+        EXPECT_FALSE(block.dump_structure().empty());
+
+        // Test dump_data variations
+        std::string full_data = block.dump_data();
+        EXPECT_TRUE(full_data.find("42") != std::string::npos);
+        EXPECT_TRUE(full_data.find("24") != std::string::npos);
+
+        std::string offset_data = block.dump_data(1);
+        EXPECT_TRUE(offset_data.find("42") != std::string::npos);
+        EXPECT_TRUE(offset_data.find("24") != std::string::npos);
+
+        std::string limited_data = block.dump_data(0, 1);
+        EXPECT_TRUE(limited_data.find("42") != std::string::npos);
+        EXPECT_TRUE(limited_data.find("24") != std::string::npos);
+
+        // Test dump_one_line
+        EXPECT_EQ("42 24", block.dump_one_line(0, 2));
+        EXPECT_EQ("42 24", block.dump_one_line(1, 2));
+        EXPECT_EQ("42", block.dump_one_line(0, 1));
+
+        // Test dump_column
+        std::string const_dump1 = vectorized::Block::dump_column(const_col1->get_ptr(), type);
+        EXPECT_TRUE(const_dump1.find("42") != std::string::npos);
+
+        std::string const_dump2 = vectorized::Block::dump_column(const_col2->get_ptr(), type);
+        EXPECT_TRUE(const_dump2.find("24") != std::string::npos);
+    }
+
+    // Test with nullable columns
+    {
+        vectorized::Block block;
+        auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+        auto nullable_type = vectorized::make_nullable(base_type);
+
+        // Create and insert nullable columns
+        auto col1 = vectorized::ColumnVector<Int32>::create();
+        col1->insert_value(123);
+        col1->insert_value(456);
+        auto null_map1 = vectorized::ColumnUInt8::create();
+        null_map1->insert_value(0);  // Not null
+        null_map1->insert_value(1);  // Null
+        auto nullable_col1 = vectorized::ColumnNullable::create(col1->get_ptr(), null_map1->get_ptr());
+        block.insert({nullable_col1->get_ptr(), nullable_type, "nullable_col1"});
+
+        auto col2 = vectorized::ColumnVector<Int32>::create();
+        col2->insert_value(789);
+        col2->insert_value(321);
+        auto null_map2 = vectorized::ColumnUInt8::create();
+        null_map2->insert_value(1);  // Null
+        null_map2->insert_value(0);  // Not null
+        auto nullable_col2 = vectorized::ColumnNullable::create(col2->get_ptr(), null_map2->get_ptr());
+        block.insert({nullable_col2->get_ptr(), nullable_type, "nullable_col2"});
+
+        // Test basic dumps
+        EXPECT_EQ("nullable_col1, nullable_col2", block.dump_names());
+        EXPECT_EQ("Nullable(Int32), Nullable(Int32)", block.dump_types());
+        EXPECT_FALSE(block.dump_structure().empty());
+
+        // Test dump_data variations
+        std::string full_data = block.dump_data();
+        EXPECT_TRUE(full_data.find("123") != std::string::npos);
+        EXPECT_TRUE(full_data.find("NULL") != std::string::npos);
+
+        std::string offset_data = block.dump_data(1);
+        EXPECT_TRUE(offset_data.find("321") != std::string::npos);
+        EXPECT_FALSE(offset_data.find("789") != std::string::npos);
+
+        std::string limited_data = block.dump_data(0, 1);
+        EXPECT_TRUE(limited_data.find("123") != std::string::npos);
+        EXPECT_TRUE(limited_data.find("NULL") != std::string::npos);
+
+        // Test dump_one_line
+        EXPECT_EQ("123 NULL", block.dump_one_line(0, 2));
+        EXPECT_EQ("NULL 321", block.dump_one_line(1, 2));
+        EXPECT_EQ("123", block.dump_one_line(0, 1));
+
+        // Test dump_column
+        std::string nullable_dump1 = vectorized::Block::dump_column(nullable_col1->get_ptr(), nullable_type);
+        EXPECT_TRUE(nullable_dump1.find("123") != std::string::npos);
+        EXPECT_TRUE(nullable_dump1.find("NULL") != std::string::npos);
+
+        std::string nullable_dump2 = vectorized::Block::dump_column(nullable_col2->get_ptr(), nullable_type);
+        EXPECT_TRUE(nullable_dump2.find("321") != std::string::npos);
+        EXPECT_TRUE(nullable_dump2.find("NULL") != std::string::npos);
+    }
+
+    // Test with mixed column types
+    {
+        vectorized::Block block;
+        auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+        auto nullable_type = vectorized::make_nullable(base_type);
+
+        // Add regular column
+        auto regular_col = vectorized::ColumnVector<Int32>::create();
+        regular_col->insert_value(1);
+        regular_col->insert_value(2);
+        block.insert({regular_col->get_ptr(), base_type, "regular"});
+
+        // Add const column
+        auto const_base = vectorized::ColumnVector<Int32>::create();
+        const_base->insert_value(42);
+        auto const_col = vectorized::ColumnConst::create(const_base->get_ptr(), 2);
+        block.insert({const_col->get_ptr(), base_type, "const"});
+
+        // Add nullable column
+        auto nullable_base = vectorized::ColumnVector<Int32>::create();
+        nullable_base->insert_value(3);
+        nullable_base->insert_value(4);
+        auto null_map = vectorized::ColumnUInt8::create();
+        null_map->insert_value(0);
+        null_map->insert_value(1);
+        auto nullable_col = vectorized::ColumnNullable::create(nullable_base->get_ptr(), null_map->get_ptr());
+        block.insert({nullable_col->get_ptr(), nullable_type, "nullable"});
+
+        // Test basic dumps
+        EXPECT_EQ("regular, const, nullable", block.dump_names());
+        EXPECT_EQ("Int32, Int32, Nullable(Int32)", block.dump_types());
+        EXPECT_FALSE(block.dump_structure().empty());
+
+        // Test dump_data variations
+        std::string full_data = block.dump_data();
+        EXPECT_TRUE(full_data.find('1') != std::string::npos);
+        EXPECT_TRUE(full_data.find('4') != std::string::npos);
+        EXPECT_TRUE(full_data.find('3') != std::string::npos);
+
+        // Test dump_one_line
+        EXPECT_EQ("1 42 3", block.dump_one_line(0, 3));
+        EXPECT_EQ("2 42 NULL", block.dump_one_line(1, 3));
+
+        // Test dump_column for each type
+        std::string regular_dump = vectorized::Block::dump_column(regular_col->get_ptr(), base_type);
+        EXPECT_TRUE(regular_dump.find('1') != std::string::npos);
+        EXPECT_TRUE(regular_dump.find('2') != std::string::npos);
+
+        std::string const_dump = vectorized::Block::dump_column(const_col->get_ptr(), base_type);
+        EXPECT_TRUE(const_dump.find("42") != std::string::npos);
+
+        std::string nullable_dump = vectorized::Block::dump_column(nullable_col->get_ptr(), nullable_type);
+        EXPECT_TRUE(nullable_dump.find('3') != std::string::npos);
+        EXPECT_TRUE(nullable_dump.find("NULL") != std::string::npos);
+    }
+
+    // Test with empty columns
+    {
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
+        
+        // Add empty regular column
+        auto empty_regular = vectorized::ColumnVector<Int32>::create();
+        block.insert({empty_regular->get_ptr(), type, "empty_regular"});
+        
+        // Add empty const column
+        auto empty_const_base = vectorized::ColumnVector<Int32>::create();
+        empty_const_base->insert_value(0);
+        auto empty_const = vectorized::ColumnConst::create(empty_const_base->get_ptr(), 0);
+        block.insert({empty_const->get_ptr(), type, "empty_const"});
+        
+        // Test basic dumps
+        EXPECT_EQ("empty_regular, empty_const", block.dump_names());
+        EXPECT_EQ("Int32, Int32", block.dump_types());
+        EXPECT_FALSE(block.dump_structure().empty());
+        
+        // Test dump_data
+        std::string data = block.dump_data();
+        EXPECT_FALSE(data.empty());
+        
+        // Test dump_one_line
+        EXPECT_EQ("0 0", block.dump_one_line(0, 2));
+        
+        // Test dump_column
+        std::string empty_regular_dump = vectorized::Block::dump_column(empty_regular->get_ptr(), type);
+        EXPECT_FALSE(empty_regular_dump.empty());
+        
+        std::string empty_const_dump = vectorized::Block::dump_column(empty_const->get_ptr(), type);
+        EXPECT_FALSE(empty_const_dump.empty());
     }
 }
 
