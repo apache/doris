@@ -1626,69 +1626,180 @@ TEST(BlockTest, RowOperations) {
 }
 
 TEST(BlockTest, MemoryAndSize) {
-    vectorized::Block block;
-
-    // Test empty block (no columns)
-    EXPECT_EQ(0, block.bytes());
-    EXPECT_EQ(0, block.allocated_bytes());
-    EXPECT_EQ("column bytes: []", block.columns_bytes());
-
-    // Add first column (Int32)
-    auto col1 = vectorized::ColumnVector<Int32>::create();
-    vectorized::DataTypePtr type1(std::make_shared<vectorized::DataTypeInt32>());
-    for (int i = 0; i < 1000; ++i) {
-        col1->insert_value(i);
+    // Test empty block
+    {
+        vectorized::Block empty_block;
+        EXPECT_EQ(0, empty_block.bytes());
+        EXPECT_EQ(0, empty_block.allocated_bytes());
+        EXPECT_EQ("column bytes: []", empty_block.columns_bytes());
     }
-    block.insert({col1->get_ptr(), type1, "col1"});
 
-    // Test with valid column
-    size_t bytes_one_col = block.bytes();
-    size_t allocated_bytes_one_col = block.allocated_bytes();
-    EXPECT_GT(bytes_one_col, 0);
-    EXPECT_GT(allocated_bytes_one_col, 0);
-    EXPECT_GE(allocated_bytes_one_col, bytes_one_col);
+    // Test with regular columns
+    {
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
 
-    // Test with nullptr column (should throw exception)
-    vectorized::Block block_with_null;
-    block_with_null.insert({nullptr, type1, "null_col"});
+        // Add first column (Int32)
+        auto col1 = vectorized::ColumnVector<Int32>::create();
+        for (int i = 0; i < 1000; ++i) {
+            col1->insert_value(i);
+        }
+        block.insert({col1->get_ptr(), type, "col1"});
 
-    // bytes() should throw exception when there is a nullptr column
-    EXPECT_THROW(block_with_null.bytes(), Exception);
+        // Test with single column
+        size_t bytes_one_col = block.bytes();
+        size_t allocated_bytes_one_col = block.allocated_bytes();
+        EXPECT_GT(bytes_one_col, 0);
+        EXPECT_GT(allocated_bytes_one_col, 0);
+        EXPECT_GE(allocated_bytes_one_col, bytes_one_col);
 
-    // columns_bytes() should throw exception when there is a nullptr column
-    EXPECT_THROW(block_with_null.columns_bytes(), Exception);
+        // Add second column (String)
+        auto col2 = vectorized::ColumnString::create();
+        auto string_type = std::make_shared<vectorized::DataTypeString>();
+        for (int i = 0; i < 1000; ++i) {
+            std::string val = "test" + std::to_string(i);
+            col2->insert_data(val.c_str(), val.length());
+        }
+        block.insert({col2->get_ptr(), string_type, "col2"});
 
-    // allocated_bytes() should return 0 when there is a nullptr column
-    EXPECT_EQ(0, block_with_null.allocated_bytes());
+        // Test with two columns
+        size_t bytes_two_cols = block.bytes();
+        EXPECT_GT(bytes_two_cols, bytes_one_col);
 
-    // Add second valid column (String)
-    auto col2 = vectorized::ColumnString::create();
-    vectorized::DataTypePtr type2(std::make_shared<vectorized::DataTypeString>());
-    for (int i = 0; i < 1000; ++i) {
-        std::string val = "test" + std::to_string(i);
-        col2->insert_data(val.c_str(), val.length());
+        // Test after erasing first column
+        block.erase(0);
+        EXPECT_EQ(block.bytes(), col2->byte_size());
+
+        // Test after clearing
+        block.clear();
+        EXPECT_EQ(0, block.bytes());
+        EXPECT_EQ(0, block.allocated_bytes());
+        EXPECT_EQ("column bytes: []", block.columns_bytes());
     }
-    block.insert({col2->get_ptr(), type2, "col2"});
 
-    // Test with two valid columns
-    size_t bytes_two_cols = block.bytes();
-    EXPECT_GT(bytes_two_cols, bytes_one_col);
+    // Test with const columns
+    {
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
 
-    // Test after erasing first column
-    block.erase(0);
-    EXPECT_EQ(block.bytes(), col2->byte_size());
+        // Add first const column
+        auto base_col1 = vectorized::ColumnVector<Int32>::create();
+        base_col1->insert_value(42);
+        auto const_col1 = vectorized::ColumnConst::create(base_col1->get_ptr(), 1000);
+        block.insert({const_col1->get_ptr(), type, "const_col1"});
 
-    // Test after clearing all columns
-    block.clear();
-    EXPECT_EQ(0, block.bytes());
-    EXPECT_EQ(0, block.allocated_bytes());
-    EXPECT_EQ("column bytes: []", block.columns_bytes());
+        // Test with single const column
+        size_t bytes_one_col = block.bytes();
+        size_t allocated_bytes_one_col = block.allocated_bytes();
+        EXPECT_GT(bytes_one_col, 0);
+        EXPECT_GT(allocated_bytes_one_col, 0);
+        EXPECT_GE(allocated_bytes_one_col, bytes_one_col);
 
-    // Test with multiple nullptr columns
-    vectorized::Block multi_null_block;
-    multi_null_block.insert({nullptr, type1, "null_col1"});
-    multi_null_block.insert({nullptr, type2, "null_col2"});
-    EXPECT_THROW(multi_null_block.bytes(), Exception);
+        // Add second const column
+        auto base_col2 = vectorized::ColumnVector<Int32>::create();
+        base_col2->insert_value(24);
+        auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), 1000);
+        block.insert({const_col2->get_ptr(), type, "const_col2"});
+
+        // Test with two const columns
+        size_t bytes_two_cols = block.bytes();
+        EXPECT_GT(bytes_two_cols, bytes_one_col);
+
+        // Test columns_bytes output
+        std::string bytes_info = block.columns_bytes();
+        EXPECT_TRUE(bytes_info.find("column bytes") != std::string::npos);
+    }
+
+    // Test with nullable columns
+    {
+        vectorized::Block block;
+        auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+        auto nullable_type = vectorized::make_nullable(base_type);
+
+        // Add first nullable column
+        auto col1 = vectorized::ColumnVector<Int32>::create();
+        for (int i = 0; i < 1000; ++i) {
+            col1->insert_value(i);
+        }
+        auto nullable_col1 = vectorized::make_nullable(col1->get_ptr());
+        block.insert({nullable_col1, nullable_type, "nullable_col1"});
+
+        // Test with single nullable column
+        size_t bytes_one_col = block.bytes();
+        size_t allocated_bytes_one_col = block.allocated_bytes();
+        EXPECT_GT(bytes_one_col, 0);
+        EXPECT_GT(allocated_bytes_one_col, 0);
+        EXPECT_GE(allocated_bytes_one_col, bytes_one_col);
+
+        // Add second nullable column
+        auto col2 = vectorized::ColumnVector<Int32>::create();
+        for (int i = 0; i < 1000; ++i) {
+            col2->insert_value(i * 2);
+        }
+        auto nullable_col2 = vectorized::make_nullable(col2->get_ptr());
+        block.insert({nullable_col2, nullable_type, "nullable_col2"});
+
+        // Test with two nullable columns
+        size_t bytes_two_cols = block.bytes();
+        EXPECT_GT(bytes_two_cols, bytes_one_col);
+
+        // Test columns_bytes output
+        std::string bytes_info = block.columns_bytes();
+        EXPECT_TRUE(bytes_info.find("column bytes") != std::string::npos);
+    }
+
+    // Test with nullptr columns
+    {
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+        // Test with single nullptr column
+        vectorized::Block block_with_null;
+        block_with_null.insert({nullptr, type, "null_col"});
+        EXPECT_THROW(block_with_null.bytes(), Exception);
+        EXPECT_THROW(block_with_null.columns_bytes(), Exception);
+        EXPECT_EQ(0, block_with_null.allocated_bytes());
+
+        // Test with multiple nullptr columns
+        vectorized::Block multi_null_block;
+        multi_null_block.insert({nullptr, type, "null_col1"});
+        multi_null_block.insert({nullptr, type, "null_col2"});
+        EXPECT_THROW(multi_null_block.bytes(), Exception);
+        EXPECT_THROW(multi_null_block.columns_bytes(), Exception);
+        EXPECT_EQ(0, multi_null_block.allocated_bytes());
+    }
+
+    // Test with mixed column types
+    {
+        vectorized::Block block;
+        auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+        auto nullable_type = vectorized::make_nullable(base_type);
+
+        // Add regular column
+        auto regular_col = vectorized::ColumnVector<Int32>::create();
+        regular_col->insert_value(1);
+        block.insert({regular_col->get_ptr(), base_type, "regular"});
+
+        // Add const column
+        auto const_base = vectorized::ColumnVector<Int32>::create();
+        const_base->insert_value(42);
+        auto const_col = vectorized::ColumnConst::create(const_base->get_ptr(), 1);
+        block.insert({const_col->get_ptr(), base_type, "const"});
+
+        // Add nullable column
+        auto nullable_base = vectorized::ColumnVector<Int32>::create();
+        nullable_base->insert_value(100);
+        auto nullable_col = vectorized::make_nullable(nullable_base->get_ptr());
+        block.insert({nullable_col, nullable_type, "nullable"});
+
+        // Test memory operations
+        EXPECT_GT(block.bytes(), 0);
+        EXPECT_GT(block.allocated_bytes(), 0);
+        EXPECT_GE(block.allocated_bytes(), block.bytes());
+
+        // Test columns_bytes output
+        std::string bytes_info = block.columns_bytes();
+        EXPECT_TRUE(bytes_info.find("column bytes") != std::string::npos);
+    }
 }
 
 TEST(BlockTest, DumpMethods) {
