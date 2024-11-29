@@ -425,36 +425,24 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                    << ", reason=" << rest.msg();
         exit(-1);
     }
-    std::vector<std::thread> file_cache_init_threads;
 
-    std::list<doris::Status> cache_status;
+    doris::Status cache_status;
     for (auto& cache_path : cache_paths) {
         if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
             LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
             continue;
         }
 
-        file_cache_init_threads.emplace_back([&, status = &cache_status.emplace_back()]() {
-            *status = doris::io::FileCacheFactory::instance()->create_file_cache(
-                    cache_path.path, cache_path.init_settings());
-        });
-
-        cache_path_set.emplace(cache_path.path);
-    }
-
-    for (std::thread& thread : file_cache_init_threads) {
-        if (thread.joinable()) {
-            thread.join();
-        }
-    }
-    for (const auto& status : cache_status) {
-        if (!status.ok()) {
+        cache_status = doris::io::FileCacheFactory::instance()->create_file_cache(
+                cache_path.path, cache_path.init_settings());
+        if (!cache_status.ok()) {
             if (!doris::config::ignore_broken_disk) {
-                LOG(FATAL) << "failed to init file cache, err: " << status;
+                LOG(FATAL) << "failed to init file cache, err: " << cache_status;
                 exit(-1);
             }
-            LOG(WARNING) << "failed to init file cache, err: " << status;
+            LOG(WARNING) << "failed to init file cache, err: " << cache_status;
         }
+        cache_path_set.emplace(cache_path.path);
     }
 }
 
