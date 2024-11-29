@@ -4167,11 +4167,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 : visitPropertyClause(ctx.propertyClause());
         List<String> parts = visitMultipartIdentifier(ctx.name);
         int size = parts.size();
-
         if (size == 0) {
             throw new ParseException("database name can't be empty");
         }
-
         String dbName = parts.get(size - 1);
 
         // [db].
