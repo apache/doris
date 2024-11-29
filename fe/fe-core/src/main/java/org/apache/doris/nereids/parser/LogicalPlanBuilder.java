@@ -4167,7 +4167,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 : visitPropertyClause(ctx.propertyClause());
         List<String> parts = visitMultipartIdentifier(ctx.name);
         int size = parts.size();
-        Preconditions.checkArgument(size > 0, "database name can't be empty");
+
+        if (size == 0) {
+            throw new ParseException("database name can't be empty");
+        }
+
         String dbName = parts.get(size - 1);
 
         // [db].
@@ -4176,7 +4180,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (parts.size() == 2) {  // [ctl,db].
             return new RefreshDatabaseCommand(parts.get(0), dbName, properties);
         }
-        throw new IllegalArgumentException("Only one dot can be in the name: " + String.join(".", parts));
+        throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
     }
 
     public LogicalPlan visitShowLastInsert(ShowLastInsertContext ctx) {
