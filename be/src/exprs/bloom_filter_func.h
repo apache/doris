@@ -233,6 +233,8 @@ public:
                                                 uint16_t* offsets, int number,
                                                 bool is_parse_column) = 0;
 
+    bool inited() const { return _inited; }
+
 private:
     void _limit_length() {
         if (_runtime_bloom_filter_min_size > 0) {
