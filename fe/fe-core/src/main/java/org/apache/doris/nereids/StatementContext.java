@@ -510,7 +510,7 @@ public class StatementContext implements Closeable {
      *
      * @param tables Tables used in queries
      */
-    public void loadSnapshots(Map<List<String>, TableIf> tables) {
+    public void loadSnapshots(Map<Long, TableIf> tables) {
         if (tables == null) {
             return;
         }

@@ -479,7 +479,7 @@ public class CascadesContext implements ScheduleContext {
         return tableNames;
     }
 
-    public Map<List<String>, TableIf> getOrExtractTables(LogicalPlan logicalPlan) {
+    public Map<Long, TableIf> getOrExtractTables(LogicalPlan logicalPlan) {
         if (MapUtils.isEmpty(tables)) {
             extractTables(logicalPlan);
         }

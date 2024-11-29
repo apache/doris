@@ -98,6 +98,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      */
     MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException;
+
     /**
      * Does the current type of table allow timed triggering
      *
