@@ -50,16 +50,13 @@ public class LoadProcessor extends AbstractJobProcessor {
     // this latch is used to wait finish for load, for example, insert into statement
     // MarkedCountDownLatch:
     //  key: fragmentId, value: backendId
-    private volatile Optional<PipelineExecutionTask> executionTask;
     private volatile Optional<MarkedCountDownLatch<Integer, Long>> latch;
-    private volatile Optional<Map<BackendFragmentId, SingleFragmentPipelineTask>> backendFragmentTasks;
     private volatile List<SingleFragmentPipelineTask> topFragmentTasks;
 
     public LoadProcessor(CoordinatorContext coordinatorContext, long jobId) {
         super(coordinatorContext);
 
         this.loadContext = new LoadContext();
-        this.executionTask = Optional.empty();
         this.latch = Optional.empty();
         this.backendFragmentTasks = Optional.empty();
 
