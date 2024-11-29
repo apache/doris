@@ -103,7 +103,7 @@ suite("push_down_aggr_distinct_through_join_one_side_cust") {
         contains"groupByExpr=[gz_user_id#1, dt#2]"
         contains"groupByExpr=[gz_user_id#1, dt#2, group_name#5], outputExpr=[gz_user_id#1, dt#2, group_name#5]"
         contains"[group_name#5, dt#2]"
-        contains"groupByExpr=[group_name#5, dt#2], outputExpr=[group_name#5, dt#2, count(partial_count(gz_user_id)#13) AS `a2c1a830_1`#7]"
+        contains"groupByExpr=[group_name#5, dt#2], outputExpr=[group_name#5, dt#2, count(partial_count(gz_user_id)#12) AS `a2c1a830_1`#7]"
     }
 
     explain {
@@ -120,7 +120,7 @@ suite("push_down_aggr_distinct_through_join_one_side_cust") {
                 "GROUP BY 2, 3 ORDER BY 3 asc limit 10000;");
         contains"groupByExpr=[ip#0, gz_user_id#1, dt#2], outputExpr=[ip#0, gz_user_id#1, dt#2]"
         contains"groupByExpr=[ip#0, dt#2, group_name#5], outputExpr=[ip#0, dt#2, group_name#5]"
-        contains"groupByExpr=[group_name#5, dt#2], outputExpr=[group_name#5, dt#2, partial_count(ip#0) AS `partial_count(ip)`#13]"
-        contains"groupByExpr=[group_name#5, dt#2], outputExpr=[group_name#5, dt#2, count(partial_count(ip)#13) AS `a2c1a830_1`#7]"
+        contains"groupByExpr=[group_name#5, dt#2], outputExpr=[group_name#5, dt#2, partial_count(ip#0) AS `partial_count(ip)`#12]"
+        contains"groupByExpr=[group_name#5, dt#2], outputExpr=[group_name#5, dt#2, count(partial_count(ip)#12) AS `a2c1a830_1`#7]"
     }
 }

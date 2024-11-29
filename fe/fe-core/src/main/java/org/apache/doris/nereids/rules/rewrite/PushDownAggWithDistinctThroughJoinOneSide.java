@@ -39,10 +39,8 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -57,7 +55,8 @@ public class PushDownAggWithDistinctThroughJoinOneSide implements RewriteRuleFac
                         .when(agg -> agg.child().child().getOtherJoinConjuncts().isEmpty())
                         .when(agg -> !agg.isGenerated())
                         .whenNot(agg -> agg.getAggregateFunctions().isEmpty())
-                        .whenNot(agg -> agg.child().children().stream().anyMatch(p -> p instanceof LogicalAggregate))
+                        .whenNot(agg -> agg.child()
+                                .child(0).children().stream().anyMatch(p -> p instanceof LogicalAggregate))
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             if (funcs.size() > 1) {
@@ -86,14 +85,18 @@ public class PushDownAggWithDistinctThroughJoinOneSide implements RewriteRuleFac
 
         List<AggregateFunction> leftFuncs = new ArrayList<>();
         List<AggregateFunction> rightFuncs = new ArrayList<>();
+        Set<Slot> leftFuncSlotSet = new HashSet<>();
+        Set<Slot> rightFuncSlotSet = new HashSet<>();
         Set<Slot> newAggOverJoinGroupByKeys = new HashSet<>();
         for (AggregateFunction func : agg.getAggregateFunctions()) {
             Slot slot = (Slot) func.child(0);
             newAggOverJoinGroupByKeys.add(slot);
             if (leftJoinOutput.contains(slot)) {
                 leftFuncs.add(func);
+                leftFuncSlotSet.add(slot);
             } else if (rightJoinOutput.contains(slot)) {
                 rightFuncs.add(func);
+                rightFuncSlotSet.add(slot);
             } else {
                 throw new IllegalStateException("Slot " + slot + " not found in join output");
             }
@@ -127,27 +130,16 @@ public class PushDownAggWithDistinctThroughJoinOneSide implements RewriteRuleFac
             }
         }));
 
-        Map<Slot, NamedExpression> leftSlotToOutput = new HashMap<>();
-        Map<Slot, NamedExpression> rightSlotToOutput = new HashMap<>();
         if (isLeftSideAggDistinct) {
             leftPushDownGroupBy.add((Slot) leftFuncs.get(0).child(0));
             Builder<NamedExpression> leftAggOutputBuilder = ImmutableList.<NamedExpression>builder()
                     .addAll(leftPushDownGroupBy);
-            leftFuncs.forEach(func -> {
-                Alias alias = func.alias("PDADT_" + func.getName());
-                leftSlotToOutput.put((Slot) func.child(0), alias);
-            });
             leftJoin = new LogicalAggregate<>(ImmutableList.copyOf(leftPushDownGroupBy),
                     leftAggOutputBuilder.build(), join.left());
         } else {
             rightPushDownGroupBy.add((Slot) rightFuncs.get(0).child(0));
             Builder<NamedExpression> rightAggOutputBuilder = ImmutableList.<NamedExpression>builder()
                     .addAll(rightPushDownGroupBy);
-            rightFuncs.forEach(func -> {
-                Alias alias = func.alias("PDADT_" + func.getName());
-                rightSlotToOutput.put((Slot) func.child(0), alias);
-                rightAggOutputBuilder.add(alias);
-            });
             rightJoin = new LogicalAggregate<>(ImmutableList.copyOf(rightPushDownGroupBy),
                     rightAggOutputBuilder.build(), join.right());
         }
@@ -162,10 +154,7 @@ public class PushDownAggWithDistinctThroughJoinOneSide implements RewriteRuleFac
             if (ne instanceof Alias && ((Alias) ne).child() instanceof AggregateFunction) {
                 AggregateFunction func = (AggregateFunction) ((Alias) ne).child();
                 Slot slot = (Slot) func.child(0);
-                if (leftSlotToOutput.containsKey(slot)) {
-                    Expression newFunc = discardDistinct(func);
-                    newOutputExprs.add((NamedExpression) ne.withChildren(newFunc));
-                } else if (rightSlotToOutput.containsKey(slot)) {
+                if (leftFuncSlotSet.contains(slot) || rightFuncSlotSet.contains(slot)) {
                     Expression newFunc = discardDistinct(func);
                     newOutputExprs.add((NamedExpression) ne.withChildren(newFunc));
                 } else {
