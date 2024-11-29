@@ -364,8 +364,8 @@ public class PartitionInfo implements Writable {
         idToStoragePolicy = Maps.newHashMap();
 
         for (Map.Entry<Long, Long> entry : partitionIdMap.entrySet()) {
-            idToDataProperty.put(entry.getKey(), reserveStoragePolicy
-                    ? origIdToDataProperty.get(entry.getValue()) : DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+            idToDataProperty.put(entry.getKey(), reserveStoragePolicy ? origIdToDataProperty.get(entry.getValue()) :
+                    new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
             idToReplicaAllocation.put(entry.getKey(),
                     restoreReplicaAlloc == null ? origIdToReplicaAllocation.get(entry.getValue())
                             : restoreReplicaAlloc);

@@ -97,7 +97,6 @@ static const std::string ERROR_LOG_PREFIX = "error_log";
 static const std::string PENDING_DELTA_PREFIX = "pending_delta";
 static const std::string INCREMENTAL_DELTA_PREFIX = "incremental_delta";
 static const std::string CLONE_PREFIX = "clone";
-static const std::string REMOTE_FILE_INFO = "remote_file_info";
 
 // define paths
 static inline std::string remote_tablet_path(int64_t tablet_id) {

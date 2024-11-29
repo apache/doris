@@ -837,15 +837,6 @@ void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     _stale_rs_metas.clear();
 }
 
-void TabletMeta::revise_clear_resource_id() {
-    for (auto rs : _rs_metas) {
-        rs->clear_resource_id();
-    }
-    for (auto rs : _stale_rs_metas) {
-        rs->clear_resource_id();
-    }
-}
-
 // This method should call after revise_rs_metas, since new rs_metas might be a subset
 // of original tablet, we should revise the delete_bitmap according to current rowset.
 //

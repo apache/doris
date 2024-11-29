@@ -1330,14 +1330,9 @@ public class RestoreJob extends AbstractJob {
                         return;
                     }
                 } else {
-                    try {
-                        // restore resource
-                        resourceMgr.createResource(remoteS3Resource);
-                    } catch (DdlException e) {
-                        status = new Status(ErrCode.COMMON_ERROR, e.getMessage());
-                        return;
-                    }
-                    restoredResources.add(remoteS3Resource);
+                    status = new Status(ErrCode.COMMON_ERROR, "Local resource "
+                            + backupResourceName + " is not exist");
+                    return;
                 }
             }
         }

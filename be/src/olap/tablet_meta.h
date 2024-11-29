@@ -187,8 +187,6 @@ public:
     void modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
                          const std::vector<RowsetMetaSharedPtr>& to_delete,
                          bool same_version = false);
-
-    void revise_clear_resource_id();
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
     void revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap);
 

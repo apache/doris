@@ -355,66 +355,6 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
     return Status::OK();
 }
 
-Status BetaRowset::download(io::RemoteFileSystem* fs, const std::string& dir) {
-    if (is_local()) {
-        DCHECK(false) << _rowset_meta->tablet_id() << ' ' << rowset_id();
-        return Status::InternalError("should be remote rowset. tablet_id={} rowset_id={}",
-                                     _rowset_meta->tablet_id(), rowset_id().to_string());
-    }
-
-    if (num_segments() < 1) {
-        return Status::OK();
-    }
-
-    Status status;
-    std::vector<string> linked_success_files;
-    Defer remove_linked_files {[&]() { // clear download files if errors happen
-        if (!status.ok()) {
-            LOG(WARNING) << "will delete download success files due to error " << status;
-            std::vector<io::Path> paths;
-            for (auto& file : linked_success_files) {
-                paths.emplace_back(file);
-                LOG(WARNING) << "will delete download success file " << file << " due to error";
-            }
-            static_cast<void>(fs->batch_delete(paths));
-            LOG(WARNING) << "done delete download success files due to error " << status;
-        }
-    }};
-
-    for (int i = 0; i < num_segments(); ++i) {
-        // Note: Here we use relative path for remote.
-        auto remote_seg_path =
-                remote_segment_path(_rowset_meta->tablet_id(), rowset_id().to_string(), i);
-
-        auto local_seg_path = segment_file_path(dir, rowset_id(), i);
-
-        RETURN_IF_ERROR(fs->download(remote_seg_path, local_seg_path));
-
-        linked_success_files.push_back(local_seg_path);
-
-        for (const auto& index : _schema->indexes()) {
-            if (index.index_type() != IndexType::INVERTED) {
-                continue;
-            }
-
-            auto index_id = index.index_id();
-            std::string inverted_index_src_file =
-                    InvertedIndexDescriptor::get_index_file_name(remote_seg_path, index_id);
-
-            std::string inverted_index_dst_file_path =
-                    InvertedIndexDescriptor::get_index_file_name(local_seg_path, index_id);
-
-            RETURN_IF_ERROR(fs->download(inverted_index_src_file, inverted_index_dst_file_path));
-
-            linked_success_files.push_back(inverted_index_dst_file_path);
-            LOG(INFO) << "success to download. from=" << inverted_index_src_file << ", "
-                      << "to=" << inverted_index_dst_file_path;
-        }
-    }
-
-    return Status::OK();
-}
-
 Status BetaRowset::upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_rowset_id) {
     DCHECK(is_local());
     if (num_segments() < 1) {

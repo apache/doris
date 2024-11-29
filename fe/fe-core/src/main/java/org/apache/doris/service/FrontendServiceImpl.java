@@ -285,6 +285,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
             List<BackupJob> runningBackupJobs = jobs.stream().filter(job -> job instanceof BackupJob)
                     .filter(job -> !((BackupJob) job).isDone())
+                    .filter(job -> ((BackupJob) job).getBackupMeta().getTable((info.tablet_id)) != null)
                     .map(job -> (BackupJob) job).collect(Collectors.toList());
 
             if (runningBackupJobs.size() > 0) {

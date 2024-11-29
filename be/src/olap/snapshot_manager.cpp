@@ -148,7 +148,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id,
                                            int64_t replica_id, int64_t table_id,
                                            int64_t partition_id, const int32_t& schema_hash,
-                                           int64_t storage_policy_id) {
+                                           bool is_restore, int64_t storage_policy_id) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     // check clone dir existed
@@ -183,7 +183,10 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     new_tablet_meta_pb.set_tablet_id(tablet_id);
     *new_tablet_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
     new_tablet_meta_pb.set_replica_id(replica_id);
-    new_tablet_meta_pb.set_storage_policy_id(storage_policy_id);
+    if (is_restore) {
+        new_tablet_meta_pb.set_storage_policy_id(storage_policy_id);
+        new_tablet_meta_pb.clear_cooldown_meta_id();
+    }
     if (table_id > 0) {
         new_tablet_meta_pb.set_table_id(table_id);
     }
@@ -215,6 +218,9 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         } else {
             // remote rowset
             *rowset_meta = visible_rowset;
+            if (is_restore) {
+                rowset_meta->clear_resource_id();
+            }
         }
 
         rowset_meta->set_tablet_id(tablet_id);
@@ -496,7 +502,6 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                                     "missed version is a cooldowned rowset, must make full "
                                     "snapshot. missed_version={}, tablet_id={}",
                                     missed_version, ref_tablet->tablet_id());
-                            //todozy
                             break;
                         }
                         consistent_rowsets.push_back(rowset);
@@ -525,11 +530,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             if (!is_single_rowset_clone && (!res.ok() || request.missing_version.empty())) {
                 if (!request.__isset.missing_version &&
                     ref_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
-                    LOG(WARNING) << "currently not support backup tablet with cooldowned remote "
-                                    "data. tablet="
-                                 << request.tablet_id;
-                    // return Status::NotSupported(
-                    //         "currently not support backup tablet with cooldowned remote data");
+                    LOG(INFO) << "Backup tablet with cooldowned remote data. tablet="
+                                  << request.tablet_id;
                 }
                 /// not all missing versions are found, fall back to full snapshot.
                 res = Status::OK();         // reset res
@@ -602,10 +604,6 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         }
 
         std::vector<RowsetMetaSharedPtr> rs_metas;
-        RowsetMetaSharedPtr rsm;
-        bool have_remote_file = false;
-        io::FileWriterPtr file_writer;
-
         for (auto& rs : consistent_rowsets) {
             if (rs->is_local()) {
                 // local rowset
@@ -613,56 +611,12 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 if (!res.ok()) {
                     break;
                 }
-                rsm = rs->rowset_meta();
-            } else {
-                std::string rowset_meta_str;
-                RowsetMetaPB rs_meta_pb;
-                rs->rowset_meta()->to_rowset_pb(&rs_meta_pb);
-                rs_meta_pb.SerializeToString(&rowset_meta_str);
-
-                RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
-                rowset_meta->init(rowset_meta_str);
-
-                rsm = rowset_meta;
-
-                // save_remote_file info
-                // tableid|storage_policy_id|
-                // rowset_id|num_segments|has_inverted_index|
-                // ......
-                // rowset_id|num_segments|has_inverted_index
-                {
-                    // write file
-                    std::string delimeter = "|";
-
-                    if (!have_remote_file) {
-                        auto romote_file_info =
-                                fmt::format("{}/{}", schema_full_path, REMOTE_FILE_INFO);
-                        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(romote_file_info,
-                                                                                   &file_writer));
-                        RETURN_IF_ERROR(file_writer->append(
-                                std::to_string(rs->rowset_meta()->tablet_id())));
-                        RETURN_IF_ERROR(file_writer->append(delimeter));
-                        RETURN_IF_ERROR(file_writer->append(
-                                std::to_string(ref_tablet->tablet_meta()->storage_policy_id())));
-                        have_remote_file = true;
-                    }
-                    RETURN_IF_ERROR(file_writer->append(delimeter));
-                    RETURN_IF_ERROR(file_writer->append(rs->rowset_id().to_string()));
-                    RETURN_IF_ERROR(file_writer->append(delimeter));
-                    RETURN_IF_ERROR(file_writer->append(std::to_string(rs->num_segments())));
-                    RETURN_IF_ERROR(file_writer->append(delimeter));
-                    RETURN_IF_ERROR(file_writer->append(
-                            std::to_string(rs->tablet_schema()->has_inverted_index())));
-                }
             }
-            rs_metas.push_back(rsm);
+            rs_metas.push_back(rs->rowset_meta());
             VLOG_NOTICE << "add rowset meta to clone list. "
-                        << " start version " << rsm->start_version() << " end version "
-                        << rsm->end_version() << " empty " << rsm->empty();
-        }
-
-        if (have_remote_file) {
-            RETURN_IF_ERROR(file_writer->close());
+                        << " start version " << rs->rowset_meta()->start_version()
+                        << " end version " << rs->rowset_meta()->end_version() << " empty "
+                        << rs->rowset_meta()->empty();
         }
         if (!res.ok()) {
             LOG(WARNING) << "fail to create hard link. path=" << snapshot_id_path
@@ -679,9 +633,6 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             ref_tablet->enable_unique_key_merge_on_write()) {
             new_tablet_meta->revise_delete_bitmap_unlocked(delete_bitmap_snapshot);
         }
-
-        //clear cooldown meta
-        new_tablet_meta->revise_clear_resource_id();
 
         if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION2) {
             res = new_tablet_meta->save(header_path);

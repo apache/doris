@@ -158,7 +158,7 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
     return SnapshotManager::instance()->convert_rowset_ids(
             full_path, tablet_id, _tablet->replica_id(), _tablet->table_id(),
-            _tablet->partition_id(), schema_hash, 0);
+            _tablet->partition_id(), schema_hash, false, 0);
 }
 
 Status EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) {

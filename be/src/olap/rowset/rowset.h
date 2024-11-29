@@ -213,10 +213,6 @@ public:
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
 
-    virtual Status download(io::RemoteFileSystem* fs, const std::string& dir) {
-        return Status::OK();
-    }
-
     virtual Status upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_rowset_id) {
         return Status::OK();
     }
