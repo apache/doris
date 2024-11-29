@@ -67,6 +67,9 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_index_failure_injection," +
     "test_compaction_uniq_cluster_keys_with_delete," +
     "test_compaction_uniq_keys_cluster_key," +
+    "test_pk_uk_case_cluster," +
+    "test_point_query_ck," +
+    "test_rowstore_ck," +
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +

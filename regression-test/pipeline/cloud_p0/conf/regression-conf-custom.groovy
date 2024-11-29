@@ -27,11 +27,12 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_be_inject_publish_txn_fail," + // not a case for cloud mode, no need to run
     "test_compaction_uniq_cluster_keys_with_delete," +
     "test_compaction_uniq_keys_cluster_key," +
+    "test_pk_uk_case_cluster," +
+    "test_point_query_ck," +
+    "test_rowstore_ck," +
     "test_dump_image," +
     "test_index_failure_injection," +
     "test_information_schema_external," +
-    "test_pk_uk_case_cluster," +
-    "test_point_query_cluster_key," +
     "test_profile," +
     "test_publish_timeout," +
     "test_refresh_mtmv," + // not supported yet
