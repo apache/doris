@@ -2957,7 +2957,7 @@ public class Config extends ConfigBase {
             "Whether to advance the ID generator after becoming Master to ensure that the id "
                     + "generator will not be rolled back even when metadata is rolled back."
     })
-    public static boolean enable_advance_next_id = false;
+    public static boolean enable_advance_next_id = true;
 
     // The count threshold to do manual GC when doing checkpoint but not enough memory.
     // Set zero to disable it.
