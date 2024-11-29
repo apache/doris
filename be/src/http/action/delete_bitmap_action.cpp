@@ -81,7 +81,7 @@ static Status _check_param(HttpRequest* req, uint64_t* tablet_id) {
 }
 
 Status DeleteBitmapAction::_handle_show_local_delete_bitmap_count(HttpRequest* req,
-                                                                       std::string* json_result) {
+                                                                  std::string* json_result) {
     uint64_t tablet_id = 0;
     // check & retrieve tablet_id from req if it contains
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id), "check param failed");
@@ -120,7 +120,7 @@ Status DeleteBitmapAction::_handle_show_local_delete_bitmap_count(HttpRequest* r
 }
 
 Status DeleteBitmapAction::_handle_show_ms_delete_bitmap_count(HttpRequest* req,
-                                                                    std::string* json_result) {
+                                                               std::string* json_result) {
     uint64_t tablet_id = 0;
     // check & retrieve tablet_id from req if it contains
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id), "check param failed");
@@ -128,14 +128,14 @@ Status DeleteBitmapAction::_handle_show_ms_delete_bitmap_count(HttpRequest* req,
         return Status::InternalError("check param failed: missing tablet_id");
     }
     TabletMetaSharedPtr tablet_meta;
-    auto st = _engine.meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
+    auto st = _engine.to_cloud().meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
     if (!st.ok()) {
         LOG(WARNING) << "failed to get_tablet_meta tablet=" << tablet_id
                      << ", st=" << st.to_string();
         return st;
     }
-    auto tablet = std::make_shared<CloudTablet>(_engine, std::move(tablet_meta));
-    st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), false, true, true);
+    auto tablet = std::make_shared<CloudTablet>(_engine.to_cloud(), std::move(tablet_meta));
+    st = _engine.to_cloud().meta_mgr().sync_tablet_rowsets(tablet.get(), false, true, true);
     if (!st.ok()) {
         LOG(WARNING) << "failed to sync tablet=" << tablet_id << ", st=" << st;
         return st;

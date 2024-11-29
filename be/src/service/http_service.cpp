@@ -380,7 +380,7 @@ void HttpService::register_local_handler(StorageEngine& engine) {
                                       run_status_compaction_action);
 
     DeleteBitmapAction* count_delete_bitmap_action =
-            _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_INFO, _env, engine,
+            _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_LOCAL, _env, engine,
                                              TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_local",
                                       count_delete_bitmap_action);
