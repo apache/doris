@@ -221,7 +221,7 @@ const char* Elf::Section::name() const {
     if (!elf.section_names) {
         LOG(FATAL) << fmt::format("Section names are not initialized");
     }
-    
+
     /// TODO buffer overflow is possible, we may need to check strlen.
     return elf.section_names + header.sh_name;
 }

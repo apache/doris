@@ -726,7 +726,8 @@ std::pair<std::string, std::string> JniConnector::parse_table_schema(Block* bloc
             columns_types << type;
         } else {
             if (ignore_column_name) {
-                required_fields << "," << "_col_" << arguments[i];
+                required_fields << ","
+                                << "_col_" << arguments[i];
             } else {
                 required_fields << "," << block->get_by_position(arguments[i]).name;
             }
