@@ -53,6 +53,7 @@ suite ("test_user_activity") {
     qt_select_group_mv "select n_dx, percentile_approx(n_duration, 0.5) as p50, percentile_approx(n_duration, 0.90) as p90 FROM u_axx GROUP BY n_dx;"
 
     sql """set enable_stats=true;"""
+    sql """alter table u_axx modify column r_xx set stats ('row_count'='3');"""
     mv_rewrite_success("select n_dx, percentile_approx(n_duration, 0.5) as p50, percentile_approx(n_duration, 0.90) as p90 FROM u_axx GROUP BY n_dx;",
             "session_distribution_2")
 }

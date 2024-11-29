@@ -58,5 +58,6 @@ suite ("routine_load_hll") {
     qt_select_mv "select time_stamp, hll_union_agg(device_id) from test group by time_stamp order by 1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table test modify column event_id set stats ('row_count'='2');"""
     mv_rewrite_success("select time_stamp, hll_union_agg(device_id) from test group by time_stamp order by 1;", "m_view")
 }
