@@ -42,7 +42,7 @@ public class GetLogFileActionTest {
     }
 
     @Test
-    public void test() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
+    public void testCheckAuditLogFileName() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
         //private method checkAuditLogFileName
         GetLogFileAction action = new GetLogFileAction();
         Method method = GetLogFileAction.class.getDeclaredMethod("checkAuditLogFileName", String.class);
