@@ -79,6 +79,7 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nest
     offsets = ColumnOffsets::create();
 }
 
+
 void ColumnArray::shrink_padding_chars() {
     data->shrink_padding_chars();
 }
@@ -371,7 +372,8 @@ void ColumnArray::pop_back(size_t n) {
 void ColumnArray::reserve(size_t n) {
     get_offsets().reserve(n);
     get_data().reserve(
-            n); /// The average size of arrays is not taken into account here. Or it is considered to be no more than 1.
+            get_offsets()
+                    .back()); /// The average size of arrays is not taken into account here. Or it is considered to be no more than 1.
 }
 
 //please check you real need size in data column, because it's maybe need greater size when data is string column
@@ -473,30 +475,63 @@ void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t s
 }
 
 ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) const {
-    if (typeid_cast<const ColumnUInt8*>(data.get()))
+    if (typeid_cast<const ColumnUInt8*>(data.get())) {
         return filter_number<UInt8>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt16*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt16*>(data.get())) {
         return filter_number<UInt16>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt32*>(data.get())) {
         return filter_number<UInt32>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt64*>(data.get())) {
         return filter_number<UInt64>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt8*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt128*>(data.get())) {
+        return filter_number<UInt128>(filt, result_size_hint);
+    }
+    if (typeid_cast<const ColumnInt8*>(data.get())) {
         return filter_number<Int8>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt16*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt16*>(data.get())) {
         return filter_number<Int16>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt32*>(data.get())) {
         return filter_number<Int32>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt64*>(data.get())) {
         return filter_number<Int64>(filt, result_size_hint);
-    if (typeid_cast<const ColumnFloat32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt128*>(data.get())) {
+        return filter_number<Int128>(filt, result_size_hint);
+    }
+    if (typeid_cast<const ColumnFloat32*>(data.get())) {
         return filter_number<Float32>(filt, result_size_hint);
-    if (typeid_cast<const ColumnFloat64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnFloat64*>(data.get())) {
         return filter_number<Float64>(filt, result_size_hint);
-    if (typeid_cast<const ColumnString*>(data.get())) return filter_string(filt, result_size_hint);
-    //if (typeid_cast<const ColumnTuple *>(data.get()))      return filterTuple(filt, result_size_hint);
-    if (typeid_cast<const ColumnNullable*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal32*>(data.get())) {
+        return filter_number<Decimal32>(filt, result_size_hint);
+    }
+    if (typeid_cast<const ColumnDecimal64*>(data.get())) {
+        return filter_number<Decimal64>(filt, result_size_hint);
+    }
+    if (typeid_cast<const ColumnDecimal128V2*>(data.get())) {
+        return filter_number<Decimal128V2>(filt, result_size_hint);
+    }
+    if (typeid_cast<const ColumnDecimal128V3*>(data.get())) {
+        return filter_number<Decimal128V3>(filt, result_size_hint);
+    }
+    if (typeid_cast<const ColumnDecimal256*>(data.get())) {
+        return filter_number<Decimal256>(filt, result_size_hint);
+    }
+    if (typeid_cast<const ColumnString*>(data.get())) {
+        return filter_string(filt, result_size_hint);
+    }
+    if (typeid_cast<const ColumnNullable*>(data.get())) {
         return filter_nullable(filt, result_size_hint);
+    }
     return filter_generic(filt, result_size_hint);
 }
 
@@ -535,12 +570,13 @@ ColumnPtr ColumnArray::filter_number(const Filter& filt, ssize_t result_size_hin
     if (get_offsets().empty()) return ColumnArray::create(data);
 
     auto res = ColumnArray::create(data->clone_empty());
+    using ColVecType = ColumnVectorOrDecimal<T>;
 
-    auto& res_elems = assert_cast<ColumnVector<T>&>(res->get_data()).get_data();
+    auto& res_elems = assert_cast<ColVecType&>(res->get_data()).get_data();
     auto& res_offsets = res->get_offsets();
 
     filter_arrays_impl<T, Offset64>(
-            assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*data).get_data(),
+            assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*data).get_data(),
             get_offsets(), res_elems, res_offsets, filt, result_size_hint);
     return res;
 }
@@ -799,27 +835,71 @@ void ColumnArray::insert_many_from(const IColumn& src, size_t position, size_t l
 }
 
 ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {
-    if (replicate_offsets.empty()) return clone_empty();
+    if (replicate_offsets.empty()) {
+        return clone_empty();
+    }
 
     // keep ColumnUInt8 for ColumnNullable::null_map
-    if (typeid_cast<const ColumnUInt8*>(data.get()))
+    if (typeid_cast<const ColumnUInt8*>(data.get())) {
         return replicate_number<UInt8>(replicate_offsets);
-    if (typeid_cast<const ColumnInt8*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt16*>(data.get())) {
+        return replicate_number<UInt16>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnUInt32*>(data.get())) {
+        return replicate_number<UInt32>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnUInt64*>(data.get())) {
+        return replicate_number<UInt64>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnUInt128*>(data.get())) {
+        return replicate_number<UInt128>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnInt8*>(data.get())) {
         return replicate_number<Int8>(replicate_offsets);
-    if (typeid_cast<const ColumnInt16*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt16*>(data.get())) {
         return replicate_number<Int16>(replicate_offsets);
-    if (typeid_cast<const ColumnInt32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt32*>(data.get())) {
         return replicate_number<Int32>(replicate_offsets);
-    if (typeid_cast<const ColumnInt64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt64*>(data.get())) {
         return replicate_number<Int64>(replicate_offsets);
-    if (typeid_cast<const ColumnFloat32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt128*>(data.get())) {
+        return replicate_number<Int128>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnFloat32*>(data.get())) {
         return replicate_number<Float32>(replicate_offsets);
-    if (typeid_cast<const ColumnFloat64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnFloat64*>(data.get())) {
         return replicate_number<Float64>(replicate_offsets);
-    if (typeid_cast<const ColumnString*>(data.get())) return replicate_string(replicate_offsets);
-    if (typeid_cast<const ColumnConst*>(data.get())) return replicate_const(replicate_offsets);
-    if (typeid_cast<const ColumnNullable*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal32*>(data.get())) {
+        return replicate_number<Decimal32>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDecimal64*>(data.get())) {
+        return replicate_number<Decimal64>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDecimal128V2*>(data.get())) {
+        return replicate_number<Decimal128V2>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDecimal128V3*>(data.get())) {
+        return replicate_number<Decimal128V3>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDecimal256*>(data.get())) {
+        return replicate_number<Decimal256>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnString*>(data.get())) {
+        return replicate_string(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnConst*>(data.get())) {
+        return replicate_const(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnNullable*>(data.get())) {
         return replicate_nullable(replicate_offsets);
+    }
     return replicate_generic(replicate_offsets);
 }
 
@@ -829,6 +909,7 @@ ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offset
     column_match_offsets_size(col_size, replicate_offsets.size());
 
     MutableColumnPtr res = clone_empty();
+    using ColVecType = ColumnVectorOrDecimal<T>;
 
     if (!col_size) {
         return res;
@@ -836,12 +917,12 @@ ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offset
 
     auto& res_arr = assert_cast<ColumnArray&>(*res);
 
-    const typename ColumnVector<T>::Container& src_data =
-            assert_cast<const ColumnVector<T>&>(*data).get_data();
+    const typename ColVecType::Container& src_data =
+            assert_cast<const ColVecType&>(*data).get_data();
     const auto& src_offsets = get_offsets();
 
-    typename ColumnVector<T>::Container& res_data =
-            assert_cast<ColumnVector<T>&>(res_arr.get_data()).get_data();
+    typename ColVecType::Container& res_data =
+            assert_cast<ColVecType&>(res_arr.get_data()).get_data();
     auto& res_offsets = res_arr.get_offsets();
 
     res_data.reserve(data->size() / col_size * replicate_offsets.back());
@@ -1056,7 +1137,7 @@ ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
             nested_perm.push_back(offset_at(perm[i]) + j);
         }
     }
-    if (nested_perm.size() != 0) {
+    if (!nested_perm.empty()) {
         res->data = data->permute(nested_perm, nested_perm.size());
     }
     return res;

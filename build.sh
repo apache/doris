@@ -691,11 +691,11 @@ function build_ui() {
 }
 
 # FE UI must be built before building FE
-#if [[ "${BUILD_FE}" -eq 1 ]]; then
-#    if [[ "${BUILD_UI}" -eq 1 ]]; then
-#        build_ui
-#    fi
-#fi
+if [[ "${BUILD_FE}" -eq 1 ]]; then
+    if [[ "${BUILD_UI}" -eq 1 ]]; then
+        build_ui
+    fi
+fi
 
 # Clean and build Frontend
 if [[ "${FE_MODULES}" != '' ]]; then

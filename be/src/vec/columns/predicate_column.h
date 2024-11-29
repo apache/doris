@@ -157,6 +157,8 @@ public:
         data.push_back_without_reserve(sv);
     }
 
+    bool is_predicate_column() const override { return true; }
+
     // used for int128
     void insert_in_copy_way(const char* data_ptr, size_t length) {
         T val {};

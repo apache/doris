@@ -266,6 +266,15 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
 }
 
 template <typename T>
+const char* ColumnVector<T>::get_family_name() const {
+    // however we have a conflict type of number and other can store in number type such as ipv4 and uint32
+    if (std::is_same_v<T, IPv4>) {
+        return "IPv4";
+    }
+    return TypeName<T>::get();
+}
+
+template <typename T>
 MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     auto res = this->create();
     if constexpr (std::is_same_v<T, vectorized::Int64>) {
