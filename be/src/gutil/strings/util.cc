@@ -35,12 +35,13 @@ using std::string;
 using std::vector;
 
 #include "common/logging.h"
+
 #include "gutil/stl_util.h" // for string_as_array, STLAppendToString
-#include "gutil/stringprintf.h"
 #include "gutil/strings/ascii_ctype.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/stringpiece.h"
 #include "gutil/utf/utf.h"
+#include "gutil/stringprintf.h"
 
 #ifdef OS_WINDOWS
 #ifdef min // windows.h defines this to something silly

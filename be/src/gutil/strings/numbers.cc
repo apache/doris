@@ -10,11 +10,11 @@
 #include <ctype.h>
 #include <errno.h>
 #include <float.h> // for DBL_DIG and FLT_DIG
-#include <inttypes.h>
 #include <math.h> // for HUGE_VAL
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 #include <sys/types.h>
 #include <limits>
 #include <ostream>
@@ -30,6 +30,7 @@ using std::string;
 #include <fmt/format.h>
 
 #include "common/logging.h"
+
 #include "gutil/gscoped_ptr.h"
 #include "gutil/integral_types.h"
 #include "gutil/stringprintf.h"
