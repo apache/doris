@@ -435,7 +435,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName,
-                                ((HMSExternalTable) table).getAllPartitions(),
                                 unboundRelation.getTableSample(),
                                 unboundRelation.getTableSnapshot());
                     }

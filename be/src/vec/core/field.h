@@ -165,7 +165,7 @@ class JsonbField {
 public:
     JsonbField() = default;
 
-    JsonbField(const char* ptr, uint32_t len) : size(len) {
+    JsonbField(const char* ptr, size_t len) : size(len) {
         data = new char[size];
         if (!data) {
             LOG(FATAL) << "new data buffer failed, size: " << size;
@@ -213,7 +213,7 @@ public:
     }
 
     const char* get_value() const { return data; }
-    uint32_t get_size() const { return size; }
+    size_t get_size() const { return size; }
 
     bool operator<(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
@@ -252,7 +252,7 @@ public:
 
 private:
     char* data = nullptr;
-    uint32_t size = 0;
+    size_t size = 0;
 };
 
 template <typename T>
@@ -498,6 +498,9 @@ public:
 
     bool is_null() const { return which == Types::Null; }
 
+    // The template parameter T needs to be consistent with `which`.
+    // If not, use NearestFieldType<> externally.
+    // Maybe modify this in the future, reference: https://github.com/ClickHouse/ClickHouse/pull/22003
     template <typename T>
     T& get() {
         using TWithoutRef = std::remove_reference_t<T>;
@@ -520,6 +523,8 @@ public:
         return true;
     }
 
+    // The template parameter T needs to be consistent with `which`.
+    // If not, use NearestFieldType<> externally.
     template <typename T>
     bool try_get(T& result) const {
         const Types::Which requested = TypeToEnum<std::decay_t<T>>::value;

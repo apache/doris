@@ -42,6 +42,11 @@ suite("txn_insert") {
         return null
     }
 
+    sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '100')"
+    onFinish {
+        sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '30')"
+    }
+
     for (def use_nereids_planner : [/*false,*/ true]) {
         sql " SET enable_nereids_planner = $use_nereids_planner; "
 
@@ -579,17 +584,8 @@ suite("txn_insert") {
             } catch (Exception e) {
                 logger.info("exception: " + e)
                 sql """ rollback """
-                if (isCloudMode()) {
-                    assertTrue(e.getMessage().contains("Transaction load is not supported for merge on write unique keys table in cloud mode"))
-                } else {
-                    assertTrue(false, "should not reach here")
-                }
+                assertTrue(false, "should not reach here")
             }
-        }
-
-        // the following cases are not supported in cloud mode
-        if (isCloudMode()) {
-            break
         }
 
         // 16. update stmt(mow table)
@@ -721,7 +717,7 @@ suite("txn_insert") {
         }
 
         // 18. column update(mow table)
-        if (use_nereids_planner) {
+        if (use_nereids_planner && !isClusterKeyEnabled()) {
             def unique_table = "txn_insert_cu"
             for (def i in 0..3) {
                 sql """ drop table if exists ${unique_table}_${i} """

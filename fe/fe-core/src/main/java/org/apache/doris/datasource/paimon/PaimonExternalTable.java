@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -312,28 +313,29 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems() {
+    public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
         return Maps.newHashMap(getPartitionInfoFromCache().getNameToPartitionItem());
     }
 
     @Override
-    public PartitionType getPartitionType() {
+    public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
         return getPartitionColumnsFromCache().size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
     }
 
     @Override
-    public Set<String> getPartitionColumnNames() {
+    public Set<String> getPartitionColumnNames(Optional<MvccSnapshot> snapshot) {
         return getPartitionColumnsFromCache().stream()
                 .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
     }
 
     @Override
-    public List<Column> getPartitionColumns() {
+    public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
         return getPartitionColumnsFromCache();
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
+            Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
         PaimonPartition paimonPartition = getPartitionInfoFromCache().getNameToPartition().get(partitionName);
         if (paimonPartition == null) {
@@ -343,7 +345,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
-    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) throws AnalysisException {
+    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
+            throws AnalysisException {
         return new MTMVVersionSnapshot(getLatestSnapshotIdFromCache());
     }
 

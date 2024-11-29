@@ -69,32 +69,32 @@ suite("test_schema_change_ck") {
     """
 
     sql """ INSERT INTO ${tableName} VALUES (11, 28, 38), (10, 29, 39) """
-    qt_select_original """select * from ${tableName}"""
+    order_qt_select_original """select * from ${tableName}"""
 
     /****** add value column ******/
     // after cluster key
     sql """ alter table ${tableName} ADD column c4 int(11) after c3; """
     assertTrue(getAlterTableState(), "add column should success")
     sql """ INSERT INTO ${tableName}(c1, c2, c3, c4) VALUES (13, 27, 36, 40), (12, 26, 37, 40) """
-    qt_select_add_c4 """select * from ${tableName}"""
+    order_qt_select_add_c4 """select * from ${tableName}"""
 
     // before cluster key
     sql """ alter table ${tableName} ADD column c5 int(11) after c1; """
     assertTrue(getAlterTableState(), "add column should success")
     sql """ INSERT INTO ${tableName}(c1, c2, c3, c4, c5) VALUES (15, 20, 34, 40, 50), (14, 20, 35, 40, 50) """
-    qt_select_add_c5 """select * from ${tableName}"""
+    order_qt_select_add_c5 """select * from ${tableName}"""
 
     // in the middle of cluster key
     sql """ alter table ${tableName} ADD column c6 int(11) after c2; """
     assertTrue(getAlterTableState(), "add column should success")
     sql """ INSERT INTO ${tableName}(c1, c2, c3, c4, c5, c6) VALUES (17, 20, 32, 40, 50, 60), (16, 20, 33, 40, 50, 60) """
-    qt_select_add_c6 """select * from ${tableName}"""
+    order_qt_select_add_c6 """select * from ${tableName}"""
 
     /****** add key column ******/
     sql """ alter table ${tableName} ADD column k2 int(11) key after c1; """
     assertTrue(getAlterTableState(), "add column should success")
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (19, 20, 30, 200), (18, 20, 31, 200) """
-    qt_select_add_k2 """select * from ${tableName}"""
+    order_qt_select_add_k2 """select * from ${tableName}"""
 
     /****** TODO add cluster key column is not supported ******/
 
@@ -102,17 +102,17 @@ suite("test_schema_change_ck") {
     sql """ alter table ${tableName} drop column c4; """
     assertTrue(getAlterTableState(), "drop column should success")
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (119, 20, 30, 200), (118, 20, 31, 200) """
-    qt_select_drop_c4 """select * from ${tableName}"""
+    order_qt_select_drop_c4 """select * from ${tableName}"""
 
     sql """ alter table ${tableName} drop column c5; """
     assertTrue(getAlterTableState(), "drop column should success")
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (117, 20, 32, 200), (116, 20, 33, 200) """
-    qt_select_drop_c5 """select * from ${tableName}"""
+    order_qt_select_drop_c5 """select * from ${tableName}"""
 
     sql """ alter table ${tableName} drop column c6; """
     assertTrue(getAlterTableState(), "drop column should success")
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (115, 25, 34, 200), (114, 24, 35, 200) """
-    qt_select_drop_c6 """select * from ${tableName}"""
+    order_qt_select_drop_c6 """select * from ${tableName}"""
 
     /****** drop key column ******/
     test {
@@ -130,13 +130,13 @@ suite("test_schema_change_ck") {
     sql """ alter table ${tableName} order by(c1, k2, c3, c2); """
     assertTrue(getAlterTableState(), "reorder should success")
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (113, 23, 36, 200), (112, 22, 37, 200) """
-    qt_select_reorder """select * from ${tableName}"""
+    order_qt_select_reorder """select * from ${tableName}"""
 
     /****** modify key column data type ******/
     sql """ alter table ${tableName} modify column k2 BIGINT key; """
     assertTrue(getAlterTableState(), "modify should success")
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (111, 21, 38, 200), (110, 20, 39, 200) """
-    qt_select_modify_k2 """select * from ${tableName}"""
+    order_qt_select_modify_k2 """select * from ${tableName}"""
 
     /****** TODO does not support modify cluster key column data type ******/
     test {
@@ -149,7 +149,7 @@ suite("test_schema_change_ck") {
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
     createMV """ create materialized view ${mv_name} as select c1, k2, c2 from ${tableName}; """
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (211, 21, 38, 200), (210, 20, 39, 200) """
-    qt_select_create_mv_base """select * from ${tableName}"""
+    order_qt_select_create_mv_base """select * from ${tableName}"""
     /*Awaitility.await().atMost(100, SECONDS).pollInterval(4, SECONDS).until(
         {
             def result = sql """explain select c1, c3 from ${tableName}"""
@@ -165,7 +165,7 @@ suite("test_schema_change_ck") {
         time 600
     }
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (311, 21, 38, 200), (310, 20, 39, 200) """
-    qt_select_create_rollup_base """select * from ${tableName}"""
+    order_qt_select_create_rollup_base """select * from ${tableName}"""
     order_qt_select_create_rollup_roll """select k2, c1, c2 from ${tableName}"""
 
     /****** add partition ******/
@@ -180,14 +180,14 @@ suite("test_schema_change_ck") {
         assertEquals(partitions.size(), 2)
     }
     sql """ INSERT INTO ${tableName}(c1, c2, c3, k2) VALUES (10011, 21, 38, 200), (10010, 20, 39, 200) """
-    qt_select_add_partition """select * from ${tableName} partition (p_20000)"""
+    order_qt_select_add_partition """select * from ${tableName} partition (p_20000)"""
 
     /****** one sql contain multi column changes ******/
 
     /****** truncate table ******/
     sql """ TRUNCATE TABLE ${tableName} """
     sql """ INSERT INTO ${tableName}(c1, c2, c3) VALUES (11, 28, 38), (10, 29, 39), (12, 26, 37), (13, 27, 36) """
-    qt_select_truncate """select * from ${tableName}"""
+    order_qt_select_truncate """select * from ${tableName}"""
 
     /****** create table with rollup ******/
     tableName = tableName + "_rollup"
@@ -211,16 +211,16 @@ suite("test_schema_change_ck") {
         );
     """
     sql """ INSERT INTO ${tableName} VALUES (11, 21, 32, 42, 52), (12, 22, 31, 41, 51); """
-    qt_select_rollup_base """select * from ${tableName};"""
+    order_qt_select_rollup_base """select * from ${tableName};"""
     order_qt_select_rollup_roll """select k2, k1, c4, c3 from ${tableName};"""
 
     /****** specify index, not base index ******/
     sql """ ALTER TABLE ${tableName} ORDER BY(k2, k1, c3, c4) from r1; """
     assertTrue(getAlterTableState(), "reorder rollup should success")
-    qt_select_rollup_base_sc """select * from ${tableName};"""
+    order_qt_select_rollup_base_sc """select * from ${tableName};"""
     order_qt_select_rollup_roll_sc """select k2, k1, c4, c3 from ${tableName};"""
     sql """ INSERT INTO ${tableName} VALUES (13, 23, 34, 44, 54), (14, 24, 33, 43, 53); """
-    qt_select_rollup_base_sc1 """select * from ${tableName};"""
+    order_qt_select_rollup_base_sc1 """select * from ${tableName};"""
     order_qt_select_rollup_roll_sc1 """select k2, k1, c4, c3 from ${tableName};"""
 
     /****** backup restore ******/
@@ -238,31 +238,31 @@ suite("test_schema_change_ck") {
         def snapshot = syncer.getSnapshotTimestamp(repoName, backup)
         assertTrue(snapshot != null)
         sql """ INSERT INTO ${tableName} VALUES (15, 25, 34, 44, 54), (16, 26, 33, 43, 53); """
-        qt_select_restore_base2 """select * from ${tableName};"""
+        order_qt_select_restore_base2 """select * from ${tableName};"""
         order_qt_select_restore_roll2 """select k2, k1, c4, c3 from ${tableName};"""
 
         // restore
-        logger.info(""" RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","replication_num" = "1" ) """)
-        sql """ RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","replication_num" = "1" ) """
+        logger.info(""" RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","reserve_replica" = "true" ) """)
+        sql """ RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","reserve_replica" = "true" ) """
         syncer.waitAllRestoreFinish(context.dbName)
         result = sql """ show tablets from ${tableName}; """
         logger.info("tablets 1: ${result}")
-        qt_select_restore_base """select * from ${tableName};"""
+        order_qt_select_restore_base """select * from ${tableName};"""
         order_qt_select_restore_roll """select k2, k1, c4, c3 from ${tableName};"""
         sql """ INSERT INTO ${tableName} VALUES (17, 27, 34, 44, 54), (18, 28, 33, 43, 53); """
-        qt_select_restore_base1 """select * from ${tableName};"""
+        order_qt_select_restore_base1 """select * from ${tableName};"""
         order_qt_select_restore_roll1 """select k2, k1, c4, c3 from ${tableName};"""
 
         // restore
         sql """ drop table ${tableName}; """
-        sql """ RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","replication_num" = "1" ) """
+        sql """ RESTORE SNAPSHOT ${context.dbName}.${backup} FROM `${repoName}` ON (`${tableName}`) PROPERTIES ("backup_timestamp" = "${snapshot}","reserve_replica" = "true" ) """
         syncer.waitAllRestoreFinish(context.dbName)
         result = sql """ show tablets from ${tableName}; """
         logger.info("tablets 2: ${result}")
-        qt_select_restore_base2 """select * from ${tableName};"""
+        order_qt_select_restore_base2 """select * from ${tableName};"""
         order_qt_select_restore_roll2 """select k2, k1, c4, c3 from ${tableName};"""
         sql """ INSERT INTO ${tableName} VALUES (17, 27, 34, 44, 54), (18, 28, 33, 43, 53); """
-        qt_select_restore_base3 """select * from ${tableName};"""
+        order_qt_select_restore_base3 """select * from ${tableName};"""
         order_qt_select_restore_roll4 """select k2, k1, c4, c3 from ${tableName};"""
 
         sql "DROP REPOSITORY `${repoName}`"

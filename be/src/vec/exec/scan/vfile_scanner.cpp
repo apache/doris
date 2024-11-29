@@ -793,8 +793,8 @@ Status VFileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                _cur_reader =
-                        PaimonJniReader::create_unique(_file_slot_descs, _state, _profile, range);
+                _cur_reader = PaimonJniReader::create_unique(_file_slot_descs, _state, _profile,
+                                                             range, _params);
                 init_status = ((PaimonJniReader*)(_cur_reader.get()))
                                       ->init_reader(_colname_to_value_range);
             } else if (range.__isset.table_format_params &&
@@ -965,8 +965,8 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader =
                     NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                  _file_slot_descs, &_scanner_eof, _io_ctx.get());
-            init_status =
-                    ((NewJsonReader*)(_cur_reader.get()))->init_reader(_col_default_value_ctx);
+            init_status = ((NewJsonReader*)(_cur_reader.get()))
+                                  ->init_reader(_col_default_value_ctx, _is_load);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {

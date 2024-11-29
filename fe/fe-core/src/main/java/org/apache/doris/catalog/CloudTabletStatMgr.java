@@ -36,6 +36,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /*
  * CloudTabletStatMgr is for collecting tablet(replica) statistics from backends.
@@ -46,6 +50,9 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
     // <(dbId, tableId) -> OlapTable.Statistics>
     private volatile Map<Pair<Long, Long>, OlapTable.Statistics> cloudTableStatsMap = new HashMap<>();
+
+    private static final ExecutorService GET_TABLET_STATS_THREAD_POOL = Executors.newFixedThreadPool(
+            Config.max_get_tablet_stat_task_threads_num);
 
     public CloudTabletStatMgr() {
         super("cloud tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
@@ -103,28 +110,37 @@ public class CloudTabletStatMgr extends MasterDaemon {
             reqList.add(builder.build());
         }
 
+        List<Future<Void>> futures = new ArrayList<>();
         for (GetTabletStatsRequest req : reqList) {
-            GetTabletStatsResponse resp;
-            try {
-                resp = getTabletStats(req);
-            } catch (RpcException e) {
-                LOG.info("get tablet stats exception:", e);
-                continue;
-            }
-
-            if (resp.getStatus().getCode() != MetaServiceCode.OK) {
-                continue;
-            }
-
-            if (LOG.isDebugEnabled()) {
-                int i = 0;
-                for (TabletIndexPB idx : req.getTabletIdxList()) {
-                    LOG.debug("db_id: {} table_id: {} index_id: {} tablet_id: {} size: {}",
-                            idx.getDbId(), idx.getTableId(), idx.getIndexId(), idx.getTabletId(),
-                            resp.getTabletStats(i++).getDataSize());
+            futures.add(GET_TABLET_STATS_THREAD_POOL.submit(() -> {
+                GetTabletStatsResponse resp = GetTabletStatsResponse.newBuilder().build();
+                try {
+                    resp = getTabletStats(req);
+                } catch (RpcException e) {
+                    LOG.warn("get tablet stats exception:", e);
                 }
+                if (resp.getStatus().getCode() != MetaServiceCode.OK) {
+                    LOG.warn("get tablet stats return failed.");
+                }
+                if (LOG.isDebugEnabled()) {
+                    int i = 0;
+                    for (TabletIndexPB idx : req.getTabletIdxList()) {
+                        LOG.debug("db_id: {} table_id: {} index_id: {} tablet_id: {} size: {}",
+                                idx.getDbId(), idx.getTableId(), idx.getIndexId(),
+                                idx.getTabletId(), resp.getTabletStats(i++).getDataSize());
+                    }
+                }
+                updateTabletStat(resp);
+                return null;
+            }));
+        }
+
+        try {
+            for (Future<Void> future : futures) {
+                future.get();
             }
-            updateTabletStat(resp);
+        } catch (InterruptedException | ExecutionException e) {
+            LOG.error("Error waiting for get tablet stats tasks to complete", e);
         }
 
         LOG.info("finished to get tablet stat of all backends. cost: {} ms",

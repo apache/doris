@@ -91,6 +91,9 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
                 "UseGlobalShuffle",
                 std::to_string(_parent->cast<LocalExchangeSinkOperatorX>()._use_global_shuffle));
     }
+    _profile->add_info_string(
+            "PartitionExprsSize",
+            std::to_string(_parent->cast<LocalExchangeSinkOperatorX>()._partitioned_exprs_num));
     _channel_id = info.task_idx;
     return Status::OK();
 }

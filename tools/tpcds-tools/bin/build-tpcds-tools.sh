@@ -46,8 +46,8 @@ check_prerequest() {
 check_prerequest "unzip -h" "unzip"
 
 # download tpcds tools package first
-if [[ -d "${CURDIR}/DSGen-software-code-3.2.0rc1" ]]; then
-    echo "If you want to rebuild TPC-DS_Tools_v3.2.0 again, please delete ${CURDIR}/DSGen-software-code-3.2.0rc1 first."
+if [[ -d "${CURDIR}/DSGen-software-code-3.2.0rc2" ]]; then
+    echo "If you want to rebuild TPC-DS_Tools_v3.2.0 again, please delete ${CURDIR}/DSGen-software-code-3.2.0rc2 first."
 elif [[ -f "TPC-DS_Tools_v3.2.0rc2.zip" ]]; then
     unzip TPC-DS_Tools_v3.2.0rc2.zip -d "${CURDIR}/"
 else

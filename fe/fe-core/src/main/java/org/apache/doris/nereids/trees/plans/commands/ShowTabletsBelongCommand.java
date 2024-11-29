@@ -31,6 +31,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -87,7 +88,7 @@ public class ShowTabletsBelongCommand extends ShowCommand {
                     PrivPredicate.ADMIN.getPrivs().toString());
         }
         if (tabletIds == null || tabletIds.isEmpty()) {
-            throw new Exception("Please supply at least one tablet id");
+            throw new AnalysisException("Please supply at least one tablet id");
         }
 
         // main logic.
