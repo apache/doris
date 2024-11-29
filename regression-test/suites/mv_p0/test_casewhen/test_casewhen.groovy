@@ -40,5 +40,6 @@ suite ("test_casewhen") {
     qt_select_mv "select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table sales_records modify column record_id set stats ('row_count'='4');"""
     mv_rewrite_success("select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;", "store_amt")
 }

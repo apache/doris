@@ -69,6 +69,7 @@ suite ("dup_mv_bin") {
     order_qt_select_group_mv_not "select group_concat(bin(k2)) from dup_mv_bin group by k3 order by k3;"
 
     sql """set enable_stats=true;"""
+    sql """alter table dup_mv_bin modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1,bin(k2) from dup_mv_bin order by k1;", "k12b")
 
     mv_rewrite_success("select bin(k2) from dup_mv_bin order by k1;", "k12b")

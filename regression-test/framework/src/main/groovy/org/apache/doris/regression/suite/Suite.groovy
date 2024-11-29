@@ -1921,9 +1921,8 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = true;
                 for (String mv_name : mv_names) {
-                    success = success && result.contains("${mv_name} chose")
+                    Assert.assertEquals(true, result.contains("${mv_name} chose"))
                 }
-                Assert.assertEquals(true, success)
             }
         }
     }
