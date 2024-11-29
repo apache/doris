@@ -67,14 +67,6 @@ public:
 
     static DataTypePtr get_return_type_for_equal(const ColumnsWithTypeAndName& arguments) {
         ColumnsWithTypeAndName args_without_low_cardinality(arguments);
-
-        for (ColumnWithTypeAndName& arg : args_without_low_cardinality) {
-            bool is_const = arg.column && is_column_const(*arg.column);
-            if (is_const) {
-                arg.column = assert_cast<const ColumnConst&>(*arg.column).remove_low_cardinality();
-            }
-        }
-
         if (!arguments.empty()) {
             if (have_null_column(arguments)) {
                 return make_nullable(std::make_shared<doris::vectorized::DataTypeUInt8>());
