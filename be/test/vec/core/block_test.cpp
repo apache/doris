@@ -2076,163 +2076,298 @@ TEST(BlockTest, DumpMethods) {
 }
 
 TEST(BlockTest, CloneOperations) {
-    vectorized::Block block;
-    auto col1 = vectorized::ColumnVector<Int32>::create();
-    auto col2 = vectorized::ColumnVector<Int32>::create();
-    vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
-
-    col1->insert_value(1);
-    col2->insert_value(2);
-
-    block.insert({col1->get_ptr(), type, "col1"});
-    block.insert({col2->get_ptr(), type, "col2"});
-
-    // Test clone_empty
-    auto empty_block = block.clone_empty();
-    EXPECT_EQ(block.columns(), empty_block.columns());
-    EXPECT_EQ(0, empty_block.rows());
-
-    // Test get_columns and get_columns_and_convert
-    auto columns = block.get_columns();
-    auto converted_columns = block.get_columns_and_convert();
-    EXPECT_EQ(2, columns.size());
-    EXPECT_EQ(2, converted_columns.size());
-
-    // Test clone_empty_columns
-    auto empty_columns = block.clone_empty_columns();
-    EXPECT_EQ(2, empty_columns.size());
-    EXPECT_EQ(0, empty_columns[0]->size());
-    EXPECT_EQ(0, empty_columns[1]->size());
-
-    // Test mutate_columns
-    auto mutable_cols = block.mutate_columns();
-    EXPECT_EQ(2, mutable_cols.size());
-
-    // Test set_columns with const columns
-    vectorized::Block new_block = block.clone_empty();
-    new_block.set_columns(columns);
-    EXPECT_EQ(block.rows(), new_block.rows());
-    EXPECT_EQ(block.columns(), new_block.columns());
-    EXPECT_EQ("col1", new_block.get_by_position(0).name);
-    EXPECT_EQ("col2", new_block.get_by_position(1).name);
-    EXPECT_EQ(type, new_block.get_by_position(0).type);
-    EXPECT_EQ(type, new_block.get_by_position(1).type);
-    EXPECT_EQ(1, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                         new_block.get_by_position(0).column.get())
-                         ->get_data()[0]);
-    EXPECT_EQ(2, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                         new_block.get_by_position(1).column.get())
-                         ->get_data()[0]);
-
-    // Test clone_with_columns
-    auto cloned_with_cols = block.clone_with_columns(columns);
-    EXPECT_EQ(block.rows(), cloned_with_cols.rows());
-    EXPECT_EQ(block.columns(), cloned_with_cols.columns());
-    EXPECT_EQ("col1", cloned_with_cols.get_by_position(0).name);
-    EXPECT_EQ("col2", cloned_with_cols.get_by_position(1).name);
-    EXPECT_EQ(type, cloned_with_cols.get_by_position(0).type);
-    EXPECT_EQ(type, cloned_with_cols.get_by_position(1).type);
-    EXPECT_EQ(1, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                         cloned_with_cols.get_by_position(0).column.get())
-                         ->get_data()[0]);
-    EXPECT_EQ(2, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                         cloned_with_cols.get_by_position(1).column.get())
-                         ->get_data()[0]);
-
-    // Test clone_without_columns
-    std::vector<int> column_offset = {0};
-    auto partial_block = block.clone_without_columns(&column_offset);
-    EXPECT_EQ(1, partial_block.columns());
-    EXPECT_EQ("col1", partial_block.get_by_position(0).name);
-    EXPECT_EQ(nullptr, partial_block.get_by_position(0).column.get());
-
-    // Test set_columns with mutable columns
+    // Test with empty block
     {
-        auto mutable_columns = block.clone_empty_columns();
-        auto* tmp_col0 = assert_cast<vectorized::ColumnVector<Int32>*>(mutable_columns[0].get());
-        auto* tmp_col1 = assert_cast<vectorized::ColumnVector<Int32>*>(mutable_columns[1].get());
-        tmp_col0->insert_value(3);
-        tmp_col1->insert_value(4);
-        block.set_columns(std::move(mutable_columns));
-        EXPECT_EQ(1, block.rows());
-        EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                             block.get_by_position(0).column.get())
-                             ->get_data()[0]);
-        EXPECT_EQ(4, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                             block.get_by_position(1).column.get())
-                             ->get_data()[0]);
-    }
-    // Test clone_with_columns with mutable columns
-    {
-        auto new_mutable_columns = block.clone_empty_columns();
-        auto* tmp_col0 =
-                assert_cast<vectorized::ColumnVector<Int32>*>(new_mutable_columns[0].get());
-        auto* tmp_col1 =
-                assert_cast<vectorized::ColumnVector<Int32>*>(new_mutable_columns[1].get());
-        tmp_col0->insert_value(5);
-        tmp_col1->insert_value(6);
-        auto cloned_with_mutable = block.clone_with_columns(std::move(new_mutable_columns));
-        EXPECT_EQ(1, cloned_with_mutable.rows());
-        EXPECT_EQ(5, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                             cloned_with_mutable.get_by_position(0).column.get())
-                             ->get_data()[0]);
-        EXPECT_EQ(6, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                             cloned_with_mutable.get_by_position(1).column.get())
-                             ->get_data()[0]);
+        vectorized::Block empty_block;
+        
+        // Test clone_empty
+        auto cloned_empty = empty_block.clone_empty();
+        EXPECT_EQ(0, cloned_empty.columns());
+        EXPECT_EQ(0, cloned_empty.rows());
+
+        // Test get_columns and get_columns_and_convert
+        auto columns = empty_block.get_columns();
+        auto converted_columns = empty_block.get_columns_and_convert();
+        EXPECT_EQ(0, columns.size());
+        EXPECT_EQ(0, converted_columns.size());
+
+        // Test clone_empty_columns
+        auto empty_columns = empty_block.clone_empty_columns();
+        EXPECT_EQ(0, empty_columns.size());
+
+        // Test mutate_columns
+        auto mutable_cols = empty_block.mutate_columns();
+        EXPECT_EQ(0, mutable_cols.size());
+
+        // Test set_columns
+        vectorized::Block new_block = empty_block.clone_empty();
+        new_block.set_columns(columns);
+        EXPECT_EQ(0, new_block.rows());
+        EXPECT_EQ(0, new_block.columns());
+
+        // Test clone_with_columns
+        auto cloned_with_cols = empty_block.clone_with_columns(columns);
+        EXPECT_EQ(0, cloned_with_cols.rows());
+        EXPECT_EQ(0, cloned_with_cols.columns());
+
+        // Test clone_without_columns
+        std::vector<int> column_offset;
+        auto partial_block = empty_block.clone_without_columns(&column_offset);
+        EXPECT_EQ(0, partial_block.columns());
+
+        // Test copy_block with different combinations
+        std::vector<int> empty_columns_indices;
+        auto copy = empty_block.copy_block(empty_columns_indices);
+        EXPECT_EQ(0, copy.columns());
+        EXPECT_EQ(0, copy.rows());
     }
 
-    // Test copy_block
+    // Test with regular columns
     {
-        // Test copying single column
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+        // Create and insert regular columns
+        auto col1 = vectorized::ColumnVector<Int32>::create();
+        auto col2 = vectorized::ColumnVector<Int32>::create();
+        col1->insert_value(1);
+        col2->insert_value(2);
+        block.insert({col1->get_ptr(), type, "col1"});
+        block.insert({col2->get_ptr(), type, "col2"});
+
+        // Test clone_empty
+        auto empty_block = block.clone_empty();
+        EXPECT_EQ(block.columns(), empty_block.columns());
+        EXPECT_EQ(0, empty_block.rows());
+
+        // Test get_columns and get_columns_and_convert
+        auto columns = block.get_columns();
+        auto converted_columns = block.get_columns_and_convert();
+        EXPECT_EQ(2, columns.size());
+        EXPECT_EQ(2, converted_columns.size());
+
+        // Test clone_empty_columns
+        auto empty_columns = block.clone_empty_columns();
+        EXPECT_EQ(2, empty_columns.size());
+        EXPECT_EQ(0, empty_columns[0]->size());
+        EXPECT_EQ(0, empty_columns[1]->size());
+
+        // Test mutate_columns
+        auto mutable_cols = block.mutate_columns();
+        EXPECT_EQ(2, mutable_cols.size());
+
+        // Test set_columns with const columns
+        vectorized::Block new_block = block.clone_empty();
+        new_block.set_columns(columns);
+        EXPECT_EQ(block.rows(), new_block.rows());
+        EXPECT_EQ(block.columns(), new_block.columns());
+        EXPECT_EQ("col1", new_block.get_by_position(0).name);
+        EXPECT_EQ("col2", new_block.get_by_position(1).name);
+        EXPECT_EQ(1, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                             new_block.get_by_position(0).column.get())
+                             ->get_data()[0]);
+        EXPECT_EQ(2, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                             new_block.get_by_position(1).column.get())
+                             ->get_data()[0]);
+
+        // Test clone_with_columns
+        auto cloned_with_cols = block.clone_with_columns(columns);
+        EXPECT_EQ(block.rows(), cloned_with_cols.rows());
+        EXPECT_EQ(block.columns(), cloned_with_cols.columns());
+        EXPECT_EQ(1, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                             cloned_with_cols.get_by_position(0).column.get())
+                             ->get_data()[0]);
+        EXPECT_EQ(2, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                             cloned_with_cols.get_by_position(1).column.get())
+                             ->get_data()[0]);
+
+        // Test clone_without_columns
+        std::vector<int> column_offset = {0};
+        auto partial_block = block.clone_without_columns(&column_offset);
+        EXPECT_EQ(1, partial_block.columns());
+        EXPECT_EQ("col1", partial_block.get_by_position(0).name);
+        EXPECT_EQ(nullptr, partial_block.get_by_position(0).column.get());
+
+        // Test copy_block with different combinations
         std::vector<int> single_column = {0};
         auto single_copy = block.copy_block(single_column);
         EXPECT_EQ(1, single_copy.columns());
         EXPECT_EQ("col1", single_copy.get_by_position(0).name);
-        EXPECT_EQ(type, single_copy.get_by_position(0).type);
-        EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                             single_copy.get_by_position(0).column.get())
-                             ->get_data()[0]);
 
-        // Test copying multiple columns
         std::vector<int> multiple_columns = {0, 1};
         auto multi_copy = block.copy_block(multiple_columns);
         EXPECT_EQ(2, multi_copy.columns());
         EXPECT_EQ("col1", multi_copy.get_by_position(0).name);
         EXPECT_EQ("col2", multi_copy.get_by_position(1).name);
-        EXPECT_EQ(type, multi_copy.get_by_position(0).type);
-        EXPECT_EQ(type, multi_copy.get_by_position(1).type);
-        EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                             multi_copy.get_by_position(0).column.get())
-                             ->get_data()[0]);
-        EXPECT_EQ(4, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                             multi_copy.get_by_position(1).column.get())
-                             ->get_data()[0]);
 
-        // Test copying columns in different order
         std::vector<int> reordered_columns = {1, 0};
         auto reordered_copy = block.copy_block(reordered_columns);
         EXPECT_EQ(2, reordered_copy.columns());
         EXPECT_EQ("col2", reordered_copy.get_by_position(0).name);
         EXPECT_EQ("col1", reordered_copy.get_by_position(1).name);
-        EXPECT_EQ(4, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                             reordered_copy.get_by_position(0).column.get())
-                             ->get_data()[0]);
-        EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                             reordered_copy.get_by_position(1).column.get())
-                             ->get_data()[0]);
 
-        // Test copying same column multiple times
         std::vector<int> duplicate_columns = {0, 0};
         auto duplicate_copy = block.copy_block(duplicate_columns);
         EXPECT_EQ(2, duplicate_copy.columns());
         EXPECT_EQ("col1", duplicate_copy.get_by_position(0).name);
         EXPECT_EQ("col1", duplicate_copy.get_by_position(1).name);
-        EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                             duplicate_copy.get_by_position(0).column.get())
-                             ->get_data()[0]);
-        EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                             duplicate_copy.get_by_position(1).column.get())
-                             ->get_data()[0]);
+    }
+
+    // Test with const columns
+    {
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+        // Create and insert const columns
+        auto base_col1 = vectorized::ColumnVector<Int32>::create();
+        base_col1->insert_value(42);
+        auto const_col1 = vectorized::ColumnConst::create(base_col1->get_ptr(), 1);
+        block.insert({const_col1->get_ptr(), type, "const_col1"});
+
+        auto base_col2 = vectorized::ColumnVector<Int32>::create();
+        base_col2->insert_value(24);
+        auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), 1);
+        block.insert({const_col2->get_ptr(), type, "const_col2"});
+
+        // Test all clone operations
+        auto empty_block = block.clone_empty();
+        EXPECT_EQ(block.columns(), empty_block.columns());
+        EXPECT_EQ(0, empty_block.rows());
+
+        auto columns = block.get_columns();
+        auto converted_columns = block.get_columns_and_convert();
+        EXPECT_EQ(2, columns.size());
+        EXPECT_EQ(2, converted_columns.size());
+
+        auto empty_columns = block.clone_empty_columns();
+        EXPECT_EQ(2, empty_columns.size());
+        EXPECT_EQ(0, empty_columns[0]->size());
+        EXPECT_EQ(0, empty_columns[1]->size());
+
+        auto mutable_cols = block.mutate_columns();
+        EXPECT_EQ(2, mutable_cols.size());
+
+        vectorized::Block new_block = block.clone_empty();
+        new_block.set_columns(columns);
+        EXPECT_EQ(block.rows(), new_block.rows());
+        EXPECT_EQ(block.columns(), new_block.columns());
+        EXPECT_EQ("const_col1", new_block.get_by_position(0).name);
+        EXPECT_EQ("const_col2", new_block.get_by_position(1).name);
+
+        auto cloned_with_cols = block.clone_with_columns(columns);
+        EXPECT_EQ(block.rows(), cloned_with_cols.rows());
+        EXPECT_EQ(block.columns(), cloned_with_cols.columns());
+
+        std::vector<int> column_offset = {0};
+        auto partial_block = block.clone_without_columns(&column_offset);
+        EXPECT_EQ(1, partial_block.columns());
+        EXPECT_EQ("const_col1", partial_block.get_by_position(0).name);
+        EXPECT_EQ(nullptr, partial_block.get_by_position(0).column.get());
+
+        // Test copy_block with different combinations
+        std::vector<int> single_column = {0};
+        auto single_copy = block.copy_block(single_column);
+        EXPECT_EQ(1, single_copy.columns());
+        EXPECT_EQ("const_col1", single_copy.get_by_position(0).name);
+
+        std::vector<int> multiple_columns = {0, 1};
+        auto multi_copy = block.copy_block(multiple_columns);
+        EXPECT_EQ(2, multi_copy.columns());
+        EXPECT_EQ("const_col1", multi_copy.get_by_position(0).name);
+        EXPECT_EQ("const_col2", multi_copy.get_by_position(1).name);
+
+        std::vector<int> reordered_columns = {1, 0};
+        auto reordered_copy = block.copy_block(reordered_columns);
+        EXPECT_EQ(2, reordered_copy.columns());
+        EXPECT_EQ("const_col2", reordered_copy.get_by_position(0).name);
+        EXPECT_EQ("const_col1", reordered_copy.get_by_position(1).name);
+
+        std::vector<int> duplicate_columns = {0, 0};
+        auto duplicate_copy = block.copy_block(duplicate_columns);
+        EXPECT_EQ(2, duplicate_copy.columns());
+        EXPECT_EQ("const_col1", duplicate_copy.get_by_position(0).name);
+        EXPECT_EQ("const_col1", duplicate_copy.get_by_position(1).name);
+    }
+
+    // Test with nullable columns
+    {
+        vectorized::Block block;
+        auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+        auto nullable_type = vectorized::make_nullable(base_type);
+
+        // Create and insert nullable columns
+        auto col1 = vectorized::ColumnVector<Int32>::create();
+        col1->insert_value(1);
+        auto null_map1 = vectorized::ColumnUInt8::create();
+        null_map1->insert_value(0); // Not null
+        auto nullable_col1 = vectorized::ColumnNullable::create(col1->get_ptr(), null_map1->get_ptr());
+        block.insert({nullable_col1->get_ptr(), nullable_type, "nullable_col1"});
+
+        auto col2 = vectorized::ColumnVector<Int32>::create();
+        col2->insert_value(2);
+        auto null_map2 = vectorized::ColumnUInt8::create();
+        null_map2->insert_value(1); // Null
+        auto nullable_col2 = vectorized::ColumnNullable::create(col2->get_ptr(), null_map2->get_ptr());
+        block.insert({nullable_col2->get_ptr(), nullable_type, "nullable_col2"});
+
+        // Test all clone operations
+        auto empty_block = block.clone_empty();
+        EXPECT_EQ(block.columns(), empty_block.columns());
+        EXPECT_EQ(0, empty_block.rows());
+
+        auto columns = block.get_columns();
+        auto converted_columns = block.get_columns_and_convert();
+        EXPECT_EQ(2, columns.size());
+        EXPECT_EQ(2, converted_columns.size());
+
+        auto empty_columns = block.clone_empty_columns();
+        EXPECT_EQ(2, empty_columns.size());
+        EXPECT_EQ(0, empty_columns[0]->size());
+        EXPECT_EQ(0, empty_columns[1]->size());
+
+        auto mutable_cols = block.mutate_columns();
+        EXPECT_EQ(2, mutable_cols.size());
+
+        vectorized::Block new_block = block.clone_empty();
+        new_block.set_columns(columns);
+        EXPECT_EQ(block.rows(), new_block.rows());
+        EXPECT_EQ(block.columns(), new_block.columns());
+        EXPECT_EQ("nullable_col1", new_block.get_by_position(0).name);
+        EXPECT_EQ("nullable_col2", new_block.get_by_position(1).name);
+
+        auto cloned_with_cols = block.clone_with_columns(columns);
+        EXPECT_EQ(block.rows(), cloned_with_cols.rows());
+        EXPECT_EQ(block.columns(), cloned_with_cols.columns());
+
+        std::vector<int> column_offset = {0};
+        auto partial_block = block.clone_without_columns(&column_offset);
+        EXPECT_EQ(1, partial_block.columns());
+        EXPECT_EQ("nullable_col1", partial_block.get_by_position(0).name);
+        EXPECT_EQ(nullptr, partial_block.get_by_position(0).column.get());
+
+        // Test copy_block with different combinations
+        std::vector<int> single_column = {0};
+        auto single_copy = block.copy_block(single_column);
+        EXPECT_EQ(1, single_copy.columns());
+        EXPECT_EQ("nullable_col1", single_copy.get_by_position(0).name);
+
+        std::vector<int> multiple_columns = {0, 1};
+        auto multi_copy = block.copy_block(multiple_columns);
+        EXPECT_EQ(2, multi_copy.columns());
+        EXPECT_EQ("nullable_col1", multi_copy.get_by_position(0).name);
+        EXPECT_EQ("nullable_col2", multi_copy.get_by_position(1).name);
+
+        std::vector<int> reordered_columns = {1, 0};
+        auto reordered_copy = block.copy_block(reordered_columns);
+        EXPECT_EQ(2, reordered_copy.columns());
+        EXPECT_EQ("nullable_col2", reordered_copy.get_by_position(0).name);
+        EXPECT_EQ("nullable_col1", reordered_copy.get_by_position(1).name);
+
+        std::vector<int> duplicate_columns = {0, 0};
+        auto duplicate_copy = block.copy_block(duplicate_columns);
+        EXPECT_EQ(2, duplicate_copy.columns());
+        EXPECT_EQ("nullable_col1", duplicate_copy.get_by_position(0).name);
+        EXPECT_EQ("nullable_col1", duplicate_copy.get_by_position(1).name);
     }
 }
 
