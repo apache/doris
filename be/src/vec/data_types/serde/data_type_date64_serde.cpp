@@ -167,12 +167,12 @@ void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const Nul
     for (size_t i = start; i < end; ++i) {
         char buf[64];
         const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
-        int len = time_val->to_buffer(buf);
+        size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {
-            checkArrowStatus(string_builder.Append(buf, len), column.get_name(),
+            checkArrowStatus(string_builder.Append(buf, cast_set<int32_t>(len)), column.get_name(),
                              array_builder->type()->name());
         }
     }
@@ -289,39 +289,23 @@ Status DataTypeDate64SerDe::write_column_to_orc(const std::string& timezone, con
     auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
-    if (!ptr) {
-        return Status::InternalError(
-                "malloc memory error when write largeint column data to orc file.");
-    }
-    StringRef bufferRef;
-    bufferRef.data = ptr;
-    bufferRef.size = BUFFER_UNIT_SIZE;
-    size_t offset = 0;
-    const size_t begin_off = offset;
+    INIT_MEMORY_FOR_ORC_WRITER()
 
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 0) {
             continue;
         }
 
-        int len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id])
-                          .to_buffer(const_cast<char*>(bufferRef.data) + offset);
+        size_t len = binary_cast<Int64, VecDateTimeValue>(col_data[row_id])
+                             .to_buffer(const_cast<char*>(bufferRef.data) + offset);
 
         REALLOC_MEMORY_FOR_ORC_WRITER()
 
+        cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
         cur_batch->length[row_id] = len;
         offset += len;
     }
-    size_t data_off = 0;
-    for (size_t row_id = start; row_id < end; row_id++) {
-        if (cur_batch->notNull[row_id] == 1) {
-            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + begin_off + data_off;
-            data_off += cur_batch->length[row_id];
-        }
-    }
 
-    buffer_list.emplace_back(bufferRef);
     cur_batch->numElements = end - start;
     return Status::OK();
 }

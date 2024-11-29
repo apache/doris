@@ -48,6 +48,7 @@
 class SipHash;
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class Block;
@@ -267,7 +268,8 @@ public:
 
     template <typename T>
     T get_value() const {
-        return get_field().safe_get<NearestFieldType<T>>();
+        // Here the cast is correct, relevant code is rather tricky.
+        return static_cast<T>(get_field().safe_get<NearestFieldType<T>>());
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
@@ -276,3 +278,4 @@ public:
     }
 };
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"
