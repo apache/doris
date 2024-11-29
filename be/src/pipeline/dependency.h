@@ -631,7 +631,8 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
     // if true, left child has no more rows to process
     bool left_side_eos = false;
     // Visited flags for each row in build side.
-    vectorized::MutableColumns build_side_visited_flags;
+    std::shared_ptr<vectorized::MutableColumns> build_side_visited_flags =
+            std::make_shared<vectorized::MutableColumns>();
     // List of build blocks, constructed in prepare()
     std::shared_ptr<vectorized::Blocks> build_blocks = std::make_shared<vectorized::Blocks>();
 };

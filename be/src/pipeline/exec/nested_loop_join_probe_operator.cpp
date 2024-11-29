@@ -241,7 +241,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(vectorized::Block& b
             const auto& cur_block = (*_shared_state->build_blocks)[i];
             const auto* __restrict cur_visited_flags =
                     assert_cast<vectorized::ColumnUInt8*>(
-                            _shared_state->build_side_visited_flags[i].get())
+                            (*_shared_state->build_side_visited_flags)[i].get())
                             ->get_data()
                             .data();
             const auto num_rows = cur_block.rows();

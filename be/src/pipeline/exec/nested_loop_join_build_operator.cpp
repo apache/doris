@@ -144,19 +144,16 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
                                               bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-
     auto rows = block->rows();
-    if (rows != 0) {
+    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)rows);
+    auto mem_usage = block->allocated_bytes();
+    if (local_state._should_collected_blocks && rows != 0) {
+        local_state._build_rows += rows;
+        local_state._total_mem_usage += mem_usage;
+        local_state._shared_state->build_blocks->emplace_back(std::move(*block));
         if (_match_all_build || _is_right_semi_anti) {
-            local_state._shared_state->build_side_visited_flags.emplace_back(
+            local_state._shared_state->build_side_visited_flags->emplace_back(
                     vectorized::ColumnUInt8::create(rows, 0));
-        }
-        if (local_state._should_collected_blocks) {
-            COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)rows);
-            auto mem_usage = block->allocated_bytes();
-            local_state._build_rows += rows;
-            local_state._total_mem_usage += mem_usage;
-            local_state._shared_state->build_blocks->emplace_back(std::move(*block));
         }
     }
 
@@ -169,6 +166,8 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
             _shared_collected_data_context->complete_build_stage = true;
             _shared_collected_data_context->build_blocks_ptr =
                     local_state._shared_state->build_blocks;
+            _shared_collected_data_context->build_side_visited_flags_ptr =
+                    local_state._shared_state->build_side_visited_flags;
             local_state.runtime_filter_slots()->copy_to_shared_context(
                     _shared_collected_data_context);
             _shared_collected_data_controller->signal_finish(node_id());
@@ -185,6 +184,12 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
 
         if (!_shared_collected_data_context->status.ok()) {
             return _shared_collected_data_context->status;
+        }
+        if (_match_all_build || _is_right_semi_anti) {
+            for (const auto& col : *_shared_collected_data_context->build_side_visited_flags_ptr) {
+                local_state._shared_state->build_side_visited_flags->emplace_back(
+                        vectorized::ColumnUInt8::create(col->size(), 0));
+            }
         }
 
         local_state._shared_state->build_blocks = _shared_collected_data_context->build_blocks_ptr;

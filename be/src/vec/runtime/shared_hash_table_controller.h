@@ -113,6 +113,8 @@ struct SharedCollectedDataContext {
     std::atomic<bool> signaled = false;
     std::atomic<bool> complete_build_stage = false;
     std::shared_ptr<std::vector<Block>> build_blocks_ptr;
+    std::shared_ptr<vectorized::MutableColumns> build_side_visited_flags_ptr =
+            std::make_shared<vectorized::MutableColumns>();
 };
 using SharedCollectedDataContextPtr = std::shared_ptr<SharedCollectedDataContext>;
 

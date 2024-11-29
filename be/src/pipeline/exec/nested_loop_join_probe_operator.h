@@ -74,7 +74,8 @@ private:
                 for (size_t i = 0; i < processed_blocks_num; i++) {
                     auto& build_side_flag =
                             assert_cast<vectorized::ColumnUInt8*>(
-                                    _shared_state->build_side_visited_flags[build_block_idx].get())
+                                    (*_shared_state->build_side_visited_flags)[build_block_idx]
+                                            .get())
                                     ->get_data();
                     auto* __restrict build_side_flag_data = build_side_flag.data();
                     auto cur_sz = build_side_flag.size();
@@ -155,7 +156,8 @@ private:
                 for (size_t i = 0; i < processed_blocks_num; i++) {
                     auto& build_side_flag =
                             assert_cast<vectorized::ColumnUInt8*>(
-                                    _shared_state->build_side_visited_flags[build_block_idx].get())
+                                    (*_shared_state->build_side_visited_flags)[build_block_idx]
+                                            .get())
                                     ->get_data();
                     auto* __restrict build_side_flag_data = build_side_flag.data();
                     auto cur_sz = build_side_flag.size();
