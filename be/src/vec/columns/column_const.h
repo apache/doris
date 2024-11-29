@@ -118,8 +118,6 @@ public:
 
     bool is_variable_length() const override { return data->is_variable_length(); }
 
-    ColumnPtr remove_low_cardinality() const;
-
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
 
     void resize(size_t new_size) override { s = new_size; }

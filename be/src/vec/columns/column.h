@@ -100,10 +100,6 @@ public:
   */
     virtual Ptr convert_column_if_overflow() { return get_ptr(); }
 
-    /// If column isn't ColumnLowCardinality, return itself.
-    /// If column is ColumnLowCardinality, transforms is to full column.
-    virtual Ptr convert_to_full_column_if_low_cardinality() const { return get_ptr(); }
-
     /// If column isn't ColumnDictionary, return itself.
     /// If column is ColumnDictionary, transforms is to predicate column.
     virtual MutablePtr convert_to_predicate_column_if_dictionary() { return get_ptr(); }
