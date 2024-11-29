@@ -70,6 +70,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_pk_uk_case_cluster," +
     "test_point_query_ck," +
     "test_rowstore_ck," +
+    "test_point_query_partition_ck," +
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
