@@ -66,9 +66,13 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
     _uid = UniqueId::gen_uid();
     if (_type == Type::GLOBAL) {
         _group_num = 0;
+    } else if (_type == Type::METADATA) {
+        _group_num = 1;
+    } else if (_type == Type::CACHE) {
+        _group_num = 2;
     } else {
         _group_num =
-                mem_tracker_limiter_group_counter.fetch_add(1) % (MEM_TRACKER_GROUP_NUM - 1) + 1;
+                mem_tracker_limiter_group_counter.fetch_add(1) % (MEM_TRACKER_GROUP_NUM - 3) + 3;
     }
 
     // currently only select/load need runtime query statistics
@@ -268,8 +272,26 @@ void MemTrackerLimiter::make_type_trackers_profile(RuntimeProfile* profile,
                 tracker->make_profile(profile);
             }
         }
+    } else if (type == Type::METADATA) {
+        std::lock_guard<std::mutex> l(
+                ExecEnv::GetInstance()->mem_tracker_limiter_pool[1].group_lock);
+        for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[1].trackers) {
+            auto tracker = trackerWptr.lock();
+            if (tracker != nullptr) {
+                tracker->make_profile(profile);
+            }
+        }
+    } else if (type == Type::CACHE) {
+        std::lock_guard<std::mutex> l(
+                ExecEnv::GetInstance()->mem_tracker_limiter_pool[2].group_lock);
+        for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[2].trackers) {
+            auto tracker = trackerWptr.lock();
+            if (tracker != nullptr) {
+                tracker->make_profile(profile);
+            }
+        }
     } else {
-        for (unsigned i = 1; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
+        for (unsigned i = 3; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
             std::lock_guard<std::mutex> l(
                     ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].group_lock);
             for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].trackers) {
@@ -296,8 +318,8 @@ void MemTrackerLimiter::make_top_consumption_tasks_tracker_profile(RuntimeProfil
     std::unique_ptr<RuntimeProfile> tmp_profile_snapshot =
             std::make_unique<RuntimeProfile>("tmpSnapshot");
     std::priority_queue<std::pair<int64_t, RuntimeProfile*>> max_pq;
-    // start from 2, not include global type.
-    for (unsigned i = 1; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
+    // start from 3, not include global/metadata/cache type.
+    for (unsigned i = 3; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
         std::lock_guard<std::mutex> l(
                 ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].group_lock);
         for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].trackers) {
@@ -326,13 +348,19 @@ void MemTrackerLimiter::make_all_tasks_tracker_profile(RuntimeProfile* profile) 
     types_profile[Type::SCHEMA_CHANGE] = profile->create_child("SchemaChangeTasks", true, false);
     types_profile[Type::OTHER] = profile->create_child("OtherTasks", true, false);
 
-    // start from 2, not include global type.
-    for (unsigned i = 1; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
+    // start from 3, not include global/metadata/cache type.
+    for (unsigned i = 3; i < ExecEnv::GetInstance()->mem_tracker_limiter_pool.size(); ++i) {
         std::lock_guard<std::mutex> l(
                 ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].group_lock);
         for (auto trackerWptr : ExecEnv::GetInstance()->mem_tracker_limiter_pool[i].trackers) {
             auto tracker = trackerWptr.lock();
             if (tracker != nullptr) {
+                // BufferControlBlock will continue to exist for 5 minutes after the query ends, even if the
+                // result buffer is empty, and will not be shown in the profile. of course, this code is tricky.
+                if (tracker->consumption() == 0 &&
+                    tracker->label().starts_with("BufferControlBlock")) {
+                    continue;
+                }
                 tracker->make_profile(types_profile[tracker->type()]);
             }
         }

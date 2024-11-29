@@ -33,31 +33,27 @@ public:
     void make_memory_profile(RuntimeProfile* profile) const;
 
     std::string print_memory_overview_profile() const {
-        std::stringstream ss;
-        auto version_ptr = _memory_overview_profile.get();
-        version_ptr->pretty_print(&ss);
-        return ss.str();
+        return return_memory_profile_str(_memory_overview_profile.get());
     }
 
     std::string print_global_memory_profile() const {
-        std::stringstream ss;
-        auto version_ptr = _global_memory_profile.get();
-        version_ptr->pretty_print(&ss);
-        return ss.str();
+        return return_memory_profile_str(_global_memory_profile.get());
+    }
+
+    std::string print_metadata_memory_profile() const {
+        return return_memory_profile_str(_metadata_memory_profile.get());
+    }
+
+    std::string print_cache_memory_profile() const {
+        return return_memory_profile_str(_cache_memory_profile.get());
     }
 
     std::string print_top_memory_tasks_profile() const {
-        std::stringstream ss;
-        auto version_ptr = _top_memory_tasks_profile.get();
-        version_ptr->pretty_print(&ss);
-        return ss.str();
+        return return_memory_profile_str(_top_memory_tasks_profile.get());
     }
 
     std::string print_tasks_memory_profile() const {
-        std::stringstream ss;
-        auto version_ptr = _tasks_memory_profile.get();
-        version_ptr->pretty_print(&ss);
-        return ss.str();
+        return return_memory_profile_str(_tasks_memory_profile.get());
     }
 
     static int64_t query_current_usage();
@@ -71,8 +67,17 @@ public:
     void print_log_process_usage();
 
 private:
+    std::string return_memory_profile_str(
+            const std::shared_ptr<const RuntimeProfile>& profile) const {
+        std::stringstream ss;
+        profile->pretty_print(&ss);
+        return ss.str();
+    }
+
     MultiVersion<RuntimeProfile> _memory_overview_profile;
     MultiVersion<RuntimeProfile> _global_memory_profile;
+    MultiVersion<RuntimeProfile> _metadata_memory_profile;
+    MultiVersion<RuntimeProfile> _cache_memory_profile;
     MultiVersion<RuntimeProfile> _top_memory_tasks_profile;
     MultiVersion<RuntimeProfile> _tasks_memory_profile;
 
