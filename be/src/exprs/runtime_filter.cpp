@@ -1283,6 +1283,13 @@ PrimitiveType IRuntimeFilter::column_type() const {
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
+
+    if (!_wrapper->is_ignored() && _wrapper->is_bloomfilter() &&
+        !_wrapper->get_bloomfilter()->inited()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "bf not inited and not ignored, rf: {}",
+                        debug_string());
+    }
+
     COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - registration_time_) * NANOS_PER_MILLIS));
     _rf_state_atomic.store(RuntimeFilterState::READY);
     if (!_filter_timer.empty()) {
