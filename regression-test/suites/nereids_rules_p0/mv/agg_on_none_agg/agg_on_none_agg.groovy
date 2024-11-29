@@ -57,6 +57,8 @@ suite("agg_on_none_agg") {
     (5, 2, 'o', 1.2, '2023-12-12', 'c','d',2, 'mi');  
     """
 
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
+
     sql """
     drop table if exists lineitem
     """
@@ -95,6 +97,8 @@ suite("agg_on_none_agg") {
     (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
     """
 
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+
     sql """
     drop table if exists partsupp
     """
@@ -119,6 +123,8 @@ suite("agg_on_none_agg") {
     (2, 3, 9, 10.01, 'supply1'),
     (2, 3, 10, 11.01, 'supply2');
     """
+
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
     sql """analyze table orders with sync;"""
     sql """analyze table lineitem with sync;"""
