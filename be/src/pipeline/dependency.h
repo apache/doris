@@ -807,7 +807,6 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
         return "LOCAL_MERGE_SORT";
     }
     throw Exception(Status::FatalError("__builtin_unreachable"));
-    __builtin_unreachable();
 }
 
 struct DataDistribution {

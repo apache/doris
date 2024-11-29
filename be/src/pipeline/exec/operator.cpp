@@ -399,7 +399,6 @@ std::shared_ptr<BasicSharedState> DataSinkOperatorX<LocalStateType>::create_shar
     } else if constexpr (std::is_same_v<typename LocalStateType::SharedStateType,
                                         MultiCastSharedState>) {
         throw Exception(Status::FatalError("should not reach here!"));
-        return nullptr;
     } else {
         auto ss = LocalStateType::SharedStateType::create_shared();
         ss->id = operator_id();

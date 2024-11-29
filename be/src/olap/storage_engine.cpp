@@ -661,7 +661,6 @@ void StorageEngine::_exit_if_too_many_disks_are_failed() {
                 "meet too many error disks, process exit. max_ratio_allowed={}%, "
                 "error_disk_count={}, total_disk_count={}",
                 config::max_percentage_of_error_disk, unused_root_path_num, total_root_path_num));
-        exit(0);
     }
 }
 

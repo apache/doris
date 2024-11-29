@@ -425,7 +425,6 @@ public:
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
             throw Exception(
                     Status::FatalError("adapt_decimal_constant_constant Invalid function type!"));
-            return column_result;
         } else if constexpr (is_to_null_type) {
             auto null_map = ColumnUInt8::create(1, 0);
             column_result->get_element(0) =
@@ -460,7 +459,6 @@ public:
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
             throw Exception(
                     Status::FatalError("adapt_decimal_vector_constant Invalid function type!"));
-            return column_result;
         } else if constexpr (is_to_null_type) {
             auto null_map = ColumnUInt8::create(column_left->size(), 0);
             vector_constant(column_left_ptr->get_data().data(), b, column_result->get_data().data(),
@@ -495,7 +493,6 @@ public:
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
             throw Exception(
                     Status::FatalError("adapt_decimal_constant_vector Invalid function type!"));
-            return column_result;
         } else if constexpr (is_to_null_type) {
             auto null_map = ColumnUInt8::create(column_right->size(), 0);
             constant_vector(a, column_right_ptr->get_data().data(),
@@ -528,7 +525,6 @@ public:
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
             throw Exception(
                     Status::FatalError("adapt_decimal_vector_vector Invalid function type!"));
-            return column_result;
         } else if constexpr (is_to_null_type) {
             // function divide, modulo and pmod
             auto null_map = ColumnUInt8::create(column_result->size(), 0);

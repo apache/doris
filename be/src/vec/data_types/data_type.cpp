@@ -83,7 +83,6 @@ ColumnPtr IDataType::create_column_const_with_default_value(size_t size) const {
 size_t IDataType::get_size_of_value_in_memory() const {
     throw Exception(
             Status::FatalError("Value of type {} in memory is not of fixed size.", get_name()));
-    return 0;
 }
 
 void IDataType::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
@@ -92,13 +91,9 @@ void IDataType::to_string(const IColumn& column, size_t row_num, BufferWritable&
 
 std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
     throw Exception(Status::FatalError("Data type {} to_string not implement.", get_name()));
-
-    return "";
 }
 Status IDataType::from_string(ReadBuffer& rb, IColumn* column) const {
     throw Exception(Status::FatalError("Data type {} from_string not implement.", get_name()));
-
-    return Status::OK();
 }
 
 void IDataType::to_string_batch(const IColumn& column, ColumnString& column_to) const {
@@ -192,7 +187,6 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
     default:
         throw Exception(Status::FatalError("could not mapping type {} to pb type",
                                            data_type->get_type_id()));
-        return PGenericType::UNKNOWN;
     }
 }
 

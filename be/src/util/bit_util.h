@@ -231,7 +231,6 @@ public:
             return value;
         } else {
             throw Exception(Status::FatalError("__builtin_unreachable"));
-            return value;
         }
     }
 

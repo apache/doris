@@ -214,7 +214,6 @@ Field DataTypeNullable::get_default() const {
 size_t DataTypeNullable::get_size_of_value_in_memory() const {
     throw Exception(
             Status::FatalError("Value of type {} in memory is not of fixed size.", get_name()));
-    return 0;
 }
 
 bool DataTypeNullable::equals(const IDataType& rhs) const {
