@@ -1992,7 +1992,6 @@ public class SingleNodePlanner {
                 scanNode = new TrinoConnectorScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case MAX_COMPUTE_EXTERNAL_TABLE:
-                // TODO: support max compute scan node
                 scanNode = new MaxComputeScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case ES_EXTERNAL_TABLE:

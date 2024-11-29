@@ -306,7 +306,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+    protected Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
         return getNameToPartitionItems();
     }
 

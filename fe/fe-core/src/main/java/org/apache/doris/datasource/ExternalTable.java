@@ -394,7 +394,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * @param snapshot if not support mvcc, ignore this
      * @return partitionName ==> PartitionItem
      */
-    public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+    protected Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
         return Collections.emptyMap();
     }
 

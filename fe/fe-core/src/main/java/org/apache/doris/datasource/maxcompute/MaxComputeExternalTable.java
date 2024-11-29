@@ -92,13 +92,12 @@ public class MaxComputeExternalTable extends ExternalTable {
     }
 
     @Override
-    public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+    protected Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
         if (getPartitionColumns().isEmpty()) {
             return Collections.emptyMap();
         }
 
         TablePartitionValues tablePartitionValues = getPartitionValues();
-
         Map<Long, PartitionItem> idToPartitionItem = tablePartitionValues.getIdToPartitionItem();
         Map<Long, String> idToNameMap = tablePartitionValues.getPartitionIdToNameMap();
 
@@ -109,7 +108,7 @@ public class MaxComputeExternalTable extends ExternalTable {
         return nameToPartitionItem;
     }
 
-    public TablePartitionValues getPartitionValues() {
+    private TablePartitionValues getPartitionValues() {
         makeSureInitialized();
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         if (!schemaCacheValue.isPresent()) {

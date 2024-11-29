@@ -92,19 +92,21 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     @Setter
     private SelectedPartitions selectedPartitions = null;
 
+    // For new planner
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc,
             SelectedPartitions selectedPartitions, boolean needCheckColumnPriv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
                 selectedPartitions, needCheckColumnPriv);
     }
 
+    // For old planner
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
                 SelectedPartitions.NOT_PRUNED, needCheckColumnPriv);
     }
 
-    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-                              StatisticalType statisticalType, SelectedPartitions selectedPartitions,
+    private MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+            StatisticalType statisticalType, SelectedPartitions selectedPartitions,
             boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         table = (MaxComputeExternalTable) desc.getTable();
@@ -132,6 +134,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         rangeDesc.setSize(maxComputeSplit.getLength());
     }
 
+    // Return false if no need to read any partition data.
+    // Return true if need to read partition data.
     boolean createTableBatchReadSession() throws UserException {
         List<String> requiredPartitionColumns = new ArrayList<>();
         List<String> orderedRequiredDataColumns = new ArrayList<>();
