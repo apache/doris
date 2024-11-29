@@ -1641,6 +1641,10 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    boolean isClusterKeyEnabled() {
+        return getFeConfig("random_add_cluster_keys_for_mow").equals("true")
+    }
+
     boolean enableStoragevault() {
         if (Strings.isNullOrEmpty(context.config.metaServiceHttpAddress)
                 || Strings.isNullOrEmpty(context.config.instanceId)

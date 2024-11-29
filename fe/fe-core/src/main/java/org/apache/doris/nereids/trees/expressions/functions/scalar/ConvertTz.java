@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
@@ -99,7 +98,7 @@ public class ConvertTz extends ScalarFunction
     }
 
     @Override
-    public Expression withConstantArgs(Literal literal) {
+    public Expression withConstantArgs(Expression literal) {
         return new ConvertTz(literal, child(1), child(2));
     }
 }

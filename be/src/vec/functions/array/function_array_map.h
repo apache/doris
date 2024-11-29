@@ -26,6 +26,7 @@
 #include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 enum class MapOperation { INTERSECT, UNION };
 
@@ -64,9 +65,9 @@ struct OpenMapImpl {
 
     // this method calculate rows to get a rest dst data
     void apply(ColumnArrayMutableData& dst, const ColumnArrayExecutionDatas params,
-               std::vector<bool>& col_const, int start_row, int end_row) {
+               std::vector<bool>& col_const, size_t start_row, size_t end_row) {
         size_t dst_off = 0;
-        for (int row = start_row; row < end_row; ++row) {
+        for (size_t row = start_row; row < end_row; ++row) {
             reset();
             for (int i = 0; i < params.size(); ++i) {
                 action.apply(map, i, index_check_const(row, col_const[i]), params[i]);
@@ -110,11 +111,11 @@ struct OpenMapImpl<operation, ColumnString> {
     }
 
     void apply(ColumnArrayMutableData& dst, const ColumnArrayExecutionDatas params,
-               std::vector<bool>& col_const, int start_row, int end_row) {
+               std::vector<bool>& col_const, size_t start_row, size_t end_row) {
         size_t dst_off = 0;
-        for (int row = start_row; row < end_row; ++row) {
+        for (size_t row = start_row; row < end_row; ++row) {
             reset();
-            for (int i = 0; i < params.size(); ++i) {
+            for (size_t i = 0; i < params.size(); ++i) {
                 action.apply(map, i, index_check_const(row, col_const[i]), params[i]);
             }
             // nullmap
@@ -162,7 +163,7 @@ public:
     }
 
     static Status execute(ColumnPtr& res_ptr, ColumnArrayExecutionDatas datas,
-                          std::vector<bool>& col_const, int start_row, int end_row) {
+                          std::vector<bool>& col_const, size_t start_row, size_t end_row) {
         ColumnArrayMutableData dst =
                 create_mutable_data(datas[0].nested_col, datas[0].nested_nullmap_data);
         if (_execute_internal<ALL_COLUMNS_SIMPLE>(dst, datas, col_const, start_row, end_row)) {
@@ -175,7 +176,7 @@ public:
 private:
     template <typename ColumnType>
     static bool _execute_internal(ColumnArrayMutableData& dst, ColumnArrayExecutionDatas datas,
-                                  std::vector<bool>& col_const, int start_row, int end_row) {
+                                  std::vector<bool>& col_const, size_t start_row, size_t end_row) {
         for (auto data : datas) {
             if (!check_column<ColumnType>(*data.nested_col)) {
                 return false;
@@ -192,10 +193,11 @@ private:
     template <typename T, typename... Ts>
         requires(sizeof...(Ts) > 0)
     static bool _execute_internal(ColumnArrayMutableData& dst, ColumnArrayExecutionDatas datas,
-                                  std::vector<bool>& col_const, int start_row, int end_row) {
+                                  std::vector<bool>& col_const, size_t start_row, size_t end_row) {
         return _execute_internal<T>(dst, datas, col_const, start_row, end_row) ||
                _execute_internal<Ts...>(dst, datas, col_const, start_row, end_row);
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

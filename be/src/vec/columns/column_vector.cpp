@@ -42,6 +42,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 StringRef ColumnVector<T>::serialize_value_into_arena(size_t n, Arena& arena,
@@ -242,7 +243,7 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
     if (s == 0) return;
 
     // std::partial_sort need limit << s can get performance benefit
-    if (limit > (s / 8.0)) limit = 0;
+    if (limit > (s / 8.0L)) limit = 0;
 
     if (limit) {
         for (size_t i = 0; i < s; ++i) res[i] = i;
