@@ -2520,7 +2520,6 @@ public:
             break;
         case BitmapValue::BitmapDataType::SET: {
             throw Exception(Status::FatalError("BitmapValue with set do not support move"));
-            break;
         }
         default:
             break;

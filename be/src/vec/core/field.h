@@ -415,7 +415,6 @@ public:
             default:
                 throw Exception(
                         Status::FatalError("type not supported, type={}", Types::to_string(which)));
-                break;
             }
             __builtin_unreachable();
         }
@@ -614,7 +613,6 @@ public:
             throw Exception(Status::FatalError("lhs type not equal with rhs, lhs={}, rhs={}",
                                                Types::to_string(which),
                                                Types::to_string(rhs.which)));
-            break;
         }
     }
 
@@ -688,7 +686,6 @@ public:
         default:
             throw Exception(Status::FatalError("type not supported, type={}",
                                                Types::to_string(field.which)));
-            break;
         }
     }
 
