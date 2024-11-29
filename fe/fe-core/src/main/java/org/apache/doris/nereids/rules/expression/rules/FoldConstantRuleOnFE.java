@@ -401,15 +401,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                     // x and y
                     return and.withChildren(nonTrueLiteral);
             }
-        } else if (nullCount == 1) {
-            if (nonTrueLiteral.size() == 1) {
-                // null and true
-                return new NullLiteral(BooleanType.INSTANCE);
-            }
+        } else if (nullCount < and.children().size()) {
             // null and x
             return and.withChildren(nonTrueLiteral);
         } else {
-            // null and null
+            // null and null and null and ...
             return new NullLiteral(BooleanType.INSTANCE);
         }
     }

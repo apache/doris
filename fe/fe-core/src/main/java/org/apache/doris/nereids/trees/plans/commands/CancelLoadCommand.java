@@ -21,7 +21,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.ExportJobState;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -57,9 +56,9 @@ public class CancelLoadCommand extends CancelCommand implements ForwardWithSync 
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         try {
-            ctx.getEnv().getJobManager().cancelLoadJob(dbName, label, state, (CompoundPredicate) whereClause);
+            ctx.getEnv().getJobManager().cancelLoadJob(dbName, label, state, whereClause);
         } catch (JobException e) {
-            ctx.getEnv().getLoadManager().cancelLoadJob(dbName, label, state, (CompoundPredicate) whereClause);
+            ctx.getEnv().getLoadManager().cancelLoadJob(dbName, label, state, whereClause);
         }
     }
 
