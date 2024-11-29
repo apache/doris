@@ -483,8 +483,6 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
             input_block->swap(local_state._probe_block);
             COUNTER_SET(local_state._memory_used_counter,
                         (int64_t)local_state._probe_block.allocated_bytes());
-            COUNTER_SET(local_state._peak_memory_usage_counter,
-                        local_state._memory_used_counter->value());
         }
     }
     return Status::OK();

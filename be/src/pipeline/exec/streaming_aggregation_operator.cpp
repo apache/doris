@@ -353,7 +353,6 @@ Status StreamingAggLocalState::_merge_without_key(vectorized::Block* block) {
 void StreamingAggLocalState::_update_memusage_without_key() {
     int64_t arena_memory_usage = _agg_arena_pool->size();
     COUNTER_SET(_memory_used_counter, arena_memory_usage);
-    COUNTER_SET(_peak_memory_usage_counter, arena_memory_usage);
     COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
 }
 
@@ -377,8 +376,6 @@ void StreamingAggLocalState::_update_memusage_with_serialized_key() {
                            int64_t hash_table_memory_usage = data.get_buffer_size_in_bytes();
 
                            COUNTER_SET(_memory_used_counter,
-                                       arena_memory_usage + hash_table_memory_usage);
-                           COUNTER_SET(_peak_memory_usage_counter,
                                        arena_memory_usage + hash_table_memory_usage);
 
                            COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
