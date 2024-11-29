@@ -46,7 +46,6 @@ suite ("dup_mv_plus") {
     sql "analyze table dup_mv_plus with sync;"
     sql """set enable_stats=false;"""
 
-
     order_qt_select_star "select * from dup_mv_plus order by k1;"
 
     mv_rewrite_success("select k1,k2+1 from dup_mv_plus order by k1;", "k12p")
@@ -87,6 +86,7 @@ suite ("dup_mv_plus") {
     order_qt_select_mv "select k1,k2+1 from dup_mv_plus order by k2;"
 
     sql """set enable_stats=true;"""
+    sql """alter table dup_mv_plus modify column k1 set stats ('row_count'='4');"""
 
     mv_rewrite_success("select k1,k2+1 from dup_mv_plus order by k1;", "k12p")
 

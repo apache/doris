@@ -33,6 +33,7 @@ suite ("projectMV4") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+
     sql """insert into projectMV4 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into projectMV4 values("2020-01-02",2,"b",2,2,2);"""
 
@@ -57,6 +58,8 @@ suite ("projectMV4") {
     order_qt_select_base "select empid from projectMV4 where deptno > 1 and empid > 1 order by empid;"
 
     sql """set enable_stats=true;"""
+    sql """alter table projectMV4 modify column time_col set stats ('row_count'='3');"""
+
     mv_rewrite_fail("select * from projectMV4 order by empid;", "projectMV4_mv")
 
     mv_rewrite_success("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;", "projectMV4_mv")

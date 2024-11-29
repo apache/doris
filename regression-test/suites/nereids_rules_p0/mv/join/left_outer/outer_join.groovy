@@ -278,8 +278,19 @@ suite("outer_join") {
     sql """analyze table lineitem with sync;"""
     sql """analyze table orders with sync;"""
     sql """analyze table partsupp with sync;"""
+    sql """analyze table lineitem_null with sync;"""
+    sql """analyze table orders_null with sync;"""
     sql """analyze table orders_same_col with sync;"""
     sql """analyze table lineitem_same_col with sync;"""
+
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table lineitem_same_col modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table orders modify column o_comment set stats ('row_count'='8');"""
+    sql """alter table orders_same_col modify column o_comment set stats ('row_count'='18');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+    sql """alter table lineitem_null modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table orders_null modify column o_comment set stats ('row_count'='5');"""
+
 
     // without filter
     def mv1_0 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY " +

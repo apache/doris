@@ -120,6 +120,15 @@ suite("materialized_view_switch") {
     (2, 3, 10, 11.01, 'supply2');
     """
 
+    sql """analyze table lineitem with sync;
+      analyze table orders with sync;
+      analyze table partsupp with sync;
+    """
+
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+
     def mv_name = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey
         from lineitem
@@ -134,12 +143,17 @@ suite("materialized_view_switch") {
         where o_orderdate = '2023-12-10' order by 1, 2, 3, 4, 5;
     """
 
-    async_mv_rewrite_success(db, mv_name, query, "mv_name")
+    async_mv_rewrite_success(db, mv_name, query, "mv_name_1")
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_1"""
+
     sql "SET enable_materialized_view_rewrite=false"
-    mv_not_part_in(query, "mv_name")
+    create_async_mv(db, "mv_name_2", mv_name)
+    mv_not_part_in(query, "mv_name_2")
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_2"""
+
     sql "SET enable_materialized_view_rewrite=true"
-    async_mv_rewrite_success(db, mv_name, query, "mv_name")
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name"""
+    async_mv_rewrite_success(db, mv_name, query, "mv_name_3")
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_3"""
 
     // test when materialized_view_relation_mapping_max_count is 8
     def mv1_0 = """
