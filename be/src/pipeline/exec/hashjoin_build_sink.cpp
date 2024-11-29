@@ -310,7 +310,6 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                                     _build_blocks_memory_usage->value() +
                                             (int64_t)(arg.hash_table->get_byte_size() +
                                                       arg.serialized_keys_size(true)));
-                        COUNTER_SET(_peak_memory_usage_counter, _memory_used_counter->value());
                         return st;
                     }},
             _shared_state->hash_table_variants->method_variant, _shared_state->join_op_variants,
@@ -492,7 +491,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     std::move(*in_block)));
             int64_t blocks_mem_usage = local_state._build_side_mutable_block.allocated_bytes();
             COUNTER_SET(local_state._memory_used_counter, blocks_mem_usage);
-            COUNTER_SET(local_state._peak_memory_usage_counter, blocks_mem_usage);
             COUNTER_SET(local_state._build_blocks_memory_usage, blocks_mem_usage);
         }
     }
