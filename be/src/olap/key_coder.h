@@ -301,7 +301,6 @@ public:
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         throw Exception(Status::FatalError("decode_ascending is not implemented"));
-        return Status::OK();
     }
 };
 
@@ -321,7 +320,6 @@ public:
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         throw Exception(Status::FatalError("decode_ascending is not implemented"));
-        return Status::OK();
     }
 };
 
@@ -341,7 +339,6 @@ public:
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         throw Exception(Status::FatalError("decode_ascending is not implemented"));
-        return Status::OK();
     }
 };
 

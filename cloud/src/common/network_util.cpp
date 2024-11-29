@@ -140,7 +140,6 @@ static bool get_hosts_v4(std::vector<InetAddress>* hosts) {
         char buf[64];
         throw Exception(Status::FatalError("getifaddrs failed because {}",
                                         strerror_r(errno, buf, sizeof(buf))));
-        return false;
     }
 
     for (ifaddrs* if_addr = if_addrs; if_addr != nullptr; if_addr = if_addr->ifa_next) {
@@ -174,7 +173,6 @@ std::string get_local_ip(const std::string& priority_networks) {
         CIDR cidr;
         if (!cidr.reset(cidr_str)) {
             throw Exception(Status::FatalError("wrong cidr format. cidr_str={}", cidr_str));
-            return localhost_str;
         }
         priority_cidrs.push_back(cidr);
     }
@@ -182,12 +180,10 @@ std::string get_local_ip(const std::string& priority_networks) {
     std::vector<InetAddress> hosts;
     if (!get_hosts_v4(&hosts)) {
         throw Exception(Status::FatalError("failed to getifaddrs"));
-        return localhost_str;
     }
 
     if (hosts.empty()) {
         throw Exception(Status::FatalError("failed to get host"));
-        return localhost_str;
     }
 
     auto is_in_prior_network = [&priority_cidrs](const std::string& ip) {

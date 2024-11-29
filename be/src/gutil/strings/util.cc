@@ -492,7 +492,6 @@ const char* strstr_delimited(const char* haystack, const char* needle, char deli
         }
     }
     throw doris::Exception(doris::Status::FatalError("Unreachable statement"));
-    return nullptr;
 }
 
 // ----------------------------------------------------------------------

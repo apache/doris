@@ -89,7 +89,6 @@ public:
         } else {
             throw Exception(Status::FatalError(
                     "Bloom filter is not supported by predicate type: is_null="));
-            return true;
         }
     }
 

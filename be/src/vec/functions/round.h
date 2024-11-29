@@ -499,7 +499,6 @@ struct Dispatcher {
             auto error_type = std::make_shared<T>();
             throw Exception(Status::FatalError(
                     "Dispatcher apply_vec_const __builtin_unreachable {}", error_type->get_name()));
-            return nullptr;
         }
     }
 
@@ -577,7 +576,6 @@ struct Dispatcher {
             auto error_type = std::make_shared<T>();
             throw Exception(Status::FatalError("Dispatcher apply_vec_vec __builtin_unreachable {}",
                                                error_type->get_name()));
-            return nullptr;
         }
     }
 
@@ -660,7 +658,6 @@ struct Dispatcher {
             auto error_type = std::make_shared<T>();
             throw Exception(Status::FatalError(
                     "Dispatcher apply_const_vec __builtin_unreachable {}", error_type->get_name()));
-            return nullptr;
         }
     }
 };

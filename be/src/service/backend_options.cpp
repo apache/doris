@@ -47,12 +47,10 @@ bool BackendOptions::init() {
 
     if (!status.ok()) {
         throw Exception(Status::FatalError("{}", status));
-        return false;
     }
 
     if (hosts.empty()) {
         throw Exception(Status::FatalError("failed to get host"));
-        return false;
     }
     if (!analyze_localhost(_s_localhost, _bind_ipv6, &_s_priority_cidrs, &hosts)) {
         return false;
@@ -118,7 +116,6 @@ bool BackendOptions::analyze_priority_cidrs(const std::string& priority_networks
         CIDR cidr;
         if (!cidr.reset(cidr_str)) {
             throw Exception(Status::FatalError("wrong cidr format. cidr_str={}", cidr_str));
-            return false;
         }
         cidrs->push_back(cidr);
     }
@@ -143,7 +140,6 @@ bool BackendOptions::analyze_localhost(std::string& localhost, bool& bind_ipv6,
         }
         if (localhost.empty()) {
             throw Exception(Status::FatalError("fail to find one valid address, exit."));
-            return false;
         }
     } else {
         std::string loopback;

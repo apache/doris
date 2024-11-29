@@ -581,7 +581,6 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     }
     default: {
         throw Exception(Status::FatalError("Unknown data type: {}", pcolumn.type()));
-        return nullptr;
     }
     }
 

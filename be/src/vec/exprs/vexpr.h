@@ -232,7 +232,6 @@ public:
         throw Exception(Status::FatalError(
                 "Method 'get_bloom_filter_func()' is not supported in expression: {}",
                 this->debug_string()));
-        return nullptr;
     }
 
     virtual std::shared_ptr<HybridSetBase> get_set_func() const { return nullptr; }
@@ -242,7 +241,6 @@ public:
         throw Exception(Status::FatalError(
                 "Method 'get_bitmap_filter_func()' is not supported in expression: {}",
                 this->debug_string()));
-        return nullptr;
     }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
