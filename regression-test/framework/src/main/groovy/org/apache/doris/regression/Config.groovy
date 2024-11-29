@@ -1025,8 +1025,10 @@ class Config {
         if (isCKEnabled) {
             excludeDirectorySet.add("unique_with_mow_p0/partial_update")
             excludeDirectorySet.add("unique_with_mow_p0/flexible")
+            excludeDirectorySet.add("fault_injection_p0/partial_update")
+            excludeDirectorySet.add("fault_injection_p0/flexible")
             excludeDirectorySet.add("doc")
-            List<String> excludeCases = ["test_table_properties", "test_default_hll", "test_default_pi", "test_full_compaction", "test_full_compaction_by_table_id", "test_create_table", "txn_insert", "test_update_mow", "test_new_update", "test_update_unique", "test_partial_update_generated_column", "nereids_partial_update_native_insert_stmt", "partial_update", "nereids_update_on_current_timestamp", "update_on_current_timestamp", "test_default_bitmap_empty", "nereids_delete_mow_partial_update", "delete_mow_partial_update", "partial_update_seq_col", "nereids_partial_update_native_insert_stmt_complex", "regression_test_variant_delete_and_update", "test_unique_table_auto_inc_partial_update_correct_stream_load", "test_unique_table_auto_inc", "test_unique_table_auto_inc_partial_update_correct_insert", "test_update_schema_change"]
+            List<String> excludeCases = ["test_table_properties", "test_default_hll", "test_default_pi", "test_full_compaction", "test_full_compaction_by_table_id", "test_create_table", "txn_insert", "test_update_mow", "test_new_update", "test_update_unique", "test_partial_update_generated_column", "nereids_partial_update_native_insert_stmt", "partial_update", "nereids_update_on_current_timestamp", "update_on_current_timestamp", "test_default_bitmap_empty", "nereids_delete_mow_partial_update", "delete_mow_partial_update", "partial_update_seq_col", "nereids_partial_update_native_insert_stmt_complex", "regression_test_variant_delete_and_update", "test_unique_table_auto_inc_partial_update_correct_stream_load", "test_unique_table_auto_inc", "test_unique_table_auto_inc_partial_update_correct_insert", "test_update_schema_change", "test_partial_update_rowset_not_found_fault_injection"]
             for (def excludeCase in excludeCases) {
                 excludeSuiteWildcard.add(excludeCase)
             }
