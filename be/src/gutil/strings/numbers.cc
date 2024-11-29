@@ -10,7 +10,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <float.h> // for DBL_DIG and FLT_DIG
-#include <math.h> // for HUGE_VAL
+#include <math.h>  // for HUGE_VAL
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
