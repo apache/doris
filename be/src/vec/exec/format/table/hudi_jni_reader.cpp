@@ -19,7 +19,6 @@
 
 #include <map>
 
-#include "common/config.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
