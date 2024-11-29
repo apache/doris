@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.thrift.TMCTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -53,7 +54,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.stream.Collectors;
 
 /**
@@ -74,12 +74,13 @@ public class MaxComputeExternalTable extends ExternalTable {
         }
     }
 
+    @Override
     public boolean supportInternalPartitionPruned() {
         return true;
     }
 
-
-    public List<Column> getPartitionColumns(OptionalLong snapshotId) {
+    @Override
+    public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
         return getPartitionColumns();
     }
 
@@ -90,7 +91,8 @@ public class MaxComputeExternalTable extends ExternalTable {
                 .orElse(Collections.emptyList());
     }
 
-    public Map<String, PartitionItem> getNameToPartitionItems(OptionalLong snapshotId) {
+    @Override
+    public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
         if (getPartitionColumns().isEmpty()) {
             return Collections.emptyMap();
         }
