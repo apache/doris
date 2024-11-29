@@ -112,13 +112,14 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     if (_closed) {
         return Status::OK();
     }
+    auto p = _parent->cast<HashJoinBuildSinkOperatorX>();
     Defer defer {[&]() {
         if (!_should_build_hash_table) {
             return;
         }
         // The build side hash key column maybe no need output, but we need to keep the column in block
         // because it is used to compare with probe side hash key column
-        auto p = _parent->cast<HashJoinBuildSinkOperatorX>();
+
         if (p._should_keep_hash_key_column && _build_col_ids.size() == 1) {
             p._should_keep_column_flags[_build_col_ids[0]] = true;
         }
@@ -143,6 +144,10 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
             RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
             RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
         } else {
+            if (p._shared_hashtable_controller &&
+                !p._shared_hash_table_context->complete_build_stage) {
+                return Status::InternalError("close before sink meet eos");
+            }
             auto* block = _shared_state->build_block.get();
             uint64_t hash_table_size = block ? block->rows() : 0;
             {
