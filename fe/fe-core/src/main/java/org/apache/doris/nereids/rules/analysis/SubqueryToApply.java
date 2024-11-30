@@ -27,7 +27,7 @@ import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithM
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -589,17 +589,19 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitBinaryOperator(BinaryOperator binaryOperator, SubqueryContext context) {
+        public Expression visitCompoundPredicate(CompoundPredicate compound, SubqueryContext context) {
             // update isMarkJoin flag
-            isMarkJoin =
-                    isMarkJoin || ((binaryOperator.left().anyMatch(SubqueryExpr.class::isInstance)
-                            || binaryOperator.right().anyMatch(SubqueryExpr.class::isInstance))
-                            && (binaryOperator instanceof Or));
-
-            Expression left = replace(binaryOperator.left(), context);
-            Expression right = replace(binaryOperator.right(), context);
-
-            return binaryOperator.withChildren(left, right);
+            if (compound instanceof Or) {
+                for (Expression child : compound.children()) {
+                    if (child.anyMatch(SubqueryExpr.class::isInstance)) {
+                        isMarkJoin = true;
+                        break;
+                    }
+                }
+            }
+            return compound.withChildren(
+                    compound.children().stream().map(c -> replace(c, context)).collect(Collectors.toList())
+            );
         }
     }
 

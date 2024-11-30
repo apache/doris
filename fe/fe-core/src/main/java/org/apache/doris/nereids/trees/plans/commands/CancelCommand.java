@@ -144,18 +144,18 @@ public abstract class CancelCommand extends Command implements ForwardWithSync {
     private void compoundCheck(Expression expr, Map<String, String> supportedColumns) throws AnalysisException {
         // current only support label and state
         if (expr instanceof Not) {
-            throw new AnalysisException("Current not support NOT operator");
+            throw new AnalysisException("not support NOT operator");
         }
         for (int i = 0; i < 2; i++) {
             Expression child = expr.child(i);
             if (child instanceof CompoundPredicate) {
-                throw new AnalysisException("Current not support nested clause");
+                throw new AnalysisException("not support where clause: " + expr.toSql());
             } else if (child instanceof Like) {
                 likeCheck(child, supportedColumns);
             } else if (child instanceof BinaryOperator) {
                 binaryCheck(child, supportedColumns);
             } else {
-                throw new AnalysisException("Only support like/binary predicate");
+                throw new AnalysisException("Only support like/equalTo/And/Or predicate");
             }
         }
     }

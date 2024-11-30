@@ -19,7 +19,7 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
 --------------------------------PhysicalProject
-----------------------------------filter((((date_dim.d_dom >= 1) AND (date_dim.d_dom <= 3)) OR ((date_dim.d_dom >= 25) AND (date_dim.d_dom <= 28))) and d_year IN (2000, 2001, 2002))
+----------------------------------filter(OR[AND[(date_dim.d_dom >= 1),(date_dim.d_dom <= 3)],AND[(date_dim.d_dom >= 25),(date_dim.d_dom <= 28)]] and d_year IN (2000, 2001, 2002))
 ------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalProject
 ------------------------------filter(s_county IN ('Arthur County', 'Halifax County', 'Lunenburg County', 'Oglethorpe County', 'Perry County', 'Salem County', 'Sumner County', 'Terrell County'))
