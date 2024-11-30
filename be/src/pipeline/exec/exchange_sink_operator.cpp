@@ -112,7 +112,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     only_local_exchange = local_size == channels.size();
 
     if (!only_local_exchange) {
-        _sink_buffer = p.get_sink_buffer();
+        _sink_buffer = p.get_sink_buffer(_sender_id);
         register_channels(_sink_buffer.get());
         _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                       "ExchangeSinkQueueDependency", true);
@@ -369,7 +369,9 @@ Status ExchangeSinkOperatorX::open(RuntimeState* state) {
         }
         RETURN_IF_ERROR(vectorized::VExpr::open(_tablet_sink_expr_ctxs, state));
     }
-    _sink_buffer = _create_buffer();
+    for (int i = 0; i < 3; i++) {
+        _sink_buffers.push_back(_create_buffer());
+    }
     return Status::OK();
 }
 
@@ -758,7 +760,7 @@ std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::_create_buffer() {
     return sink_buffer;
 }
 
-std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::get_sink_buffer() {
+std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::get_sink_buffer(int sender_id) {
     if (_child) {
         if (std::dynamic_pointer_cast<SortSourceOperatorX>(_child)) {
             return _create_buffer();
@@ -767,10 +769,7 @@ std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::get_sink_buffer() {
             return _create_buffer();
         }
     }
-    if (_state->enable_shared_exchange_sink_buffer()) {
-        return _sink_buffer;
-    }
-    return _create_buffer();
+    return _sink_buffers[sender_id % _sink_buffers.size()];
 }
 
 } // namespace doris::pipeline

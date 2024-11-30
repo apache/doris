@@ -22,6 +22,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
@@ -216,7 +217,7 @@ public:
     // (Note: This does not reduce the total number of RPCs.)
     // In a merge sort scenario, there are only n RPCs, so a shared sink buffer is not needed.
     /// TODO: Modify this to let FE handle the judgment instead of BE.
-    std::shared_ptr<ExchangeSinkBuffer> get_sink_buffer();
+    std::shared_ptr<ExchangeSinkBuffer> get_sink_buffer(int sender_id);
 
 private:
     friend class ExchangeSinkLocalState;
@@ -239,7 +240,7 @@ private:
     // The sink buffer can be shared among multiple ExchangeSinkLocalState instances,
     // or each ExchangeSinkLocalState can have its own sink buffer.
     std::shared_ptr<ExchangeSinkBuffer> _create_buffer();
-    std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
+    std::vector<std::shared_ptr<ExchangeSinkBuffer>> _sink_buffers;
     RuntimeState* _state = nullptr;
 
     const std::vector<TExpr> _texprs;
