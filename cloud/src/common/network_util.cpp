@@ -29,7 +29,6 @@
 #include <sstream>
 #include <vector>
 
-#include "common/exception.h"
 #include "common/logging.h"
 
 namespace doris::cloud {
@@ -138,8 +137,8 @@ static bool get_hosts_v4(std::vector<InetAddress>* hosts) {
     if (getifaddrs(&if_addrs)) {
         std::stringstream ss;
         char buf[64];
-        throw Exception(Status::FatalError("getifaddrs failed because {}",
-                                        strerror_r(errno, buf, sizeof(buf))));
+        LOG(FATAL) << "getifaddrs failed because " << strerror_r(errno, buf, sizeof(buf));
+        return false;
     }
 
     for (ifaddrs* if_addr = if_addrs; if_addr != nullptr; if_addr = if_addr->ifa_next) {
@@ -172,18 +171,21 @@ std::string get_local_ip(const std::string& priority_networks) {
     for (auto& cidr_str : cidr_strs) {
         CIDR cidr;
         if (!cidr.reset(cidr_str)) {
-            throw Exception(Status::FatalError("wrong cidr format. cidr_str={}", cidr_str));
+            LOG(FATAL) << "wrong cidr format. cidr_str=" << cidr_str;
+            return localhost_str;
         }
         priority_cidrs.push_back(cidr);
     }
 
     std::vector<InetAddress> hosts;
     if (!get_hosts_v4(&hosts)) {
-        throw Exception(Status::FatalError("failed to getifaddrs"));
+        LOG(FATAL) << "failed to getifaddrs";
+        return localhost_str;
     }
 
     if (hosts.empty()) {
-        throw Exception(Status::FatalError("failed to get host"));
+        LOG(FATAL) << "failed to get host";
+        return localhost_str;
     }
 
     auto is_in_prior_network = [&priority_cidrs](const std::string& ip) {

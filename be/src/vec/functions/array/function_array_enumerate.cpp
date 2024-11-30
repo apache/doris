@@ -62,9 +62,10 @@ public:
         const DataTypeArray* array_type =
                 check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[0]).get());
         if (!array_type) {
-            throw Exception(Status::FatalError(
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
                     "First argument for function {} .must be an array but it type is {}",
-                    get_name(), arguments[0]->get_name()));
+                    get_name(), arguments[0]->get_name());
         }
 
         auto nested_type = assert_cast<const DataTypeArray&>(*array_type).get_nested_type();

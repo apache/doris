@@ -60,8 +60,8 @@ bool GetBooleanEnvironmentVariable(const char* env_var_name) {
     if ((strcasecmp(e, "true") == 0) || (strcasecmp(e, "1") == 0) || (strcasecmp(e, "yes") == 0)) {
         return true;
     }
-    throw doris::Exception(doris::Status::FatalError(
-            Substitute("$0: invalid value for environment variable $0", e, env_var_name)));
+    LOG(FATAL) << Substitute("$0: invalid value for environment variable $0", e, env_var_name);
+    return false; // unreachable
 }
 
 std::string GetCurrentRunningDir() {

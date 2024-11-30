@@ -680,9 +680,10 @@ public:
     /// Get result types by argument types. If the function does not apply to these arguments, throw an exception.
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if ((arguments.empty()) || (arguments.size() > 2)) {
-            throw Exception(Status::FatalError(
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
                     "Number of arguments for function {}, doesn't match: should be 1 or 2. ",
-                    get_name()));
+                    get_name());
         }
 
         return arguments[0];

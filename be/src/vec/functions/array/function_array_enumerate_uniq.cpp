@@ -79,17 +79,20 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments.empty()) {
-            throw Exception(Status::FatalError(
-                    "Incorrect number of arguments for array_enumerate_uniq function"));
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "Incorrect number of arguments for array_enumerate_uniq function");
+            __builtin_unreachable();
         }
         bool is_nested_nullable = false;
         for (size_t i = 0; i < arguments.size(); ++i) {
             const DataTypeArray* array_type =
                     check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[i]).get());
             if (!array_type) {
-                throw Exception(Status::FatalError(
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
                         "The {} -th argument for function: {} .must be an array but it type is {}",
-                        i, get_name(), arguments[i]->get_name()));
+                        i, get_name(), arguments[i]->get_name());
             }
             is_nested_nullable = is_nested_nullable || array_type->get_nested_type()->is_nullable();
         }

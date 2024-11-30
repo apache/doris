@@ -43,8 +43,10 @@ public:
         if constexpr (IsDataTypeDecimalV2<ToDataType>) {
             res = create_decimal(27, 9, true);
             if (!res) {
-                throw Exception(Status::FatalError(
-                        "Something wrong with create_decimal in function {}", get_name()));
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Something wrong with create_decimal in function {}",
+                                       get_name());
+                __builtin_unreachable();
             }
         } else {
             res = std::make_shared<ToDataType>();

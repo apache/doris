@@ -171,9 +171,10 @@ template <typename Impl, typename Name>
 DataTypePtr FunctionAnyArityLogical<Impl, Name>::get_return_type_impl(
         const DataTypes& arguments) const {
     if (arguments.size() < 2) {
-        throw Exception(Status::FatalError(
+        throw doris::Exception(
+                ErrorCode::INVALID_ARGUMENT,
                 "Number of arguments for function \"{}\" should be at least 2: passed {}",
-                get_name(), arguments.size()));
+                get_name(), arguments.size());
     }
 
     bool has_nullable_arguments = false;
@@ -192,8 +193,9 @@ DataTypePtr FunctionAnyArityLogical<Impl, Name>::get_return_type_impl(
 
         if (!(is_native_number(arg_type) || (Impl::special_implementation_for_nulls() &&
                                              is_native_number(remove_nullable(arg_type))))) {
-            throw Exception(Status::FatalError("Illegal type ({}) of {} argument of function {}",
-                                               arg_type->get_name(), i + 1, get_name()));
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Illegal type ({}) of {} argument of function {}",
+                                   arg_type->get_name(), i + 1, get_name());
         }
     }
 
@@ -239,8 +241,9 @@ template <template <typename> class Impl, typename Name>
 DataTypePtr FunctionUnaryLogical<Impl, Name>::get_return_type_impl(
         const DataTypes& arguments) const {
     if (!is_native_number(arguments[0])) {
-        throw Exception(Status::FatalError("Illegal type ({}) of argument of function {}",
-                                           arguments[0]->get_name(), get_name()));
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "Illegal type ({}) of argument of function {}",
+                               arguments[0]->get_name(), get_name());
     }
 
     return std::make_shared<DataTypeUInt8>();
@@ -268,9 +271,9 @@ Status FunctionUnaryLogical<Impl, Name>::execute_impl(FunctionContext* context, 
                                                       const ColumnNumbers& arguments, size_t result,
                                                       size_t /*input_rows_count*/) const {
     if (!functionUnaryExecuteType<Impl, UInt8>(block, arguments, result)) {
-        throw Exception(Status::FatalError("Illegal column {} of argument of function {}",
-                                           block.get_by_position(arguments[0]).column->get_name(),
-                                           get_name()));
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "Illegal column {} of argument of function {}",
+                               block.get_by_position(arguments[0]).column->get_name(), get_name());
     }
 
     return Status::OK();

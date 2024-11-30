@@ -165,8 +165,8 @@ void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t
         tablet->set_last_full_compaction_failure_time(ms);
         return;
     default:
-        throw Exception(Status::FatalError("invalid compaction type {} tablet_id: {}",
-                                           compaction.compaction_name(), tablet->tablet_id()));
+        LOG(FATAL) << "invalid compaction type " << compaction.compaction_name()
+                   << " tablet_id: " << tablet->tablet_id();
     }
 };
 
@@ -779,8 +779,8 @@ void Tablet::delete_expired_stale_rowset() {
                     // 5. check recover fail, version is mission
                     if (is_recover_missing) {
                         if (!config::ignore_rowset_stale_unconsistent_delete) {
-                            throw Exception(Status::FatalError(
-                                    "rowset stale unconsistent delete. tablet= {}", tablet_id()));
+                            LOG(FATAL)
+                                    << "rowset stale unconsistent delete. tablet= " << tablet_id();
                         } else {
                             LOG(WARNING)
                                     << "rowset stale unconsistent delete. tablet= " << tablet_id();
