@@ -47,7 +47,7 @@ import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -248,7 +248,7 @@ public class LoadManager implements Writable {
      * Match need cancel loadJob by stmt.
      **/
     @VisibleForTesting
-    public static void addNeedCancelLoadJob(String label, String state, BinaryOperator operator,
+    public static void addNeedCancelLoadJob(String label, String state, Expression operator,
                                             List<LoadJob> loadJobs, List<LoadJob> matchLoadJobs)
             throws AnalysisException {
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
@@ -281,7 +281,7 @@ public class LoadManager implements Writable {
     /**
      * Cancel load job by stmt.
      **/
-    public void cancelLoadJob(String dbName, String label, String state, BinaryOperator operator)
+    public void cancelLoadJob(String dbName, String label, String state, Expression operator)
             throws DdlException, AnalysisException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         // List of load jobs waiting to be cancelled
