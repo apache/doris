@@ -34,7 +34,11 @@ suite("nereids_scalar_fn_IP") {
     qt_sql_cidr_ipv6_nullable_ "select id, ipv6_cidr_to_range(to_ipv6('::'), 32) from fn_test_ip_nullable order by id;"	
     test {
    	sql "select id, ipv6_cidr_to_range(nullable(''), 32) from fn_test_ip_nullable order by id" 
-	exception "Illegal ipv6 address"
+	exception "Invalid IPv6 value"
+    }
+    test {
+        sql "select id, ipv6_cidr_to_range(nullable('abc'), 32) from fn_test_ip_not_nullable order by id"
+        exception "Invalid IPv6 value"
     }
     // test IPV4_STRING_TO_NUM/IPV6_STRING_TO_NUM (we have null value in ip4 and ip6 column in fn_test_ip_nullable table)
     test {
@@ -162,7 +166,12 @@ suite("nereids_scalar_fn_IP") {
     qt_sql_not_null_cidr_ipv6_nullable_ "select id, ipv6_cidr_to_range(to_ipv6('::'), 32) from fn_test_ip_nullable order by id;"
     test {
         sql "select id, ipv6_cidr_to_range(nullable(''), 32) from fn_test_ip_not_nullable order by id"
-        exception "Illegal ipv6 address"
+        exception "Invalid IPv6 value"
+    }
+
+    test {
+        sql "select id, ipv6_cidr_to_range(nullable('abc'), 32) from fn_test_ip_not_nullable order by id"
+        exception "Invalid IPv6 value"
     }
     // test IPV4_STRING_TO_NUM/IPV6_STRING_TO_NUM
     qt_sql_not_null_ipv6_string_to_num 'select id, hex(ipv6_string_to_num(ip6)) from fn_test_ip_not_nullable order by id'

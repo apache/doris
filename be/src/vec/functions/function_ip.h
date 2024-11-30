@@ -866,6 +866,11 @@ public:
     }
 };
 
+/**
+ * this function accepts two arguments: an IPv6 address and a CIDR mask
+ *  IPv6 address can be either ipv6 type or string type as ipv6 string address
+ *  FE: PropagateNullable is used to handle nullable columns
+ */
 class FunctionIPv6CIDRToRange : public IFunction {
 public:
     static constexpr auto name = "ipv6_cidr_to_range";
@@ -900,9 +905,11 @@ public:
             col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, *cidr_col, input_rows_count,
                                                add_col_const, col_const);
         } else if (addr_type.is_string()) {
-            const auto* str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
-            col_res = execute_impl<ColumnString>(*str_addr_column, *cidr_col, input_rows_count,
-                                                 add_col_const, col_const);
+            ColumnPtr col_ipv6 =
+                    convert_to_ipv6<IPConvertExceptionMode::Throw>(addr_column, nullptr);
+            const auto* ipv6_addr_column = assert_cast<const ColumnIPv6*>(col_ipv6.get());
+            col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, *cidr_col, input_rows_count,
+                                               add_col_const, col_const);
         } else {
             return Status::RuntimeError(
                     "Illegal column {} of argument of function {}, Expected IPv6 or String",
@@ -923,19 +930,8 @@ public:
         auto& vec_res_upper_range = col_res_upper_range->get_data();
 
         static constexpr UInt8 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
-        unsigned char ipv6_address_data[IPV6_BINARY_LENGTH];
 
         if (is_addr_const) {
-            StringRef str_ref = from_column.get_data_at(0);
-            const char* value = str_ref.data;
-            size_t value_size = str_ref.size;
-            if (value_size > IPV6_BINARY_LENGTH || value == nullptr || value_size == 0 ||
-                !IPv6Value::is_valid_string(value, value_size)) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal ipv6 address '{}'",
-                                std::string(value, value_size));
-            }
-            memcpy(ipv6_address_data, value, value_size);
-            memset(ipv6_address_data + value_size, 0, IPV6_BINARY_LENGTH - value_size);
             for (size_t i = 0; i < input_rows_count; ++i) {
                 auto cidr = cidr_column.get_int(i);
                 if (cidr < 0 || cidr > max_cidr_mask) {
@@ -945,9 +941,9 @@ public:
                 if constexpr (std::is_same_v<FromColumn, ColumnString>) {
                     // 16 bytes ipv6 string is stored in big-endian byte order
                     // so transfer to little-endian firstly
-                    std::reverse(ipv6_address_data, ipv6_address_data + IPV6_BINARY_LENGTH);
-                    apply_cidr_mask(reinterpret_cast<const char*>(&ipv6_address_data),
-                                    reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                    auto* src_data = const_cast<char*>(from_column.get_data_at(0).data);
+                    std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
+                    apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
                                     reinterpret_cast<char*>(&vec_res_upper_range[i]),
                                     cast_set<UInt8>(cidr));
                 } else {
@@ -967,19 +963,9 @@ public:
                 if constexpr (std::is_same_v<FromColumn, ColumnString>) {
                     // 16 bytes ipv6 string is stored in big-endian byte order
                     // so transfer to little-endian firstly
-                    StringRef str_ref = from_column.get_data_at(i);
-                    const char* value = str_ref.data;
-                    size_t value_size = str_ref.size;
-                    if (value_size > IPV6_BINARY_LENGTH || value == nullptr || value_size == 0 ||
-                        !IPv6Value::is_valid_string(value, value_size)) {
-                        throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal ipv6 address '{}'",
-                                        std::string(value, value_size));
-                    }
-                    memcpy(ipv6_address_data, value, value_size);
-                    memset(ipv6_address_data + value_size, 0, IPV6_BINARY_LENGTH - value_size);
-                    std::reverse(ipv6_address_data, ipv6_address_data + IPV6_BINARY_LENGTH);
-                    apply_cidr_mask(reinterpret_cast<const char*>(&ipv6_address_data),
-                                    reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                    auto* src_data = const_cast<char*>(from_column.get_data_at(i).data);
+                    std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
+                    apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
                                     reinterpret_cast<char*>(&vec_res_upper_range[i]),
                                     cast_set<UInt8>(cidr));
                 } else {
@@ -999,19 +985,9 @@ public:
                 if constexpr (std::is_same_v<FromColumn, ColumnString>) {
                     // 16 bytes ipv6 string is stored in big-endian byte order
                     // so transfer to little-endian firstly
-                    StringRef str_ref = from_column.get_data_at(i);
-                    const char* value = str_ref.data;
-                    size_t value_size = str_ref.size;
-                    if (value_size > IPV6_BINARY_LENGTH || value == nullptr || value_size == 0 ||
-                        !IPv6Value::is_valid_string(value, value_size)) {
-                        throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal ipv6 address '{}'",
-                                        std::string(value, value_size));
-                    }
-                    memcpy(ipv6_address_data, value, value_size);
-                    memset(ipv6_address_data + value_size, 0, IPV6_BINARY_LENGTH - value_size);
-                    std::reverse(ipv6_address_data, ipv6_address_data + IPV6_BINARY_LENGTH);
-                    apply_cidr_mask(reinterpret_cast<const char*>(&ipv6_address_data),
-                                    reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                    auto* src_data = const_cast<char*>(from_column.get_data_at(i).data);
+                    std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
+                    apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
                                     reinterpret_cast<char*>(&vec_res_upper_range[i]),
                                     cast_set<UInt8>(cidr));
                 } else {
