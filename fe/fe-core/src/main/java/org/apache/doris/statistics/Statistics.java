@@ -112,7 +112,7 @@ public class Statistics {
         normalizeColumnStatistics(this.rowCount, false);
     }
 
-    public void normalizeColumnStatistics(double inputRowCount, boolean isNumNullsDecreaseByProportion) {
+    public Statistics normalizeColumnStatistics(double inputRowCount, boolean isNumNullsDecreaseByProportion) {
         double factor = isNumNullsDecreaseByProportion ? rowCount / inputRowCount : 1.0;
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
@@ -130,6 +130,7 @@ public class Statistics {
                 expressionToColumnStats.put(entry.getKey(), columnStatistic);
             }
         }
+        return this;
     }
 
     public boolean checkColumnStatsValid(ColumnStatistic columnStatistic, double rowCount) {
