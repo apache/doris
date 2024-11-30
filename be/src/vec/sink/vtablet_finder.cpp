@@ -60,6 +60,7 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
                     },
                     &stop_processing));
             _num_filtered_rows++;
+            LOG(WARNING) << "debug:filtered " << block->dump_one_line(row_index, block->columns());
             _filter_bitmap.Set(row_index, true);
             if (stop_processing) {
                 return Status::DataQualityError("Encountered unqualified data, stop processing");

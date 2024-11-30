@@ -182,9 +182,10 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
     return DecimalType(value);
 }
 
-Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const TypeDescriptor& type,
-                                                 bool is_nullable, vectorized::ColumnPtr column,
-                                                 size_t slot_index, bool* stop_processing,
+Status OlapTableBlockConvertor::_validate_column(Block* block, RuntimeState* state,
+                                                 const TypeDescriptor& type, bool is_nullable,
+                                                 vectorized::ColumnPtr column, size_t slot_index,
+                                                 bool* stop_processing,
                                                  fmt::memory_buffer& error_prefix,
                                                  const uint32_t row_count,
                                                  vectorized::IColumn::Permutation* rows) {
@@ -395,7 +396,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
             }
         }
         fmt::format_to(error_prefix, "ARRAY type failed: ");
-        RETURN_IF_ERROR(_validate_column(state, nested_type, type.contains_nulls[0],
+        RETURN_IF_ERROR(_validate_column(block, state, nested_type, type.contains_nulls[0],
                                          column_array->get_data_ptr(), slot_index, stop_processing,
                                          error_prefix, permutation.size(), &permutation));
         break;
@@ -413,10 +414,10 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
             }
         }
         fmt::format_to(error_prefix, "MAP type failed: ");
-        RETURN_IF_ERROR(_validate_column(state, key_type, type.contains_nulls[0],
+        RETURN_IF_ERROR(_validate_column(block, state, key_type, type.contains_nulls[0],
                                          column_map->get_keys_ptr(), slot_index, stop_processing,
                                          error_prefix, permutation.size(), &permutation));
-        RETURN_IF_ERROR(_validate_column(state, val_type, type.contains_nulls[1],
+        RETURN_IF_ERROR(_validate_column(block, state, val_type, type.contains_nulls[1],
                                          column_map->get_values_ptr(), slot_index, stop_processing,
                                          error_prefix, permutation.size(), &permutation));
         break;
@@ -427,10 +428,10 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         DCHECK(type.children.size() == column_struct->tuple_size());
         fmt::format_to(error_prefix, "STRUCT type failed: ");
         for (size_t sc = 0; sc < column_struct->tuple_size(); ++sc) {
-            RETURN_IF_ERROR(_validate_column(state, type.children[sc], type.contains_nulls[sc],
-                                             column_struct->get_column_ptr(sc), slot_index,
-                                             stop_processing, error_prefix,
-                                             column_struct->get_column_ptr(sc)->size()));
+            RETURN_IF_ERROR(
+                    _validate_column(block, state, type.children[sc], type.contains_nulls[sc],
+                                     column_struct->get_column_ptr(sc), slot_index, stop_processing,
+                                     error_prefix, column_struct->get_column_ptr(sc)->size()));
         }
         break;
     }
@@ -446,6 +447,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         for (int j = 0; j < row_count; ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (null_map[j] && !_filter_map[row]) {
+                LOG(WARNING) << "debug:null " << block->dump_data(j, 2);
                 fmt::format_to(error_msg, "null value for not null column, type={}",
                                type.debug_string());
                 RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));
@@ -467,7 +469,7 @@ Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::
 
         fmt::memory_buffer error_prefix;
         fmt::format_to(error_prefix, "column_name[{}], ", desc->col_name());
-        RETURN_IF_ERROR(_validate_column(state, desc->type(), desc->is_nullable(), column, i,
+        RETURN_IF_ERROR(_validate_column(block, state, desc->type(), desc->is_nullable(), column, i,
                                          stop_processing, error_prefix, rows));
     }
 
