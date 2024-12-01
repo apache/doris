@@ -67,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
@@ -399,6 +400,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitSetDefaultStorageVault(SetDefaultStorageVaultCommand setDefaultStorageVaultCommand, C context) {
         return visitCommand(setDefaultStorageVaultCommand, context);
+    }
+
+    default R visitDropStoragePolicyCommand(DropStoragePolicyCommand dropStoragePolicyCommand, C context) {
+        return visitCommand(dropStoragePolicyCommand, context);
     }
 
     default R visitRefreshCatalogCommand(RefreshCatalogCommand refreshCatalogCommand, C context) {
