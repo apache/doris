@@ -27,6 +27,7 @@
 #include <parquet/types.h>
 #include <stdint.h>
 
+#include "vec/exec/format/table/iceberg/schema.h"
 #include "vfile_format_transformer.h"
 
 namespace doris {
@@ -94,7 +95,8 @@ public:
                         std::vector<std::string> column_names,
                         TParquetCompressionType::type compression_type,
                         bool parquet_disable_dictionary, TParquetVersion::type parquet_version,
-                        bool output_object_data, const std::string* iceberg_schema_json = nullptr);
+                        bool output_object_data, const std::string* iceberg_schema_json = nullptr,
+                        const iceberg::Schema* iceberg_schema = nullptr);
 
     VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                         const VExprContextSPtrs& output_vexpr_ctxs,
@@ -131,6 +133,7 @@ private:
     const TParquetVersion::type _parquet_version;
     const std::string* _iceberg_schema_json;
     uint64_t _write_size = 0;
+    const iceberg::Schema* _iceberg_schema;
 };
 
 } // namespace doris::vectorized
