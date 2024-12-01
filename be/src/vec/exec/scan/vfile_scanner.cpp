@@ -750,7 +750,7 @@ Status VFileScanner::_get_next_reader() {
 
         // create reader for specific format
         Status init_status;
-        TFileFormatType::type format_type = _params->format_type;
+        TFileFormatType::type format_type = range.format_type;
         // JNI reader can only push down column value range
         bool push_down_predicates =
                 !_is_load && _params->format_type != TFileFormatType::FORMAT_JNI;
