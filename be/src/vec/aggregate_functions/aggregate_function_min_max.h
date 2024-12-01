@@ -547,10 +547,10 @@ public:
         if (StringRef(Data::name()) == StringRef("min") ||
             StringRef(Data::name()) == StringRef("max")) {
             if (!type->is_comparable()) {
-                throw doris::Exception(Status::FatalError(
-                        "Illegal type {} of argument of aggregate function {} because the values "
-                        "of that data type are not comparable",
-                        type->get_name(), get_name()));
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "Illegal type {} of argument of aggregate function {} "
+                                       "because the values of that data type are not comparable",
+                                       type->get_name(), get_name());
             }
         }
     }

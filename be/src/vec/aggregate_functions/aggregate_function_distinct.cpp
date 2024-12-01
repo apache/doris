@@ -22,7 +22,6 @@
 
 #include <ostream>
 
-#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function_combinator.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
@@ -46,8 +45,9 @@ public:
 
     DataTypes transform_arguments(const DataTypes& arguments) const override {
         if (arguments.empty()) {
-            throw doris::Exception(doris::Status::FatalError(
-                    "Incorrect number of arguments for aggregate function with Distinct suffix"));
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Incorrect number of arguments for aggregate function with Distinct suffix");
         }
         return arguments;
     }

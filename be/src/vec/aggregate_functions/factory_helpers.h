@@ -43,15 +43,17 @@ void assert_arity_at_most(const std::string& name, const DataTypes& argument_typ
     }
 
     if constexpr (maximal_arity == 0) {
-        throw Exception(Status::FatalError("Aggregate function {} cannot have arguments", name));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Aggregate function {} cannot have arguments", name);
     }
 
     if constexpr (maximal_arity == 1) {
-        throw Exception(
-                Status::FatalError("Aggregate function {} requires zero or one argument", name));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Aggregate function {} requires zero or one argument", name);
     }
-    throw Exception(Status::FatalError("Aggregate function {} requires at most {} arguments", name,
-                                       maximal_arity));
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                           "Aggregate function {} requires at most {} arguments", name,
+                           maximal_arity);
 }
 
 } // namespace doris::vectorized

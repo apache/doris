@@ -99,7 +99,7 @@ public:
             return true;
         });
         if (!valid) {
-             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "Illegal type {} of argument of function {}",
                                    arguments[0]->get_name(), get_name());
         }
