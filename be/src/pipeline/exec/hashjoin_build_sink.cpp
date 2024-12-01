@@ -139,28 +139,34 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         return Base::close(state, exec_status);
     }
 
-    if (_should_build_hash_table) {
-        if (state->get_task()->wake_up_by_downstream()) {
+    if (state->get_task()->wake_up_by_downstream()) {
+        if (_should_build_hash_table) {
+            // partitial ignore rf to make global rf work
             RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
             RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
         } else {
-            if (p._shared_hashtable_controller &&
-                !p._shared_hash_table_context->complete_build_stage) {
-                return Status::InternalError("close before sink meet eos");
-            }
-            auto* block = _shared_state->build_block.get();
-            uint64_t hash_table_size = block ? block->rows() : 0;
-            {
-                SCOPED_TIMER(_runtime_filter_init_timer);
-                RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
-                RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state));
-            }
-            if (hash_table_size > 1) {
-                SCOPED_TIMER(_runtime_filter_compute_timer);
-                _runtime_filter_slots->insert(block);
-            }
+            // do not publish filter coz local rf not inited and useless
+            return Base::close(state, exec_status);
         }
     }
+
+    if (_should_build_hash_table) {
+        if (p._shared_hashtable_controller && !p._shared_hash_table_context->complete_build_stage) {
+            return Status::InternalError("close before sink meet eos");
+        }
+        auto* block = _shared_state->build_block.get();
+        uint64_t hash_table_size = block ? block->rows() : 0;
+        {
+            SCOPED_TIMER(_runtime_filter_init_timer);
+            RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
+            RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state));
+        }
+        if (hash_table_size > 1) {
+            SCOPED_TIMER(_runtime_filter_compute_timer);
+            _runtime_filter_slots->insert(block);
+        }
+    }
+
     SCOPED_TIMER(_publish_runtime_filter_timer);
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             _runtime_filter_slots->publish(state, !_should_build_hash_table));
