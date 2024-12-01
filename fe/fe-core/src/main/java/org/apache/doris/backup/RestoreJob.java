@@ -123,6 +123,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private static final String PROP_CLEAN_TABLES = RestoreStmt.PROP_CLEAN_TABLES;
     private static final String PROP_CLEAN_PARTITIONS = RestoreStmt.PROP_CLEAN_PARTITIONS;
     private static final String PROP_ATOMIC_RESTORE = RestoreStmt.PROP_ATOMIC_RESTORE;
+    private static final String PROP_COLOCATE_WITH = RestoreStmt.PROP_COLOCATE_WITH;
     private static final String ATOMIC_RESTORE_TABLE_PREFIX = "__doris_atomic_restore_prefix__";
 
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
@@ -210,6 +211,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private boolean isCleanPartitions = false;
     // Whether to restore the data into a temp table, and then replace the origin one.
     private boolean isAtomicRestore = false;
+    // Whether to specify table property colocate_with
+    private String colocateWith = null;
 
     // restore properties
     @SerializedName("prop")
@@ -228,7 +231,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
             boolean reserveDynamicPartitionEnable, boolean isBeingSynced, boolean isCleanTables,
-            boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId) {
+            boolean isCleanPartitions, boolean isAtomicRestore, String colocateWith, Env env, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
@@ -246,20 +249,25 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         this.isCleanTables = isCleanTables;
         this.isCleanPartitions = isCleanPartitions;
         this.isAtomicRestore = isAtomicRestore;
+        this.colocateWith = colocateWith;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
         properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
         properties.put(PROP_IS_BEING_SYNCED, String.valueOf(isBeingSynced));
         properties.put(PROP_CLEAN_TABLES, String.valueOf(isCleanTables));
         properties.put(PROP_CLEAN_PARTITIONS, String.valueOf(isCleanPartitions));
         properties.put(PROP_ATOMIC_RESTORE, String.valueOf(isAtomicRestore));
+        properties.put(PROP_COLOCATE_WITH, colocateWith);
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
             boolean reserveDynamicPartitionEnable, boolean isBeingSynced, boolean isCleanTables,
-            boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId, BackupMeta backupMeta) {
+            boolean isCleanPartitions, boolean isAtomicRestore,
+            String colocateWith, Env env, long repoId,
+            BackupMeta backupMeta) {
         this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
-                reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions, isAtomicRestore, env,
+                reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions, isAtomicRestore,
+                colocateWith, env,
                 repoId);
         this.backupMeta = backupMeta;
     }
@@ -817,7 +825,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                     // Reset properties to correct values.
                     remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica,
-                                                            replicaAlloc, isBeingSynced);
+                                                            replicaAlloc, isBeingSynced, colocateWith);
 
                     // DO NOT set remote table's new name here, cause we will still need the origin name later
                     // remoteOlapTbl.setName(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
@@ -2224,6 +2232,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         info.add(replicaAlloc.toCreateStmt());
         info.add(String.valueOf(reserveReplica));
         info.add(String.valueOf(reserveDynamicPartitionEnable));
+        info.add(colocateWith);
         if (!isBrief) {
             info.add(getRestoreObjs());
         }
@@ -2647,6 +2656,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanTables = Boolean.parseBoolean(properties.get(PROP_CLEAN_TABLES));
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
+        colocateWith = properties.get(PROP_COLOCATE_WITH);
     }
 
     @Override

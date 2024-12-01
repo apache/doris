@@ -555,14 +555,16 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                     stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(),
                     stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(),
-                    stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(),
+                    stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(), stmt.getColocateWith(),
                     env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
         } else {
             restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
-                db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveDynamicPartitionEnable(),
-                stmt.isBeingSynced(), stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(),
-                env, repository.getId());
+                    db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
+                    stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(),
+                    stmt.reserveDynamicPartitionEnable(),
+                    stmt.isBeingSynced(), stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(),
+                    stmt.getColocateWith(),
+                    env, repository.getId());
         }
 
         env.getEditLog().logRestoreJob(restoreJob);

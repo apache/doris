@@ -3062,6 +3062,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isAtomicRestore()) {
             properties.put(RestoreStmt.PROP_ATOMIC_RESTORE, "true");
         }
+        if (request.isSetColocateWith()) {
+            properties.put(RestoreStmt.PROP_COLOCATE_WITH, request.getColocateWith());
+        }
 
         AbstractBackupTableRefClause restoreTableRefClause = null;
         if (request.isSetTableRefs()) {

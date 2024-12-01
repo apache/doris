@@ -73,6 +73,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
     private BinlogConfig binlogConfig;
+    private String colocateWith = "";
 
     private TStorageMedium storageMedium = null;
 
@@ -157,6 +158,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
                 buildMinLoadReplicaNum();
                 buildStorageMedium();
                 buildStoragePolicy();
+                buildColocateWith();
                 buildIsBeingSynced();
                 buildCompactionPolicy();
                 buildTimeSeriesCompactionGoalSizeMbytes();
@@ -447,6 +449,15 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return storagePolicy;
     }
 
+    public TableProperty buildColocateWith() {
+        storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
+        return this;
+    }
+
+    public String getColocateWith() {
+        return storagePolicy;
+    }
+
     public TableProperty buildIsBeingSynced() {
         isBeingSynced = Boolean.parseBoolean(properties.getOrDefault(
                 PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false"));
@@ -467,6 +478,9 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public void removeInvalidProperties() {
         properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        if (properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH) != null) {
+            colocateWith = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
+        }
         properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
     }
 
@@ -697,6 +711,10 @@ public class TableProperty implements Writable, GsonPostProcessable {
         }
     }
 
+    public void setColocateWith(String colocateWith) {
+        properties.put(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH, colocateWith);
+    }
+
     public void buildReplicaAllocation() {
         try {
             // Must copy the properties because "analyzeReplicaAllocation" will remove the property
@@ -731,6 +749,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildDataSortInfo();
         buildCompressionType();
         buildStoragePolicy();
+        buildColocateWith();
         buildIsBeingSynced();
         buildBinlogConfig();
         buildEnableLightSchemaChange();
