@@ -148,9 +148,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
             // do not publish filter coz local rf not inited and useless
             return Base::close(state, exec_status);
         }
-    }
-
-    if (_should_build_hash_table) {
+    } else if (_should_build_hash_table) {
         if (p._shared_hashtable_controller && !p._shared_hash_table_context->complete_build_stage) {
             return Status::InternalError("close before sink meet eos");
         }
