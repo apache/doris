@@ -93,8 +93,9 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(
                     res.insert({ColumnConst::create(nested_col, col.column->size()), nested_type,
                                 col.name});
                 } else {
-                    throw Exception(Status::FatalError("Illegal column= {},  for DataTypeNullable" +
-                                                       col.column->get_name()));
+                    throw doris::Exception(
+                            ErrorCode::INTERNAL_ERROR,
+                            "Illegal column= {},  for DataTypeNullable" + col.column->get_name());
                 }
             } else {
                 res.insert(col);
