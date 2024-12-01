@@ -609,7 +609,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
                 ConnectContext.get().getSessionVariable());
         } else if (table instanceof MaxComputeExternalTable) {
-            scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+            scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor,
+                    fileScan.getSelectedPartitions(), false);
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
