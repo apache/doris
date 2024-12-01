@@ -374,7 +374,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 scanBackendIds.add(backend.getId());
             }
         }
-        params.setForceJniReader(ConnectContext.get().getSessionVariable().isForceJniScanner());
 
         getSerializedTable().ifPresent(params::setSerializedTable);
 
@@ -434,6 +433,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
         }
 
+        // set file format type, and the type might fall back to native format in setScanParams
+        rangeDesc.setFormatType(getFileFormatType());
         setScanParams(rangeDesc, fileSplit);
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
         TScanRangeLocation location = new TScanRangeLocation();

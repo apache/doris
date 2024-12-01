@@ -88,7 +88,7 @@ public class HudiScanNode extends HiveScanNode {
 
     private static final Logger LOG = LogManager.getLogger(HudiScanNode.class);
 
-    private boolean isCowOrRoTable;
+    private boolean isCowTable;
 
     private final AtomicLong noLogsSplitNum = new AtomicLong(0);
 
@@ -128,9 +128,9 @@ public class HudiScanNode extends HiveScanNode {
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
             SessionVariable sessionVariable) {
         super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv);
-        isCowOrRoTable = hmsTable.isHoodieCowTable();
+        isCowTable = hmsTable.isHoodieCowTable();
         if (LOG.isDebugEnabled()) {
-            if (isCowOrRoTable) {
+            if (isCowTable) {
                 LOG.debug("Hudi table {} can read as cow/read optimize table", hmsTable.getFullQualifiers());
             } else {
                 LOG.debug("Hudi table {} is a mor table, and will use JNI to read data in BE",
@@ -191,13 +191,13 @@ public class HudiScanNode extends HiveScanNode {
             throw new UserException("Not support function '" + scanParams.getParamType() + "' in hudi table");
         }
         if (incrementalRead) {
-            if (isCowOrRoTable) {
+            if (isCowTable) {
                 try {
                     Map<String, String> serd = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
                     if ("true".equals(serd.get("hoodie.query.as.ro.table"))
                             && hmsTable.getRemoteTable().getTableName().endsWith("_ro")) {
                         // Incremental read RO table as RT table, I don't know why?
-                        isCowOrRoTable = false;
+                        isCowTable = false;
                         LOG.warn("Execute incremental read on RO table: {}", hmsTable.getFullQualifiers());
                     }
                 } catch (Exception e) {
@@ -242,7 +242,15 @@ public class HudiScanNode extends HiveScanNode {
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
         if (split instanceof HudiSplit) {
-            setHudiParams(rangeDesc, (HudiSplit) split);
+            HudiSplit hudiSplit = (HudiSplit) split;
+            if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_JNI
+                    && !sessionVariable.isForceJniScanner()
+                    && hudiSplit.getHudiDeltaLogs().isEmpty()) {
+                // no logs, is read optimize table, fallback to use native reader
+                // TODO: hudi only support parquet now?
+                rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+            }
+            setHudiParams(rangeDesc, hudiSplit);
         }
     }
 
@@ -261,13 +269,12 @@ public class HudiScanNode extends HiveScanNode {
         fileDesc.setColumnTypes(hudiSplit.getHudiColumnTypes());
         // TODO(gaoxin): support complex types
         // fileDesc.setNestedFields(hudiSplit.getNestedFields());
-        fileDesc.setHudiJniScanner(hudiSplit.getHudiJniScanner());
         tableFormatFileDesc.setHudiParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
     private boolean canUseNativeReader() {
-        return !sessionVariable.isForceJniScanner() && isCowOrRoTable;
+        return !sessionVariable.isForceJniScanner() && isCowTable;
     }
 
     private List<HivePartition> getPrunedPartitions(
@@ -504,7 +511,6 @@ public class HudiScanNode extends HiveScanNode {
         split.setHudiColumnNames(columnNames);
         split.setHudiColumnTypes(columnTypes);
         split.setInstantTime(queryInstant);
-        split.setHudiJniScanner(sessionVariable.getHudiJniScanner());
         return split;
     }
 
