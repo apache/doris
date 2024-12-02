@@ -237,6 +237,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     unboundRelation.getTableSample());
             }
         }
+        if (!tabletIds.isEmpty()) {
+            // This tabletIds is set manually, so need to set specifiedTabletIds
+            scan = scan.withManuallySpecifiedTabletIds(tabletIds);
+        }
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
             // it's a random distribution agg table
             // add agg on olap scan

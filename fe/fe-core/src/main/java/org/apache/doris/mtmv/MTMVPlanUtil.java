@@ -60,6 +60,12 @@ public class MTMVPlanUtil {
         ctx.setThreadLocalInfo();
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
         ctx.getSessionVariable().enableNereidsDML = true;
+        // Debug session variable should be disabled when refreshed
+        ctx.getSessionVariable().skipDeletePredicate = false;
+        ctx.getSessionVariable().skipDeleteBitmap = false;
+        ctx.getSessionVariable().skipDeleteSign = false;
+        ctx.getSessionVariable().skipStorageEngineMerge = false;
+        ctx.getSessionVariable().showHiddenColumns = false;
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
         // Disable add default limit rule to avoid refresh data wrong
         ctx.getSessionVariable().setDisableNereidsRules(

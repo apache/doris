@@ -25,14 +25,21 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -47,19 +54,25 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.HashMultimap;
@@ -299,7 +312,50 @@ public class MaterializedViewUtils {
         return nondeterministicFunctions;
     }
 
-    private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
+    /**
+     * createMTMVCache from querySql
+     */
+    public static MTMVCache createMTMVCache(String querySql, ConnectContext connectContext) {
+        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(querySql);
+        StatementContext mvSqlStatementContext = new StatementContext(connectContext,
+                new OriginStatement(querySql, 0));
+        NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
+        if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
+            mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
+        }
+        // Can not convert to table sink, because use the same column from different table when self join
+        // the out slot is wrong
+        planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ALL_PLAN);
+        Plan originPlan = planner.getRewrittenPlan();
+        // Eliminate result sink because sink operator is useless in query rewrite by materialized view
+        // and the top sort can also be removed
+        Plan mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
+            @Override
+            public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, Object context) {
+                return logicalResultSink.child().accept(this, context);
+            }
+        }, null);
+        // Optimize by rules to remove top sort
+        CascadesContext parentCascadesContext = CascadesContext.initContext(mvSqlStatementContext, mvPlan,
+                PhysicalProperties.ANY);
+        mvPlan = MaterializedViewUtils.rewriteByRules(parentCascadesContext, childContext -> {
+            Rewriter.getCteChildrenRewriter(childContext,
+                    ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
+            return childContext.getRewritePlan();
+        }, mvPlan, originPlan);
+        return new MTMVCache(mvPlan, originPlan,
+                planner.getCascadesContext().getMemo().getRoot().getStatistics(), null);
+    }
+
+    /**
+     * Check the query if Contains query operator
+     * Such sql as following should return true
+     * select * from orders TABLET(10098) because TABLET(10098) should return true
+     * select * from orders_partition PARTITION (day_2) because PARTITION (day_2)
+     * select * from orders index query_index_test because index query_index_test
+     * select * from orders TABLESAMPLE(20 percent) because TABLESAMPLE(20 percent)
+     * */
+    public static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
         public static final TableQueryOperatorChecker INSTANCE = new TableQueryOperatorChecker();
 
         @Override
@@ -310,12 +366,20 @@ public class MaterializedViewUtils {
             if (relation instanceof LogicalOlapScan) {
                 LogicalOlapScan logicalOlapScan = (LogicalOlapScan) relation;
                 if (logicalOlapScan.getTableSample().isPresent()) {
+                    // Contain sample, select * from orders TABLESAMPLE(20 percent)
                     return true;
                 }
-                if (!logicalOlapScan.getSelectedTabletIds().isEmpty()) {
+                if (!logicalOlapScan.getManuallySpecifiedTabletIds().isEmpty()) {
+                    // Contain tablets, select * from orders TABLET(10098) because TABLET(10098)
                     return true;
                 }
                 if (!logicalOlapScan.getManuallySpecifiedPartitions().isEmpty()) {
+                    // Contain specified partitions, select * from orders_partition PARTITION (day_2)
+                    return true;
+                }
+                if (logicalOlapScan.getSelectedIndexId() != logicalOlapScan.getTable().getBaseIndexId()) {
+                    // Contains select index or use sync mv in rbo rewrite
+                    // select * from orders index query_index_test
                     return true;
                 }
             }
@@ -492,6 +556,7 @@ public class MaterializedViewUtils {
         @Override
         public Void visit(Plan plan, IncrementCheckerContext context) {
             if (plan instanceof LogicalProject
+                    || plan instanceof LogicalLimit
                     || plan instanceof LogicalFilter
                     || plan instanceof LogicalJoin
                     || plan instanceof LogicalAggregate
