@@ -902,14 +902,14 @@ public:
 
         if (addr_type.is_ipv6()) {
             const auto* ipv6_addr_column = assert_cast<const ColumnIPv6*>(addr_column.get());
-            col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, *cidr_col, input_rows_count,
-                                               add_col_const, col_const);
+            col_res = execute_impl(*ipv6_addr_column, *cidr_col, input_rows_count, add_col_const,
+                                   col_const);
         } else if (addr_type.is_string()) {
             ColumnPtr col_ipv6 =
                     convert_to_ipv6<IPConvertExceptionMode::Throw>(addr_column, nullptr);
             const auto* ipv6_addr_column = assert_cast<const ColumnIPv6*>(col_ipv6.get());
-            col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, *cidr_col, input_rows_count,
-                                               add_col_const, col_const);
+            col_res = execute_impl(*ipv6_addr_column, *cidr_col, input_rows_count, add_col_const,
+                                   col_const);
         } else {
             return Status::RuntimeError(
                     "Illegal column {} of argument of function {}, Expected IPv6 or String",
@@ -920,8 +920,7 @@ public:
         return Status::OK();
     }
 
-    template <typename FromColumn>
-    static ColumnPtr execute_impl(const FromColumn& from_column, const ColumnInt16& cidr_column,
+    static ColumnPtr execute_impl(const ColumnIPv6& from_column, const ColumnInt16& cidr_column,
                                   size_t input_rows_count, bool is_addr_const = false,
                                   bool is_cidr_const = false) {
         auto col_res_lower_range = ColumnIPv6::create(input_rows_count, 0);
@@ -938,20 +937,10 @@ public:
                     throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
                                     std::to_string(cidr));
                 }
-                if constexpr (std::is_same_v<FromColumn, ColumnString>) {
-                    // 16 bytes ipv6 string is stored in big-endian byte order
-                    // so transfer to little-endian firstly
-                    auto* src_data = const_cast<char*>(from_column.get_data_at(0).data);
-                    std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
-                    apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                    reinterpret_cast<char*>(&vec_res_upper_range[i]),
-                                    cast_set<UInt8>(cidr));
-                } else {
-                    apply_cidr_mask(from_column.get_data_at(0).data,
-                                    reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                    reinterpret_cast<char*>(&vec_res_upper_range[i]),
-                                    cast_set<UInt8>(cidr));
-                }
+                apply_cidr_mask(from_column.get_data_at(0).data,
+                                reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                reinterpret_cast<char*>(&vec_res_upper_range[i]),
+                                cast_set<UInt8>(cidr));
             }
         } else if (is_cidr_const) {
             auto cidr = cidr_column.get_int(0);
@@ -960,20 +949,10 @@ public:
                                 std::to_string(cidr));
             }
             for (size_t i = 0; i < input_rows_count; ++i) {
-                if constexpr (std::is_same_v<FromColumn, ColumnString>) {
-                    // 16 bytes ipv6 string is stored in big-endian byte order
-                    // so transfer to little-endian firstly
-                    auto* src_data = const_cast<char*>(from_column.get_data_at(i).data);
-                    std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
-                    apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                    reinterpret_cast<char*>(&vec_res_upper_range[i]),
-                                    cast_set<UInt8>(cidr));
-                } else {
-                    apply_cidr_mask(from_column.get_data_at(i).data,
-                                    reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                    reinterpret_cast<char*>(&vec_res_upper_range[i]),
-                                    cast_set<UInt8>(cidr));
-                }
+                apply_cidr_mask(from_column.get_data_at(i).data,
+                                reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                reinterpret_cast<char*>(&vec_res_upper_range[i]),
+                                cast_set<UInt8>(cidr));
             }
         } else {
             for (size_t i = 0; i < input_rows_count; ++i) {
@@ -982,20 +961,10 @@ public:
                     throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
                                     std::to_string(cidr));
                 }
-                if constexpr (std::is_same_v<FromColumn, ColumnString>) {
-                    // 16 bytes ipv6 string is stored in big-endian byte order
-                    // so transfer to little-endian firstly
-                    auto* src_data = const_cast<char*>(from_column.get_data_at(i).data);
-                    std::reverse(src_data, src_data + IPV6_BINARY_LENGTH);
-                    apply_cidr_mask(src_data, reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                    reinterpret_cast<char*>(&vec_res_upper_range[i]),
-                                    cast_set<UInt8>(cidr));
-                } else {
-                    apply_cidr_mask(from_column.get_data_at(i).data,
-                                    reinterpret_cast<char*>(&vec_res_lower_range[i]),
-                                    reinterpret_cast<char*>(&vec_res_upper_range[i]),
-                                    cast_set<UInt8>(cidr));
-                }
+                apply_cidr_mask(from_column.get_data_at(i).data,
+                                reinterpret_cast<char*>(&vec_res_lower_range[i]),
+                                reinterpret_cast<char*>(&vec_res_upper_range[i]),
+                                cast_set<UInt8>(cidr));
             }
         }
         return ColumnStruct::create(
