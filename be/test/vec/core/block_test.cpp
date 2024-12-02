@@ -21,6 +21,7 @@
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 
 #include <algorithm>
 #include <cmath>
@@ -2372,242 +2373,769 @@ TEST(BlockTest, CloneOperations) {
 }
 
 TEST(BlockTest, FilterAndSelector) {
-    auto create_test_block = [](int size) {
-        vectorized::Block test_block;
-        auto test_col1 = vectorized::ColumnVector<Int32>::create();
-        auto test_col2 = vectorized::ColumnVector<Int32>::create();
-        auto type = std::make_shared<vectorized::DataTypeInt32>();
-
-        for (int i = 0; i < size; ++i) {
-            test_col1->insert_value(i);
-            test_col2->insert_value(i * 2);
-        }
-
-        test_block.insert({test_col1->get_ptr(), type, "col1"});
-        test_block.insert({test_col2->get_ptr(), type, "col2"});
-        return test_block;
-    };
-
-    // Create original block
-    auto block = create_test_block(10);
-
-    // Test filter_block_internal with filter only
+    // Test empty block
     {
-        auto test_block = create_test_block(10);
-        vectorized::IColumn::Filter filter(10, 1); // Initialize with all 1s (keep all rows)
-        filter[0] = 0;                             // Filter out first row
-        filter[5] = 0;                             // Filter out sixth row
+        vectorized::Block empty_block;
+        
+        // Test filter_block_internal
+        vectorized::IColumn::Filter filter(0);
+        EXPECT_NO_THROW(vectorized::Block::filter_block_internal(&empty_block, filter));
+        EXPECT_EQ(0, empty_block.rows());
+        EXPECT_EQ(0, empty_block.columns());
 
-        vectorized::Block::filter_block_internal(&test_block, filter);
-        EXPECT_EQ(8, test_block.rows());
-
-        // Verify filtered data for both columns
-        const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                test_block.get_by_position(0).column.get());
-        const auto* filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                test_block.get_by_position(1).column.get());
-
-        // Expected values after filtering
-        std::vector<Int32> expected_col1 = {1, 2, 3, 4, 6, 7, 8, 9};
-        std::vector<Int32> expected_col2 = {2, 4, 6, 8, 12, 14, 16, 18};
-
-        for (size_t i = 0; i < expected_col1.size(); ++i) {
-            EXPECT_EQ(expected_col1[i], filtered_col1->get_data()[i]);
-            EXPECT_EQ(expected_col2[i], filtered_col2->get_data()[i]);
-        }
-    }
-
-    // Test filter_block_internal with specific columns
-    {
-        auto test_block = create_test_block(10);
-        vectorized::IColumn::Filter filter(10, 1);
-        filter[0] = 0;
-        std::vector<uint32_t> columns_to_filter = {0}; // Only filter first column
-
-        vectorized::Block::filter_block_internal(&test_block, columns_to_filter, filter);
-        EXPECT_EQ(9, test_block.rows());
-
-        const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                test_block.get_by_position(0).column.get());
-        const auto* filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                test_block.get_by_position(1).column.get());
-        EXPECT_EQ(1, filtered_col1->get_data()[0]); // First column filtered
-        EXPECT_EQ(0, filtered_col2->get_data()[0]); // Second column unchanged
-    }
-
-    // Test filter_block_internal with column_to_keep
-    {
-        auto test_block = create_test_block(10);
-        vectorized::IColumn::Filter filter(10, 1);
-        filter[0] = 0;               // Filter out first row
-        filter[5] = 0;               // Filter out sixth row
-        uint32_t column_to_keep = 1; // Only filter first column, keep the rest columns
-
-        vectorized::Block::filter_block_internal(&test_block, filter, column_to_keep);
-
-        // Verify row count after filtering
-        EXPECT_EQ(8, test_block.rows());
-        EXPECT_EQ(2, test_block.columns());
-
-        // Verify filtered data for both columns
-        const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                test_block.get_by_position(0).column.get());
-        const auto* filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                test_block.get_by_position(1).column.get());
-
-        // Expected values after filtering
-        std::vector<Int32> expected_col1 = {1, 2, 3, 4, 6, 7, 8, 9};
-        std::vector<Int32> expected_col2 = {0, 2, 4, 6, 8, 10, 12, 14, 16, 18};
-
-        // Verify each value in filtered columns
-        for (size_t i = 0; i < expected_col1.size(); ++i) {
-            EXPECT_EQ(expected_col1[i], filtered_col1->get_data()[i]);
-        }
-        for (size_t i = 0; i < expected_col2.size(); ++i) {
-            EXPECT_EQ(expected_col2[i], filtered_col2->get_data()[i]);
-        }
-    }
-
-    // Test filter_block with nullable filter column
-    {
-        auto test_block = create_test_block(10);
-
-        // Create nullable filter column
-        auto nullable_filter = vectorized::ColumnNullable::create(
-                vectorized::ColumnVector<vectorized::UInt8>::create(10, 1), // all true
-                vectorized::ColumnVector<vectorized::UInt8>::create(10, 0)  // no nulls
-        );
-        auto filter_type = std::make_shared<vectorized::DataTypeNullable>(
-                std::make_shared<vectorized::DataTypeUInt8>());
-
-        // Add filter column to block
-        test_block.insert({nullable_filter->get_ptr(), filter_type, "filter"});
-
-        // Test four-parameter version
-        std::vector<uint32_t> columns_to_filter = {0, 1};
-        EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
-        EXPECT_EQ(10, test_block.rows()); // All rows kept
-
-        // Test three-parameter version
-        auto test_block2 = create_test_block(10);
-        test_block2.insert({nullable_filter->get_ptr(), filter_type, "filter"});
-        EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
-        EXPECT_EQ(10, test_block2.rows()); // All rows kept
-    }
-
-    // Test filter_block with const filter column
-    {
-        auto test_block = create_test_block(10);
-
-        // Create const filter column (false)
-        auto const_filter = vectorized::ColumnConst::create(
-                vectorized::ColumnVector<vectorized::UInt8>::create(1, 0), // false
-                10);
-        auto filter_type = std::make_shared<vectorized::DataTypeUInt8>();
-
-        // Add filter column to block
-        test_block.insert({const_filter->get_ptr(), filter_type, "filter"});
-
-        // Test four-parameter version
-        std::vector<uint32_t> columns_to_filter = {0, 1};
-        EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
-        EXPECT_EQ(0, test_block.rows()); // All rows filtered out
-
-        // Test three-parameter version
-        auto test_block2 = create_test_block(10);
-        test_block2.insert({const_filter->get_ptr(), filter_type, "filter"});
-        EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
-        EXPECT_EQ(0, test_block2.rows()); // All rows filtered out
-    }
-
-    // Test filter_block with regular filter column
-    {
-        auto test_block = create_test_block(10);
-
-        // Create regular filter column
-        auto filter_column = vectorized::ColumnVector<vectorized::UInt8>::create();
-        for (size_t i = 0; i < 10; ++i) {
-            filter_column->insert_value(i % 2); // Keep odd-indexed rows
-        }
-        auto filter_type = std::make_shared<vectorized::DataTypeUInt8>();
-
-        // Add filter column to block
-        test_block.insert({filter_column->get_ptr(), filter_type, "filter"});
-
-        // Test four-parameter version
-        std::vector<uint32_t> columns_to_filter = {0, 1};
-        EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
-        EXPECT_EQ(5, test_block.rows()); // Half rows kept
-
-        // Verify filtered data
-        const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                test_block.get_by_position(0).column.get());
-        const auto* filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                test_block.get_by_position(1).column.get());
-
-        std::vector<Int32> expected_col1 = {1, 3, 5, 7, 9};
-        std::vector<Int32> expected_col2 = {2, 6, 10, 14, 18};
-
-        for (size_t i = 0; i < expected_col1.size(); ++i) {
-            EXPECT_EQ(expected_col1[i], filtered_col1->get_data()[i]);
-            EXPECT_EQ(expected_col2[i], filtered_col2->get_data()[i]);
-        }
-
-        // Test three-parameter version
-        auto test_block2 = create_test_block(10);
-        test_block2.insert({filter_column->get_ptr(), filter_type, "filter"});
-        EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
-        EXPECT_EQ(5, test_block2.rows()); // Half rows kept
-
-        // Verify filtered data
-        filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                test_block2.get_by_position(0).column.get());
-        filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                test_block2.get_by_position(1).column.get());
-
-        for (size_t i = 0; i < expected_col1.size(); ++i) {
-            EXPECT_EQ(expected_col1[i], filtered_col1->get_data()[i]);
-            EXPECT_EQ(expected_col2[i], filtered_col2->get_data()[i]);
-        }
-    }
-
-    // Test append_to_block_by_selector
-    {
-        // Create destination block with proper columns
-        auto type = std::make_shared<vectorized::DataTypeInt32>();
+        // Test filter_block
+        std::vector<uint32_t> columns_to_filter;
+        EXPECT_DEATH(vectorized::Block::filter_block(&empty_block, columns_to_filter, 0, 0).ok(), "");
+        EXPECT_EQ(0, empty_block.rows());
+        
+        // Test append_to_block_by_selector
         vectorized::Block dst_block;
-        dst_block.insert({type->create_column(), type, "col1"});
-        dst_block.insert({type->create_column(), type, "col2"});
         vectorized::MutableBlock dst(&dst_block);
+        vectorized::IColumn::Selector selector(0);
+        EXPECT_TRUE(empty_block.append_to_block_by_selector(&dst, selector).ok());
+        EXPECT_EQ(0, dst.rows());
+    }
 
-        // Create selector to select every other row
-        vectorized::IColumn::Selector selector(5, 0);
-        for (size_t i = 0; i < 5; ++i) {
-            selector[i] = i * 2; // Select rows 0,2,4,6,8
+    // Test with regular columns
+    {
+        auto create_test_block = [](int size) {
+            vectorized::Block test_block;
+            auto test_col1 = vectorized::ColumnVector<Int32>::create();
+            auto test_col2 = vectorized::ColumnVector<Int32>::create();
+            auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+            for (int i = 0; i < size; ++i) {
+                test_col1->insert_value(i);
+                test_col2->insert_value(i * 2);
+            }
+
+            test_block.insert({test_col1->get_ptr(), type, "col1"});
+            test_block.insert({test_col2->get_ptr(), type, "col2"});
+            return test_block;
+        };
+
+        // Test filter_block_internal with filter only
+        {
+            auto test_block = create_test_block(10);
+            vectorized::IColumn::Filter filter(10, 1); // Initialize with all 1s (keep all rows)
+            filter[0] = 0;                             // Filter out first row
+            filter[5] = 0;                             // Filter out sixth row
+
+            vectorized::Block::filter_block_internal(&test_block, filter);
+            EXPECT_EQ(8, test_block.rows());
+
+            // Verify filtered data for both columns
+            const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    test_block.get_by_position(0).column.get());
+            const auto* filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    test_block.get_by_position(1).column.get());
+
+            // Expected values after filtering
+            std::vector<Int32> expected_col1 = {1, 2, 3, 4, 6, 7, 8, 9};
+            std::vector<Int32> expected_col2 = {2, 4, 6, 8, 12, 14, 16, 18};
+
+            for (size_t i = 0; i < expected_col1.size(); ++i) {
+                EXPECT_EQ(expected_col1[i], filtered_col1->get_data()[i]);
+                EXPECT_EQ(expected_col2[i], filtered_col2->get_data()[i]);
+            }
         }
 
-        // Perform selection
-        EXPECT_TRUE(block.append_to_block_by_selector(&dst, selector).ok());
-        EXPECT_EQ(5, dst.rows());
+        // Test filter_block_internal with specific columns
+        {
+            auto test_block = create_test_block(10);
+            vectorized::IColumn::Filter filter(10, 1);
+            filter[0] = 0;
+            std::vector<uint32_t> columns_to_filter = {0}; // Only filter first column
 
-        // Verify selected data
-        const vectorized::Block& result_block = dst.to_block();
+            vectorized::Block::filter_block_internal(&test_block, columns_to_filter, filter);
+            EXPECT_EQ(9, test_block.rows());
 
-        const auto* selected_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                result_block.get_by_position(0).column.get());
-        const auto* selected_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                result_block.get_by_position(1).column.get());
+            const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    test_block.get_by_position(0).column.get());
+            const auto* filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    test_block.get_by_position(1).column.get());
+            EXPECT_EQ(1, filtered_col1->get_data()[0]); // First column filtered
+            EXPECT_EQ(0, filtered_col2->get_data()[0]); // Second column unchanged
+        }
 
-        // Expected values after selection
-        std::vector<Int32> expected_col1 = {0, 2, 4, 6, 8};
-        std::vector<Int32> expected_col2 = {0, 4, 8, 12, 16};
+        // Test filter_block_internal with column_to_keep
+        {
+            auto test_block = create_test_block(10);
+            vectorized::IColumn::Filter filter(10, 1);
+            filter[0] = 0;               // Filter out first row
+            filter[5] = 0;               // Filter out sixth row
+            uint32_t column_to_keep = 1; // Only filter first column, keep the rest columns
 
-        for (size_t i = 0; i < expected_col1.size(); ++i) {
-            EXPECT_EQ(expected_col1[i], selected_col1->get_data()[i]);
-            EXPECT_EQ(expected_col2[i], selected_col2->get_data()[i]);
+            vectorized::Block::filter_block_internal(&test_block, filter, column_to_keep);
+
+            // Verify row count after filtering
+            EXPECT_EQ(8, test_block.rows());
+            EXPECT_EQ(2, test_block.columns());
+
+            // Verify filtered data for both columns
+            const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    test_block.get_by_position(0).column.get());
+            const auto* filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    test_block.get_by_position(1).column.get());
+
+            // Expected values after filtering
+            std::vector<Int32> expected_col1 = {1, 2, 3, 4, 6, 7, 8, 9};
+            std::vector<Int32> expected_col2 = {0, 2, 4, 6, 8, 10, 12, 14, 16, 18};
+
+            // Verify each value in filtered columns
+            for (size_t i = 0; i < expected_col1.size(); ++i) {
+                EXPECT_EQ(expected_col1[i], filtered_col1->get_data()[i]);
+            }
+            for (size_t i = 0; i < expected_col2.size(); ++i) {
+                EXPECT_EQ(expected_col2[i], filtered_col2->get_data()[i]);
+            }
+        }
+
+        // Test filter_block with nullable filter column
+        {
+            auto test_block = create_test_block(10);
+
+            // Create nullable filter column
+            auto nullable_filter = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<vectorized::UInt8>::create(10, 1), // all true
+                    vectorized::ColumnVector<vectorized::UInt8>::create(10, 0)  // no nulls
+            );
+            auto filter_type = std::make_shared<vectorized::DataTypeNullable>(
+                    std::make_shared<vectorized::DataTypeUInt8>());
+
+            // Add filter column to block
+            test_block.insert({nullable_filter->get_ptr(), filter_type, "filter"});
+
+            // Test four-parameter version
+            std::vector<uint32_t> columns_to_filter = {0, 1};
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
+            EXPECT_EQ(10, test_block.rows()); // All rows kept
+
+            // Test three-parameter version
+            auto test_block2 = create_test_block(10);
+            test_block2.insert({nullable_filter->get_ptr(), filter_type, "filter"});
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
+            EXPECT_EQ(10, test_block2.rows()); // All rows kept
+        }
+
+        // Test filter_block with const filter column
+        {
+            auto test_block = create_test_block(10);
+
+            // Create const filter column (false)
+            auto const_filter = vectorized::ColumnConst::create(
+                    vectorized::ColumnVector<vectorized::UInt8>::create(1, 0), // false
+                    10);
+            auto filter_type = std::make_shared<vectorized::DataTypeUInt8>();
+
+            // Add filter column to block
+            test_block.insert({const_filter->get_ptr(), filter_type, "filter"});
+
+            // Test four-parameter version
+            std::vector<uint32_t> columns_to_filter = {0, 1};
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
+            EXPECT_EQ(0, test_block.rows()); // All rows filtered out
+
+            // Test three-parameter version
+            auto test_block2 = create_test_block(10);
+            test_block2.insert({const_filter->get_ptr(), filter_type, "filter"});
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
+            EXPECT_EQ(0, test_block2.rows()); // All rows filtered out
+        }
+
+        // Test filter_block with regular filter column
+        {
+            auto test_block = create_test_block(10);
+
+            // Create regular filter column
+            auto filter_column = vectorized::ColumnVector<vectorized::UInt8>::create();
+            for (size_t i = 0; i < 10; ++i) {
+                filter_column->insert_value(i % 2); // Keep odd-indexed rows
+            }
+            auto filter_type = std::make_shared<vectorized::DataTypeUInt8>();
+
+            // Add filter column to block
+            test_block.insert({filter_column->get_ptr(), filter_type, "filter"});
+
+            // Test four-parameter version
+            std::vector<uint32_t> columns_to_filter = {0, 1};
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
+            EXPECT_EQ(5, test_block.rows()); // Half rows kept
+
+            // Verify filtered data
+            const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    test_block.get_by_position(0).column.get());
+            const auto* filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    test_block.get_by_position(1).column.get());
+
+            std::vector<Int32> expected_col1 = {1, 3, 5, 7, 9};
+            std::vector<Int32> expected_col2 = {2, 6, 10, 14, 18};
+
+            for (size_t i = 0; i < expected_col1.size(); ++i) {
+                EXPECT_EQ(expected_col1[i], filtered_col1->get_data()[i]);
+                EXPECT_EQ(expected_col2[i], filtered_col2->get_data()[i]);
+            }
+
+            // Test three-parameter version
+            auto test_block2 = create_test_block(10);
+            test_block2.insert({filter_column->get_ptr(), filter_type, "filter"});
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
+            EXPECT_EQ(5, test_block2.rows()); // Half rows kept
+
+            // Verify filtered data
+            filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    test_block2.get_by_position(0).column.get());
+            filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    test_block2.get_by_position(1).column.get());
+
+            for (size_t i = 0; i < expected_col1.size(); ++i) {
+                EXPECT_EQ(expected_col1[i], filtered_col1->get_data()[i]);
+                EXPECT_EQ(expected_col2[i], filtered_col2->get_data()[i]);
+            }
+        }
+
+        // Test append_to_block_by_selector
+        {
+            auto block = create_test_block(10);
+            // Create destination block with proper columns
+            auto type = std::make_shared<vectorized::DataTypeInt32>();
+            vectorized::Block dst_block;
+            dst_block.insert({type->create_column(), type, "col1"});
+            dst_block.insert({type->create_column(), type, "col2"});
+            vectorized::MutableBlock dst(&dst_block);
+
+            // Create selector to select every other row
+            vectorized::IColumn::Selector selector(5, 0);
+            for (size_t i = 0; i < 5; ++i) {
+                selector[i] = i * 2; // Select rows 0,2,4,6,8
+            }
+
+            // Perform selection
+            EXPECT_TRUE(block.append_to_block_by_selector(&dst, selector).ok());
+            EXPECT_EQ(5, dst.rows());
+
+            // Verify selected data
+            const vectorized::Block& result_block = dst.to_block();
+
+            const auto* selected_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    result_block.get_by_position(0).column.get());
+            const auto* selected_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    result_block.get_by_position(1).column.get());
+
+            // Expected values after selection
+            std::vector<Int32> expected_col1 = {0, 2, 4, 6, 8};
+            std::vector<Int32> expected_col2 = {0, 4, 8, 12, 16};
+
+            for (size_t i = 0; i < expected_col1.size(); ++i) {
+                EXPECT_EQ(expected_col1[i], selected_col1->get_data()[i]);
+                EXPECT_EQ(expected_col2[i], selected_col2->get_data()[i]);
+            }
+        }
+    }
+
+    // Test with const columns
+    {
+        auto create_test_block = [](int size) {
+            vectorized::Block test_block;
+            auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+            // Create const columns with fixed values
+            auto base_col1 = vectorized::ColumnVector<Int32>::create();
+            base_col1->insert_value(42);
+            auto const_col1 = vectorized::ColumnConst::create(base_col1->get_ptr(), size);
+
+            auto base_col2 = vectorized::ColumnVector<Int32>::create();
+            base_col2->insert_value(24);
+            auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), size);
+
+            test_block.insert({const_col1->get_ptr(), type, "const_col1"});
+            test_block.insert({const_col2->get_ptr(), type, "const_col2"});
+            return test_block;
+        };
+
+        // Test filter_block_internal with filter only
+        {
+            auto test_block = create_test_block(10);
+            vectorized::IColumn::Filter filter(10, 1);
+            filter[0] = 0;
+            filter[5] = 0;
+
+            vectorized::Block::filter_block_internal(&test_block, filter);
+            EXPECT_EQ(8, test_block.rows());
+
+            const auto* filtered_col1 = assert_cast<const vectorized::ColumnConst*>(
+                    test_block.get_by_position(0).column.get());
+            const auto* filtered_col2 = assert_cast<const vectorized::ColumnConst*>(
+                    test_block.get_by_position(1).column.get());
+
+            EXPECT_EQ(42, filtered_col1->get_int(0));
+            EXPECT_EQ(24, filtered_col2->get_int(0));
+            EXPECT_EQ(8, filtered_col1->size());
+            EXPECT_EQ(8, filtered_col2->size());
+        }
+
+        // Test filter_block_internal with specific columns
+        {
+            auto test_block = create_test_block(10);
+            vectorized::IColumn::Filter filter(10, 1);
+            filter[0] = 0;
+            std::vector<uint32_t> columns_to_filter = {0};
+
+            vectorized::Block::filter_block_internal(&test_block, columns_to_filter, filter);
+            EXPECT_EQ(9, test_block.rows());
+
+            const auto* filtered_col1 = assert_cast<const vectorized::ColumnConst*>(
+                    test_block.get_by_position(0).column.get());
+            const auto* filtered_col2 = assert_cast<const vectorized::ColumnConst*>(
+                    test_block.get_by_position(1).column.get());
+
+            EXPECT_EQ(42, filtered_col1->get_int(0));
+            EXPECT_EQ(24, filtered_col2->get_int(0));
+            EXPECT_EQ(9, filtered_col1->size());
+            EXPECT_EQ(10, filtered_col2->size()); // Second column unchanged
+        }
+
+        // Test filter_block_internal with column_to_keep
+        {
+            auto test_block = create_test_block(10);
+            vectorized::IColumn::Filter filter(10, 1);
+            filter[0] = 0;
+            filter[5] = 0;
+            uint32_t column_to_keep = 1;
+
+            vectorized::Block::filter_block_internal(&test_block, filter, column_to_keep);
+            EXPECT_EQ(8, test_block.rows());
+            EXPECT_EQ(2, test_block.columns());
+
+            const auto* filtered_col1 = assert_cast<const vectorized::ColumnConst*>(
+                    test_block.get_by_position(0).column.get());
+            const auto* filtered_col2 = assert_cast<const vectorized::ColumnConst*>(
+                    test_block.get_by_position(1).column.get());
+
+            EXPECT_EQ(42, filtered_col1->get_int(0));
+            EXPECT_EQ(24, filtered_col2->get_int(0));
+            EXPECT_EQ(8, filtered_col1->size());
+            EXPECT_EQ(10, filtered_col2->size()); // Second column unchanged
+        }
+
+        // Test filter_block with nullable filter column
+        {
+            auto test_block = create_test_block(10);
+
+            auto nullable_filter = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<vectorized::UInt8>::create(10, 1),
+                    vectorized::ColumnVector<vectorized::UInt8>::create(10, 0)
+            );
+            auto filter_type = std::make_shared<vectorized::DataTypeNullable>(
+                    std::make_shared<vectorized::DataTypeUInt8>());
+
+            test_block.insert({nullable_filter->get_ptr(), filter_type, "filter"});
+
+            std::vector<uint32_t> columns_to_filter = {0, 1};
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
+            EXPECT_EQ(10, test_block.rows());
+
+            auto test_block2 = create_test_block(10);
+            test_block2.insert({nullable_filter->get_ptr(), filter_type, "filter"});
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
+            EXPECT_EQ(10, test_block2.rows());
+        }
+
+        // Test filter_block with const filter column
+        {
+            auto test_block = create_test_block(10);
+
+            auto const_filter = vectorized::ColumnConst::create(
+                    vectorized::ColumnVector<vectorized::UInt8>::create(1, 0),
+                    10);
+            auto filter_type = std::make_shared<vectorized::DataTypeUInt8>();
+
+            test_block.insert({const_filter->get_ptr(), filter_type, "filter"});
+
+            std::vector<uint32_t> columns_to_filter = {0, 1};
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
+            EXPECT_EQ(0, test_block.rows());
+
+            auto test_block2 = create_test_block(10);
+            test_block2.insert({const_filter->get_ptr(), filter_type, "filter"});
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
+            EXPECT_EQ(0, test_block2.rows());
+        }
+        // Test filter_block with regular filter column
+        {
+            auto test_block = create_test_block(10);
+
+            // Create regular filter column
+            auto filter_column = vectorized::ColumnVector<vectorized::UInt8>::create();
+            for (size_t i = 0; i < 10; ++i) {
+                filter_column->insert_value(i % 2); // Keep odd-indexed rows
+            }
+            auto filter_type = std::make_shared<vectorized::DataTypeUInt8>();
+
+            // Add filter column to block
+            test_block.insert({filter_column->get_ptr(), filter_type, "filter"});
+
+            // Test four-parameter version
+            std::vector<uint32_t> columns_to_filter = {0, 1};
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
+            EXPECT_EQ(5, test_block.rows()); // Half rows kept
+
+            // Verify filtered data
+            const auto* filtered_col1 = assert_cast<const vectorized::ColumnConst*>(
+                    test_block.get_by_position(0).column.get());
+            const auto* filtered_col2 = assert_cast<const vectorized::ColumnConst*>(
+                    test_block.get_by_position(1).column.get());
+
+            EXPECT_EQ(42, filtered_col1->get_int(0));
+            EXPECT_EQ(24, filtered_col2->get_int(0));
+            EXPECT_EQ(5, filtered_col1->size());
+            EXPECT_EQ(5, filtered_col2->size());
+
+            // Test three-parameter version
+            auto test_block2 = create_test_block(10);
+            test_block2.insert({filter_column->get_ptr(), filter_type, "filter"});
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
+            EXPECT_EQ(5, test_block2.rows()); // Half rows kept
+
+            // Verify filtered data
+            filtered_col1 = assert_cast<const vectorized::ColumnConst*>(
+                    test_block2.get_by_position(0).column.get());
+            filtered_col2 = assert_cast<const vectorized::ColumnConst*>(
+                    test_block2.get_by_position(1).column.get());
+
+            EXPECT_EQ(42, filtered_col1->get_int(0));
+            EXPECT_EQ(24, filtered_col2->get_int(0));
+            EXPECT_EQ(5, filtered_col1->size());
+            EXPECT_EQ(5, filtered_col2->size());
+        }
+
+        // Test append_to_block_by_selector
+        {
+            auto block = create_test_block(10);
+            // Create destination block with proper columns
+            auto type = std::make_shared<vectorized::DataTypeInt32>();
+            vectorized::Block dst_block;
+            dst_block.insert({type->create_column(), type, "const_col1"});
+            dst_block.insert({type->create_column(), type, "const_col2"});
+            vectorized::MutableBlock dst(&dst_block);
+
+            // Create selector to select every other row
+            vectorized::IColumn::Selector selector(5, 0);
+            for (size_t i = 0; i < 5; ++i) {
+                selector[i] = i * 2; // Select rows 0,2,4,6,8
+            }
+
+            // Perform selection
+            EXPECT_TRUE(block.append_to_block_by_selector(&dst, selector).ok());
+            // Skip const columns
+            EXPECT_EQ(0, dst.rows());
+
+            // Verify selected data
+            const vectorized::Block& result_block = dst.to_block();
+
+            const auto* selected_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    result_block.get_by_position(0).column.get());
+            const auto* selected_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
+                    result_block.get_by_position(1).column.get());
+
+            EXPECT_EQ(0, selected_col1->get_int(0));
+            EXPECT_EQ(0, selected_col2->get_int(0));
+            EXPECT_EQ(0, selected_col1->size());
+            EXPECT_EQ(0, selected_col2->size());
+        }
+    }
+
+    // Test with nullable columns
+    {
+        auto create_test_block = [](int size) {
+            vectorized::Block test_block;
+            auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+            auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
+
+            // Create nullable columns
+            auto col1 = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+            auto col2 = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+
+            // Insert test data
+            auto* nested1 = assert_cast<vectorized::ColumnVector<Int32>*>(
+                    col1->get_nested_column_ptr().get());
+            auto* nested2 = assert_cast<vectorized::ColumnVector<Int32>*>(
+                    col2->get_nested_column_ptr().get());
+            auto* null_map1 = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                    col1->get_null_map_column_ptr().get());
+            auto* null_map2 = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                    col2->get_null_map_column_ptr().get());
+
+            for (int i = 0; i < size; ++i) {
+                nested1->insert_value(i);
+                nested2->insert_value(i * 2);
+                null_map1->insert_value(i % 2); // Even rows are not null
+                null_map2->insert_value((i + 1) % 2); // Odd rows are not null
+            }
+
+            test_block.insert({col1->get_ptr(), nullable_type, "nullable_col1"});
+            test_block.insert({col2->get_ptr(), nullable_type, "nullable_col2"});
+            return test_block;
+        };
+
+        // Test filter_block_internal with filter only
+        {
+            auto test_block = create_test_block(10);
+            vectorized::IColumn::Filter filter(10, 1);
+            filter[0] = 0;
+            filter[5] = 0;
+
+            vectorized::Block::filter_block_internal(&test_block, filter);
+            EXPECT_EQ(8, test_block.rows());
+
+            const auto* filtered_col1 = assert_cast<const vectorized::ColumnNullable*>(
+                    test_block.get_by_position(0).column.get());
+            const auto* filtered_col2 = assert_cast<const vectorized::ColumnNullable*>(
+                    test_block.get_by_position(1).column.get());
+            // Verify filtered data
+            for (size_t i = 0; i < 8; ++i) {
+                size_t original_row = (i < 4) ? i + 1 : i + 2;
+                bool expected_null_col1 = original_row % 2;
+                bool expected_null_col2 = (original_row + 1) % 2;
+                EXPECT_EQ(expected_null_col1, filtered_col1->is_null_at(i));
+                EXPECT_EQ(expected_null_col2, filtered_col2->is_null_at(i));
+
+                if (!filtered_col1->is_null_at(i)) {
+                    EXPECT_EQ(original_row, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                            filtered_col1->get_nested_column_ptr().get())->get_data()[i]);
+                }
+                if (!filtered_col2->is_null_at(i)) {
+                    EXPECT_EQ(original_row * 2, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                            filtered_col2->get_nested_column_ptr().get())->get_data()[i]);
+                }
+            }
+        }
+
+        // Test filter_block_internal with specific columns
+        {
+            auto test_block = create_test_block(10);
+            vectorized::IColumn::Filter filter(10, 1);
+            filter[0] = 0;
+            std::vector<uint32_t> columns_to_filter = {0};
+
+            vectorized::Block::filter_block_internal(&test_block, columns_to_filter, filter);
+            EXPECT_EQ(9, test_block.rows());
+
+            const auto* filtered_col1 = assert_cast<const vectorized::ColumnNullable*>(
+                    test_block.get_by_position(0).column.get());
+            const auto* filtered_col2 = assert_cast<const vectorized::ColumnNullable*>(
+                    test_block.get_by_position(1).column.get());
+
+            // Verify filtered data for col1
+            for (size_t i = 0; i < 9; ++i) {
+                size_t original_row = i + 1;
+                EXPECT_EQ(original_row % 2, filtered_col1->is_null_at(i));
+                if (!filtered_col1->is_null_at(i)) {
+                    EXPECT_EQ(original_row, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                            filtered_col1->get_nested_column_ptr().get())->get_data()[i]);
+                }
+            }
+
+            // Verify col2 remains unchanged
+            for (size_t i = 0; i < 10; ++i) {
+                EXPECT_EQ((i + 1) % 2, filtered_col2->is_null_at(i));
+                if (!filtered_col2->is_null_at(i)) {
+                    EXPECT_EQ(i * 2, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                            filtered_col2->get_nested_column_ptr().get())->get_data()[i]);
+                }
+            }
+        }
+        // Test filter_block_internal with column_to_keep
+        {
+            auto test_block = create_test_block(10);
+            vectorized::IColumn::Filter filter(10, 1);
+            filter[0] = 0;
+            filter[5] = 0;
+            uint32_t column_to_keep = 1;
+
+            vectorized::Block::filter_block_internal(&test_block, filter, column_to_keep);
+            EXPECT_EQ(8, test_block.rows());
+
+            const auto* filtered_col1 = assert_cast<const vectorized::ColumnNullable*>(
+                    test_block.get_by_position(0).column.get());
+            const auto* filtered_col2 = assert_cast<const vectorized::ColumnNullable*>(
+                    test_block.get_by_position(1).column.get());
+
+            // Verify filtered data for col1
+            for (size_t i = 0; i < 8; ++i) {
+                size_t original_row = (i < 4) ? i + 1 : i + 2;
+                bool expected_null_col1 = original_row % 2;
+                EXPECT_EQ(expected_null_col1, filtered_col1->is_null_at(i));
+                if (!filtered_col1->is_null_at(i)) {
+                    EXPECT_EQ(original_row, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                            filtered_col1->get_nested_column_ptr().get())->get_data()[i]);
+                }
+            }
+
+            // Verify col2 remains unchanged
+            for (size_t i = 0; i < 10; ++i) {
+                EXPECT_EQ((i + 1) % 2, filtered_col2->is_null_at(i));
+                if (!filtered_col2->is_null_at(i)) {
+                    EXPECT_EQ(i * 2, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                            filtered_col2->get_nested_column_ptr().get())->get_data()[i]);
+                }
+            }
+        }
+
+        // Test filter_block with nullable filter column
+        {
+            auto test_block = create_test_block(10);
+
+            // Create nullable filter column
+            auto nullable_filter = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<vectorized::UInt8>::create(10, 1),
+                    vectorized::ColumnVector<vectorized::UInt8>::create(10, 0)
+            );
+            auto filter_type = std::make_shared<vectorized::DataTypeNullable>(
+                    std::make_shared<vectorized::DataTypeUInt8>());
+
+            test_block.insert({nullable_filter->get_ptr(), filter_type, "filter"});
+
+            // Test four-parameter version
+            std::vector<uint32_t> columns_to_filter = {0, 1};
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
+            EXPECT_EQ(10, test_block.rows()); // All rows kept
+
+            // Test three-parameter version
+            auto test_block2 = create_test_block(10);
+            test_block2.insert({nullable_filter->get_ptr(), filter_type, "filter"});
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
+            EXPECT_EQ(10, test_block2.rows()); // All rows kept
+        }
+
+        // Test filter_block with const filter column
+        {
+            auto test_block = create_test_block(10);
+
+            // Create const filter column (false)
+            auto const_filter = vectorized::ColumnConst::create(
+                    vectorized::ColumnVector<vectorized::UInt8>::create(1, 0),
+                    10);
+            auto filter_type = std::make_shared<vectorized::DataTypeUInt8>();
+
+            test_block.insert({const_filter->get_ptr(), filter_type, "filter"});
+
+            // Test four-parameter version
+            std::vector<uint32_t> columns_to_filter = {0, 1};
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
+            EXPECT_EQ(0, test_block.rows()); // All rows filtered out
+
+            // Test three-parameter version
+            auto test_block2 = create_test_block(10);
+            test_block2.insert({const_filter->get_ptr(), filter_type, "filter"});
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
+            EXPECT_EQ(0, test_block2.rows()); // All rows filtered out
+        }
+
+        // Test filter_block with regular filter column
+        {
+            auto test_block = create_test_block(10);
+
+            // Create regular filter column
+            auto filter_column = vectorized::ColumnVector<vectorized::UInt8>::create();
+            for (size_t i = 0; i < 10; ++i) {
+                filter_column->insert_value(i % 2); // Keep odd-indexed rows
+            }
+            auto filter_type = std::make_shared<vectorized::DataTypeUInt8>();
+
+            test_block.insert({filter_column->get_ptr(), filter_type, "filter"});
+
+            // Test four-parameter version
+            std::vector<uint32_t> columns_to_filter = {0, 1};
+            EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
+            EXPECT_EQ(5, test_block.rows()); // Half rows kept
+
+            // Verify filtered data
+            const auto* filtered_col1 = assert_cast<const vectorized::ColumnNullable*>(
+                    test_block.get_by_position(0).column.get());
+            const auto* filtered_col2 = assert_cast<const vectorized::ColumnNullable*>(
+                    test_block.get_by_position(1).column.get());
+
+            for (size_t i = 0; i < 5; ++i) {
+                size_t original_row = i * 2 + 1;
+                EXPECT_EQ(original_row % 2, filtered_col1->is_null_at(i));
+                EXPECT_EQ((original_row + 1) % 2, filtered_col2->is_null_at(i));
+
+                if (!filtered_col1->is_null_at(i)) {
+                    EXPECT_EQ(original_row, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                            filtered_col1->get_nested_column_ptr().get())->get_data()[i]);
+                }
+                if (!filtered_col2->is_null_at(i)) {
+                    EXPECT_EQ(original_row * 2, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                            filtered_col2->get_nested_column_ptr().get())->get_data()[i]);
+                }
+            }
+        }
+        // Test append_to_block_by_selector
+        {
+            auto block = create_test_block(10);
+            
+            // Create destination block with proper columns
+            auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+            auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
+            vectorized::Block dst_block;
+
+            // Create nullable columns for destination
+            auto dst_col1 = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+            auto dst_col2 = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+
+            dst_block.insert({dst_col1->get_ptr(), nullable_type, "nullable_col1"});
+            dst_block.insert({dst_col2->get_ptr(), nullable_type, "nullable_col2"});
+            vectorized::MutableBlock dst(&dst_block);
+
+            // Create selector to select specific rows
+            vectorized::IColumn::Selector selector(5);
+            for (size_t i = 0; i < 5; ++i) {
+                selector[i] = i * 2; // Select rows 0,2,4,6,8
+            }
+
+            // Perform selection
+            EXPECT_TRUE(block.append_to_block_by_selector(&dst, selector).ok());
+            EXPECT_EQ(5, dst.rows());
+
+            // Verify selected data
+            const vectorized::Block& result_block = dst.to_block();
+
+            const auto* selected_col1 = assert_cast<const vectorized::ColumnNullable*>(
+                    result_block.get_by_position(0).column.get());
+            const auto* selected_col2 = assert_cast<const vectorized::ColumnNullable*>(
+                    result_block.get_by_position(1).column.get());
+
+            // Verify data and null map for selected rows
+            for (size_t i = 0; i < 5; ++i) {
+                size_t original_row = i * 2;
+                
+                // Verify null flags
+                EXPECT_EQ(original_row % 2, selected_col1->is_null_at(i));
+                EXPECT_EQ((original_row + 1) % 2, selected_col2->is_null_at(i));
+
+                // Verify values for non-null elements
+                if (!selected_col1->is_null_at(i)) {
+                    EXPECT_EQ(original_row, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                            selected_col1->get_nested_column_ptr().get())->get_data()[i]);
+                }
+                if (!selected_col2->is_null_at(i)) {
+                    EXPECT_EQ(original_row * 2, assert_cast<const vectorized::ColumnVector<Int32>*>(
+                            selected_col2->get_nested_column_ptr().get())->get_data()[i]);
+                }
+            }
         }
     }
 }
+
 TEST(BlockTest, RowCheck) {
     vectorized::Block block;
     auto type = std::make_shared<vectorized::DataTypeInt32>();
