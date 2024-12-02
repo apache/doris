@@ -269,7 +269,7 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
         rc = g_vm->AttachCurrentThread((void**)&tls_env_, nullptr);
     }
     if (rc != 0 || tls_env_ == nullptr) {
-        return Status::InternalError("Unable to get JVM: {}", rc);
+        LOG(FATAL) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;
     }
 #else
     // the hadoop libhdfs will do all the stuff

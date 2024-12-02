@@ -89,7 +89,8 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for Nothing");
         __builtin_unreachable();
-
+    }
+    
     bool have_subtypes() const override { return false; }
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeNothingSerde>();
