@@ -38,7 +38,6 @@ suite ("aggMVCalcAggFun") {
     sql """insert into aggMVCalcAggFun values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into aggMVCalcAggFun values("2020-01-03",3,"c",3,3,3);"""
 
-
     createMV("create materialized view aggMVCalcAggFunMv as select deptno, empid, sum(salary) from aggMVCalcAggFun group by empid, deptno;")
 
     sleep(3000)
@@ -55,6 +54,7 @@ suite ("aggMVCalcAggFun") {
     order_qt_select_mv "select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno order by deptno;"
 
     sql """set enable_stats=true;"""
+    sql """alter table aggMVCalcAggFun modify column time_col set stats ('row_count'='4');"""
     mv_rewrite_fail("select * from aggMVCalcAggFun order by empid;", "aggMVCalcAggFunMv")\
 
     mv_rewrite_fail("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;", "aggMVCalcAggFunMv")

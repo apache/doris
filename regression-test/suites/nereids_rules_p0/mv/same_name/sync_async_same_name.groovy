@@ -57,6 +57,8 @@ suite("sync_async_same_name") {
     (5, 2, 'o', 1.2, '2023-12-12', 'c','d',2, 'mi');  
     """
 
+    sql """alter table orders modify column o_comment set stats ('row_count'='8');"""
+
     sql """analyze table orders with sync;"""
 
     def common_mv_name = 'common_mv_name'

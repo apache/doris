@@ -112,14 +112,14 @@ PhysicalResultSink
 -- !test_or1 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
-----filter(((t1.a < 2) OR (t1.a > 10)))
+----filter(OR[(t1.a < 2),(t1.a > 10)])
 ------PhysicalOlapScan[extend_infer_t3]
 ----PhysicalOlapScan[extend_infer_t4]
 
 -- !test_or2 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
-----filter(((t1.a < 2) OR (t1.a > 10)))
+----filter(OR[(t1.a < 2),(t1.a > 10)])
 ------PhysicalOlapScan[extend_infer_t3]
 ----PhysicalOlapScan[extend_infer_t4]
 

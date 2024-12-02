@@ -50,6 +50,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
@@ -110,7 +111,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -1049,6 +1049,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
+    public Set<String> getPartitionColumnNames(Optional<MvccSnapshot> snapshot) throws DdlException {
+        return getPartitionColumnNames();
+    }
+
     public Set<String> getPartitionColumnNames() throws DdlException {
         Set<String> partitionColumnNames = Sets.newHashSet();
         if (partitionInfo instanceof SinglePartitionInfo) {
@@ -1127,63 +1131,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (partition != null) {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
-
-            if (!isForceDrop) {
-                // recycle partition
-                if (partitionInfo.getType() == PartitionType.RANGE) {
-                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
-                            partitionInfo.getItem(partition.getId()).getItems(),
-                            new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
-                            partitionInfo.getDataProperty(partition.getId()),
-                            partitionInfo.getReplicaAllocation(partition.getId()),
-                            partitionInfo.getIsInMemory(partition.getId()),
-                            partitionInfo.getIsMutable(partition.getId()));
-
-                } else if (partitionInfo.getType() == PartitionType.LIST) {
-                    // construct a dummy range
-                    List<Column> dummyColumns = new ArrayList<>();
-                    dummyColumns.add(new Column("dummy", PrimitiveType.INT));
-                    PartitionKey dummyKey = null;
-                    try {
-                        dummyKey = PartitionKey.createInfinityPartitionKey(dummyColumns, false);
-                    } catch (AnalysisException e) {
-                        LOG.warn("should not happen", e);
-                    }
-                    Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
-
-                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
-                            dummyRange,
-                            partitionInfo.getItem(partition.getId()),
-                            partitionInfo.getDataProperty(partition.getId()),
-                            partitionInfo.getReplicaAllocation(partition.getId()),
-                            partitionInfo.getIsInMemory(partition.getId()),
-                            partitionInfo.getIsMutable(partition.getId()));
-                } else {
-                    // unpartition
-                    // construct a dummy range and dummy list.
-                    List<Column> dummyColumns = new ArrayList<>();
-                    dummyColumns.add(new Column("dummy", PrimitiveType.INT));
-                    PartitionKey dummyKey = null;
-                    try {
-                        dummyKey = PartitionKey.createInfinityPartitionKey(dummyColumns, false);
-                    } catch (AnalysisException e) {
-                        LOG.warn("should not happen", e);
-                    }
-                    Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
-                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
-                            dummyRange,
-                            new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
-                            partitionInfo.getDataProperty(partition.getId()),
-                            partitionInfo.getReplicaAllocation(partition.getId()),
-                            partitionInfo.getIsInMemory(partition.getId()),
-                            partitionInfo.getIsMutable(partition.getId()));
-                }
-            } else if (!reserveTablets) {
-                Env.getCurrentEnv().onErasePartition(partition);
-            }
-
-            // drop partition info
-            partitionInfo.dropPartition(partition.getId());
+            RecyclePartitionParam recyclePartitionParam = new RecyclePartitionParam();
+            fillInfo(partition, recyclePartitionParam);
+            dropPartitionCommon(dbId, isForceDrop, recyclePartitionParam, partition, reserveTablets);
         }
         return partition;
     }
@@ -1194,6 +1144,81 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public Partition dropPartition(long dbId, String partitionName, boolean isForceDrop) {
         return dropPartition(dbId, partitionName, isForceDrop, !isForceDrop);
+    }
+
+    private void dropPartitionCommon(long dbId, boolean isForceDrop,
+                                        RecyclePartitionParam recyclePartitionParam,
+                                        Partition partition,
+                                        boolean reserveTablets) {
+        if (!isForceDrop) {
+            // recycle partition
+            if (partitionInfo.getType() == PartitionType.RANGE) {
+                Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
+                        recyclePartitionParam.partitionItem.getItems(),
+                        new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
+                        recyclePartitionParam.dataProperty,
+                        recyclePartitionParam.replicaAlloc,
+                        recyclePartitionParam.isInMemory,
+                        recyclePartitionParam.isMutable);
+
+            } else if (partitionInfo.getType() == PartitionType.LIST) {
+                // construct a dummy range
+                List<Column> dummyColumns = new ArrayList<>();
+                dummyColumns.add(new Column("dummy", PrimitiveType.INT));
+                PartitionKey dummyKey = null;
+                try {
+                    dummyKey = PartitionKey.createInfinityPartitionKey(dummyColumns, false);
+                } catch (AnalysisException e) {
+                    LOG.warn("should not happen", e);
+                }
+                Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
+
+                Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
+                        dummyRange,
+                        recyclePartitionParam.partitionItem,
+                        recyclePartitionParam.dataProperty,
+                        recyclePartitionParam.replicaAlloc,
+                        recyclePartitionParam.isInMemory,
+                        recyclePartitionParam.isMutable);
+            } else {
+                // unpartition
+                // construct a dummy range and dummy list.
+                List<Column> dummyColumns = new ArrayList<>();
+                dummyColumns.add(new Column("dummy", PrimitiveType.INT));
+                PartitionKey dummyKey = null;
+                try {
+                    dummyKey = PartitionKey.createInfinityPartitionKey(dummyColumns, false);
+                } catch (AnalysisException e) {
+                    LOG.warn("should not happen", e);
+                }
+                Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
+                Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
+                        dummyRange,
+                        new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
+                        recyclePartitionParam.dataProperty,
+                        recyclePartitionParam.replicaAlloc,
+                        recyclePartitionParam.isInMemory,
+                        recyclePartitionParam.isMutable);
+            }
+        } else if (!reserveTablets) {
+            Env.getCurrentEnv().onErasePartition(partition);
+        }
+
+        // drop partition info
+        partitionInfo.dropPartition(partition.getId());
+    }
+
+    public Partition dropPartitionForTruncate(long dbId, boolean isForceDrop,
+                                            RecyclePartitionParam recyclePartitionParam) {
+        // 1. If "isForceDrop" is false, the partition will be added to the Catalog Recyle bin, and all tablets of this
+        //    partition will not be deleted.
+        // 2. If "ifForceDrop" is true, the partition will be dropped immediately
+        Partition partition = recyclePartitionParam.partition;
+        if (partition != null) {
+            idToPartition.remove(partition.getId());
+            dropPartitionCommon(dbId, isForceDrop, recyclePartitionParam, partition, false);
+        }
+        return partition;
     }
 
     /*
@@ -1663,9 +1688,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public long getDataLength() {
         long dataSize = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            dataSize += entry.getValue().getBaseIndex().getDataSize(false);
+            dataSize += entry.getValue().getBaseIndex().getLocalSegmentSize();
+            dataSize += entry.getValue().getBaseIndex().getRemoteSegmentSize();
         }
         return dataSize;
+    }
+
+    @Override
+    public long getIndexLength() {
+        long indexSize = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            indexSize += entry.getValue().getBaseIndex().getLocalIndexSize();
+            indexSize += entry.getValue().getBaseIndex().getRemoteIndexSize();
+        }
+        return indexSize;
     }
 
     // Get the signature string of this table with specified partitions.
@@ -2027,13 +2063,24 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return GsonUtils.GSON.fromJson(Text.readString(in), OlapTable.class);
     }
 
+
+    public void fillInfo(Partition partition, RecyclePartitionParam recyclePartitionParam) {
+        recyclePartitionParam.dataProperty = partitionInfo.getDataProperty(partition.getId());
+        recyclePartitionParam.replicaAlloc = partitionInfo.getReplicaAllocation(partition.getId());
+        recyclePartitionParam.isInMemory = partitionInfo.getIsInMemory(partition.getId());
+        recyclePartitionParam.isMutable = partitionInfo.getIsMutable(partition.getId());
+        recyclePartitionParam.partitionItem = partitionInfo.getItem(partition.getId());
+        recyclePartitionParam.partition = partition;
+    }
+
     /*
      * this method is currently used for truncating table(partitions).
      * the new partition has new id, so we need to change all 'id-related' members
      *
      * return the old partition.
      */
-    public Partition replacePartition(Partition newPartition) {
+    public Partition replacePartition(Partition newPartition,
+                                        RecyclePartitionParam recyclePartitionParam) {
         Partition oldPartition = nameToPartition.remove(newPartition.getName());
         idToPartition.remove(oldPartition.getId());
 
@@ -2044,6 +2091,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(oldPartition.getId());
         boolean isInMemory = partitionInfo.getIsInMemory(oldPartition.getId());
         boolean isMutable = partitionInfo.getIsMutable(oldPartition.getId());
+        recyclePartitionParam.dataProperty = dataProperty;
+        recyclePartitionParam.replicaAlloc = replicaAlloc;
+        recyclePartitionParam.isInMemory = isInMemory;
+        recyclePartitionParam.isMutable = isMutable;
+        recyclePartitionParam.partitionItem = partitionInfo.getItem(oldPartition.getId());
+        recyclePartitionParam.partition = oldPartition;
 
         if (partitionInfo.getType() == PartitionType.RANGE
                 || partitionInfo.getType() == PartitionType.LIST) {
@@ -3251,12 +3304,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
+    public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
+        return getPartitionType();
+    }
+
     public PartitionType getPartitionType() {
         return partitionInfo.getType();
     }
 
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) throws AnalysisException {
+    public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot)
+            throws AnalysisException {
+        return getAndCopyPartitionItems();
+    }
+
+    public Map<String, PartitionItem> getAndCopyPartitionItems() throws AnalysisException {
         if (!tryReadLock(1, TimeUnit.MINUTES)) {
             throw new AnalysisException("get table read lock timeout, database=" + getDBName() + ",table=" + getName());
         }
@@ -3275,13 +3337,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
+    public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
+        return getPartitionColumns();
+    }
+
     public List<Column> getPartitionColumns() {
         return getPartitionInfo().getPartitionColumns();
     }
 
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
-            OptionalLong snapshotId)
+            Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
         Map<String, Long> partitionVersions = context.getBaseVersions().getPartitionVersions();
         long partitionId = getPartitionOrAnalysisException(partitionName).getId();
@@ -3291,7 +3357,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId) {
+    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) {
         Map<Long, Long> tableVersions = context.getBaseVersions().getTableVersions();
         long visibleVersion = tableVersions.containsKey(id) ? tableVersions.get(id) : getVisibleVersion();
         return new MTMVVersionSnapshot(visibleVersion, id);
@@ -3332,6 +3398,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         @Getter
         private Long segmentCount;
 
+        @Getter
+        private Long localInvertedIndexSize;   // multi replicas
+
+        @Getter
+        private Long localSegmentSize;         // multi replicas
+
+        @Getter
+        private Long remoteInvertedIndexSize;  // single replica
+
+        @Getter
+        private Long remoteSegmentSize;        // single replica
+
         public Statistics() {
             this.dbName = null;
             this.tableName = null;
@@ -3346,13 +3424,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             this.rowCount = 0L;
             this.rowsetCount = 0L;
             this.segmentCount = 0L;
-
+            this.localInvertedIndexSize = 0L;
+            this.localSegmentSize = 0L;
+            this.remoteInvertedIndexSize = 0L;
+            this.remoteSegmentSize = 0L;
         }
 
         public Statistics(String dbName, String tableName,
                 Long dataSize, Long totalReplicaDataSize,
                 Long remoteDataSize, Long replicaCount, Long rowCount,
-                Long rowsetCount, Long segmentCount) {
+                Long rowsetCount, Long segmentCount,
+                Long localInvertedIndexSize, Long localSegmentSize,
+                Long remoteInvertedIndexSize, Long remoteSegmentSize) {
 
             this.dbName = dbName;
             this.tableName = tableName;
@@ -3367,6 +3450,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             this.rowCount = rowCount;
             this.rowsetCount = rowsetCount;
             this.segmentCount = segmentCount;
+
+            this.localInvertedIndexSize = localInvertedIndexSize;
+            this.localSegmentSize = localSegmentSize;
+            this.remoteInvertedIndexSize = remoteInvertedIndexSize;
+            this.remoteSegmentSize = remoteSegmentSize;
         }
     }
 
@@ -3388,6 +3476,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public long getReplicaCount() {
         return statistics.getReplicaCount();
+    }
+
+    public long getLocalIndexFileSize() {
+        return statistics.getLocalInvertedIndexSize();
+    }
+
+    public long getLocalSegmentSize() {
+        return statistics.getLocalSegmentSize();
+    }
+
+    public long getRemoteIndexFileSize() {
+        return statistics.getRemoteInvertedIndexSize();
+    }
+
+    public long getRemoteSegmentSize() {
+        return statistics.getRemoteSegmentSize();
     }
 
     public boolean isShadowIndex(long indexId) {

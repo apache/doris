@@ -170,6 +170,12 @@ public:
     size_t tablet_local_size() const;
     // Remote disk space occupied by tablet.
     size_t tablet_remote_size() const;
+
+    size_t tablet_local_index_size() const;
+    size_t tablet_local_segment_size() const;
+    size_t tablet_remote_index_size() const;
+    size_t tablet_remote_segment_size() const;
+
     size_t version_count() const;
     size_t stale_version_count() const;
     size_t version_count_cross_with_range(const Version& range) const;
@@ -663,6 +669,46 @@ inline size_t TabletMeta::tablet_remote_size() const {
     for (auto& rs : _rs_metas) {
         if (!rs->is_local()) {
             total_size += rs->total_disk_size();
+        }
+    }
+    return total_size;
+}
+
+inline size_t TabletMeta::tablet_local_index_size() const {
+    size_t total_size = 0;
+    for (auto& rs : _rs_metas) {
+        if (rs->is_local()) {
+            total_size += rs->index_disk_size();
+        }
+    }
+    return total_size;
+}
+
+inline size_t TabletMeta::tablet_local_segment_size() const {
+    size_t total_size = 0;
+    for (auto& rs : _rs_metas) {
+        if (rs->is_local()) {
+            total_size += rs->data_disk_size();
+        }
+    }
+    return total_size;
+}
+
+inline size_t TabletMeta::tablet_remote_index_size() const {
+    size_t total_size = 0;
+    for (auto& rs : _rs_metas) {
+        if (!rs->is_local()) {
+            total_size += rs->index_disk_size();
+        }
+    }
+    return total_size;
+}
+
+inline size_t TabletMeta::tablet_remote_segment_size() const {
+    size_t total_size = 0;
+    for (auto& rs : _rs_metas) {
+        if (!rs->is_local()) {
+            total_size += rs->data_disk_size();
         }
     }
     return total_size;
