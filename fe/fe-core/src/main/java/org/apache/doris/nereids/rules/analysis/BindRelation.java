@@ -243,6 +243,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     unboundRelation.getTableSample());
             }
         }
+        if (!tabletIds.isEmpty()) {
+            // This tabletIds is set manually, so need to set specifiedTabletIds
+            scan = scan.withManuallySpecifiedTabletIds(tabletIds);
+        }
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
             // it's a random distribution agg table
             // add agg on olap scan
@@ -435,7 +439,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName,
-                                ((HMSExternalTable) table).getAllPartitions(),
                                 unboundRelation.getTableSample(),
                                 unboundRelation.getTableSnapshot());
                     }

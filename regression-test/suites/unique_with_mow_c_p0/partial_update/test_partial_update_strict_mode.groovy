@@ -17,6 +17,9 @@
 // under the License.
 
 suite("test_partial_update_strict_mode", "p0") {
+    if (isClusterKeyEnabled()) {
+        return
+    }
 
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database

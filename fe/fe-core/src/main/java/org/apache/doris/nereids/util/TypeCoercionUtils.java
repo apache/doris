@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -1190,28 +1189,6 @@ public class TypeCoercionUtils {
                     return caseWhen.withChildren(newChildren);
                 })
                 .orElseThrow(() -> new AnalysisException("Cannot find common type for case when " + caseWhen));
-    }
-
-    /**
-     * process compound predicate type coercion.
-     */
-    public static Expression processCompoundPredicate(CompoundPredicate compoundPredicate) {
-        // check
-        compoundPredicate.checkLegalityBeforeTypeCoercion();
-        ImmutableList.Builder<Expression> newChildren
-                = ImmutableList.builderWithExpectedSize(compoundPredicate.arity());
-        boolean changed = false;
-        for (Expression child : compoundPredicate.children()) {
-            Expression newChild;
-            if (child.getDataType().isNullType()) {
-                newChild = new NullLiteral(BooleanType.INSTANCE);
-            } else {
-                newChild = castIfNotSameType(child, BooleanType.INSTANCE);
-            }
-            changed |= child != newChild;
-            newChildren.add(newChild);
-        }
-        return changed ? compoundPredicate.withChildren(newChildren.build()) : compoundPredicate;
     }
 
     private static boolean canCompareDate(DataType t1, DataType t2) {

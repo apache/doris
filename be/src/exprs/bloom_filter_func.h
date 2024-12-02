@@ -157,19 +157,18 @@ public:
             return Status::InternalError("bloomfilter_func is nullptr");
         }
         if (bloomfilter_func->_bloom_filter == nullptr) {
-            return Status::InternalError("bloomfilter_func->_bloom_filter is nullptr");
+            return Status::InternalError(
+                    "bloomfilter_func->_bloom_filter is nullptr, bloomfilter_func->inited: {}",
+                    bloomfilter_func->_inited);
         }
         // If `_inited` is false, there is no memory allocated in bloom filter and this is the first
         // call for `merge` function. So we just reuse this bloom filter, and we don't need to
         // allocate memory again.
         if (!_inited) {
-            auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
             if (_bloom_filter != nullptr) {
-                return Status::InternalError("_bloom_filter must is nullptr");
+                return Status::InternalError("_bloom_filter must is nullptr, inited: {}", _inited);
             }
-            _bloom_filter = bloomfilter_func->_bloom_filter;
-            _bloom_filter_alloced = other_func->_bloom_filter_alloced;
-            _inited = true;
+            light_copy(bloomfilter_func);
             return Status::OK();
         }
         auto* other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
@@ -207,7 +206,8 @@ public:
 
     bool contain_null() const {
         if (!_bloom_filter) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "_bloom_filter is nullptr");
+            throw Exception(ErrorCode::INTERNAL_ERROR, "_bloom_filter is nullptr, inited: {}",
+                            _inited);
         }
         return _bloom_filter->contain_null();
     }
@@ -232,6 +232,8 @@ public:
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
                                                 uint16_t* offsets, int number,
                                                 bool is_parse_column) = 0;
+
+    bool inited() const { return _inited; }
 
 private:
     void _limit_length() {

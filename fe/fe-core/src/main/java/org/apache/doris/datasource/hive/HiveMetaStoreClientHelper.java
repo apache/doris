@@ -94,6 +94,9 @@ public class HiveMetaStoreClientHelper {
 
     private static final Pattern digitPattern = Pattern.compile("(\\d+)");
 
+    public static final String HIVE_JSON_SERDE = "org.apache.hive.hcatalog.data.JsonSerDe";
+    public static final String LEGACY_HIVE_JSON_SERDE = "org.apache.hadoop.hive.serde2.JsonSerDe";
+
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
         PARQUET(1, "parquet"),

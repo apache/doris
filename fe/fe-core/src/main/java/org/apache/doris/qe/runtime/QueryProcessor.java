@@ -25,13 +25,14 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWor
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ResultSink;
+import org.apache.doris.qe.AbstractJobProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.CoordinatorContext;
-import org.apache.doris.qe.JobProcessor;
 import org.apache.doris.qe.ResultReceiver;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Strings;
@@ -44,24 +45,21 @@ import org.apache.thrift.TException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-public class QueryProcessor implements JobProcessor {
+public class QueryProcessor extends AbstractJobProcessor {
     private static final Logger LOG = LogManager.getLogger(QueryProcessor.class);
 
     // constant fields
     private final long limitRows;
 
     // mutable field
-    private Optional<PipelineExecutionTask> sqlPipelineTask;
-    private final CoordinatorContext coordinatorContext;
     private final List<ResultReceiver> runningReceivers;
     private int receiverOffset;
     private long numReceivedRows;
 
     public QueryProcessor(CoordinatorContext coordinatorContext, List<ResultReceiver> runningReceivers) {
-        this.coordinatorContext = Objects.requireNonNull(coordinatorContext, "coordinatorContext can not be null");
+        super(coordinatorContext);
         this.runningReceivers = new CopyOnWriteArrayList<>(
                 Objects.requireNonNull(runningReceivers, "runningReceivers can not be null")
         );
@@ -69,8 +67,6 @@ public class QueryProcessor implements JobProcessor {
         this.limitRows = coordinatorContext.fragments.get(coordinatorContext.fragments.size() - 1)
                 .getPlanRoot()
                 .getLimit();
-
-        this.sqlPipelineTask = Optional.empty();
     }
 
     public static QueryProcessor build(CoordinatorContext coordinatorContext) {
@@ -109,8 +105,8 @@ public class QueryProcessor implements JobProcessor {
     }
 
     @Override
-    public void setSqlPipelineTask(PipelineExecutionTask pipelineExecutionTask) {
-        this.sqlPipelineTask = Optional.ofNullable(pipelineExecutionTask);
+    protected void doProcessReportExecStatus(TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {
+
     }
 
     public boolean isEos() {
@@ -178,7 +174,7 @@ public class QueryProcessor implements JobProcessor {
             receiver.cancel(cancelReason);
         }
 
-        this.sqlPipelineTask.ifPresent(sqlPipelineTask -> {
+        this.executionTask.ifPresent(sqlPipelineTask -> {
             for (MultiFragmentsPipelineTask fragmentsTask : sqlPipelineTask.getChildrenTasks().values()) {
                 fragmentsTask.cancelExecute(cancelReason);
             }

@@ -756,7 +756,7 @@ public class StmtExecutor {
             // t3: observer fe receive editlog creating the table from the master fe
             syncJournalIfNeeded();
             try {
-                ((Command) logicalPlan).verifyCommandSupported();
+                ((Command) logicalPlan).verifyCommandSupported(context);
                 ((Command) logicalPlan).run(context, this);
             } catch (MustFallbackException e) {
                 if (LOG.isDebugEnabled()) {

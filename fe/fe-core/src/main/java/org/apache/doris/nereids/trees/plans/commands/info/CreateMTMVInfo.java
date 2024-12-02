@@ -103,7 +103,8 @@ import java.util.stream.Collectors;
  */
 public class CreateMTMVInfo {
     public static final Logger LOG = LogManager.getLogger(CreateMTMVInfo.class);
-    public static final String MTMV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION";
+    public static final String MTMV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION,"
+            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM";
     private final boolean ifNotExists;
     private final TableNameInfo mvName;
     private List<String> keys;
@@ -155,6 +156,9 @@ public class CreateMTMVInfo {
         mvName.analyze(ctx);
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(mvName.getCtl())) {
             throw new AnalysisException("Only support creating asynchronous materialized views in internal catalog");
+        }
+        if (ctx.getSessionVariable().isInDebugMode()) {
+            throw new AnalysisException("Create materialized view fail, because is in debug mode");
         }
         try {
             FeNameFormat.checkTableName(mvName.getTbl());
@@ -351,7 +355,7 @@ public class CreateMTMVInfo {
                     allPartitionDescs.size(), ctx.getSessionVariable().getCreateTablePartitionMaxNum()));
         }
         try {
-            PartitionType type = relatedTable.getPartitionType();
+            PartitionType type = relatedTable.getPartitionType(Optional.empty());
             if (type == PartitionType.RANGE) {
                 return new RangePartitionDesc(Lists.newArrayList(mvPartitionInfo.getPartitionCol()),
                         allPartitionDescs);

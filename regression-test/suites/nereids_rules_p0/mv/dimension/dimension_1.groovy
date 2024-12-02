@@ -98,6 +98,9 @@ suite("partition_mv_rewrite_dimension_1") {
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
     """
 
+    sql """alter table orders_1 modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem_1 modify column l_comment set stats ('row_count'='7');"""
+
     sql """analyze table orders_1 with sync;"""
     sql """analyze table lineitem_1 with sync;"""
 

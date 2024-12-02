@@ -1642,6 +1642,8 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
 #ifdef NDEBUG
         // Force data size >= 0 to reduce the losses caused by bugs
         if (tablet_stats->data_size() < 0) tablet_stats->set_data_size(0);
+        if (tablet_stats->index_size() < 0) tablet_stats->set_index_size(0);
+        if (tablet_stats->segment_size() < 0) tablet_stats->set_segment_size(0);
 #endif
     }
 }
@@ -1748,7 +1750,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
     RPC_RATE_LIMIT(update_delete_bitmap)
 
-    uint32_t fdb_txn_size = 0;
+    uint64_t fdb_txn_size = 0;
     auto table_id = request->table_id();
     auto tablet_id = request->tablet_id();
 

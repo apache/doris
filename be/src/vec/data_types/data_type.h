@@ -289,6 +289,7 @@ struct WhichDataType {
     bool is_aggregate_function() const { return idx == TypeIndex::AggregateFunction; }
     bool is_variant_type() const { return idx == TypeIndex::VARIANT; }
     bool is_simple() const { return is_int() || is_uint() || is_float() || is_string(); }
+    bool is_num_can_compare() const { return is_int_or_uint() || is_float() || is_ip(); }
 };
 
 /// IDataType helpers (alternative for IDataType virtual methods with single point of truth)

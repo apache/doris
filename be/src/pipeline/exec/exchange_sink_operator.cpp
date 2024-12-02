@@ -385,10 +385,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     if (all_receiver_eof) {
         return Status::EndOfFile("all data stream channels EOF");
     }
-    Defer defer([&]() {
-        COUNTER_SET(local_state._peak_memory_usage_counter,
-                    local_state._memory_used_counter->value());
-    });
 
     if (_part_type == TPartitionType::UNPARTITIONED || local_state.channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
@@ -505,8 +501,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         }
         COUNTER_UPDATE(local_state.memory_used_counter(),
                        new_channel_mem_usage - old_channel_mem_usage);
-        COUNTER_SET(local_state.peak_memory_usage_counter(),
-                    local_state.memory_used_counter()->value());
     } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
         int64_t old_channel_mem_usage = 0;
         for (const auto& channel : local_state.channels) {
@@ -555,8 +549,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         }
         COUNTER_UPDATE(local_state.memory_used_counter(),
                        new_channel_mem_usage - old_channel_mem_usage);
-        COUNTER_SET(local_state.peak_memory_usage_counter(),
-                    local_state.memory_used_counter()->value());
     } else if (_part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED) {
         int64_t old_channel_mem_usage = 0;
         for (const auto& channel : local_state.channels) {
@@ -581,8 +573,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         }
         COUNTER_UPDATE(local_state.memory_used_counter(),
                        new_channel_mem_usage - old_channel_mem_usage);
-        COUNTER_SET(local_state.peak_memory_usage_counter(),
-                    local_state.memory_used_counter()->value());
     } else if (_part_type == TPartitionType::TABLE_SINK_RANDOM_PARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         // 1. select channel

@@ -46,6 +46,7 @@
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <bool has_case, bool has_else>
 struct FunctionCaseName;
@@ -89,7 +90,7 @@ struct CaseWhenColumnHolder {
                         : std::nullopt);
 
         int begin = 0 + has_case;
-        int end = arguments.size() - has_else;
+        int end = cast_set<int>(arguments.size() - has_else);
         pair_count = (end - begin) / 2 + 1; // when/then at [1: pair_count)
 
         for (int i = begin; i < end; i += 2) {
@@ -131,7 +132,7 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         int loop_start = has_case ? 2 : 1;
-        int loop_end = has_else ? arguments.size() - 1 : arguments.size();
+        int loop_end = cast_set<int>(has_else ? arguments.size() - 1 : arguments.size());
 
         bool is_nullable = false;
         if (!has_else || arguments[loop_end].get()->is_nullable()) {
@@ -156,7 +157,7 @@ public:
     Status execute_short_circuit(const DataTypePtr& data_type, Block& block, uint32_t result,
                                  CaseWhenColumnHolder column_holder) const {
         auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
-        int rows_count = column_holder.rows_count;
+        size_t rows_count = column_holder.rows_count;
 
         // `then` data index corresponding to each row of results, 0 represents `else`.
         auto then_idx_uptr = std::unique_ptr<int[]>(new int[rows_count]);
@@ -203,7 +204,7 @@ public:
                                                                            column_holder);
         }
 
-        int rows_count = column_holder.rows_count;
+        size_t rows_count = column_holder.rows_count;
 
         // `then` data index corresponding to each row of results, 0 represents `else`.
         auto then_idx_uptr = std::unique_ptr<uint8_t[]>(new uint8_t[rows_count]);
@@ -426,4 +427,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

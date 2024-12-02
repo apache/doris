@@ -579,7 +579,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else if (table instanceof TrinoConnectorExternalTable) {
             scanNode = new TrinoConnectorScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else if (table instanceof MaxComputeExternalTable) {
-            scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+            scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor,
+                    fileScan.getSelectedPartitions(), false);
         } else if (table instanceof LakeSoulExternalTable) {
             scanNode = new LakeSoulScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else {
@@ -2695,7 +2696,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (sortExprs.size() > olapTable.getDataSortInfo().getColNum()) {
             return false;
         }
-        List<Column> sortKeyColumns = olapTable.getFullSchema();
+        List<Column> sortKeyColumns = new ArrayList<>(olapTable.getFullSchema());
         if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
             Map<Integer, Column> clusterKeyMap = new TreeMap<>();
             for (Column column : olapTable.getFullSchema()) {

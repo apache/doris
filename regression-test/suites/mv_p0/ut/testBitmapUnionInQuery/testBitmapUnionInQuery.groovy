@@ -51,7 +51,7 @@ suite ("testBitmapUnionInQuery") {
     qt_select_mv "select user_id, bitmap_count(bitmap_union(to_bitmap(tag_id))) a from user_tags group by user_id having a>1 order by a;"
 
     sql """set enable_stats=true;"""
-
+    sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
     mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
 
     mv_rewrite_success("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from user_tags group by user_id having a>1 order by a;",
