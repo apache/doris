@@ -628,10 +628,6 @@ public final class RuntimeFilter {
         singleEq = (eqJoinConjunctsNumbers == 1);
     }
 
-    public boolean getSingleEq() {
-        return singleEq;
-    }
-
     public void setIsBroadcast(boolean isBroadcast) {
         isBroadcastJoin = isBroadcast;
     }
