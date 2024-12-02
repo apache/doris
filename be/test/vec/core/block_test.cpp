@@ -3137,42 +3137,172 @@ TEST(BlockTest, FilterAndSelector) {
 }
 
 TEST(BlockTest, RowCheck) {
-    vectorized::Block block;
-    auto type = std::make_shared<vectorized::DataTypeInt32>();
-
-    // Add columns with same number of rows
+    // Test with empty block
     {
-        auto col1 = vectorized::ColumnVector<Int32>::create();
-        col1->insert_value(1);
-        block.insert({std::move(col1), type, "col1"});
+        vectorized::Block empty_block;
+
+        // Test row number check
+        EXPECT_NO_THROW(empty_block.check_number_of_rows());
+        EXPECT_EQ(0, empty_block.rows());
+
+        // Test clear operations
+        empty_block.clear_column_data(1);
+        EXPECT_EQ(0, empty_block.columns());
+
+        empty_block.clear();
+        EXPECT_EQ(0, empty_block.columns());
+
+        // Test swap operations
+        vectorized::Block other_empty_block;
+        empty_block.swap(other_empty_block);
+        EXPECT_EQ(0, empty_block.columns());
+        EXPECT_EQ(0, other_empty_block.columns());
     }
 
+    // Test with regular columns
     {
-        auto col2 = vectorized::ColumnVector<Int32>::create();
-        block.insert({std::move(col2), type, "col2"});
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+        // Test row number check with different row counts
+        {
+            auto col1 = vectorized::ColumnVector<Int32>::create();
+            col1->insert_value(1);
+            block.insert({std::move(col1), type, "col1"});
+
+            auto col2 = vectorized::ColumnVector<Int32>::create();
+            block.insert({std::move(col2), type, "col2"});
+
+            EXPECT_THROW(block.check_number_of_rows(), Exception);
+        }
+
+        // Test clear operations
+        {
+            block.clear_column_data(1);
+            EXPECT_EQ(1, block.columns());
+
+            block.clear();
+            EXPECT_EQ(0, block.columns());
+        }
+
+        // Test swap operations
+        {
+            vectorized::Block other_block;
+            auto col = vectorized::ColumnVector<Int32>::create();
+            col->insert_value(1);
+            other_block.insert({std::move(col), type, "col1"});
+
+            block.swap(other_block);
+            EXPECT_EQ(1, block.columns());
+            EXPECT_EQ(0, other_block.columns());
+        }
     }
 
-    // Test row number check
-    EXPECT_THROW(block.check_number_of_rows(), Exception);
-
-    // Test clear operations
-    block.clear_column_data(1); // Clear first column and delete the rest columns
-    EXPECT_EQ(1, block.columns());
-
-    block.clear();
-    EXPECT_EQ(0, block.columns());
-
-    // Test swap operations
-    vectorized::Block other_block;
+    // Test with const columns
     {
-        auto col1 = vectorized::ColumnVector<Int32>::create();
-        col1->insert_value(1);
-        other_block.insert({std::move(col1), type, "col1"});
+        vectorized::Block block;
+        auto type = std::make_shared<vectorized::DataTypeInt32>();
+
+        // Test row number check with const columns
+        {
+            auto base_col1 = vectorized::ColumnVector<Int32>::create();
+            base_col1->insert_value(42);
+            auto const_col1 = vectorized::ColumnConst::create(base_col1->get_ptr(), 5);
+            block.insert({const_col1->get_ptr(), type, "const_col1"});
+
+            auto base_col2 = vectorized::ColumnVector<Int32>::create();
+            base_col2->insert_value(24);
+            auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), 5);
+            block.insert({const_col2->get_ptr(), type, "const_col2"});
+
+            EXPECT_NO_THROW(block.check_number_of_rows());
+            EXPECT_EQ(5, block.rows());
+        }
+
+        // Test clear operations
+        {
+            block.clear_column_data(1);
+            EXPECT_EQ(1, block.columns());
+
+            block.clear();
+            EXPECT_EQ(0, block.columns());
+        }
+
+        // Test swap operations
+        {
+            vectorized::Block other_block;
+            auto base_col = vectorized::ColumnVector<Int32>::create();
+            base_col->insert_value(42);
+            auto const_col = vectorized::ColumnConst::create(base_col->get_ptr(), 5);
+            other_block.insert({const_col->get_ptr(), type, "const_col1"});
+
+            block.swap(other_block);
+            EXPECT_EQ(1, block.columns());
+            EXPECT_EQ(0, other_block.columns());
+        }
     }
 
-    block.swap(other_block);
-    EXPECT_EQ(1, block.columns());
-    EXPECT_EQ(0, other_block.columns());
+    // Test with nullable columns
+    {
+        vectorized::Block block;
+        auto base_type = std::make_shared<vectorized::DataTypeInt32>();
+        auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(base_type);
+
+        // Test row number check with nullable columns
+        {
+            auto col1 = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+            
+            // Need to cast to concrete type before calling insert_value
+            auto* nested1 = assert_cast<vectorized::ColumnVector<Int32>*>(
+                    col1->get_nested_column_ptr().get());
+            auto* null_map1 = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                    col1->get_null_map_column_ptr().get());
+            nested1->insert_value(1);
+            null_map1->insert_value(0);
+            
+            block.insert({col1->get_ptr(), nullable_type, "nullable_col1"});
+
+            auto col2 = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+            block.insert({col2->get_ptr(), nullable_type, "nullable_col2"});
+
+            EXPECT_THROW(block.check_number_of_rows(), Exception);
+        }
+
+        // Test clear operations
+        {
+            block.clear_column_data(1);
+            EXPECT_EQ(1, block.columns());
+
+            block.clear();
+            EXPECT_EQ(0, block.columns());
+        }
+
+        // Test swap operations
+        {
+            vectorized::Block other_block;
+            auto col = vectorized::ColumnNullable::create(
+                    vectorized::ColumnVector<Int32>::create(),
+                    vectorized::ColumnVector<vectorized::UInt8>::create());
+            
+            // Need to cast to concrete type before calling insert_value
+            auto* nested = assert_cast<vectorized::ColumnVector<Int32>*>(
+                    col->get_nested_column_ptr().get());
+            auto* null_map = assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(
+                    col->get_null_map_column_ptr().get());
+            nested->insert_value(1);
+            null_map->insert_value(0);
+            
+            other_block.insert({col->get_ptr(), nullable_type, "nullable_col1"});
+
+            block.swap(other_block);
+            EXPECT_EQ(1, block.columns());
+            EXPECT_EQ(0, other_block.columns());
+        }
+    }
 }
 
 TEST(BlockTest, ClearColumnData) {
