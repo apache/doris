@@ -126,7 +126,6 @@ public abstract class FileScanNode extends ExternalScanNode {
         output.append(prefix);
         if (isBatchMode()) {
             output.append("(approximate)");
-            splitAssignment.stop();
         }
         output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
             .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
