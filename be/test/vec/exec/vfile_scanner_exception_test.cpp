@@ -261,10 +261,10 @@ void VfileScannerExceptionTest::init() {
 
     _range_desc.start_offset = 0;
     _range_desc.size = 1000;
+    _range_desc.format_type = TFileFormatType::FORMAT_JNI;
     _ranges.push_back(_range_desc);
     _scan_range.ranges = _ranges;
     _scan_range.__isset.params = true;
-    _scan_range.params.format_type = TFileFormatType::FORMAT_JNI;
     _kv_cache.reset(new ShardedKVCache(48));
 
     _cluster_info.reset(new ClusterInfo());
