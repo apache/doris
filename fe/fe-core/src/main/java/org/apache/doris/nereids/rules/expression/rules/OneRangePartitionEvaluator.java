@@ -800,6 +800,9 @@ public class OneRangePartitionEvaluator<K>
             return new EvaluateRangeResult((Expression) func, ImmutableMap.of((Expression) func,
                     context.rangeMap.get(func)), result.childrenResult);
         }
+        if (!func.isMonotonic()) {
+            return result;
+        }
         int childIndex = func.getMonotonicFunctionChildIndex();
         Expression funcChild = func.child(childIndex);
         boolean isNullable = partitionSlotContainsNull.getOrDefault(funcChild, true);
@@ -807,10 +810,10 @@ public class OneRangePartitionEvaluator<K>
                 : new NonNullable(funcChild));
         partitionSlotContainsNull.put((Expression) func, withNullable.nullable());
 
-        if (!result.childrenResult.get(0).columnRanges.containsKey(funcChild)) {
+        if (!result.childrenResult.get(childIndex).columnRanges.containsKey(funcChild)) {
             return result;
         }
-        ColumnRange childRange = result.childrenResult.get(0).columnRanges.get(funcChild);
+        ColumnRange childRange = result.childrenResult.get(childIndex).columnRanges.get(funcChild);
         if (childRange.isEmptyRange() || childRange.asRanges().size() != 1
                 || (!childRange.span().hasLowerBound() && !childRange.span().hasUpperBound())) {
             return result;
