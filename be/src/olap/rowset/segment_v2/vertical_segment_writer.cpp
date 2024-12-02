@@ -1021,7 +1021,8 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
             auto full_path = full_path_builder.append(parent_column->name_lower_case(), false)
                                      .append(entry->path.get_parts(), false)
                                      .build();
-            if (typed_columns.contains(entry->path.get_path())) {
+            // typed column takes no effect no nested column
+            if (typed_columns.contains(entry->path.get_path()) && !entry->path.has_nested_part()) {
                 TabletColumn typed_column = *typed_columns[entry->path.get_path()];
                 typed_column.set_path_info(full_path);
                 typed_column.set_parent_unique_id(parent_column->unique_id());

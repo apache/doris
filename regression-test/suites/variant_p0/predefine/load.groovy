@@ -58,7 +58,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
             `v1` variant NULL,
             INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english", "sub_column_path" = "a.b.c") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true");
     """ 
     sql """insert into test_predefine1 values(1, '{"predefine_col1" : 1024}')"""
     sql """insert into test_predefine1 values(2, '{"predefine_col2" : 1.11111}')"""
@@ -213,5 +213,36 @@ suite("regression_test_variant_predefine_schema", "p0"){
     qt_sql "desc test_predefine1"
     sql "alter table test_predefine1 drop column v3"
 
-    sql """insert into test_predefine1 select id, v1, v1 from test_predefine2"""
+    sql "DROP TABLE IF EXISTS test_predefine3"
+    sql """CREATE TABLE `test_predefine3` (
+            `id` bigint NOT NULL,
+            `v` variant NULL)
+        ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true");"""
+
+    // test alter nested no effect at present
+    sql "truncate table test_predefine3"
+    sql """insert into test_predefine3 values (1, '{"nested" : [{"a" : 123, "b" : "456"}]}')"""
+    sql "alter table test_predefine3 modify column v variant<`nested.a`: string>"
+    sql """insert into test_predefine3 values (1, '{"nested" : [{"a" : 123, "b" : "456"}]}')"""
+    sql """insert into test_predefine3 values (1, '{"nested" : [{"a" : 123, "b" : "456"}]}')"""
+    sql """insert into test_predefine3 values (1, '{"nested" : [{"a" : 123, "b" : "456"}]}')"""
+    sql """insert into test_predefine3 values (1, '{"nested" : [{"a" : 123, "b" : "456"}]}')"""
+    qt_sql "select * from test_predefine3"
+    qt_sql "select v['nested'] from test_predefine3"
+    qt_sql "select v['nested']['a'] from test_predefine3"
+
+    // test use auto type detect first then alter to modify type
+    sql "truncate table test_predefine3"
+    sql """insert into test_predefine3 values (1, '{"auto_type" : 1234.1111}')"""
+    sql "alter table test_predefine3 modify column v variant<`auto_type`: int>"
+    sql """insert into test_predefine3 values (1, '{"auto_type" : "124511111"}')"""
+    sql """insert into test_predefine3 values (1, '{"auto_type" : 1111122334}')"""
+    sql """insert into test_predefine3 values (1, '{"auto_type" : 111223341111}')"""
+    sql """insert into test_predefine3 values (1, '{"auto_type" : true}')"""
+    sql """insert into test_predefine3 values (1, '{"auto_type" : 1}')"""
+    sql """insert into test_predefine3 values (1, '{"auto_type" : 256}')"""
+    sql """insert into test_predefine3 values (1, '{"auto_type" : 12345}')"""
+    sql """insert into test_predefine3 values (1, '{"auto_type" : 1.0}')"""
+    qt_sql """desc test_predefine3"""
 }

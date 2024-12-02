@@ -183,7 +183,7 @@ Status DataTypeObjectSerDe::write_one_cell_to_json(
             continue;
         }
         rapidjson::Value key;
-        key.SetString(entry->path.get_path().data(), (uint32_t) entry->path.get_path().size());
+        key.SetString(entry->path.get_path().data(), (uint32_t)entry->path.get_path().size());
         rapidjson::Value val;
         RETURN_IF_ERROR(subtype_serde->write_one_cell_to_json(subcolumn, val, allocator, mem_pool,
                                                               row_num, subtype));

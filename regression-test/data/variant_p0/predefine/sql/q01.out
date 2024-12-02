@@ -30,5 +30,5 @@ v1.int_	int	Yes	false	\N	NONE
 v1.ipv4_	ipv4	Yes	false	\N	NONE
 v1.ipv6_	ipv6	Yes	false	\N	NONE
 v1.string_	text	Yes	false	\N	NONE
-v1.varchar_	text	Yes	false	\N	NONE
+v1.varchar_	varchar(65533)	Yes	false	\N	NONE
 
