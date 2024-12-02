@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include <arrow/record_batch.h>
 #include <gen_cpp/data.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -27,7 +28,6 @@
 #include "runtime/descriptors.cpp"
 #include "runtime/descriptors.h"
 #include "util/arrow/block_convertor.h"
-#include <arrow/record_batch.h>
 #include "util/arrow/row_batch.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -176,7 +176,6 @@ public:
                         columns[c_idx]->insert_default();
                         std::cout << "error in deserialize but continue: " << st.to_string()
                                   << std::endl;
-
                     }
                     // serialize data
                     size_t row_num = columns[c_idx]->size() - 1;
@@ -184,8 +183,7 @@ public:
                     VectorBufferWriter bw(assert_cast<ColumnString&>(*assert_str_cols[c_idx]));
                     if constexpr (is_hive_format) {
                         st = serders[c_idx]->serialize_one_cell_to_hive_text(*columns[c_idx],
-                                                                             row_num, bw,
-                                                                             options);
+                                                                             row_num, bw, options);
                         EXPECT_TRUE(st.ok()) << st.to_string();
                     } else {
                         st = serders[c_idx]->serialize_one_cell_to_json(*columns[c_idx], row_num,
@@ -209,12 +207,11 @@ public:
             }
         }
 
-
         if (generate_res_file) {
             // generate res
             auto pos = file_path.find_last_of(".");
             string hive_format = is_hive_format ? "_hive" : "";
-            std::string res_file = file_path.substr(0, pos) + hive_format  +"_serde_res.csv";
+            std::string res_file = file_path.substr(0, pos) + hive_format + "_serde_res.csv";
             std::ofstream res_f(res_file);
             if (!res_f.is_open()) {
                 throw std::ios_base::failure("Failed to open file." + res_file);
@@ -313,14 +310,16 @@ public:
             auto& col = load_cols[i];
             for (size_t j = 0; j < col->size(); ++j) {
                 Status st;
-                EXPECT_NO_FATAL_FAILURE(st = serders[i]->write_column_to_mysql(*col, row_buffer, j, false, {}));
+                EXPECT_NO_FATAL_FAILURE(
+                        st = serders[i]->write_column_to_mysql(*col, row_buffer, j, false, {}));
                 EXPECT_TRUE(st.ok()) << st.to_string();
             }
         }
     }
 
     // assert arrow serialize
-    static void assert_arrow_format(MutableColumns& load_cols, DataTypeSerDeSPtrs serders, DataTypes types) {
+    static void assert_arrow_format(MutableColumns& load_cols, DataTypeSerDeSPtrs serders,
+                                    DataTypes types) {
         // make a block to write to arrow
         auto block = std::make_shared<Block>();
         for (size_t i = 0; i < load_cols.size(); ++i) {
@@ -333,8 +332,9 @@ public:
         EXPECT_EQ(get_arrow_schema_from_block(*block, &block_arrow_schema, "UTC"), Status::OK());
         // convert block to arrow
         std::shared_ptr<arrow::RecordBatch> result;
-        cctz::time_zone _timezone_obj;//default UTC
-        Status stt = convert_to_arrow_batch(*block, block_arrow_schema, arrow::default_memory_pool(), &result, _timezone_obj);
+        cctz::time_zone _timezone_obj; //default UTC
+        Status stt = convert_to_arrow_batch(*block, block_arrow_schema,
+                                            arrow::default_memory_pool(), &result, _timezone_obj);
         EXPECT_EQ(Status::OK(), stt) << "convert block to arrow failed" << stt.to_string();
 
         // deserialize arrow to block
@@ -343,10 +343,9 @@ public:
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto array = result->column(i);
             auto& column_with_type_and_name = assert_block.get_by_position(i);
-            auto ret = arrow_column_to_doris_column(array.get(), 0,
-                                                    column_with_type_and_name.column,
-                                                    column_with_type_and_name.type,
-                                                    rows, _timezone_obj);
+            auto ret = arrow_column_to_doris_column(
+                    array.get(), 0, column_with_type_and_name.column,
+                    column_with_type_and_name.type, rows, _timezone_obj);
             // do check data
             EXPECT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
             auto& col = block->get_by_position(i).column;
