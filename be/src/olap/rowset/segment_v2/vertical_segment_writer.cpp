@@ -709,7 +709,6 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
                 "illegal block columns, block columns = {}, tablet_schema columns = {}",
                 block->dump_structure(), _tablet_schema->dump_structure());
     }
-    LOG(INFO) << "add a single block " << block->rows();
     _batched_blocks.emplace_back(block, row_pos, num_rows);
     return Status::OK();
 }

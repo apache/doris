@@ -72,6 +72,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import org.apache.commons.collections.MapUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -476,6 +477,13 @@ public class CascadesContext implements ScheduleContext {
             }
         });
         return tableNames;
+    }
+
+    public Map<Long, TableIf> getOrExtractTables(LogicalPlan logicalPlan) {
+        if (MapUtils.isEmpty(tables)) {
+            extractTables(logicalPlan);
+        }
+        return tables;
     }
 
     private Set<List<String>> extractTableNamesFromHaving(LogicalHaving<?> having) {

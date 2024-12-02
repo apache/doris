@@ -396,6 +396,7 @@ struct TDetailedReportParams {
   1: optional Types.TUniqueId fragment_instance_id
   2: optional RuntimeProfile.TRuntimeProfileTree profile
   3: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+  4: optional bool is_fragment_level
 }
 
 
@@ -1146,6 +1147,7 @@ enum TBinlogType {
   INDEX_CHANGE_JOB = 20,
   RENAME_ROLLUP = 21,
   RENAME_PARTITION = 22,
+  DROP_ROLLUP = 23,
 
   // Keep some IDs for allocation so that when new binlog types are added in the
   // future, the changes can be picked back to the old versions without breaking
@@ -1162,8 +1164,7 @@ enum TBinlogType {
   //    MODIFY_XXX = 17,
   //    MIN_UNKNOWN = 18,
   //    UNKNOWN_3 = 19,
-  MIN_UNKNOWN = 23,
-  UNKNOWN_8 = 24,
+  MIN_UNKNOWN = 24,
   UNKNOWN_9 = 25,
   UNKNOWN_10 = 26,
   UNKNOWN_11 = 27,
