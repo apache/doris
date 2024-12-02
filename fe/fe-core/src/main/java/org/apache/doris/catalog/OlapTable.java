@@ -1289,12 +1289,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public List<Long> getPartitionIds() {
-        readLock();
-        try {
-            return new ArrayList<>(idToPartition.keySet());
-        } finally {
-            readUnlock();
-        }
+        return new ArrayList<>(idToPartition.keySet());
     }
 
     public Set<String> getCopiedBfColumns() {
@@ -2654,20 +2649,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return tableProperty.rowStorePageSize();
         }
         return PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
-    }
-
-    public void setStoragePageSize(long storagePageSize) {
-        TableProperty tableProperty = getOrCreatTableProperty();
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE,
-                Long.valueOf(storagePageSize).toString());
-        tableProperty.buildStoragePageSize();
-    }
-
-    public long storagePageSize() {
-        if (tableProperty != null) {
-            return tableProperty.storagePageSize();
-        }
-        return PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {

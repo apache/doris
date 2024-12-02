@@ -790,7 +790,9 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
     if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
         return q_ctx->print_all_pipeline_context();
     } else {
-        return fmt::format("Query context (query id = {}) not found. \n", print_id(query_id));
+        return fmt::format(
+                "Dump pipeline tasks failed: Query context (query id = {}) not found. \n",
+                print_id(query_id));
     }
 }
 
@@ -1214,7 +1216,9 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));
 
         std::ranges::for_each(filters, [&](auto& filter) {
-            filter->update_filter(filter_wrapper, request->merge_time(), start_apply);
+            filter->update_filter(
+                    filter_wrapper, request->merge_time(), start_apply,
+                    request->has_local_merge_time() ? request->local_merge_time() : 0);
         });
     }
 
@@ -1233,14 +1237,16 @@ Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
         if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
-            return Status::EndOfFile("Query context (query-id: {}) not found, maybe finished",
-                                     queryid.to_string());
+            return Status::EndOfFile(
+                    "Send filter size failed: Query context (query-id: {}) not found, maybe "
+                    "finished",
+                    queryid.to_string());
         }
     }
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
-    auto merge_status = filter_controller->send_filter_size(request);
+    auto merge_status = filter_controller->send_filter_size(query_ctx, request);
     return merge_status;
 }
 
@@ -1255,8 +1261,9 @@ Status FragmentMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
         if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
-            return Status::InvalidArgument("Query context (query-id: {}) not found",
-                                           queryid.to_string());
+            return Status::EndOfFile(
+                    "Sync filter size failed: Query context (query-id: {}) already finished",
+                    queryid.to_string());
         }
     }
     return query_ctx->runtime_filter_mgr()->sync_filter_size(request);
@@ -1275,14 +1282,15 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
             query_ctx = q_ctx;
         } else {
-            return Status::InvalidArgument("Query context (query-id: {}) not found",
-                                           queryid.to_string());
+            return Status::EndOfFile(
+                    "Merge filter size failed: Query context (query-id: {}) already finished",
+                    queryid.to_string());
         }
     }
     SCOPED_ATTACH_TASK(query_ctx.get());
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
-    auto merge_status = filter_controller->merge(request, attach_data);
+    auto merge_status = filter_controller->merge(query_ctx, request, attach_data);
     return merge_status;
 }
 

@@ -117,6 +117,13 @@ public class OlapTableSink extends DataSink {
     private boolean isStrictMode = false;
     private long txnId = -1;
 
+    // reuse them for set DataStreamSink
+    private TOlapTableSchemaParam tOlapTableSchemaParam;
+
+    private TOlapTablePartitionParam tOlapTablePartitionParam;
+
+    private List<TOlapTableLocationParam> tOlapTableLocationParams;
+
     public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds,
             boolean singleReplicaLoad) {
         this.dstTable = dstTable;
@@ -199,6 +206,18 @@ public class OlapTableSink extends DataSink {
         tDataSink.getOlapTableSink().getPartition().setOverwriteGroupId(var);
     }
 
+    public TOlapTableSchemaParam getOlapTableSchemaParam() {
+        return tOlapTableSchemaParam;
+    }
+
+    public TOlapTablePartitionParam getOlapTablePartitionParam() {
+        return tOlapTablePartitionParam;
+    }
+
+    public List<TOlapTableLocationParam> getOlapTableLocationParams() {
+        return tOlapTableLocationParams;
+    }
+
     // must called after tupleDescriptor is computed
     public void complete(Analyzer analyzer) throws UserException {
         for (Long partitionId : partitionIds) {
@@ -218,12 +237,16 @@ public class OlapTableSink extends DataSink {
         int numReplicas = dstTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum();
         tSink.setNumReplicas(numReplicas);
         tSink.setNeedGenRollup(dstTable.shouldLoadToNewRollup());
-        tSink.setSchema(createSchema(tSink.getDbId(), dstTable, analyzer));
-        tSink.setPartition(createPartition(tSink.getDbId(), dstTable, analyzer));
-        List<TOlapTableLocationParam> locationParams = createLocation(tSink.getDbId(), dstTable);
-        tSink.setLocation(locationParams.get(0));
+
+        tOlapTableSchemaParam = createSchema(tSink.getDbId(), dstTable, analyzer);
+        tOlapTablePartitionParam = createPartition(tSink.getDbId(), dstTable, analyzer);
+        tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
+
+        tSink.setSchema(tOlapTableSchemaParam);
+        tSink.setPartition(tOlapTablePartitionParam);
+        tSink.setLocation(tOlapTableLocationParams.get(0));
         if (singleReplicaLoad) {
-            tSink.setSlaveLocation(locationParams.get(1));
+            tSink.setSlaveLocation(tOlapTableLocationParams.get(1));
         }
         tSink.setWriteSingleReplica(singleReplicaLoad);
         tSink.setNodesInfo(createPaloNodesInfo());

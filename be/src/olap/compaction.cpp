@@ -44,6 +44,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
+#include "io/io_common.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
@@ -339,8 +340,9 @@ bool CompactionMixin::handle_ordered_data_compaction() {
     if (!config::enable_ordered_data_compaction) {
         return false;
     }
-    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION) {
-        // The remote file system does not support to link files.
+    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION ||
+        compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+        // The remote file system and full compaction does not support to link files.
         return false;
     }
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -654,15 +656,28 @@ Status Compaction::do_inverted_index_compaction() {
         try {
             std::vector<std::unique_ptr<DorisCompoundReader>> src_idx_dirs(src_segment_num);
             for (int src_segment_id = 0; src_segment_id < src_segment_num; src_segment_id++) {
-                src_idx_dirs[src_segment_id] =
-                        DORIS_TRY(inverted_index_file_readers[src_segment_id]->open(index_meta));
+                auto res = inverted_index_file_readers[src_segment_id]->open(index_meta);
+                DBUG_EXECUTE_IF("Compaction::open_inverted_index_file_reader", {
+                    res = ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "debug point: Compaction::open_index_file_reader error"));
+                })
+                if (!res.has_value()) {
+                    throw Exception(ErrorCode::INVERTED_INDEX_COMPACTION_ERROR, res.error().msg());
+                }
+                src_idx_dirs[src_segment_id] = std::move(res.value());
             }
             for (int dest_segment_id = 0; dest_segment_id < dest_segment_num; dest_segment_id++) {
-                auto dest_dir =
-                        DORIS_TRY(inverted_index_file_writers[dest_segment_id]->open(index_meta));
+                auto res = inverted_index_file_writers[dest_segment_id]->open(index_meta);
+                DBUG_EXECUTE_IF("Compaction::open_inverted_index_file_writer", {
+                    res = ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "debug point: Compaction::open_inverted_index_file_writer error"));
+                })
+                if (!res.has_value()) {
+                    throw Exception(ErrorCode::INVERTED_INDEX_COMPACTION_ERROR, res.error().msg());
+                }
                 // Destination directories in dest_index_dirs do not need to be deconstructed,
                 // but their lifecycle must be managed by inverted_index_file_writers.
-                dest_index_dirs[dest_segment_id] = dest_dir.get();
+                dest_index_dirs[dest_segment_id] = res.value().get();
             }
             auto st = compact_column(index_meta->index_id(), src_idx_dirs, dest_index_dirs,
                                      index_tmp_path.native(), trans_vec, dest_segment_num_rows);
@@ -671,6 +686,9 @@ Status Compaction::do_inverted_index_compaction() {
                 status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
             }
         } catch (CLuceneError& e) {
+            error_handler(index_meta->index_id(), column_uniq_id);
+            status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
+        } catch (const Exception& e) {
             error_handler(index_meta->index_id(), column_uniq_id);
             status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(e.what());
         }
@@ -1181,8 +1199,12 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
         ctx.compaction_level = _engine.cumu_compaction_policy(compaction_policy)
                                        ->new_compaction_level(_input_rowsets);
     }
-
-    ctx.write_file_cache = compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION;
+    // We presume that the data involved in cumulative compaction is sufficiently 'hot'
+    // and should always be retained in the cache.
+    // TODO(gavin): Ensure that the retention of hot data is implemented with precision.
+    ctx.write_file_cache = (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) ||
+                           (config::enable_file_cache_keep_base_compaction_output &&
+                            compaction_type() == ReaderType::READER_BASE_COMPACTION);
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));

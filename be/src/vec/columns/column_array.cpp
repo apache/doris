@@ -845,6 +845,12 @@ void ColumnArray::insert_indices_from(const IColumn& src, const uint32_t* indice
     }
 }
 
+void ColumnArray::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    for (auto x = 0; x != length; ++x) {
+        ColumnArray::insert_from(src, position);
+    }
+}
+
 ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {
     if (replicate_offsets.empty()) return clone_empty();
 

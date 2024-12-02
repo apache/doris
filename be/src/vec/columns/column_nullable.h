@@ -198,6 +198,8 @@ public:
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;
 
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+
     template <typename ColumnType>
     void insert_from_with_type(const IColumn& src, size_t n) {
         const auto& src_concrete = assert_cast<const ColumnNullable&>(src);

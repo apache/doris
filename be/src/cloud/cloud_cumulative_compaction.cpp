@@ -393,12 +393,9 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                 rowset->rowset_id().to_string();
                 DeleteBitmap::BitmapKey start {rowset->rowset_id(), seg_id, 0};
                 DeleteBitmap::BitmapKey end {rowset->rowset_id(), seg_id, pre_max_version};
-                DeleteBitmap::BitmapKey before_end {rowset->rowset_id(), seg_id,
-                                                    pre_max_version - 1};
                 auto d = _tablet->tablet_meta()->delete_bitmap().get_agg(
                         {rowset->rowset_id(), seg_id, pre_max_version});
-                to_remove_vec.emplace_back(
-                        std::make_tuple(_tablet->tablet_id(), start, before_end));
+                to_remove_vec.emplace_back(std::make_tuple(_tablet->tablet_id(), start, end));
                 if (d->isEmpty()) {
                     continue;
                 }

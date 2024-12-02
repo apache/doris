@@ -38,6 +38,7 @@
 #include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
@@ -50,6 +51,10 @@
 
 namespace doris {
 class IRuntimeFilter;
+
+inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
+    return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
+}
 
 namespace pipeline {
 class PipelineXLocalStateBase;
@@ -449,6 +454,8 @@ public:
     }
 
     QueryContext* get_query_ctx() { return _query_ctx; }
+
+    std::weak_ptr<QueryContext> get_query_ctx_weak();
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;

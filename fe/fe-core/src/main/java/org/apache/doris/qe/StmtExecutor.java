@@ -340,6 +340,10 @@ public class StmtExecutor {
                             context.getSessionVariable().getAutoProfileThresholdMs());
     }
 
+    public boolean isProxy() {
+        return isProxy;
+    }
+
     public static InternalService.PDataRow getRowStringValue(List<Expr> cols,
             FormatOptions options) throws UserException {
         if (cols.isEmpty()) {
@@ -624,6 +628,8 @@ public class StmtExecutor {
                 }
                 parsedStmt = null;
                 planner = null;
+                isForwardedToMaster = null;
+                redirectStatus = null;
                 // Attention: currently exception from nereids does not mean an Exception to user terminal
                 // unless user does not allow fallback to lagency planner. But state of query
                 // has already been set to Error in this case, it will have some side effect on profile result
@@ -3599,7 +3605,7 @@ public class StmtExecutor {
         try {
             try {
                 // disable shuffle for http stream (only 1 sink)
-                sessionVariable.disableStrictConsistencyDmlOnce();
+                sessionVariable.setVarOnce(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, "false");
                 httpStreamParams = generateHttpStreamNereidsPlan(queryId);
             } catch (NereidsException | ParseException e) {
                 if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {

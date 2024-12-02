@@ -236,7 +236,6 @@ public class ConnectContext {
     private Map<String, String> resultAttachedInfo = Maps.newHashMap();
 
     private String workloadGroupName = "";
-    private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
     private boolean isGroupCommit;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
@@ -345,6 +344,11 @@ public class ConnectContext {
 
     public String removeLastDBOfCatalog(String catalog) {
         return lastDBOfCatalog.get(catalog);
+    }
+
+    // Used by COM_RESET_CONNECTION
+    public void clearLastDBOfCatalog() {
+        lastDBOfCatalog.clear();
     }
 
     public void setNotEvalNondeterministicFunction(boolean notEvalNondeterministicFunction) {
@@ -1323,14 +1327,6 @@ public class ConnectContext {
 
     public String getWorkloadGroupName() {
         return this.workloadGroupName;
-    }
-
-    public void setInsertGroupCommit(long tableId, Backend backend) {
-        insertGroupCommitTableToBeMap.put(tableId, backend);
-    }
-
-    public Backend getInsertGroupCommit(long tableId) {
-        return insertGroupCommitTableToBeMap.get(tableId);
     }
 
     public boolean isSkipAuth() {

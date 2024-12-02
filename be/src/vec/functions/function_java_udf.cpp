@@ -44,6 +44,7 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
 
     if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
+        SCOPED_TIMER(context->get_udf_execute_timer());
         std::shared_ptr<JniContext> jni_ctx = std::make_shared<JniContext>();
         context->set_function_state(FunctionContext::THREAD_LOCAL, jni_ctx);
 
@@ -96,7 +97,7 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     JniContext* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
-
+    SCOPED_TIMER(context->get_udf_execute_timer());
     std::unique_ptr<long[]> input_table;
     RETURN_IF_ERROR(JniConnector::to_java_table(&block, num_rows, arguments, input_table));
     auto input_table_schema = JniConnector::parse_table_schema(&block, arguments, true);

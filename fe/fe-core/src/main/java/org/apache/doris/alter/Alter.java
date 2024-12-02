@@ -601,7 +601,7 @@ public class Alter {
                 replaceTableInternal(db, origTable, olapNewTbl, swapTable, false);
                 // write edit log
                 ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(),
-                        origTable.getId(), olapNewTbl.getId(), swapTable);
+                        origTable.getId(), oldTblName, olapNewTbl.getId(), newTblName, swapTable);
                 Env.getCurrentEnv().getEditLog().logReplaceTable(log);
                 LOG.info("finish replacing table {} with table {}, is swap: {}", oldTblName, newTblName, swapTable);
             } finally {
@@ -693,11 +693,6 @@ public class Alter {
             view.writeLockOrDdlException();
             try {
                 view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
-                try {
-                    view.init();
-                } catch (UserException e) {
-                    throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
-                }
                 view.setNewFullSchema(newFullSchema);
                 String viewName = view.getName();
                 db.unregisterTable(viewName);
@@ -1014,7 +1009,8 @@ public class Alter {
                     mtmv.alterMvProperties(alterMTMV.getMvProperties());
                     break;
                 case ADD_TASK:
-                    mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots());
+                    mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots(),
+                            isReplay);
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_dynamic_partition_mod_distribution_key", "docker") {
+suite("test_dynamic_partition_mod_distribution_key") {
     // FIXME: for historical bugs, this case will fail if adding k2 as dup key or unique key
     // see in https://github.com/apache/doris/issues/39798
     //

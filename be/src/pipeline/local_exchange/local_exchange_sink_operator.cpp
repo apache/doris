@@ -62,6 +62,7 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
                 _num_partitions));
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     } else if (_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
+        DCHECK_GT(num_buckets, 0);
         _partitioner.reset(
                 new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(num_buckets));
         RETURN_IF_ERROR(_partitioner->init(_texprs));
@@ -90,6 +91,9 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
                 "UseGlobalShuffle",
                 std::to_string(_parent->cast<LocalExchangeSinkOperatorX>()._use_global_shuffle));
     }
+    _profile->add_info_string(
+            "PartitionExprsSize",
+            std::to_string(_parent->cast<LocalExchangeSinkOperatorX>()._partitioned_exprs_num));
     _channel_id = info.task_idx;
     return Status::OK();
 }

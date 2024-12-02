@@ -181,6 +181,28 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
 }
 
 template <typename T>
+void ColumnStr<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    const auto& string_column = assert_cast<const ColumnStr<T>&>(src);
+    auto [data_val, data_length] = string_column.get_data_at(position);
+
+    size_t old_chars_size = chars.size();
+    check_chars_length(old_chars_size + data_length * length, offsets.size() + length);
+    chars.resize(old_chars_size + data_length * length);
+
+    auto old_size = offsets.size();
+    offsets.resize(old_size + length);
+
+    auto start_pos = old_size;
+    auto end_pos = old_size + length;
+    auto prev_pos = old_chars_size;
+    for (; start_pos < end_pos; ++start_pos) {
+        memcpy(&chars[prev_pos], data_val, data_length);
+        offsets[start_pos] = prev_pos + data_length;
+        prev_pos = prev_pos + data_length;
+    }
+}
+
+template <typename T>
 void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
     auto do_insert = [&](const auto& src_str) {

@@ -52,7 +52,7 @@ public:
     ExchangerBase(int running_sink_operators, int num_sources, int num_partitions,
                   int free_block_limit)
             : _running_sink_operators(running_sink_operators),
-              _running_source_operators(num_partitions),
+              _running_source_operators(num_sources),
               _num_partitions(num_partitions),
               _num_senders(running_sink_operators),
               _num_sources(num_sources),
@@ -201,10 +201,13 @@ struct BlockWrapper {
 class ShuffleExchanger : public Exchanger<PartitionedBlock> {
 public:
     ENABLE_FACTORY_CREATOR(ShuffleExchanger);
-    ShuffleExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
-            : Exchanger<PartitionedBlock>(running_sink_operators, num_partitions,
+    ShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
+                     int free_block_limit)
+            : Exchanger<PartitionedBlock>(running_sink_operators, num_sources, num_partitions,
                                           free_block_limit) {
-        _data_queue.resize(num_partitions);
+        DCHECK_GT(num_partitions, 0);
+        DCHECK_GT(num_sources, 0);
+        _data_queue.resize(num_sources);
     }
     ~ShuffleExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
@@ -216,12 +219,6 @@ public:
     ExchangeType get_type() const override { return ExchangeType::HASH_SHUFFLE; }
 
 protected:
-    ShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
-                     int free_block_limit)
-            : Exchanger<PartitionedBlock>(running_sink_operators, num_sources, num_partitions,
-                                          free_block_limit) {
-        _data_queue.resize(num_partitions);
-    }
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                        vectorized::Block* block, LocalExchangeSinkLocalState& local_state);
 };
@@ -231,7 +228,9 @@ class BucketShuffleExchanger final : public ShuffleExchanger {
     BucketShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
                            int free_block_limit)
             : ShuffleExchanger(running_sink_operators, num_sources, num_partitions,
-                               free_block_limit) {}
+                               free_block_limit) {
+        DCHECK_GT(num_partitions, 0);
+    }
     ~BucketShuffleExchanger() override = default;
     ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
 };

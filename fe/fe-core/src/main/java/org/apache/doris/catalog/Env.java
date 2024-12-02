@@ -3631,12 +3631,6 @@ public class Env {
             sb.append(olapTable.rowStorePageSize()).append("\"");
         }
 
-        // storage page size
-        if (olapTable.storagePageSize() != PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE) {
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE).append("\" = \"");
-            sb.append(olapTable.storagePageSize()).append("\"");
-        }
-
         // skip inverted index on load
         if (olapTable.skipWriteIndexOnLoad()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
@@ -4846,6 +4840,9 @@ public class Env {
                     return;
                 }
             }
+            if (!isReplay && table.isAutoBucket()) {
+                throw new DdlException("table " + table.getName() + " is auto buckets");
+            }
             ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullAssignedGroupName);
             if (groupSchema == null) {
                 // user set a new colocate group,
@@ -5641,13 +5638,6 @@ public class Env {
             newView.setComment(stmt.getComment());
             newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
                     ConnectContext.get().getSessionVariable().getSqlMode());
-            // init here in case the stmt string from view.toSql() has some syntax error.
-            try {
-                newView.init();
-            } catch (UserException e) {
-                throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
-            }
-
             if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
                 throw new DdlException("Failed to create view[" + tableName + "].");
             }

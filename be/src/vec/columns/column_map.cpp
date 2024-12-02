@@ -197,6 +197,12 @@ void ColumnMap::insert_indices_from(const IColumn& src, const uint32_t* indices_
     }
 }
 
+void ColumnMap::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    for (auto x = 0; x != length; ++x) {
+        ColumnMap::insert_from(src, position);
+    }
+}
+
 StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const {
     size_t array_size = size_at(n);
     size_t offset = offset_at(n);

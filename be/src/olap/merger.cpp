@@ -201,7 +201,7 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
                 << ", delete_sign_idx=" << delete_sign_idx;
     // for duplicate no keys
     if (!key_columns.empty()) {
-        column_groups->emplace_back(std::move(key_columns));
+        column_groups->emplace_back(key_columns);
     }
 
     std::vector<uint32_t> value_columns;

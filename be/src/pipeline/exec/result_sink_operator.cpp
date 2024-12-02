@@ -18,6 +18,7 @@
 #include "result_sink_operator.h"
 
 #include <fmt/format.h>
+#include <sys/select.h>
 
 #include <memory>
 
@@ -45,15 +46,25 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
     auto fragment_instance_id = state->fragment_instance_id();
 
+    auto& p = _parent->cast<ResultSinkOperatorX>();
     if (state->query_options().enable_parallel_result_sink) {
         _sender = _parent->cast<ResultSinkOperatorX>()._sender;
     } else {
-        auto& p = _parent->cast<ResultSinkOperatorX>();
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                fragment_instance_id, p._result_sink_buffer_size_rows, &_sender,
-                state->execution_timeout(), state->batch_size()));
+                fragment_instance_id, p._result_sink_buffer_size_rows, &_sender, state));
     }
     _sender->set_dependency(fragment_instance_id, _dependency->shared_from_this());
+
+    _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
+    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
+    }
+    if (p._sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+        std::shared_ptr<arrow::Schema> arrow_schema;
+        RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
+                                                        state->timezone()));
+        _sender->register_arrow_schema(arrow_schema);
+    }
     return Status::OK();
 }
 
@@ -62,10 +73,6 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ResultSinkOperatorX>();
-    _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
-    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
-    }
     // create writer based on sink type
     switch (p._sink_type) {
     case TResultSinkType::MYSQL_PROTOCAL: {
@@ -79,16 +86,8 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
         break;
     }
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
-        std::shared_ptr<arrow::Schema> arrow_schema;
-        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema));
-        if (state->query_options().enable_parallel_result_sink) {
-            state->exec_env()->result_mgr()->register_arrow_schema(state->query_id(), arrow_schema);
-        } else {
-            state->exec_env()->result_mgr()->register_arrow_schema(state->fragment_instance_id(),
-                                                                   arrow_schema);
-        }
         _writer.reset(new (std::nothrow) vectorized::VArrowFlightResultWriter(
-                _sender.get(), _output_vexpr_ctxs, _profile, arrow_schema));
+                _sender.get(), _output_vexpr_ctxs, _profile));
         break;
     }
     default:
@@ -133,8 +132,7 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
 
     if (state->query_options().enable_parallel_result_sink) {
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->query_id(), _result_sink_buffer_size_rows, &_sender,
-                state->execution_timeout(), state->batch_size()));
+                state->query_id(), _result_sink_buffer_size_rows, &_sender, state));
     }
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
