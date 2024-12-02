@@ -53,6 +53,7 @@ struct TColumnDesc {
   6: optional bool isAllowNull
   7: optional string columnKey
   8: optional list<TColumnDesc> children
+  9: optional string defaultValue
 }
 
 // A column definition; used by CREATE TABLE and DESCRIBE <table> statements. A column

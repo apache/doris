@@ -971,6 +971,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             desc.setChildren(children);
         }
+        String defaultValue = column.getDefaultValue();
+        if (defaultValue != null) {
+            desc.setDefaultValue(defaultValue);
+        }
         return desc;
     }
 
