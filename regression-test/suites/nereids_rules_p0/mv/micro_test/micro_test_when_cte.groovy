@@ -140,43 +140,65 @@ suite("micro_test_when_cte") {
     sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
     def query_sql = """
+    WITH scan_data_cte as (
+        select t1.l_shipdate, t1.L_LINENUMBER, orders.O_CUSTKEY, l_suppkey
+        from (select * from lineitem where L_LINENUMBER > 1) t1
+        left join orders on t1.L_ORDERKEY = orders.O_ORDERKEY
+    )
+    SELECT *  FROM scan_data_cte; 
     """
     def mv_sql = """
+    WITH scan_data_cte as (
+        select t1.l_shipdate, t1.L_LINENUMBER, orders.O_CUSTKEY, l_suppkey
+        from (select * from lineitem where L_LINENUMBER > 1) t1
+        left join orders on t1.L_ORDERKEY = orders.O_ORDERKEY
+    )
+    SELECT *  FROM scan_data_cte; 
     """
-    def mv_name = """"""
+    def mv_name = """mv_with_cte_test"""
+
+    // query directly
+    order_qt_query_0_after "${query_sql}"
 
     // create and build complete mv
     create_async_mv(db, mv_name, mv_sql)
-
-    // refresh mv
+    // refresh mv complete
     sql """refresh materialized view ${mv_name} complete"""
-    sql """refresh materialized view ${mv_name} auto"""
-
+    // query mv directly
+    waitingMTMVTaskFinishedByMvName(mv_name)
+    order_qt_query_mv_0 "select * from ${mv_name}"
 
     // create and build partition mv
-
+    create_async_partition_mv(db, mv_name, mv_sql, "(l_shipdate)")
 
     // refresh mv partly
-
+    sql """refresh materialized view ${mv_name} partitions(p_20231208_20231209)"""
+    // query mv directly
+    waitingMTMVTaskFinishedByMvName(mv_name)
+    order_qt_query_mv_1 "select * from ${mv_name}"
 
     // query rewrite
-
+    mv_rewrite_success(mv_sql, mv_name)
+    order_qt_query_0_after "${query_sql}"
 
     // DML
     // base table insert into data when not partition table
+    sql """
+    insert into orders values
+    (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy');
+    """
+    sql """refresh materialized view ${mv_name} complete"""
+    // query mv directly
+    waitingMTMVTaskFinishedByMvName(mv_name)
+    order_qt_query_mv_2 "select * from ${mv_name}"
 
-
-
-    // base table insert into data when  partition table
-
-
-
-    // DDL
-    // base table add column
-
-
-    // base table drop column which mv use
-
-
-    // base table drop column which mv not use
+    // base table insert into data when partition table
+    sql """
+    insert into lineitem values
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy');
+    """
+    sql """refresh materialized view ${mv_name} partitions(p_20231210_20231211)"""
+    // query mv directly
+    waitingMTMVTaskFinishedByMvName(mv_name)
+    order_qt_query_mv_3 "select * from ${mv_name}"
 }
