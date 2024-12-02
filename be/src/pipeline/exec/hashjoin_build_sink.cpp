@@ -156,7 +156,8 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         uint64_t hash_table_size = block ? block->rows() : 0;
         {
             SCOPED_TIMER(_runtime_filter_init_timer);
-            RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                    _runtime_filter_slots->init_filters(state, hash_table_size));
             RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state));
         }
         if (hash_table_size > 1) {

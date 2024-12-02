@@ -355,8 +355,9 @@ public:
             const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
 
     int64_t get_synced_size() const {
-        if (_synced_size == -1) {
-            throw Status::InternalError("sync filter size meet error, filter: {}", debug_string());
+        if (_synced_size == -1 || !_dependency) {
+            throw Exception(doris::ErrorCode::INTERNAL_ERROR,
+                            "sync filter size meet error, filter: {}", debug_string());
         }
         return _synced_size;
     }
