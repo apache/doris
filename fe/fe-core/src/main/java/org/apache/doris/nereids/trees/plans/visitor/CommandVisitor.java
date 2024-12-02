@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
@@ -205,6 +207,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAddConstraintCommand(AddConstraintCommand addConstraintCommand, C context) {
         return visitCommand(addConstraintCommand, context);
+    }
+
+    default R visitAdminCompactTableCommand(AdminCompactTableCommand adminCompactTableCommand, C context) {
+        return visitCommand(adminCompactTableCommand, context);
     }
 
     default R visitDropConstraintCommand(DropConstraintCommand dropConstraintCommand, C context) {
@@ -398,6 +404,11 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTriggersCommand(ShowTriggersCommand showTriggersCommand, C context) {
         return visitCommand(showTriggersCommand, context);
+    }
+
+    default R visitAdminShowReplicaStatusCommand(AdminShowReplicaStatusCommand adminShowReplicaStatusCommand,
+                                                    C context) {
+        return visitCommand(adminShowReplicaStatusCommand, context);
     }
 
     default R visitShowRepositoriesCommand(ShowRepositoriesCommand showRepositoriesCommand, C context) {
