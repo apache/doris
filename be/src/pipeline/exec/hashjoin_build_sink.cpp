@@ -112,13 +112,14 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     if (_closed) {
         return Status::OK();
     }
+    auto p = _parent->cast<HashJoinBuildSinkOperatorX>();
     Defer defer {[&]() {
         if (!_should_build_hash_table) {
             return;
         }
         // The build side hash key column maybe no need output, but we need to keep the column in block
         // because it is used to compare with probe side hash key column
-        auto p = _parent->cast<HashJoinBuildSinkOperatorX>();
+
         if (p._should_keep_hash_key_column && _build_col_ids.size() == 1) {
             p._should_keep_column_flags[_build_col_ids[0]] = true;
         }
@@ -138,24 +139,33 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         return Base::close(state, exec_status);
     }
 
-    if (_should_build_hash_table) {
-        if (state->get_task()->wake_up_by_downstream()) {
+    if (state->get_task()->wake_up_by_downstream()) {
+        if (_should_build_hash_table) {
+            // partitial ignore rf to make global rf work
             RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
             RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
         } else {
-            auto* block = _shared_state->build_block.get();
-            uint64_t hash_table_size = block ? block->rows() : 0;
-            {
-                SCOPED_TIMER(_runtime_filter_init_timer);
-                RETURN_IF_ERROR(_runtime_filter_slots->init_filters(state, hash_table_size));
-                RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state));
-            }
-            if (hash_table_size > 1) {
-                SCOPED_TIMER(_runtime_filter_compute_timer);
-                _runtime_filter_slots->insert(block);
-            }
+            // do not publish filter coz local rf not inited and useless
+            return Base::close(state, exec_status);
+        }
+    } else if (_should_build_hash_table) {
+        if (p._shared_hashtable_controller && !p._shared_hash_table_context->complete_build_stage) {
+            return Status::InternalError("close before sink meet eos");
+        }
+        auto* block = _shared_state->build_block.get();
+        uint64_t hash_table_size = block ? block->rows() : 0;
+        {
+            SCOPED_TIMER(_runtime_filter_init_timer);
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                    _runtime_filter_slots->init_filters(state, hash_table_size));
+            RETURN_IF_ERROR(_runtime_filter_slots->ignore_filters(state));
+        }
+        if (hash_table_size > 1) {
+            SCOPED_TIMER(_runtime_filter_compute_timer);
+            _runtime_filter_slots->insert(block);
         }
     }
+
     SCOPED_TIMER(_publish_runtime_filter_timer);
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             _runtime_filter_slots->publish(state, !_should_build_hash_table));
@@ -305,7 +315,6 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                                     _build_blocks_memory_usage->value() +
                                             (int64_t)(arg.hash_table->get_byte_size() +
                                                       arg.serialized_keys_size(true)));
-                        COUNTER_SET(_peak_memory_usage_counter, _memory_used_counter->value());
                         return st;
                     }},
             _shared_state->hash_table_variants->method_variant, _shared_state->join_op_variants,
@@ -487,7 +496,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     std::move(*in_block)));
             int64_t blocks_mem_usage = local_state._build_side_mutable_block.allocated_bytes();
             COUNTER_SET(local_state._memory_used_counter, blocks_mem_usage);
-            COUNTER_SET(local_state._peak_memory_usage_counter, blocks_mem_usage);
             COUNTER_SET(local_state._build_blocks_memory_usage, blocks_mem_usage);
         }
     }

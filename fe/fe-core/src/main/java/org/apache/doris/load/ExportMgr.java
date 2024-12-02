@@ -38,7 +38,7 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
@@ -162,7 +162,9 @@ public class ExportMgr {
         }
     }
 
-    private List<ExportJob> getWaitingCancelJobs(String label, String state, BinaryOperator operator)
+    private List<ExportJob> getWaitingCancelJobs(
+            String label, String state,
+            Expression operator)
             throws AnalysisException {
         Predicate<ExportJob> jobFilter = buildCancelJobFilter(label, state, operator);
         readLock();
@@ -174,7 +176,9 @@ public class ExportMgr {
     }
 
     @VisibleForTesting
-    public static Predicate<ExportJob> buildCancelJobFilter(String label, String state, BinaryOperator operator)
+    public static Predicate<ExportJob> buildCancelJobFilter(
+            String label, String state,
+            Expression operator)
             throws AnalysisException {
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
                 CaseSensibility.LABEL.getCaseSensibility());
@@ -201,7 +205,10 @@ public class ExportMgr {
     /**
      * used for Nereids planner
      */
-    public void cancelExportJob(String label, String state, BinaryOperator operator, String dbName)
+    public void cancelExportJob(
+            String label,
+            String state,
+            Expression operator, String dbName)
             throws DdlException, AnalysisException {
         // List of export jobs waiting to be cancelled
         List<ExportJob> matchExportJobs = getWaitingCancelJobs(label, state, operator);

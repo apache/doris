@@ -340,17 +340,23 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         int64_t num_output_rows = 0;
         int64_t size_output_rowsets = 0;
         int64_t num_output_segments = 0;
+        int64_t index_size_output_rowsets = 0;
+        int64_t segment_size_output_rowsets = 0;
         for (auto& rs : _output_rowsets) {
             sc_job->add_txn_ids(rs->txn_id());
             sc_job->add_output_versions(rs->end_version());
             num_output_rows += rs->num_rows();
             size_output_rowsets += rs->total_disk_size();
             num_output_segments += rs->num_segments();
+            index_size_output_rowsets += rs->index_disk_size();
+            segment_size_output_rowsets += rs->data_disk_size();
         }
         sc_job->set_num_output_rows(num_output_rows);
         sc_job->set_size_output_rowsets(size_output_rowsets);
         sc_job->set_num_output_segments(num_output_segments);
         sc_job->set_num_output_rowsets(_output_rowsets.size());
+        sc_job->set_index_size_output_rowsets(index_size_output_rowsets);
+        sc_job->set_segment_size_output_rowsets(segment_size_output_rowsets);
     }
     _output_cumulative_point = std::min(_output_cumulative_point, sc_job->alter_version() + 1);
     sc_job->set_output_cumulative_point(_output_cumulative_point);

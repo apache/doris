@@ -21,7 +21,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ------------------------------------PhysicalProject
---------------------------------------filter((((date_dim.d_year = 2001) OR ((date_dim.d_year = 2000) AND (date_dim.d_moy = 12))) OR ((date_dim.d_year = 2002) AND (date_dim.d_moy = 1))) and d_year IN (2000, 2001, 2002))
+--------------------------------------filter(OR[(date_dim.d_year = 2001),AND[(date_dim.d_year = 2000),(date_dim.d_moy = 12)],AND[(date_dim.d_year = 2002),(date_dim.d_moy = 1)]] and d_year IN (2000, 2001, 2002))
 ----------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[item]

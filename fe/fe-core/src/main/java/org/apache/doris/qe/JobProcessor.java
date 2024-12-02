@@ -19,9 +19,12 @@ package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
 import org.apache.doris.qe.runtime.PipelineExecutionTask;
+import org.apache.doris.thrift.TReportExecStatusParams;
 
 public interface JobProcessor {
-    void setSqlPipelineTask(PipelineExecutionTask pipelineExecutionTask);
+    void setPipelineExecutionTask(PipelineExecutionTask pipelineExecutionTask);
 
     void cancel(Status cancelReason);
+
+    void updateFragmentExecStatus(TReportExecStatusParams params);
 }

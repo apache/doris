@@ -23,7 +23,6 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.stats.FilterEstimation.EstimationContext;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -113,22 +112,36 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     @Override
-    public Statistics visitCompoundPredicate(CompoundPredicate predicate, EstimationContext context) {
-        Expression leftExpr = predicate.child(0);
-        Expression rightExpr = predicate.child(1);
-        Statistics leftStats = leftExpr.accept(this, context);
+    public Statistics visitAnd(And and, EstimationContext context) {
+        List<Expression> children = and.children();
+        Statistics inputStats = context.statistics;
+        Statistics outputStats = inputStats;
+        Preconditions.checkArgument(children.size() > 1, "and expression abnormal: " + and);
+        for (Expression child : children) {
+            outputStats = child.accept(this, new EstimationContext(inputStats));
+            outputStats.normalizeColumnStatistics(inputStats.getRowCount(), true);
+            inputStats = outputStats;
+        }
+        return outputStats;
+    }
+
+    @Override
+    public Statistics visitOr(Or or, EstimationContext context) {
+        List<Expression> children = or.children();
+        Set<Slot> leftInputSlots = Sets.newHashSet(children.get(0).getInputSlots());
+        Statistics leftStats = children.get(0).accept(this, context);
         leftStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
-        Statistics andStats = rightExpr.accept(this, new EstimationContext(leftStats));
-        if (predicate instanceof And) {
-            andStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
-            return andStats;
-        } else if (predicate instanceof Or) {
-            Statistics rightStats = rightExpr.accept(this, context);
+        Statistics outputStats = leftStats;
+        Preconditions.checkArgument(children.size() > 1, "and expression abnormal: " + or);
+        for (int i = 1; i < children.size(); i++) {
+            Expression child = children.get(i);
+            Statistics andStats = child.accept(this, new EstimationContext(leftStats));
+            Statistics rightStats = child.accept(this, context);
             rightStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
             double rowCount = leftStats.getRowCount() + rightStats.getRowCount() - andStats.getRowCount();
             Statistics orStats = context.statistics.withRowCount(rowCount);
-            Set<Slot> leftInputSlots = leftExpr.getInputSlots();
-            Set<Slot> rightInputSlots = rightExpr.getInputSlots();
+
+            Set<Slot> rightInputSlots = child.getInputSlots();
             for (Slot slot : context.keyColumns) {
                 if (leftInputSlots.contains(slot) && rightInputSlots.contains(slot)) {
                     ColumnStatistic leftColStats = leftStats.findColumnStatistics(slot);
@@ -146,13 +159,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     orStats.addColumnStats(slot, colBuilder.build());
                 }
             }
-            return orStats;
+            leftStats = orStats;
+            outputStats = orStats;
+            leftInputSlots.addAll(child.getInputSlots());
         }
-        // should not come here
-        Preconditions.checkArgument(false,
-                "unsupported compound operator: %s in %s",
-                predicate.getClass().getName(), predicate.toSql());
-        return context.statistics;
+        return outputStats;
     }
 
     @Override

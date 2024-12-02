@@ -100,10 +100,6 @@ public:
   */
     virtual Ptr convert_column_if_overflow() { return get_ptr(); }
 
-    /// If column isn't ColumnLowCardinality, return itself.
-    /// If column is ColumnLowCardinality, transforms is to full column.
-    virtual Ptr convert_to_full_column_if_low_cardinality() const { return get_ptr(); }
-
     /// If column isn't ColumnDictionary, return itself.
     /// If column is ColumnDictionary, transforms is to predicate column.
     virtual MutablePtr convert_to_predicate_column_if_dictionary() { return get_ptr(); }
@@ -563,10 +559,6 @@ public:
     /// It's true for ColumnNullable, can be true or false for ColumnConst, etc.
     virtual bool is_concrete_nullable() const { return false; }
 
-    virtual bool is_bitmap() const { return false; }
-
-    virtual bool is_hll() const { return false; }
-
     // true if column has null element
     virtual bool has_null() const { return false; }
 
@@ -605,18 +597,12 @@ public:
     /// Checks only @sample_ratio ratio of rows.
     virtual double get_ratio_of_default_rows(double sample_ratio = 1.0) const { return 0.0; }
 
-    /// Column is ColumnVector of numbers or ColumnConst of it. Note that Nullable columns are not numeric.
-    /// Implies is_fixed_and_contiguous.
-    virtual bool is_numeric() const { return false; }
-
     // Column is ColumnString/ColumnArray/ColumnMap or other variable length column at every row
     virtual bool is_variable_length() const { return false; }
 
     virtual bool is_column_string() const { return false; }
 
     virtual bool is_column_string64() const { return false; }
-
-    virtual bool is_column_decimal() const { return false; }
 
     virtual bool is_column_dictionary() const { return false; }
 

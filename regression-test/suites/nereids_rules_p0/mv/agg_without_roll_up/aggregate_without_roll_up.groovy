@@ -121,6 +121,12 @@ suite("aggregate_without_roll_up") {
     (2, 3, 10, 11.01, 'supply2');
     """
 
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+
+    sql """alter table orders modify column o_comment set stats ('row_count'='8');"""
+
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+
     // single table
     // with filter
     def mv1_0 = """
@@ -367,7 +373,7 @@ suite("aggregate_without_roll_up") {
             "max(o_totalprice) as max_total, " +
             "min(o_totalprice) as min_total, " +
             "count(*) as count_all, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as distinct_count " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end))  as distinct_count " +
             "from lineitem " +
             "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate " +
             "group by " +
@@ -565,7 +571,7 @@ suite("aggregate_without_roll_up") {
             "max(o_totalprice) as max_total, " +
             "min(o_totalprice) as min_total, " +
             "count(*) as count_all, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as distinct_count " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as distinct_count " +
             "from lineitem " +
             "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate " +
             "group by " +
@@ -655,7 +661,7 @@ suite("aggregate_without_roll_up") {
             "max(o_totalprice) as max_total, " +
             "min(o_totalprice) as min_total, " +
             "count(*) as count_all, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as distinct_count " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as distinct_count " +
             "from lineitem " +
             "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate " +
             "group by " +

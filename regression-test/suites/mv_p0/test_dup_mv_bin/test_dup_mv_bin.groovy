@@ -64,6 +64,7 @@ suite ("test_dup_mv_bin") {
     qt_select_group_mv_not "select group_concat(bin(k2)) from d_table group by k3 order by k3;"
 
     sql """set enable_stats=true;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1,bin(k2) from d_table order by k1;", "k12b")
 
     mv_rewrite_success("select bin(k2) from d_table order by k1;", "k12b")
