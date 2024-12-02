@@ -21,11 +21,15 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileAttributes;
 
 import org.apache.paimon.table.Table;
+
+import java.util.Optional;
 
 
 public class PaimonSource {
@@ -36,7 +40,8 @@ public class PaimonSource {
     public PaimonSource(TupleDescriptor desc) {
         this.desc = desc;
         this.paimonExtTable = (PaimonExternalTable) desc.getTable();
-        this.originTable = paimonExtTable.getPaimonTable();
+        MvccSnapshot snapshot = ConnectContext.get().getStatementContext().getSnapshot(paimonExtTable);
+        this.originTable = paimonExtTable.getPaimonTable(snapshot == null ? Optional.empty() : Optional.of(snapshot));
     }
 
     public TupleDescriptor getDesc() {

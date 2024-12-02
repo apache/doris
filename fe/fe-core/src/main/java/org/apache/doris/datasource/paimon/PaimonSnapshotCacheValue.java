@@ -17,32 +17,21 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.catalog.PartitionItem;
+public class PaimonSnapshotCacheValue {
 
-import com.google.common.collect.Maps;
+    private final PaimonPartitionInfo partitionInfo;
+    private final PaimonSnapshot snapshot;
 
-import java.util.Map;
-
-public class PaimonPartitionInfo {
-    private final Map<String, PartitionItem> nameToPartitionItem;
-    private final Map<String, PaimonPartition> nameToPartition;
-
-    public PaimonPartitionInfo() {
-        this.nameToPartitionItem = Maps.newHashMap();
-        this.nameToPartition = Maps.newHashMap();
+    public PaimonSnapshotCacheValue(PaimonPartitionInfo partitionInfo, PaimonSnapshot snapshot) {
+        this.partitionInfo = partitionInfo;
+        this.snapshot = snapshot;
     }
 
-    public PaimonPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
-            Map<String, PaimonPartition> nameToPartition) {
-        this.nameToPartitionItem = nameToPartitionItem;
-        this.nameToPartition = nameToPartition;
+    public PaimonPartitionInfo getPartitionInfo() {
+        return partitionInfo;
     }
 
-    public Map<String, PartitionItem> getNameToPartitionItem() {
-        return nameToPartitionItem;
-    }
-
-    public Map<String, PaimonPartition> getNameToPartition() {
-        return nameToPartition;
+    public PaimonSnapshot getSnapshot() {
+        return snapshot;
     }
 }

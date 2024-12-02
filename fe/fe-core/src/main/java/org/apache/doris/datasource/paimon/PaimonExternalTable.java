@@ -26,9 +26,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -45,25 +47,21 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
-import org.apache.paimon.table.system.PartitionsTable;
-import org.apache.paimon.table.system.SnapshotsTable;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 
-import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,7 +69,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf {
+public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
 
     private static final Logger LOG = LogManager.getLogger(PaimonExternalTable.class);
 
@@ -90,37 +88,19 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         }
     }
 
-    public Table getPaimonTable() {
-        makeSureInitialized();
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        return schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable()).orElse(null);
+    public Table getPaimonTable(Optional<MvccSnapshot> snapshot) {
+        return getPaimonSchemaCacheValue().getPaimonTable().copy(
+                Collections.singletonMap(CoreOptions.SCAN_VERSION.key(),
+                        String.valueOf(getPaimonSnapshotCacheValue(snapshot).getSnapshot().getSnapshotId())));
     }
 
-    private PaimonPartitionInfo getPartitionInfoFromCache() {
+    private PaimonSchemaCacheValue getPaimonSchemaCacheValue() {
         makeSureInitialized();
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         if (!schemaCacheValue.isPresent()) {
-            return new PaimonPartitionInfo();
+            throw new CacheException("SchemaCacheValue is empty: %s:%s:%s", null, catalog.getName(), dbName, getName());
         }
-        return ((PaimonSchemaCacheValue) schemaCacheValue.get()).getPartitionInfo();
-    }
-
-    private List<Column> getPartitionColumnsFromCache() {
-        makeSureInitialized();
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        if (!schemaCacheValue.isPresent()) {
-            return Lists.newArrayList();
-        }
-        return ((PaimonSchemaCacheValue) schemaCacheValue.get()).getPartitionColumns();
-    }
-
-    public long getLatestSnapshotIdFromCache() throws AnalysisException {
-        makeSureInitialized();
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        if (!schemaCacheValue.isPresent()) {
-            throw new AnalysisException("not present");
-        }
-        return ((PaimonSchemaCacheValue) schemaCacheValue.get()).getSnapshootId();
+        return (PaimonSchemaCacheValue) schemaCacheValue.get();
     }
 
     @Override
@@ -140,51 +120,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                 partitionColumns.add(column);
             }
         }
-        try {
-            // after 0.9.0 paimon will support table.getLatestSnapshotId()
-            long latestSnapshotId = loadLatestSnapshotId();
-            PaimonPartitionInfo partitionInfo = loadPartitionInfo(partitionColumns);
-            return Optional.of(new PaimonSchemaCacheValue(tmpSchema, partitionColumns, paimonTable, latestSnapshotId,
-                    partitionInfo));
-        } catch (IOException | AnalysisException e) {
-            LOG.warn(e);
-            return Optional.empty();
-        }
-    }
-
-    private long loadLatestSnapshotId() throws IOException {
-        Table table = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName,
-                name + Catalog.SYSTEM_TABLE_SPLITTER + SnapshotsTable.SNAPSHOTS);
-        // snapshotId
-        List<InternalRow> rows = PaimonUtil.read(table, new int[][] {{0}});
-        long latestSnapshotId = 0L;
-        for (InternalRow row : rows) {
-            long snapshotId = row.getLong(0);
-            if (snapshotId > latestSnapshotId) {
-                latestSnapshotId = snapshotId;
-            }
-        }
-        return latestSnapshotId;
-    }
-
-    private PaimonPartitionInfo loadPartitionInfo(List<Column> partitionColumns) throws IOException, AnalysisException {
-        if (CollectionUtils.isEmpty(partitionColumns)) {
-            return new PaimonPartitionInfo();
-        }
-        List<PaimonPartition> paimonPartitions = loadPartitions();
-        return PaimonUtil.generatePartitionInfo(partitionColumns, paimonPartitions);
-    }
-
-    private List<PaimonPartition> loadPartitions()
-            throws IOException {
-        Table table = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName,
-                name + Catalog.SYSTEM_TABLE_SPLITTER + PartitionsTable.PARTITIONS);
-        List<InternalRow> rows = PaimonUtil.read(table, null);
-        List<PaimonPartition> res = Lists.newArrayListWithCapacity(rows.size());
-        for (InternalRow row : rows) {
-            res.add(PaimonUtil.rowToPartition(row));
-        }
-        return res;
+        return Optional.of(new PaimonSchemaCacheValue(tmpSchema, partitionColumns, paimonTable));
     }
 
     private Type paimonPrimitiveTypeToDorisType(org.apache.paimon.types.DataType dataType) {
@@ -314,30 +250,31 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
-        return Maps.newHashMap(getPartitionInfoFromCache().getNameToPartitionItem());
+        return Maps.newHashMap(getNameToPartitionItems(snapshot));
     }
 
     @Override
     public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
-        return getPartitionColumnsFromCache().size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
+        return getPartitionColumns(snapshot).size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
     }
 
     @Override
     public Set<String> getPartitionColumnNames(Optional<MvccSnapshot> snapshot) {
-        return getPartitionColumnsFromCache().stream()
+        return getPartitionColumns(snapshot).stream()
                 .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
     }
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        return getPartitionColumnsFromCache();
+        return getPaimonSchemaCacheValue().getPartitionColumns();
     }
 
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
-        PaimonPartition paimonPartition = getPartitionInfoFromCache().getNameToPartition().get(partitionName);
+        PaimonPartition paimonPartition = getPaimonSnapshotCacheValue(snapshot).getPartitionInfo().getNameToPartition()
+                .get(partitionName);
         if (paimonPartition == null) {
             throw new AnalysisException("can not find partition: " + partitionName);
         }
@@ -347,7 +284,21 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
-        return new MTMVVersionSnapshot(getLatestSnapshotIdFromCache());
+        PaimonSnapshotCacheValue paimonSnapshot = getPaimonSnapshotCacheValue(snapshot);
+        return new MTMVVersionSnapshot(paimonSnapshot.getSnapshot().getSnapshotId());
+    }
+
+    private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
+        if (snapshot.isPresent()) {
+            return ((PaimonMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
+        } else {
+            return getPaimonSnapshotCacheValue();
+        }
+    }
+
+    private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue() {
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
+                .getPaimonSnapshot(catalog, dbName, name);
     }
 
     @Override
@@ -359,4 +310,20 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         // The cost is that Paimon partition writes a null value, and the materialized view cannot detect this data.
         return true;
     }
+
+    @Override
+    public MvccSnapshot loadSnapshot() {
+        return new PaimonMvccSnapshot(getPaimonSnapshotCacheValue());
+    }
+
+    @Override
+    protected Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+        return getPaimonSnapshotCacheValue(snapshot).getPartitionInfo().getNameToPartitionItem();
+    }
+
+    @Override
+    public boolean supportInternalPartitionPruned() {
+        return true;
+    }
+
 }
