@@ -113,7 +113,9 @@ public class KeysDesc implements Writable {
         }
 
         if (clusterKeysColumnNames != null) {
-            analyzeClusterKeys(cols);
+            // analyzeClusterKeys(cols);
+            // forbid cluster key in 3.0 temporarily
+            throw new AnalysisException("Cluster key is not supported");
         }
     }
 
