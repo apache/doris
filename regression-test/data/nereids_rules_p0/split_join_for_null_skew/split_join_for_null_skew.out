@@ -115,7 +115,7 @@
 2023-01-04T13:00	103	\N	\N
 2023-01-08T17:00	107	\N	\N
 
--- !varchar --
+-- !right_join_varchar --
 \N	\N	2023-01-06T15:00	\N
 \N	\N	2023-01-06T15:00	\N
 \N	103	2023-01-04T13:00	date
@@ -132,7 +132,7 @@
 4	104	2023-01-05T14:00	elderberry
 6	106	2023-01-07T16:00	fig
 
--- !datetime --
+-- !right_join_datetime --
 100	100	1	apple
 100	100	1	apple
 100	100	1	apple
@@ -150,4 +150,62 @@
 105	105	5	\N
 106	106	6	fig
 107	107	\N	grape
+
+-- !right_join_varchar_has_filter --
+\N	\N	2023-01-03T12:00	cherry
+\N	\N	2023-01-03T12:00	cherry
+1	100	2023-01-01T10:00	apple
+1	100	2023-01-01T10:00	apple
+1	100	2023-01-01T10:00	apple
+1	100	2023-01-01T10:00	apple
+
+-- !right_join_has_filter_int --
+\N	\N	2023-01-03T12:00	cherry
+\N	\N	2023-01-03T12:00	cherry
+1	100	2023-01-01T10:00	apple
+1	100	2023-01-01T10:00	apple
+1	100	2023-01-01T10:00	apple
+1	100	2023-01-01T10:00	apple
+
+-- !right_join_split_expt_not_null_not_transform --
+\N	\N	2023-01-03T12:00	cherry
+\N	\N	2023-01-03T12:00	cherry
+1	100	2023-01-01T10:00	apple
+1	100	2023-01-01T10:00	apple
+1	100	2023-01-01T10:00	apple
+1	100	2023-01-01T10:00	apple
+
+-- !on_condition_has_plus_expr_right_join --
+\N	\N	\N	103
+\N	\N	\N	107
+\N	\N	1	100
+\N	\N	1	100
+\N	\N	2	101
+\N	\N	3	102
+\N	\N	3	102
+\N	\N	4	104
+\N	\N	5	105
+\N	\N	5	105
+\N	\N	6	106
+
+-- !on_condition_has_abs_expr_right_join --
+\N	\N	\N	103
+\N	\N	\N	107
+1	100	1	100
+1	100	1	100
+1	100	1	100
+1	100	1	100
+2	101	2	101
+3	102	3	102
+3	102	3	102
+3	102	3	102
+3	102	3	102
+4	104	4	104
+5	105	5	105
+5	105	5	105
+5	105	5	105
+5	105	5	105
+6	106	6	106
+
+-- !test_join_key_has_cast --
 

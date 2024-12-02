@@ -41,88 +41,110 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- *  LogicalJoin(hashConjuncts:t1.a=t2.a)
+ *  LogicalLeftOuterJoin(hashConjuncts:t1.a=t2.a)
  *    +--Plan1(output:t1.a)
  *    +--Plan2(output:t2.a)
  *  ->
  *  LogicalUnion
  *    +--LogicalFilter(t1.a is null)
  *      +--Plan1
- *    +--LogicalJoin(t1.a=t2.a)
+ *    +--LogicalLeftOuterJoin(t1.a=t2.a)
  *      +--LogicalFilter(t1.a is not null)
  *        +--Plan1
  *      +--Plan2
+ *
+ *  LogicalRightOuterJoin(hashConjuncts:t1.a=t2.a)
+ *    +--Plan1(output:t1.a)
+ *    +--Plan2(output:t2.a)
+ *  ->
+ *  LogicalUnion
+ *    +--LogicalFilter(t2.a is null)
+ *      +--Plan2
+ *    +--LogicalRightOuterJoin(t1.a=t2.a)
+ *      +--Plan1
+ *      +--LogicalFilter(t2.a is not null)
+ *        +--Plan2
  * */
 public class JoinSplitForNullSkew extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(any(), any())
-                .when(join -> join.getJoinType().isLeftJoin())
+                .when(join -> join.getJoinType().isOneSideOuterJoin())
+                .whenNot(join -> join.isMarkJoin() || !join.getMarkJoinConjuncts().isEmpty())
                 .when(join -> join.getHashJoinConjuncts().size() == 1)
-                .thenApply(ctx -> {
-                    Set<Integer> enableNereidsRules = ctx.cascadesContext.getConnectContext()
-                            .getSessionVariable().getEnableNereidsRules();
-                    if (!enableNereidsRules.contains(RuleType.JOIN_SPLIT_FOR_NULL_SKEW.type())) {
-                        return null;
-                    }
-                    return splitJoin(ctx.root);
-                })
+                .then(this::splitJoin)
                 .toRule(RuleType.JOIN_SPLIT_FOR_NULL_SKEW);
     }
 
     private Plan splitJoin(LogicalJoin<Plan, Plan> join) {
-        Plan left = join.left();
-        Plan right = join.right();
-
+        boolean isLeftJoin = join.getJoinType().isLeftOuterJoin();
+        Plan primarySide = isLeftJoin ? join.left() : join.right();
+        Plan associatedSide = isLeftJoin ? join.right() : join.left();
         Expression conjunct = join.getHashJoinConjuncts().get(0);
         if (!(conjunct instanceof EqualTo)) {
             return null;
         }
         EqualTo equalTo = (EqualTo) conjunct;
-        Expression leftExpr;
-        if (left.getOutputSet().containsAll(equalTo.left().getInputSlots())) {
-            leftExpr = equalTo.left();
+        Expression splitExpr;
+        if (primarySide.getOutputSet().containsAll(equalTo.left().getInputSlots())) {
+            splitExpr = equalTo.left();
         } else {
-            leftExpr = equalTo.right();
+            splitExpr = equalTo.right();
+        }
+        if (!splitExpr.nullable()) {
+            return null;
         }
 
         // is not null side construct
-        LogicalFilter<Plan> newJoinLeftChild = new LogicalFilter<>(
-                ImmutableSet.of(new Not(new IsNull(leftExpr))), left);
-        LogicalJoin<Plan, Plan> newJoin = join.withChildren(ImmutableList.of(newJoinLeftChild, right));
+        LogicalFilter<Plan> isNotNullFilter = new LogicalFilter<>(
+                ImmutableSet.of(new Not(new IsNull(splitExpr))), primarySide);
+        LogicalJoin<Plan, Plan> newJoin;
+        if (isLeftJoin) {
+            newJoin = join.withChildren(ImmutableList.of(isNotNullFilter, associatedSide));
+        } else {
+            newJoin = join.withChildren(ImmutableList.of(associatedSide, isNotNullFilter));
+        }
         Plan deepCopyJoin = LogicalPlanDeepCopier.INSTANCE.deepCopy(newJoin, new DeepCopierContext());
 
         // avoid duplicate application of rules
-        if (left instanceof LogicalFilter) {
+        if (primarySide instanceof LogicalFilter) {
+            int primaryIndex = isLeftJoin ? 0 : 1;
             Map<Expression, Expression> newJoinOutputToOriginJoinOutput = new HashMap<>();
-            for (int i = 0; i < left.getOutput().size(); ++i) {
-                newJoinOutputToOriginJoinOutput.put(deepCopyJoin.child(0).getOutput().get(i), left.getOutput().get(i));
+            for (int i = 0; i < primarySide.getOutput().size(); ++i) {
+                newJoinOutputToOriginJoinOutput.put(deepCopyJoin.child(primaryIndex).getOutput().get(i),
+                        primarySide.getOutput().get(i));
             }
-            Set<Expression> originConjuncts = ((LogicalFilter<?>) left).getConjuncts();
-            Set<Expression> replacedNewConjuncts = new HashSet<>();
-            for (Expression newConjunct : newJoinLeftChild.getConjuncts()) {
-                replacedNewConjuncts.add(newConjunct.rewriteUp(e -> newJoinOutputToOriginJoinOutput
-                        .getOrDefault(e, e)));
-            }
-            if (replacedNewConjuncts.equals(originConjuncts)) {
+            Set<Expression> conjuncts = ((LogicalFilter<Plan>) deepCopyJoin.child(primaryIndex)).getConjuncts();
+            Set<Expression> replacedConjuncts = conjuncts.stream()
+                    .map(c -> c.rewriteUp(e -> newJoinOutputToOriginJoinOutput.getOrDefault(e, e)))
+                    .collect(Collectors.toSet());
+            if (((LogicalFilter<?>) primarySide).getConjuncts().equals(replacedConjuncts)) {
                 return null;
             }
         }
 
         // is null side construct
-        LogicalFilter<Plan> isNullFilter = new LogicalFilter<>(ImmutableSet.of(new IsNull(leftExpr)), left);
-        Plan deepCopyLeft = LogicalPlanDeepCopier.INSTANCE.deepCopy(isNullFilter, new DeepCopierContext());
-        List<NamedExpression> newProjects = new ArrayList<>(deepCopyLeft.getOutput());
-        for (Slot slot : right.getOutput()) {
-            newProjects.add(new Alias(new NullLiteral(slot.getDataType())));
+        LogicalFilter<Plan> isNullFilter = new LogicalFilter<>(ImmutableSet.of(new IsNull(splitExpr)), primarySide);
+        Plan deepCopyFilter = LogicalPlanDeepCopier.INSTANCE.deepCopy(isNullFilter, new DeepCopierContext());
+        List<NamedExpression> newProjects = new ArrayList<>(join.getOutput().size());
+        if (isLeftJoin) {
+            newProjects.addAll(deepCopyFilter.getOutput());
+            for (Slot slot : associatedSide.getOutput()) {
+                newProjects.add(new Alias(new NullLiteral(slot.getDataType())));
+            }
+        } else {
+            for (Slot slot : associatedSide.getOutput()) {
+                newProjects.add(new Alias(new NullLiteral(slot.getDataType())));
+            }
+            newProjects.addAll(deepCopyFilter.getOutput());
         }
-        LogicalProject<Plan> isNullProject = new LogicalProject<>(newProjects, deepCopyLeft);
+        LogicalProject<Plan> isNullProject = new LogicalProject<>(newProjects, deepCopyFilter);
 
         // regularChildrenOutputs construct
         List<List<SlotReference>> regularChildrenOutputs = new ArrayList<>();

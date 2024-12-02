@@ -309,7 +309,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // when union has empty relation child and constantExprsList is not empty,
                         // after EliminateEmptyRelation, project can be pushed into union
                         topDown(new PushProjectIntoUnion()),
-                        topDown(new JoinSplitForNullSkew())
+                        costBased(topDown(new JoinSplitForNullSkew()))
                         ),
                 // putting the "Column pruning and infer predicate" topic behind the "Set operation optimization"
                 // is because that pulling up predicates from union needs EliminateEmptyRelation in union child
