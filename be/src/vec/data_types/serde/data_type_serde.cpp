@@ -56,7 +56,7 @@ Status DataTypeSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::V
     // allocate memory to prevent from heap use after free
     void* mem = allocator.Malloc(str_rep.size());
     memcpy(mem, str_rep.data(), str_rep.size());
-    result.SetString((const char*)mem, (uint32_t) str_rep.size());
+    result.SetString((const char*)mem, (uint32_t)str_rep.size());
     return Status::OK();
 }
 

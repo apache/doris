@@ -255,6 +255,7 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
                                   TabletSchemaSPtr& common_schema, bool update_sparse_column,
                                   int32_t variant_col_unique_id,
+                                  const std::map<std::string, TabletColumnPtr>& typed_columns,
                                   std::set<PathInData>* path_set = nullptr) {
     PathsInData tuple_paths;
     DataTypes tuple_types;
@@ -291,11 +292,21 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
     // Append all common type columns of this variant
     for (int i = 0; i < tuple_paths.size(); ++i) {
         TabletColumn common_column;
-        // const std::string& column_name = variant_col_name + "." + tuple_paths[i].get_path();
-        get_column_by_type(tuple_types[i], tuple_paths[i].get_path(), common_column,
-                           ExtraInfo {.unique_id = -1,
-                                      .parent_unique_id = variant_col_unique_id,
-                                      .path_info = tuple_paths[i]});
+        // typed path not contains root part
+        auto path_without_root = tuple_paths[i].copy_pop_front().get_path();
+        if (typed_columns.contains(path_without_root) && !tuple_paths[i].has_nested_part()) {
+            common_column = *typed_columns.at(path_without_root);
+            // parent unique id and path may not be init in write path
+            common_column.set_parent_unique_id(variant_col_unique_id);
+            common_column.set_path_info(tuple_paths[i]);
+            common_column.set_name(tuple_paths[i].get_path());
+        } else {
+            // const std::string& column_name = variant_col_name + "." + tuple_paths[i].get_path();
+            get_column_by_type(tuple_types[i], tuple_paths[i].get_path(), common_column,
+                               ExtraInfo {.unique_id = -1,
+                                          .parent_unique_id = variant_col_unique_id,
+                                          .path_info = tuple_paths[i]});
+        }
         if (update_sparse_column) {
             common_schema->mutable_column_by_uid(variant_col_unique_id)
                     .append_sparse_column(common_column);
@@ -311,6 +322,11 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
 void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
                                 std::set<PathInData>* path_set) {
+    std::map<std::string, TabletColumnPtr> typed_columns;
+    for (const TabletColumnPtr& col :
+         common_schema->column_by_uid(variant_col_unique_id).get_sub_columns()) {
+        typed_columns[col->name()] = col;
+    }
     // Types of subcolumns by path from all tuples.
     std::map<PathInData, DataTypes> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
@@ -341,12 +357,17 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         }
     }
     update_least_schema_internal(subcolumns_types, common_schema, false, variant_col_unique_id,
-                                 path_set);
+                                 typed_columns, path_set);
 }
 
 void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
                                 const std::set<PathInData>& path_set) {
+    std::map<std::string, TabletColumnPtr> typed_columns;
+    for (const TabletColumnPtr& col :
+         common_schema->column_by_uid(variant_col_unique_id).get_sub_columns()) {
+        typed_columns[col->name()] = col;
+    }
     // Types of subcolumns by path from all tuples.
     std::map<PathInData, DataTypes> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
@@ -365,7 +386,8 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
             }
         }
     }
-    update_least_schema_internal(subcolumns_types, common_schema, true, variant_col_unique_id);
+    update_least_schema_internal(subcolumns_types, common_schema, true, variant_col_unique_id,
+                                 typed_columns);
 }
 
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,

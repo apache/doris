@@ -120,6 +120,32 @@ v1.predefine_col2	double	Yes	false	\N	NONE
 v1.predefine_col3	text	Yes	false	\N	NONE
 v1.predefine_col4	text	Yes	false	\N	NONE
 v2.dcm	decimal(9,0)	Yes	false	\N	NONE
-v3.dcm	int	Yes	false	\N	NONE
+v3.dcm	decimal(9,0)	Yes	false	\N	NONE
 v3.dt	datetime	Yes	false	\N	NONE
+
+-- !sql --
+1	{"nested":[{"a":123,"b":"456"}]}
+1	{"nested":[{"a":123,"b":"456"}]}
+1	{"nested":[{"a":123,"b":"456"}]}
+1	{"nested":[{"a":123,"b":"456"}]}
+1	{"nested":[{"a":123,"b":"456"}]}
+
+-- !sql --
+[{"a":123,"b":"456"}]
+[{"a":123,"b":"456"}]
+[{"a":123,"b":"456"}]
+[{"a":123,"b":"456"}]
+[{"a":123,"b":"456"}]
+
+-- !sql --
+[123]
+[123]
+[123]
+[123]
+[123]
+
+-- !sql --
+id	bigint	No	true	\N	
+v	variant<auto_type:int>	Yes	false	\N	NONE
+v.auto_type	int	Yes	false	\N	NONE
 
