@@ -44,6 +44,7 @@
 //         text_can_contain_only_valid_utf8
 //         have_maximum_size_of_value, get_maximum_size_of_value_in_memory, get_size_of_value_in_memory
 //         get_precision, get_scale
+//         get_field
 //         is_null_literal, is_value_represented_by_number, is_value_represented_by_integer, is_value_represented_by_unsigned_integer, is_value_unambiguously_represented_in_contiguous_memory_region, is_value_unambiguously_represented_in_fixed_size_contiguous_memory_region
 // 2. datatype creation with column: create_column, create_column_const (size_t size, const Field &field), create_column_const_with_default_value (size_t size),  get_uncompressed_serialized_bytes (const IColumn &column, int be_exec_version)
 // 3. serde related: get_serde (int nesting_level=1)
@@ -165,6 +166,23 @@ public:
         ASSERT_EQ(data_type->get_uncompressed_serialized_bytes(*column, 0), 4);
     }
 
+    // get_field assert is simple and can be used for all DataType
+    void get_field_assert(DataTypePtr& data_type, TExprNode& node, Field& assert_field,
+                          bool assert_false = false) {
+        if (assert_false) {
+            EXPECT_ANY_THROW(data_type->get_field(node))
+                    << "get_field_assert: "
+                    << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
+                    << " field: " << assert_field.get_type() << std::endl;
+        } else {
+            Field field = data_type->get_field(node);
+            ASSERT_EQ(field, assert_field)
+                    << "get_field_assert: "
+                    << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
+                    << " field: " << assert_field.get_type() << std::endl;
+        }
+    }
+
     // to_string | to_string_batch | from_string assert is simple and can be used for all DataType
     void assert_to_string_from_string_assert(MutableColumnPtr mutableColumn,
                                              DataTypePtr& data_type) {
@@ -179,6 +197,22 @@ public:
             ReadBuffer rb(s.data(), s.size());
             ASSERT_EQ(Status::OK(), data_type->from_string(rb, assert_column.get()));
             ASSERT_EQ(assert_column->operator[](i), mutableColumn->operator[](i));
+        }
+        // to_string | from_string
+        auto ser_col = ColumnString::create();
+        ser_col->reserve(mutableColumn->size());
+        VectorBufferWriter buffer_writer(*ser_col.get());
+        for (int i = 0; i < mutableColumn->size(); ++i) {
+            data_type->to_string(*mutableColumn, i, buffer_writer);
+            buffer_writer.commit();
+        }
+        // check ser_col to assert_column and check same with mutableColumn
+        auto assert_column_1 = data_type->create_column();
+        for (int i = 0; i < ser_col->size(); ++i) {
+            std::string s = ser_col->get_data_at(i).to_string();
+            ReadBuffer rb(s.data(), s.size());
+            ASSERT_EQ(Status::OK(), data_type->from_string(rb, assert_column_1.get()));
+            ASSERT_EQ(assert_column_1->operator[](i), mutableColumn->operator[](i));
         }
     }
 

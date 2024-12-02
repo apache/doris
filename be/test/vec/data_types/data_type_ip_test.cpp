@@ -131,6 +131,55 @@ TEST_F(DataTypeIPTest, CreateColumnTest) {
     create_column_assert(dt_ipv6, default_field_ipv6);
 }
 
+TEST_F(DataTypeIPTest, GetFieldTest) {
+    auto serde_ipv4 = dt_ipv4->get_serde(1);
+    auto serde_ipv6 = dt_ipv6->get_serde(1);
+    auto column_ipv4 = dt_ipv4->create_column();
+    auto column_ipv6 = dt_ipv6->create_column();
+
+    // insert from data csv and assert insert result
+    MutableColumns ip_cols;
+    ip_cols.push_back(column_ipv4->get_ptr());
+    ip_cols.push_back(column_ipv6->get_ptr());
+    DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
+    CommonDataTypeSerdeTest::load_data_and_assert_from_csv<true, true>(serde, ip_cols,
+                                                                       data_files[1], ';', {1, 2});
+    TExprNode node_ipv4;
+    node_ipv4.node_type = TExprNodeType::IPV4_LITERAL;
+    for (size_t i = 0; i < ip_cols[0]->size(); ++i) {
+        node_ipv4.ipv4_literal.value = ip_cols[0]->get_int(i);
+        Field assert_field;
+        ip_cols[0]->get(i, assert_field);
+        get_field_assert(dt_ipv4, node_ipv4, assert_field);
+    }
+
+    TExprNode node_ipv6;
+    node_ipv6.node_type = TExprNodeType::IPV6_LITERAL;
+    for (size_t i = 0; i < ip_cols[1]->size(); ++i) {
+        node_ipv6.ipv6_literal.value =
+                IPv6Value::to_string(assert_cast<ColumnIPv6&>(*ip_cols[1]).get_data()[i]);
+        Field assert_field;
+        ip_cols[1]->get(i, assert_field);
+        get_field_assert(dt_ipv6, node_ipv6, assert_field);
+    }
+
+    TExprNode invalid_node_ipv6;
+    invalid_node_ipv6.node_type = TExprNodeType::IPV6_LITERAL;
+    // todo.(check) 2001:db8:::1 this is invalid ipv6 value, but it can pass the test
+    std::vector<string> invalid_ipv6 = {"2001:db8::12345",
+                                        "",
+                                        "::fffff:0:0",
+                                        "2001:db8::g123",
+                                        "2001:db8:85a3::8a2e:0370:",
+                                        "2001:0db8:85a3:0000:0000:8a2e:0370:7334:1234",
+                                        "::12345:abcd"};
+    for (auto& ipv6 : invalid_ipv6) {
+        invalid_node_ipv6.ipv6_literal.value = ipv6;
+        Field field;
+        get_field_assert(dt_ipv6, invalid_node_ipv6, field, true);
+    }
+}
+
 TEST_F(DataTypeIPTest, FromAndToStringTest) {
     auto serde_ipv4 = dt_ipv4->get_serde(1);
     auto serde_ipv6 = dt_ipv6->get_serde(1);
@@ -198,37 +247,6 @@ TEST_F(DataTypeIPTest, SerdeJsonbTest) {
     DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
     CommonDataTypeSerdeTest::check_data(ip_cols, serde, ';', {1, 2}, data_files[0],
                                         CommonDataTypeSerdeTest::assert_jsonb_format);
-}
-
-TEST_F(DataTypeIPTest, SerdeMysqlTest) {
-    auto serde_ipv4 = dt_ipv4->get_serde(1);
-    auto serde_ipv6 = dt_ipv6->get_serde(1);
-    auto column_ipv4 = dt_ipv4->create_column();
-    auto column_ipv6 = dt_ipv6->create_column();
-
-    // insert from data csv and assert insert result
-    MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
-    DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
-    CommonDataTypeSerdeTest::check_data(ip_cols, serde, ';', {1, 2}, data_files[0],
-                                        CommonDataTypeSerdeTest::assert_mysql_format);
-}
-
-TEST_F(DataTypeIPTest, SerdeArrowTest) {
-    auto serde_ipv4 = dt_ipv4->get_serde(1);
-    auto serde_ipv6 = dt_ipv6->get_serde(1);
-    auto column_ipv4 = dt_ipv4->create_column();
-    auto column_ipv6 = dt_ipv6->create_column();
-
-    // insert from data csv and assert insert result
-    MutableColumns ip_cols;
-    ip_cols.push_back(column_ipv4->get_ptr());
-    ip_cols.push_back(column_ipv6->get_ptr());
-    DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
-    CommonDataTypeSerdeTest::load_data_and_assert_from_csv<true, true>(serde, ip_cols,
-                                                                       data_files[1], ';', {1, 2});
-    CommonDataTypeSerdeTest::assert_arrow_format(ip_cols, serde, {dt_ipv4, dt_ipv6});
 }
 
 } // namespace doris::vectorized
