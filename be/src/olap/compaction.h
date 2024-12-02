@@ -84,6 +84,8 @@ protected:
 
     int64_t merge_way_num();
 
+    Status _update_delete_bitmap();
+
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
