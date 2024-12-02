@@ -172,7 +172,7 @@ BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size, Run
 }
 
 BufferControlBlock::~BufferControlBlock() {
-    cancel(Status::Cancelled("Cancelled"));
+    cancel(Status::Cancelled<false>("Cancelled {}", print_id(this->_fragment_id)));
 }
 
 Status BufferControlBlock::init() {
