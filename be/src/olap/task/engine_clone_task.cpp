@@ -83,8 +83,9 @@ namespace {
 /// if not equal, then return error
 /// return value: if binlog file not exist, then return to binlog file path
 Result<std::string> check_dest_binlog_valid(const std::string& tablet_dir,
+                                            const std::string& clone_dir,
                                             const std::string& clone_file, bool* skip_link_file) {
-    std::string to;
+    std::string from, to;
     std::string new_clone_file = clone_file;
     if (clone_file.ends_with(".binlog")) {
         // change clone_file suffix from .binlog to .dat
@@ -93,6 +94,7 @@ Result<std::string> check_dest_binlog_valid(const std::string& tablet_dir,
         // change clone_file suffix from .binlog-index to .idx
         new_clone_file.replace(clone_file.size() - 13, 13, ".idx");
     }
+    from = fmt::format("{}/{}", clone_dir, clone_file);
     to = fmt::format("{}/_binlog/{}", tablet_dir, new_clone_file);
 
     // check to to file exist
@@ -107,10 +109,10 @@ Result<std::string> check_dest_binlog_valid(const std::string& tablet_dir,
     }
 
     LOG(WARNING) << "binlog file already exist. "
-                 << "tablet_dir=" << tablet_dir << ", clone_file=" << clone_file;
+                 << "tablet_dir=" << tablet_dir << ", clone_file=" << from << ", to=" << to;
 
     std::string clone_file_md5sum;
-    status = io::global_local_filesystem()->md5sum(clone_file, &clone_file_md5sum);
+    status = io::global_local_filesystem()->md5sum(from, &clone_file_md5sum);
     if (!status.ok()) {
         return ResultError(std::move(status));
     }
@@ -699,7 +701,6 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
             continue;
         }
 
-        auto from = fmt::format("{}/{}", clone_dir, clone_file);
         std::string to;
         if (clone_file.ends_with(".binlog") || clone_file.ends_with(".binlog-index")) {
             if (!contain_binlog) {
@@ -708,7 +709,8 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
                 break;
             }
 
-            if (auto&& result = check_dest_binlog_valid(tablet_dir, clone_file, &skip_link_file);
+            if (auto&& result =
+                        check_dest_binlog_valid(tablet_dir, clone_dir, clone_file, &skip_link_file);
                 result) {
                 to = std::move(result.value());
             } else {
@@ -720,6 +722,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
         }
 
         if (!skip_link_file) {
+            auto from = fmt::format("{}/{}", clone_dir, clone_file);
             status = io::global_local_filesystem()->link_file(from, to);
             if (!status.ok()) {
                 return status;

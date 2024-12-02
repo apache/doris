@@ -348,6 +348,7 @@ public class IndexChangeJob implements Writable {
             olapTable.readUnlock();
         }
         this.jobState = JobState.RUNNING;
+        // DO NOT write edit log here, tasks will be sent again if FE restart or master changed.
         LOG.info("transfer inverted index job {} state to {}", jobId, this.jobState);
     }
 

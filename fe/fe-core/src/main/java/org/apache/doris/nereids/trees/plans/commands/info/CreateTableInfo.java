@@ -343,7 +343,7 @@ public class CreateTableInfo {
                                 break;
                             }
                             if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
-                                    || catalogType.isComplexType()) {
+                                    || catalogType.isComplexType() || catalogType.isVariantType()) {
                                 break;
                             }
                             keys.add(column.getName());

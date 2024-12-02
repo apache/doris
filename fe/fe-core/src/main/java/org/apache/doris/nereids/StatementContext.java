@@ -24,6 +24,9 @@ import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
@@ -165,6 +168,8 @@ public class StatementContext implements Closeable {
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
     private List<PlannerHook> plannerHooks = new ArrayList<>();
+
+    private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -498,6 +503,32 @@ public class StatementContext implements Closeable {
 
     public void addPlannerHook(PlannerHook plannerHook) {
         this.plannerHooks.add(plannerHook);
+    }
+
+    /**
+     * Load snapshot information of mvcc
+     *
+     * @param tables Tables used in queries
+     */
+    public void loadSnapshots(Map<Long, TableIf> tables) {
+        if (tables == null) {
+            return;
+        }
+        for (TableIf tableIf : tables.values()) {
+            if (tableIf instanceof MvccTable) {
+                snapshots.put(new MvccTableInfo(tableIf), ((MvccTable) tableIf).loadSnapshot());
+            }
+        }
+    }
+
+    /**
+     * Obtain snapshot information of mvcc
+     *
+     * @param mvccTable mvccTable
+     * @return MvccSnapshot
+     */
+    public MvccSnapshot getSnapshot(MvccTable mvccTable) {
+        return snapshots.get(new MvccTableInfo(mvccTable));
     }
 
     private static class CloseableResource implements Closeable {

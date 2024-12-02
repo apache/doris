@@ -686,7 +686,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_JDBC_CAST_PREDICATE_PUSH_DOWN, needForward = true,
             description = {"是否允许将带有 CAST 表达式的谓词下推到 JDBC 外部表。",
                     "Whether to allow predicates with CAST expressions to be pushed down to JDBC external tables."})
-    public boolean enableJdbcCastPredicatePushDown = false;
+    public boolean enableJdbcCastPredicatePushDown = true;
 
     @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
     public boolean roundPreciseDecimalV2Value = false;
@@ -975,7 +975,7 @@ public class SessionVariable implements Serializable, Writable {
                 + "which can improve query concurrency. default is false."})
     public boolean enableScanRunSerial = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE)
+    @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE, fuzzy = true)
     public boolean enableSqlCache = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_CACHE)
