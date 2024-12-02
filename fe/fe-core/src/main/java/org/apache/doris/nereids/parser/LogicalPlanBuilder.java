@@ -248,6 +248,7 @@ import org.apache.doris.nereids.DorisParser.ShowPluginsContext;
 import org.apache.doris.nereids.DorisParser.ShowPrivilegesContext;
 import org.apache.doris.nereids.DorisParser.ShowProcContext;
 import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
+import org.apache.doris.nereids.DorisParser.ShowProcessListContext;
 import org.apache.doris.nereids.DorisParser.ShowReplicaDistributionContext;
 import org.apache.doris.nereids.DorisParser.ShowRepositoriesContext;
 import org.apache.doris.nereids.DorisParser.ShowRolesContext;
@@ -536,6 +537,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
@@ -4754,6 +4756,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tableId = Long.parseLong(ctx.tableId.getText());
         }
         return new ShowTableIdCommand(tableId);
+    }
+
+    @Override
+    public LogicalPlan visitShowProcessList(ShowProcessListContext ctx) {
+        return new ShowProcessListCommand(ctx.FULL() != null);
     }
 
     @Override
