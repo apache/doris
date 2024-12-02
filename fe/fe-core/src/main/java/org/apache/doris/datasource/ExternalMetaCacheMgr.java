@@ -25,7 +25,8 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.datasource.hudi.source.HudiPartitionMgr;
+import org.apache.doris.datasource.hudi.source.HudiCachedFsViewProcessor;
+import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
 import org.apache.doris.datasource.hudi.source.HudiPartitionProcessor;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCacheMgr;
@@ -88,7 +89,7 @@ public class ExternalMetaCacheMgr {
     // catalog id -> table schema cache
     private Map<Long, ExternalSchemaCache> schemaCacheMap = Maps.newHashMap();
     // hudi partition manager
-    private final HudiPartitionMgr hudiPartitionMgr;
+    private final HudiMetadataCacheMgr hudiMetadataCacheMgr;
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
     // all external table row count cache.
@@ -123,7 +124,7 @@ public class ExternalMetaCacheMgr {
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
 
-        hudiPartitionMgr = new HudiPartitionMgr(commonRefreshExecutor);
+        hudiMetadataCacheMgr = new HudiMetadataCacheMgr(commonRefreshExecutor);
         icebergMetadataCacheMgr = new IcebergMetadataCacheMgr(commonRefreshExecutor);
         maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
         paimonMetadataCacheMgr = new PaimonMetadataCacheMgr(commonRefreshExecutor);
@@ -165,7 +166,15 @@ public class ExternalMetaCacheMgr {
     }
 
     public HudiPartitionProcessor getHudiPartitionProcess(ExternalCatalog catalog) {
-        return hudiPartitionMgr.getPartitionProcessor(catalog);
+        return hudiMetadataCacheMgr.getPartitionProcessor(catalog);
+    }
+
+    public HudiCachedFsViewProcessor getFsViewProcessor(ExternalCatalog catalog) {
+        return hudiMetadataCacheMgr.getFsViewProcessor(catalog);
+    }
+
+    public HudiMetadataCacheMgr getHudiMetadataCacheMgr() {
+        return hudiMetadataCacheMgr;
     }
 
     public IcebergMetadataCache getIcebergMetadataCache() {
@@ -195,7 +204,7 @@ public class ExternalMetaCacheMgr {
         if (schemaCacheMap.remove(catalogId) != null) {
             LOG.info("remove schema cache for catalog {}", catalogId);
         }
-        hudiPartitionMgr.removePartitionProcessor(catalogId);
+        hudiMetadataCacheMgr.removeCache(catalogId);
         icebergMetadataCacheMgr.removeCache(catalogId);
         maxComputeMetadataCacheMgr.removeCache(catalogId);
         paimonMetadataCacheMgr.removeCache(catalogId);
@@ -211,7 +220,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateTableCache(dbName, tblName);
         }
-        hudiPartitionMgr.cleanTablePartitions(catalogId, dbName, tblName);
+        hudiMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
         icebergMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
         maxComputeMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
         paimonMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
@@ -230,7 +239,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateDbCache(dbName);
         }
-        hudiPartitionMgr.cleanDatabasePartitions(catalogId, dbName);
+        hudiMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         icebergMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         maxComputeMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         paimonMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
@@ -248,7 +257,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateAll();
         }
-        hudiPartitionMgr.cleanPartitionProcess(catalogId);
+        hudiMetadataCacheMgr.invalidateCatalogCache(catalogId);
         icebergMetadataCacheMgr.invalidateCatalogCache(catalogId);
         maxComputeMetadataCacheMgr.invalidateCatalogCache(catalogId);
         paimonMetadataCacheMgr.invalidateCatalogCache(catalogId);
