@@ -158,9 +158,9 @@ internal	test_query_sys_db_2	\N
 internal	test_query_sys_db_3	\N
 
 -- !tables --
-internal	test_query_sys_tb_1	BASE TABLE	0	\N	\N
-internal	test_query_sys_tb_2	BASE TABLE	0	\N	\N
-internal	test_query_sys_tb_3	BASE TABLE	0	\N	\N
+internal	test_query_sys_tb_1	BASE TABLE	0	\N	0
+internal	test_query_sys_tb_2	BASE TABLE	0	\N	0
+internal	test_query_sys_tb_3	BASE TABLE	0	\N	0
 
 -- !session_variables --
 wait_timeout	30000
