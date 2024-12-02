@@ -181,6 +181,7 @@ supportedCreateStatement
     | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
         LIKE existedTable=multipartIdentifier
         (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
+    | CREATE ROLE (IF NOT EXISTS)? name=identifier (COMMENT STRING_LITERAL)?    #createRole        
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
@@ -751,7 +752,6 @@ unsupportedCreateStatement
         (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
         passwordOption (COMMENT STRING_LITERAL)?                                #createUser
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
-    | CREATE ROLE (IF NOT EXISTS)? name=identifier (COMMENT STRING_LITERAL)?    #createRole
     | CREATE FILE name=STRING_LITERAL
         ((FROM | IN) database=identifier)? properties=propertyClause            #createFile
     | CREATE INDEX (IF NOT EXISTS)? name=identifier

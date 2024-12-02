@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -29,37 +30,46 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Strings;
+
 /**
- * drop roles command
+ * Create role command
  */
-public class DropRoleCommand extends DropCommand {
-    private final boolean ifExists;
-    private final String role;
+public class CreateRoleCommand extends Command implements ForwardWithSync {
+    private boolean ifNotExists;
+    private String role;
+    private String comment;
 
     /**
-     * constructor
+     * ctor of this command.
      */
-    public DropRoleCommand(String role, boolean ifExists) {
-        super(PlanType.DROP_ROLE_COMMAND);
+    public CreateRoleCommand(boolean ifNotExists, String role, String comment) {
+        super(PlanType.CREATE_ROLE_COMMAND);
+        this.ifNotExists = ifNotExists;
         this.role = role;
-        this.ifExists = ifExists;
-    }
-
-    @Override
-    public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
-            throw new AnalysisException("Drop role is prohibited when Ranger is enabled.");
-        }
-        FeNameFormat.checkRoleName(role, false /* can not be superuser */, "Can not drop role");
-        // check if current user has GRANT priv on GLOBAL level.
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP ROLE");
-        }
-        Env.getCurrentEnv().getAuth().dropRole(role, ifExists);
+        this.comment = Strings.nullToEmpty(comment);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitDropRoleCommand(this, context);
+        return visitor.visitCreateRoleCommand(this, context);
+    }
+
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
+            throw new AnalysisException("Create role is prohibited when Ranger is enabled.");
+        }
+        FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not create role");
+        // check if current user has GRANT priv on GLOBAL level.
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE ROLE");
+        }
+        Env.getCurrentEnv().getAuth().createRole(role, ifNotExists, comment);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }
