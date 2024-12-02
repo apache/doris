@@ -1692,6 +1692,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // tablet may not have cooldowned data, but the storage policy is set
         tablet_info->__set_cooldown_term(_cooldown_conf.term);
     }
+    tablet_info->__set_local_index_size(_tablet_meta->tablet_local_index_size());
+    tablet_info->__set_local_segment_size(_tablet_meta->tablet_local_segment_size());
+    tablet_info->__set_remote_index_size(_tablet_meta->tablet_remote_index_size());
+    tablet_info->__set_remote_segment_size(_tablet_meta->tablet_remote_segment_size());
 }
 
 void Tablet::report_error(const Status& st) {
