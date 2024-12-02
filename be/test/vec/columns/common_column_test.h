@@ -1661,22 +1661,24 @@ public:
         // check append_data_by_selector with different selector
         std::vector<std::vector<string>> res;
         auto option = DataTypeSerDe::FormatOptions();
-        // selector is range for the column, contain values from 0 to num_columns - 1.
-        const ColumnArray::Selector selector = {0, 1, 2, 3};
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto& source_column = load_cols[i];
             MutableColumnPtr res_col = source_column->clone_empty();
+            // selector is range for the column, contain values from 0 to num_columns - 1.
+            // selector size should bigger than begin and end ,
+            // because selector[i], i in range(begin,end),  Make a DCHECK for this
+            const ColumnArray::Selector selector = {1, 2, 3, 0};
             std::cout << "now we are in append_data_by_selector column : "
                       << load_cols[i]->get_name() << " for column size : " << source_column->size()
-                      << "with selector: " << *selector.data() << std::endl;
-            source_column->append_data_by_selector(res_col, selector, 0, source_column->size());
+                      << " with selector size: " << selector.size() << std::endl;
+            source_column->append_data_by_selector(res_col, selector, 0, 4);
             // check after append_data_by_selector: 1 in selector present the load cols data is selected and data should be default value
             auto ser_col = ColumnString::create();
             ser_col->reserve(res_col->size());
             VectorBufferWriter buffer_writer(*ser_col.get());
             std::vector<string> data;
             data.push_back("column: " + source_column->get_name() +
-                           " with selector: " + std::to_string(*selector.data()) +
+                           " with selector size : " + std::to_string(selector.size()) +
                            " with ptr: " + std::to_string(res_col->size()));
             for (size_t j = 0; j < res_col->size(); ++j) {
                 if (auto st = serders[i]->serialize_one_cell_to_json(*res_col, j, buffer_writer,
@@ -2156,38 +2158,6 @@ public:
         }
     }
 
-    // this function is common function to produce column, according to ColumnValueGetter
-    // this range_size can be set, and it is helpfully make common column data which can be inserted into columns.
-    template <typename ColumnValueGetter>
-    void generateRanges(std::vector<std::vector<Field>>& ranges, size_t range_size,
-                        ColumnValueGetter getter) {
-        for (auto& range : ranges) {
-            range.clear();
-        }
-
-        size_t ranges_size = ranges.size();
-
-        for (size_t range_index = 0; range_index < ranges_size; ++range_index) {
-            for (size_t index_in_range = 0; index_in_range < range_size; ++index_in_range) {
-                auto value = getter(range_index, index_in_range);
-                ranges[range_index].emplace_back(value);
-            }
-        }
-    }
-
-    void insertRangesIntoColumn(std::vector<std::vector<Field>>& ranges,
-                                const std::vector<size_t>& ranges_permutations,
-                                vectorized::IColumn& column) {
-        for (const auto& range_permutation : ranges_permutations) {
-            auto& range = ranges[range_permutation];
-            std::cout << "insert value: " << range_permutation << "range size" << range.size()
-                      << std::endl;
-            for (auto& value : range) {
-                column.insert(value);
-            }
-        }
-    }
-
     // this function helps to check sort permutation behavior for column
     void stableGetColumnPermutation(const IColumn& column, bool ascending, size_t limit,
                                     int nan_direction_hint, IColumn::Permutation& out_permutation) {
@@ -2256,7 +2226,7 @@ public:
             std::cout << "expected_permutation: " << expected_permutation[i] << std::endl;
         }
         // step2. get permutation by column
-        column.get_permutation(ascending, limit, nan_direction_hint, actual_permutation);
+        column.get_permutation(!ascending, limit, nan_direction_hint, actual_permutation);
 
         std::cout << "actual_permutation size: " << actual_permutation.size() << std::endl;
         for (size_t i = 0; i < actual_permutation.size(); i++) {
@@ -2284,36 +2254,6 @@ public:
         size_t res_rows = res_permuted[0]->size();
         for (auto& col : res_permuted) {
             EXPECT_EQ(col->size(), res_rows);
-        }
-    }
-
-    // sort_column
-    //  1/ sort_column (called in sort_block to sort the column by given permutation)
-    void assertSortColumn(IColumn& column, IColumn::Permutation& permutation, size_t num_rows) {
-        // just make a simple sort function to sort the column
-        std::vector<ColumnPtr> res_sorted;
-        // SortColumnDescription:
-        //    Column number;
-        //    int direction;           /// 1 - ascending, -1 - descending.
-        //    int nulls_direction;     /// 1 - NULLs and NaNs are greater, -1 - less.
-        std::vector<SortColumnDescription> sort_desc;
-        SortColumnDescription _column_with_descend_null_greater = {1, -1, 1};
-        SortColumnDescription _column_with_descend_null_less = {1, -1, -1};
-        SortColumnDescription _column_with_ascend_null_greater = {1, 1, 1};
-        SortColumnDescription _column_with_ascend_null_less = {1, 1, -1};
-        sort_desc.emplace_back(_column_with_descend_null_greater);
-        sort_desc.emplace_back(_column_with_descend_null_less);
-        sort_desc.emplace_back(_column_with_ascend_null_greater);
-        sort_desc.emplace_back(_column_with_ascend_null_less);
-        EqualFlags flags(num_rows, 1);
-        EqualRange range {0, num_rows};
-        for (auto& column_with_sort_desc : sort_desc) {
-            ColumnSorter sorter({&column, column_with_sort_desc}, 0);
-            column.sort_column(&sorter, flags, permutation, range, num_rows);
-        };
-        // check the sort result for flags and ranges
-        for (size_t i = 0; i < num_rows; i++) {
-            std::cout << "i: " << i << " " << flags[i] << std::endl;
         }
     }
 };

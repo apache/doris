@@ -277,29 +277,14 @@ TEST_F(ColumnIPTest, AppendDataBySelectorTest) {
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_append_data_by_selector_callback);
 }
 
-struct IndexInRangeUInt32Transform {
-    Field operator()(size_t range_index, size_t index_in_range) const {
-        return Field(static_cast<UInt32>(range_index * index_in_range));
-    }
-};
-
-struct IndexInRangeUInt64Transform {
-    Field operator()(size_t range_index, size_t index_in_range) const {
-        return Field(static_cast<UInt64>(range_index * index_in_range));
-    }
-};
-
 TEST_F(ColumnIPTest, PermutationAndSortTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
-    // this function will make res not equal ?!
+    load_data_from_csv(serde, ip_cols, data_files[1], ';', {1, 2});
     assertColumnPermutations(column_ipv4->assume_mutable_ref(), dt_ipv4);
     assertColumnPermutations(column_ipv6->assume_mutable_ref(), dt_ipv6);
-    //    assertColumnPermutations(column_ipv4->assume_mutable_ref(), IndexInRangeUInt32Transform());
-    //    assertColumnPermutations(column_ipv6->assume_mutable_ref(), IndexInRangeUInt64Transform());
 }
 
 TEST_F(ColumnIPTest, FilterTest) {
