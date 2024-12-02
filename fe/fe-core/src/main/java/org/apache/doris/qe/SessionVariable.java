@@ -975,7 +975,7 @@ public class SessionVariable implements Serializable, Writable {
                 + "which can improve query concurrency. default is false."})
     public boolean enableScanRunSerial = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE)
+    @VariableMgr.VarAttr(name = ENABLE_SQL_CACHE, fuzzy = true)
     public boolean enableSqlCache = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_CACHE)

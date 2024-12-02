@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.rules.SupportJavaDateFormatter;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -293,12 +294,14 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateLiteral date, StringLikeLiteral format) {
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
         return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateTimeLiteral date, StringLikeLiteral format) {
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
         return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
                         ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
@@ -306,12 +309,14 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateV2Literal date, StringLikeLiteral format) {
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
         return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateTimeV2Literal date, StringLikeLiteral format) {
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
         return new VarcharLiteral(DateUtils.formatBuilder(format.getValue()).toFormatter().format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
                         ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
@@ -479,6 +484,8 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "from_unixtime")
     public static Expression fromUnixTime(BigIntLiteral second, StringLikeLiteral format) {
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
+
         // 32536771199L is max valid timestamp of mysql from_unix_time
         if (second.getValue() < 0 || second.getValue() > 32536771199L) {
             return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
@@ -531,6 +538,7 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "unix_timestamp")
     public static Expression unixTimestamp(StringLikeLiteral date, StringLikeLiteral format) {
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
         DateTimeFormatter formatter = DateUtils.formatBuilder(format.getValue()).toFormatter();
         LocalDateTime dateObj;
         try {
@@ -616,6 +624,7 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "str_to_date")
     public static Expression strToDate(StringLikeLiteral str, StringLikeLiteral format) {
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
         if (org.apache.doris.analysis.DateLiteral.hasTimePart(format.getStringValue())) {
             DataType returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
             if (returnType instanceof DateTimeV2Type) {
