@@ -70,7 +70,7 @@ suite("docs/data-operate/update/unique-update.md") {
            END
            WHERE transaction_date = '2024-11-24';
         """
-        qt_sql "SELECT * FROM test_order order by transaction_id"
+        qt_sql "SELECT * FROM transaction_details order by transaction_id"
     } catch (Throwable t) {
         Assertions.fail("examples in docs/data-operate/update/unique-update.md failed to exec, please fix it", t)
     }
