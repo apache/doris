@@ -119,6 +119,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 
 /** CommandVisitor. */
 public interface CommandVisitor<R, C> {
@@ -351,6 +352,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowViewCommand(ShowViewCommand showViewCommand, C context) {
         return visitCommand(showViewCommand, context);
+    }
+
+    default R visitRefreshDatabaseCommand(RefreshDatabaseCommand refreshDatabaseCommand, C context) {
+        return visitCommand(refreshDatabaseCommand, context);
     }
 
     default R visitShowBackendsCommand(ShowBackendsCommand showBackendsCommand, C context) {
