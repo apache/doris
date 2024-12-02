@@ -880,6 +880,12 @@ void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stat
             std::string num_segs_key;
             stats_tablet_num_segs_key(info, &num_segs_key);
             txn->atomic_add(num_segs_key, stats.num_segs);
+            std::string index_size_key;
+            stats_tablet_index_size_key(info, &index_size_key);
+            txn->atomic_add(index_size_key, stats.index_size);
+            std::string segment_size_key;
+            stats_tablet_segment_size_key(info, &segment_size_key);
+            txn->atomic_add(segment_size_key, stats.segment_size);
         }
         std::string num_rowsets_key;
         stats_tablet_num_rowsets_key(info, &num_rowsets_key);
@@ -906,6 +912,8 @@ void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stat
         stats_pb.set_num_rows(stats_pb.num_rows() + stats.num_rows);
         stats_pb.set_num_rowsets(stats_pb.num_rowsets() + stats.num_rowsets);
         stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
+        stats_pb.set_index_size(stats_pb.index_size() + stats.index_size);
+        stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
         stats_pb.SerializeToString(&val);
         txn->put(key, val);
         LOG(INFO) << "put stats_tablet_key key=" << hex(key);
@@ -1171,6 +1179,8 @@ void commit_txn_immediately(
             stats.num_rows += i.num_rows();
             ++stats.num_rowsets;
             stats.num_segs += i.num_segments();
+            stats.index_size += i.index_disk_size();
+            stats.segment_size += i.data_disk_size();
         } // for tmp_rowsets_meta
 
         // process mow table, check lock and remove pending key
@@ -1901,10 +1911,12 @@ void commit_txn_eventually(
         for (auto& [_, i] : tmp_rowsets_meta) {
             // Accumulate affected rows
             auto& stats = tablet_stats[i.tablet_id()];
-            stats.data_size += i.data_disk_size();
+            stats.data_size += i.total_disk_size();
             stats.num_rows += i.num_rows();
             ++stats.num_rowsets;
             stats.num_segs += i.num_segments();
+            stats.index_size += i.index_disk_size();
+            stats.segment_size += i.data_disk_size();
         }
 
         // calculate table stats from tablets stats
@@ -2275,10 +2287,12 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
 
             // Accumulate affected rows
             auto& stats = tablet_stats[tablet_id];
-            stats.data_size += i.data_disk_size();
+            stats.data_size += i.total_disk_size();
             stats.num_rows += i.num_rows();
             ++stats.num_rowsets;
             stats.num_segs += i.num_segments();
+            stats.index_size += i.index_disk_size();
+            stats.segment_size += i.data_disk_size();
         } // for tmp_rowsets_meta
     }
 
@@ -2382,6 +2396,12 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
                 auto& num_segs_key = kv_pool.emplace_back();
                 stats_tablet_num_segs_key(info, &num_segs_key);
                 txn->atomic_add(num_segs_key, stats.num_segs);
+                auto& index_size_key = kv_pool.emplace_back();
+                stats_tablet_index_size_key(info, &index_size_key);
+                txn->atomic_add(index_size_key, stats.index_size);
+                auto& segment_size_key = kv_pool.emplace_back();
+                stats_tablet_segment_size_key(info, &segment_size_key);
+                txn->atomic_add(segment_size_key, stats.segment_size);
             }
             auto& num_rowsets_key = kv_pool.emplace_back();
             stats_tablet_num_rowsets_key(info, &num_rowsets_key);
@@ -2410,6 +2430,8 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
             stats_pb.set_num_rows(stats_pb.num_rows() + stats.num_rows);
             stats_pb.set_num_rowsets(stats_pb.num_rowsets() + stats.num_rowsets);
             stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
+            stats_pb.set_index_size(stats_pb.index_size() + stats.index_size);
+            stats_pb.set_segment_size(stats_pb.segment_size() + stats.segment_size);
             stats_pb.SerializeToString(&val);
             txn->put(key, val);
             LOG(INFO) << "put stats_tablet_key, key=" << hex(key);
