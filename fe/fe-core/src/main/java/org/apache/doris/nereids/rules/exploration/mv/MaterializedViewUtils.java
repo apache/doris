@@ -481,13 +481,13 @@ public class MaterializedViewUtils {
                 return null;
             }
             MTMVRelatedTableIf relatedTable = (MTMVRelatedTableIf) table;
-            PartitionType type = relatedTable.getPartitionType();
+            PartitionType type = relatedTable.getPartitionType(Optional.empty());
             if (PartitionType.UNPARTITIONED.equals(type)) {
                 context.addFailReason(String.format("related base table is not partition table, the table is %s",
                         table.getName()));
                 return null;
             }
-            Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
+            Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns(Optional.empty()));
             Column mvReferenceColumn = contextPartitionColumn.getColumn().get();
             Expr definExpr = mvReferenceColumn.getDefineExpr();
             if (definExpr instanceof SlotRef) {

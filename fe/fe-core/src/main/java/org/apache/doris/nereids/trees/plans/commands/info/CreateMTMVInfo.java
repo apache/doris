@@ -351,7 +351,7 @@ public class CreateMTMVInfo {
                     allPartitionDescs.size(), ctx.getSessionVariable().getCreateTablePartitionMaxNum()));
         }
         try {
-            PartitionType type = relatedTable.getPartitionType();
+            PartitionType type = relatedTable.getPartitionType(Optional.empty());
             if (type == PartitionType.RANGE) {
                 return new RangePartitionDesc(Lists.newArrayList(mvPartitionInfo.getPartitionCol()),
                         allPartitionDescs);
