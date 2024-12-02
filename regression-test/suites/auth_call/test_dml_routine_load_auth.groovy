@@ -63,7 +63,7 @@ suite("test_dml_routine_load_auth","p0,auth_call") {
             producer.send(record)
         }
         sql "drop table if exists ${tableName}"
-        sql """create table  ${dbName}.${tableName}(a int,c double generated always as (abs(a+b)) not null,b int, d int generated always as(c+1))
+        sql """create table  ${dbName}.${tableName}(a int,c double,b int, d int)
             DISTRIBUTED BY HASH(a)
             PROPERTIES("replication_num" = "1");
             ;"""
