@@ -384,6 +384,9 @@ private:
                                                                 bool default_return = false);
 
     void _calculate_expr_in_remaining_conjunct_root();
+
+    void _clear_iterators();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
