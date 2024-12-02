@@ -19,8 +19,10 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
+import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -154,6 +156,16 @@ public class User implements Comparable<User>, Writable, GsonPostProcessable {
     @Override
     public int compareTo(@NotNull User o) {
         return -userIdentity.getHost().compareTo(o.userIdentity.getHost());
+    }
+
+    @Override
+    public User clone() {
+        User copied = DeepCopy.copy(this, User.class, FeConstants.meta_version);
+        if (copied == null) {
+            LOG.warn("failed to clone user: " + getUserIdentity().getUser());
+            return null;
+        }
+        return copied;
     }
 
     @Override

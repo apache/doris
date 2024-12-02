@@ -27,8 +27,10 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcherException;
+import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
@@ -144,8 +146,10 @@ public class Role implements Writable, GsonPostProcessable {
     public Role(String roleName, TablePattern tablePattern, PrivBitSet privs,
             Map<ColPrivilegeKey, Set<String>> colPrivileges) throws DdlException {
         this.roleName = roleName;
-        this.tblPatternToPrivs.put(tablePattern, privs);
-        grantPrivs(tablePattern, privs.copy());
+        if (tablePattern != null) {
+            this.tblPatternToPrivs.put(tablePattern, privs);
+            grantPrivs(tablePattern, privs.copy());
+        }
         grantCols(colPrivileges);
     }
 
@@ -204,6 +208,22 @@ public class Role implements Writable, GsonPostProcessable {
         return roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX);
     }
 
+    public static boolean isOperator(String roleName) {
+        return roleName.equals(OPERATOR_ROLE);
+    }
+
+    public static boolean isAdmin(String roleName) {
+        return roleName.equals(ADMIN_ROLE);
+    }
+
+    public static boolean isDefaultRoot(String roleName) {
+        return roleName.equals(RoleManager.DEFAULT_ROLE_PREFIX + "root@%");
+    }
+
+    public static boolean isDefaultAdmin(String roleName) {
+        return roleName.equals(RoleManager.DEFAULT_ROLE_PREFIX + "admin@%");
+    }
+
     public String getRoleName() {
         return roleName;
     }
@@ -230,6 +250,16 @@ public class Role implements Writable, GsonPostProcessable {
 
     public Map<WorkloadGroupPattern, PrivBitSet> getWorkloadGroupPatternToPrivs() {
         return workloadGroupPatternToPrivs;
+    }
+
+    @Override
+    public Role clone() {
+        Role copied = DeepCopy.copy(this, Role.class, FeConstants.meta_version);
+        if (copied == null) {
+            LOG.warn("failed to clone user: " + getRoleName());
+            return null;
+        }
+        return copied;
     }
 
     // merge role not check role name.

@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -44,16 +45,21 @@ public class AbstractBackupStmt extends DdlStmt {
     protected String repoName;
     protected AbstractBackupTableRefClause abstractBackupTableRefClause;
     protected Map<String, String> properties;
-
     protected long timeoutMs;
+    public boolean backupGlobal = false;
 
     public AbstractBackupStmt(LabelName labelName, String repoName,
             AbstractBackupTableRefClause abstractBackupTableRefClause,
-            Map<String, String> properties) {
-        this.labelName = labelName;
+            Map<String, String> properties, boolean backupGlobal) {
+        if (backupGlobal) {
+            this.labelName = new LabelName(FeConstants.INTERNAL_DB_NAME, labelName.getLabelName());
+        } else {
+            this.labelName = labelName;
+        }
         this.repoName = repoName;
         this.abstractBackupTableRefClause = abstractBackupTableRefClause;
         this.properties = properties == null ? Maps.newHashMap() : properties;
+        this.backupGlobal = backupGlobal;
     }
 
     @Override
@@ -118,6 +124,10 @@ public class AbstractBackupStmt extends DdlStmt {
 
     public String getDbName() {
         return labelName.getDbName();
+    }
+
+    public boolean isBackupGlobal() {
+        return  backupGlobal;
     }
 
     public String getLabel() {

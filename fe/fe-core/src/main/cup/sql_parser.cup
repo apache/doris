@@ -4536,9 +4536,17 @@ show_param ::=
     {:
         RESULT = new ShowBackupStmt(db, parser.where);
     :}
+    | KW_GLOBAL KW_BACKUP opt_wild_where
+    {:
+        RESULT = new ShowBackupStmt(parser.where);
+    :}
     | KW_RESTORE opt_db:db opt_wild_where
     {:
         RESULT = new ShowRestoreStmt(db, parser.where);
+    :}
+    | KW_GLOBAL KW_RESTORE opt_wild_where
+    {:
+        RESULT = new ShowRestoreStmt(parser.where);
     :}
     | KW_BRIEF KW_RESTORE opt_db:db opt_wild_where
     {:
@@ -5055,9 +5063,17 @@ cancel_param ::=
     {:
         RESULT = new CancelBackupStmt(db, false);
     :}
+    | KW_GLOBAL KW_BACKUP
+    {:
+        RESULT = new CancelBackupStmt(false);
+    :}
     | KW_RESTORE opt_db:db
     {:
         RESULT = new CancelBackupStmt(db, true);
+    :}
+    | KW_GLOBAL KW_RESTORE
+    {:
+        RESULT = new CancelBackupStmt(true);
     :}
     | KW_WARM KW_UP KW_JOB opt_wild_where
     {:
@@ -5442,6 +5458,12 @@ backup_stmt ::=
     {:
         RESULT = new BackupStmt(label, repoName, tblRefClause, properties);
     :}
+    | KW_BACKUP KW_GLOBAL KW_SNAPSHOT job_label:label
+    KW_TO ident:repoName
+    opt_properties:properties
+    {:
+        RESULT = new BackupStmt(label, repoName, properties);
+    :}
     ;
 
 unlock_tables_stmt ::=
@@ -5542,6 +5564,12 @@ restore_stmt ::=
     opt_properties:properties
     {:
         RESULT = new RestoreStmt(label, repoName, tblRefClause, properties);
+    :}
+    | KW_RESTORE KW_GLOBAL KW_SNAPSHOT job_label:label
+    KW_FROM ident:repoName
+    opt_properties:properties
+    {:
+        RESULT = new RestoreStmt(label, repoName, properties);
     :}
     ;
 

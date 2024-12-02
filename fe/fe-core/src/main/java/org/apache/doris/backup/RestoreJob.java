@@ -18,13 +18,22 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.analysis.BackupStmt.BackupContent;
+import org.apache.doris.analysis.CreateCatalogStmt;
+import org.apache.doris.analysis.CreateWorkloadGroupStmt;
+import org.apache.doris.analysis.DropCatalogStmt;
+import org.apache.doris.analysis.DropPolicyStmt;
+import org.apache.doris.analysis.DropWorkloadGroupStmt;
+import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.RestoreStmt;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.Status.ErrCode;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -68,9 +77,18 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
+import org.apache.doris.mysql.privilege.PasswordPolicy;
+import org.apache.doris.mysql.privilege.Role;
+import org.apache.doris.mysql.privilege.User;
+import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -111,6 +129,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
@@ -123,6 +142,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private static final String PROP_CLEAN_TABLES = RestoreStmt.PROP_CLEAN_TABLES;
     private static final String PROP_CLEAN_PARTITIONS = RestoreStmt.PROP_CLEAN_PARTITIONS;
     private static final String PROP_ATOMIC_RESTORE = RestoreStmt.PROP_ATOMIC_RESTORE;
+    private static final String PROP_RESERVE_PRIVILEGE = RestoreStmt.PROP_RESERVE_PRIVILEGE;
+    private static final String PROP_RESERVE_CATALOG = RestoreStmt.PROP_RESERVE_CATALOG;
+    private static final String PROP_RESERVE_WORKLOAD_GROUP = RestoreStmt.PROP_RESERVE_WORKLOAD_GROUP;
     private static final String ATOMIC_RESTORE_TABLE_PREFIX = "__doris_atomic_restore_prefix__";
 
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
@@ -190,7 +212,18 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     // tablet id->(be id -> snapshot info)
     @SerializedName("si")
     private com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos = HashBasedTable.create();
-
+    @SerializedName("users")
+    List<User> restoredUsers = Lists.newArrayList();
+    @SerializedName("roles")
+    List<Pair<Pair<Role, Set<UserIdentity>>, Role>> restoredRoles = Lists.newArrayList();
+    @SerializedName("workloadgroups")
+    private List<WorkloadGroup> restoredWorkloadGroups = Lists.newArrayList();
+    @SerializedName("catalogs")
+    private List<BackupCatalogMeta> restoredCatalogs = Lists.newArrayList();
+    @SerializedName("rowpolicies")
+    private List<RowPolicy> restoredRowPolicies = Lists.newArrayList();
+    @SerializedName("sqlBlockRules")
+    private List<SqlBlockRule> restoredSqlBlockRules = Lists.newArrayList();
     private Map<Long, Long> unfinishedSignatureToId = Maps.newConcurrentMap();
 
     // the meta version is used when reading backup meta from file.
@@ -210,6 +243,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private boolean isCleanPartitions = false;
     // Whether to restore the data into a temp table, and then replace the origin one.
     private boolean isAtomicRestore = false;
+    // Whether to restore privileges
+    private boolean reservePrivilege = false;
+    // Whether to restore catalogs
+    private boolean reserveCatalog = false;
+    // Whether to restore workload group
+    private boolean reserveWorkloadGroup = false;
 
     // restore properties
     @SerializedName("prop")
@@ -227,7 +266,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
-            boolean reserveDynamicPartitionEnable, boolean isBeingSynced, boolean isCleanTables,
+            boolean reserveDynamicPartitionEnable, boolean reservePrivilege, boolean reserveCatalog,
+            boolean reserveWorkloadGroup, boolean isBeingSynced, boolean isCleanTables,
             boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
@@ -246,21 +286,28 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         this.isCleanTables = isCleanTables;
         this.isCleanPartitions = isCleanPartitions;
         this.isAtomicRestore = isAtomicRestore;
+        this.reservePrivilege = reservePrivilege;
+        this.reserveCatalog = reserveCatalog;
+        this.reserveWorkloadGroup = reserveWorkloadGroup;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
         properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
         properties.put(PROP_IS_BEING_SYNCED, String.valueOf(isBeingSynced));
         properties.put(PROP_CLEAN_TABLES, String.valueOf(isCleanTables));
         properties.put(PROP_CLEAN_PARTITIONS, String.valueOf(isCleanPartitions));
         properties.put(PROP_ATOMIC_RESTORE, String.valueOf(isAtomicRestore));
+        properties.put(PROP_RESERVE_PRIVILEGE, String.valueOf(reservePrivilege));
+        properties.put(PROP_RESERVE_CATALOG, String.valueOf(reserveCatalog));
+        properties.put(PROP_RESERVE_WORKLOAD_GROUP, String.valueOf(reserveWorkloadGroup));
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
-            boolean reserveDynamicPartitionEnable, boolean isBeingSynced, boolean isCleanTables,
+            boolean reserveDynamicPartitionEnable,  boolean reservePrivilege, boolean reserveCatalog,
+            boolean reserveWorkloadGroup, boolean isBeingSynced, boolean isCleanTables,
             boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId, BackupMeta backupMeta) {
         this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
-                reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions, isAtomicRestore, env,
-                repoId);
+                reserveDynamicPartitionEnable, reservePrivilege, reserveCatalog, reserveWorkloadGroup, isBeingSynced,
+                isCleanTables, isCleanPartitions, isAtomicRestore, env, repoId);
         this.backupMeta = backupMeta;
     }
 
@@ -957,6 +1004,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         if (!status.ok()) {
             return;
         }
+        // check and restore global info
+        checkAndRestoreGlobalInfo();
+        if (!status.ok()) {
+            return;
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("finished to restore resources. {}", this.jobId);
         }
@@ -1260,6 +1312,205 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 }
                 restoredResources.add(remoteOdbcResource);
             }
+        }
+    }
+
+    private void checkAndRestorePrivileges() {
+        List<User> users = jobInfo.newBackupObjects.backupGlobalInfo.getUserList();
+        List<UserIdentity> localUsers = Lists.newArrayList();
+
+        for (User user : users) {
+            if (Env.getCurrentEnv().getAuth().doesUserExist(user.getUserIdentity())) {
+                localUsers.add(user.getUserIdentity());
+                continue;
+            }
+            try {
+                Env.getCurrentEnv().getAuth().createUserInternal(user.getUserIdentity(), null,
+                        user.getPassword().getPassword(), true, PasswordOptions.UNSET_OPTION,
+                        user.getComment(), UUID.randomUUID().toString(), false);
+            } catch (DdlException e) {
+                LOG.error("restore user fail should not happen", e);
+                status = new Status(ErrCode.COMMON_ERROR, "restore user "
+                        + user.getUserIdentity().toString() + " failed:" + e.getMessage());
+                return;
+            }
+            restoredUsers.add(user);
+        }
+
+        List<UserProperty> userProperties = jobInfo.newBackupObjects.backupGlobalInfo.getUserProperties();
+        for (UserProperty userProperty : userProperties) {
+            for (UserIdentity localIdentity : localUsers) {
+                if (localIdentity.getUser().equals(userProperty.getQualifiedUser())) {
+                    continue;
+                }
+            }
+            try {
+                List<Pair<String, String>> properties = Lists.newArrayList();
+                List<List<String>> list = userProperty.fetchProperty();
+                for (List<String> row : list) {
+                    String key = row.get(0);
+                    String value = row.get(1);
+                    if (key.equals(UserProperty.PROP_RESOURCE_TAGS)) {
+                        continue;
+                    }
+
+                    if (key.equals(UserProperty.PROP_WORKLOAD_GROUP) && !reserveWorkloadGroup) {
+                        properties.add(Pair.of(key, WorkloadGroupMgr.DEFAULT_GROUP_NAME));
+                        continue;
+                    }
+
+                    if (!value.equals("")) {
+                        properties.add(Pair.of(key, value));
+                    }
+
+                }
+                Env.getCurrentEnv().getAuth().updateUserPropertyInternal(userProperty.getQualifiedUser(),
+                        properties, false /* is replay */);
+            } catch (Exception e) {
+                LOG.error("restore user property fail should not happen", e);
+                status = new Status(ErrCode.COMMON_ERROR, "restore user "
+                        + userProperty.getQualifiedUser() + "'s property failed:" + e.getMessage());
+                return;
+            }
+        }
+
+        Map<UserIdentity, PasswordPolicy> policyMap = jobInfo.newBackupObjects.backupGlobalInfo.getPolicyMap();
+        for (Map.Entry<UserIdentity, PasswordPolicy> entry : policyMap.entrySet()) {
+            UserIdentity identity = entry.getKey();
+            PasswordPolicy passwordPolicy = entry.getValue();
+            for (UserIdentity localIdentity : localUsers) {
+                if (localIdentity.equals(identity)) {
+                    continue;
+                }
+            }
+            try {
+                PasswordOptions passwordOptions = new PasswordOptions(passwordPolicy.getExpirePolicy().expirationSecond,
+                        passwordPolicy.getHistoryPolicy().historyNum, -2,
+                        passwordPolicy.getFailedLoginPolicy().numFailedLogin,
+                        passwordPolicy.getFailedLoginPolicy().passwordLockSeconds, -2);
+                Env.getCurrentEnv().getAuth().getPasswdPolicyManager().updatePolicy(identity, null, passwordOptions);
+            } catch (Exception e) {
+                LOG.error("restore user password policy fail should not happen", e);
+                status = new Status(ErrCode.COMMON_ERROR, "restore user "
+                            + identity.toString() + "'s password policy failed:" + e.getMessage());
+                return;
+            }
+        }
+
+        List<Policy> rowPolicies = jobInfo.newBackupObjects.backupGlobalInfo.getRowPolicies();
+        for (Policy policy : rowPolicies) {
+            RowPolicy rowPolicy = (RowPolicy) policy;
+            if (Env.getCurrentEnv().getPolicyMgr().existPolicy(policy)) {
+                continue;
+            }
+
+            try {
+                Env.getCurrentEnv().getPolicyMgr().createRowPolicy(rowPolicy);
+            } catch (Exception e) {
+                LOG.error("restore row policy fail should not happen", e);
+                status = new Status(ErrCode.COMMON_ERROR, "restore row policy "
+                        + policy.getPolicyName() + " failed:" + e.getMessage());
+                return;
+            }
+            restoredRowPolicies.add(rowPolicy);
+        }
+
+        List<SqlBlockRule> sqlBlockRules = jobInfo.newBackupObjects.backupGlobalInfo.getSqlBlockRules();
+        for (SqlBlockRule sqlBlockRule : sqlBlockRules) {
+            if (Env.getCurrentEnv().getSqlBlockRuleMgr().existRule(sqlBlockRule.getName())) {
+                continue;
+            }
+
+            try {
+                Env.getCurrentEnv().getSqlBlockRuleMgr().createSqlBlockRule(sqlBlockRule, false);
+            } catch (Exception e) {
+                LOG.error("restore sqlBlockRule fail should not happen", e);
+                status = new Status(ErrCode.COMMON_ERROR, "restore sqlBlockRule "
+                        + sqlBlockRule.getName() + " failed:" + e.getMessage());
+                return;
+            }
+            restoredSqlBlockRules.add(sqlBlockRule);
+        }
+
+        List<Role> roles = jobInfo.newBackupObjects.backupGlobalInfo.getRoleList();
+        for (Role role : roles) {
+            Role oldRule = Env.getCurrentEnv().getAuth().getRoleByName(role.getRoleName());
+            Set<UserIdentity> userIdentities = null;
+            if (oldRule != null) {
+                oldRule = oldRule.clone();
+                userIdentities = Env.getCurrentEnv().getAuth().getRoleUsers(oldRule.getRoleName());
+            }
+            try {
+                Env.getCurrentEnv().getAuth().createRoleInternal(role.getRoleName(),
+                        true, role.getComment(), false);
+                Env.getCurrentEnv().getAuth().grant(role, jobInfo.newBackupObjects.backupGlobalInfo
+                        .getUsersByRole(role.getRoleName()));
+            } catch (DdlException e) {
+                LOG.error("restore role fail should not happen", e);
+                status = new Status(ErrCode.COMMON_ERROR, "restore role "
+                        + role.getRoleName() + " failed:" + e.getMessage());
+                return;
+            }
+            Role newRule = Env.getCurrentEnv().getAuth().getRoleByName(role.getRoleName());
+            restoredRoles.add(Pair.of(Pair.of(oldRule, userIdentities), newRule));
+        }
+    }
+
+    private void checkAndRestoreCatalogs() {
+        List<BackupCatalogMeta> catalogs = jobInfo.newBackupObjects.backupGlobalInfo.getCatalogs();
+        for (BackupCatalogMeta catalog : catalogs) {
+            if (Env.getCurrentEnv().getCatalogMgr().getCatalog(catalog.getCatalogName()) != null) {
+                status = new Status(ErrCode.COMMON_ERROR, "catalog "
+                        + catalog.getCatalogName() + " already exist!");
+                return;
+            }
+            try {
+                CreateCatalogStmt stmt = new CreateCatalogStmt(false, catalog.getCatalogName(), catalog.getResource(),
+                        catalog.getProperties(), catalog.getComment());
+                Env.getCurrentEnv().getCatalogMgr().createCatalog(stmt);
+            } catch (Exception e) {
+                status = new Status(ErrCode.COMMON_ERROR, "restore catalog "
+                        + catalog.getCatalogName() + " failed:" + e.getMessage());
+                return;
+            }
+            restoredCatalogs.add(catalog);
+        }
+    }
+
+    private void checkAndRestoreWorkloadGroups() {
+        List<WorkloadGroup> workloadGroups = jobInfo.newBackupObjects.backupGlobalInfo.getWorkloadGroups();
+        for (WorkloadGroup workloadGroup : workloadGroups) {
+            if (Env.getCurrentEnv().getWorkloadGroupMgr().isWorkloadGroupExists(workloadGroup.getName())) {
+                status = new Status(ErrCode.COMMON_ERROR, "workload group "
+                        + workloadGroup.getName() + " already exist!");
+                return;
+            }
+
+            try {
+                CreateWorkloadGroupStmt stmt = new CreateWorkloadGroupStmt(false, workloadGroup.getName(),
+                        workloadGroup.getProperties());
+                Env.getCurrentEnv().getWorkloadGroupMgr().createWorkloadGroup(stmt);
+            } catch (Exception e) {
+                status = new Status(ErrCode.COMMON_ERROR, "restore workload group "
+                        + workloadGroup.getName() + " failed:" + e.getMessage());
+                return;
+            }
+            restoredWorkloadGroups.add(workloadGroup);
+        }
+    }
+
+    private void checkAndRestoreGlobalInfo() {
+        if (jobInfo.newBackupObjects.backupGlobalInfo == null) {
+            return;
+        }
+        if (reservePrivilege) {
+            checkAndRestorePrivileges();
+        }
+        if (reserveCatalog) {
+            checkAndRestoreCatalogs();
+        }
+        if (reserveWorkloadGroup) {
+            checkAndRestoreWorkloadGroups();
         }
     }
 
@@ -2100,6 +2351,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             restoredPartitions.clear();
             restoredTbls.clear();
             restoredResources.clear();
+            restoredCatalogs.clear();
+            restoredWorkloadGroups.clear();
+            restoredRowPolicies.clear();
+            restoredSqlBlockRules.clear();
+            restoredUsers.clear();
+            restoredRoles.clear();
 
             // release snapshot before clearing snapshotInfos
             releaseSnapshots();
@@ -2366,6 +2623,86 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             for (Resource resource : restoredResources) {
                 LOG.info("remove restored resource when cancelled: {}", resource.getName());
                 resourceMgr.dropResource(resource);
+            }
+
+            // remove restored workloadgroups
+            for (WorkloadGroup workloadGroup : restoredWorkloadGroups) {
+                LOG.info("remove restored workloadGroup when cancelled: {}", workloadGroup.getName());
+                try {
+                    DropWorkloadGroupStmt stmt = new DropWorkloadGroupStmt(true, workloadGroup.getName());
+                    Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(stmt);
+                } catch (Exception e) {
+                    LOG.info("Drop restored workload group " + workloadGroup.getName()
+                            + " failed when cancelled:", e.getMessage());
+                }
+            }
+
+            // remove restored catalogs
+            for (BackupCatalogMeta catalogMeta : restoredCatalogs) {
+                LOG.info("remove restored catalog when cancelled: {}", catalogMeta.getCatalogName());
+                try {
+                    DropCatalogStmt stmt = new DropCatalogStmt(true, catalogMeta.getCatalogName());
+                    Env.getCurrentEnv().getCatalogMgr().dropCatalog(stmt);
+                } catch (Exception e) {
+                    LOG.info("Drop restored catalog " + catalogMeta.getCatalogName()
+                            + " failed when cancelled:", e.getMessage());
+                }
+            }
+
+            // remove restored users
+            for (User user : restoredUsers) {
+                LOG.info("remove restored user when cancelled: {}", user.getUserIdentity());
+                try {
+                    Env.getCurrentEnv().getAuth().dropUser(user.getUserIdentity(), true);
+                } catch (Exception e) {
+                    LOG.info("Drop restored user " + user.getUserIdentity()
+                            + " failed when cancelled:", e.getMessage());
+                }
+            }
+
+            // remove restored roles
+            for (Pair<Pair<Role, Set<UserIdentity>>, Role> pair : restoredRoles) {
+                Role oldRule = pair.first.first;
+                Set<UserIdentity> userIdentities = pair.first.second;
+                Role newRule = pair.second;
+                LOG.info("remove restored role when cancelled: {}", newRule.getRoleName());
+
+                try {
+                    Env.getCurrentEnv().getAuth().dropRole(newRule.getRoleName(), true);
+                    if (oldRule != null) {
+                        Env.getCurrentEnv().getAuth().createRoleInternal(oldRule.getRoleName(),
+                                true, oldRule.getComment(), false);
+                        Env.getCurrentEnv().getAuth().grant(oldRule, userIdentities);
+                    }
+                } catch (Exception e) {
+                    LOG.info("remove restored role " + newRule.getRoleName()
+                            + " failed when cancelled:", e.getMessage());
+                }
+            }
+
+            // remove restored rowpolicies
+            for (RowPolicy rowPolicy : restoredRowPolicies) {
+                LOG.info("remove restored row policy when cancelled: {}", rowPolicy.getPolicyIdent());
+                try {
+                    DropPolicyStmt stmt = new DropPolicyStmt(PolicyTypeEnum.ROW, true, rowPolicy.getPolicyName(),
+                            new TableName(rowPolicy.getCtlName(), rowPolicy.getDbName(), rowPolicy.getTableName()),
+                            rowPolicy.getUser(), rowPolicy.getRoleName());
+                    Env.getCurrentEnv().getPolicyMgr().dropPolicy(stmt);
+                } catch (Exception e) {
+                    LOG.info("Drop restored row policy " + rowPolicy.getPolicyName()
+                            + " failed when cancelled:", e.getMessage());
+                }
+            }
+
+            // remove restored sqlBlockRules
+            List<String> ruleNames = Lists.newArrayList();
+            for (SqlBlockRule sqlBlockRule : restoredSqlBlockRules) {
+                ruleNames.add(sqlBlockRule.getName());
+            }
+            try {
+                Env.getCurrentEnv().getSqlBlockRuleMgr().dropSqlBlockRule(ruleNames, true);
+            } catch (Exception e) {
+                LOG.info("Drop restored sql block rule failed when cancelled:", e.getMessage());
             }
         }
 

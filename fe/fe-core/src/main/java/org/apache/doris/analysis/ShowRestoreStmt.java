@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
@@ -62,6 +63,11 @@ public class ShowRestoreStmt extends ShowStmt implements NotFallbackInParser {
 
     public ShowRestoreStmt(String dbName, Expr where) {
         this.dbName = dbName;
+        this.where = where;
+    }
+
+    public ShowRestoreStmt(Expr where) {
+        this.dbName = FeConstants.INTERNAL_DB_NAME;
         this.where = where;
     }
 

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -37,6 +38,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -115,6 +117,18 @@ public class PolicyMgr implements Writable {
             writeUnlock();
         }
         LOG.info("Create default storage success.");
+    }
+
+    /**
+     * Create policy through RowPolicy.
+     **/
+    public void createRowPolicy(RowPolicy rowPolicy) throws UserException {
+        CreatePolicyStmt stmt = new CreatePolicyStmt(rowPolicy.getType(), true, rowPolicy.getPolicyName(),
+                new TableName(rowPolicy.getCtlName(), rowPolicy.getDbName(), rowPolicy.getTableName()),
+                rowPolicy.getFilterType().name(), rowPolicy.getUser(),
+                rowPolicy.getRoleName(), rowPolicy.getWherePredicate());
+        stmt.setOrigStmt(new OriginStatement(rowPolicy.getOriginStmt(), 0));
+        createPolicy(stmt);
     }
 
     /**

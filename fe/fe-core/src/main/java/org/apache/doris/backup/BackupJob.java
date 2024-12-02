@@ -120,7 +120,9 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     private BackupMeta backupMeta;
     // job info file content
     private BackupJobInfo jobInfo;
-
+    private boolean isBackupPriv = false;
+    private boolean isBackupCatalog = false;
+    private boolean isBackupWorkloadGroup = false;
     // save the local dir of this backup job
     // after job is done, this dir should be deleted
     private Path localJobDirPath = null;
@@ -145,13 +147,16 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-                     BackupContent content, Env env, long repoId, long commitSeq) {
+                     BackupStmt stmt, Env env, long repoId, long commitSeq) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, env, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
         this.commitSeq = commitSeq;
-        properties.put(BackupStmt.PROP_CONTENT, content.name());
+        properties.put(BackupStmt.PROP_CONTENT, stmt.getContent().name());
         properties.put(SNAPSHOT_COMMIT_SEQ, String.valueOf(commitSeq));
+        isBackupPriv = stmt.isBackupPriv();
+        isBackupCatalog = stmt.isBackupCatalog();
+        isBackupWorkloadGroup = stmt.isBackupWorkloadGroup();
     }
 
     public BackupJobState getState() {
@@ -172,6 +177,18 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
     public String getLocalMetaInfoFilePath() {
         return localMetaInfoFilePath;
+    }
+
+    public boolean isBackupPriv() {
+        return isBackupPriv;
+    }
+
+    public boolean isBackupCatalog() {
+        return isBackupCatalog;
+    }
+
+    public boolean isBackupWorkloadGroup() {
+        return isBackupWorkloadGroup;
     }
 
     public BackupContent getContent() {
@@ -547,7 +564,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
 
-        backupMeta = new BackupMeta(copiedTables, copiedResources);
+        backupMeta = new BackupMeta(copiedTables, copiedResources, isBackupPriv(),
+                isBackupCatalog(), isBackupWorkloadGroup());
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
