@@ -247,7 +247,7 @@ public class HudiScanNode extends HiveScanNode {
                     && !sessionVariable.isForceJniScanner()
                     && hudiSplit.getHudiDeltaLogs().isEmpty()) {
                 // no logs, is read optimize table, fallback to use native reader
-                // TODO: hudi only support parquet now?
+                // TODO: support read orc hudi table in native reader
                 rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
             }
             setHudiParams(rangeDesc, hudiSplit);
