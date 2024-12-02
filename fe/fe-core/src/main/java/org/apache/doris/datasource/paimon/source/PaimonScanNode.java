@@ -141,19 +141,6 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
         if (split instanceof PaimonSplit) {
-            PaimonSplit paimonSplit = (PaimonSplit) split;
-            if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_JNI
-                    && paimonSplit.getSplit() == null) {
-                // fall back to native reader
-                String fileFormat = getFileFormat(paimonSplit.getPathString());
-                if (fileFormat.equals("orc")) {
-                    rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
-                } else if (fileFormat.equals("parquet")) {
-                    rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
-                } else {
-                    throw new RuntimeException("Unsupported file format: " + fileFormat);
-                }
-            }
             setPaimonParams(rangeDesc, (PaimonSplit) split);
         }
     }
@@ -168,11 +155,24 @@ public class PaimonScanNode extends FileQueryScanNode {
         tableFormatFileDesc.setTableFormatType(paimonSplit.getTableFormatType().value());
         TPaimonFileDesc fileDesc = new TPaimonFileDesc();
         org.apache.paimon.table.source.Split split = paimonSplit.getSplit();
+
+        String fileFormat = getFileFormat(paimonSplit.getPathString());
         if (split != null) {
             // use jni reader
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
             fileDesc.setPaimonSplit(encodeObjectToString(split));
+        } else {
+            // use native reader
+            if (fileFormat.equals("orc")) {
+                rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
+            } else if (fileFormat.equals("parquet")) {
+                rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+            } else {
+                throw new RuntimeException("Unsupported file format: " + fileFormat);
+            }
         }
-        fileDesc.setFileFormat(getFileFormat(paimonSplit.getPathString()));
+
+        fileDesc.setFileFormat(fileFormat);
         fileDesc.setPaimonPredicate(encodeObjectToString(predicates));
         fileDesc.setPaimonColumnNames(source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
                 .collect(Collectors.joining(",")));
