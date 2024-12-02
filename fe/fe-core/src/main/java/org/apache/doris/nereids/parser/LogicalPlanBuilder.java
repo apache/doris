@@ -57,6 +57,7 @@ import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
 import org.apache.doris.nereids.DorisParser.AlterRoleContext;
+import org.apache.doris.nereids.DorisParser.AlterSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.AlterStorageVaultContext;
 import org.apache.doris.nereids.DorisParser.AlterViewContext;
 import org.apache.doris.nereids.DorisParser.AlterWorkloadGroupContext;
@@ -92,6 +93,7 @@ import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.CreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.CreateRoutineLoadContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
+import org.apache.doris.nereids.DorisParser.CreateSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.CreateTableContext;
 import org.apache.doris.nereids.DorisParser.CreateTableLikeContext;
 import org.apache.doris.nereids.DorisParser.CreateViewContext;
@@ -460,6 +462,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
@@ -477,6 +480,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
@@ -4152,6 +4156,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         FuncNameInfo procedureName = new FuncNameInfo(nameParts);
         return ParserUtils.withOrigin(ctx, () -> new ShowCreateProcedureCommand(procedureName));
+    }
+
+    @Override
+    public LogicalPlan visitCreateSqlBlockRule(CreateSqlBlockRuleContext ctx) {
+        Map<String, String> properties = ctx.propertyClause() != null
+                        ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        return new CreateSqlBlockRuleCommand(stripQuotes(ctx.name.getText()), ctx.EXISTS() != null, properties);
+    }
+
+    @Override
+    public LogicalPlan visitAlterSqlBlockRule(AlterSqlBlockRuleContext ctx) {
+        Map<String, String> properties = ctx.propertyClause() != null
+                        ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        return new AlterSqlBlockRuleCommand(stripQuotes(ctx.name.getText()), properties);
     }
 
     @Override
