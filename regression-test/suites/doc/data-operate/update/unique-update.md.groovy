@@ -35,7 +35,7 @@ suite("docs/data-operate/update/unique-update.md") {
               risk_level STRING                      -- Risk level
             )
             UNIQUE KEY(transaction_id)
-            DISTRIBUTED BY HASH(transaction_id) BUCKETS 16
+            DISTRIBUTED BY HASH(transaction_id) BUCKETS 10
             PROPERTIES (
               "replication_num" = "3",               -- Number of replicas, default is 3
               "enable_unique_key_merge_on_write" = "true"  -- Enable MOW mode, support merge update
