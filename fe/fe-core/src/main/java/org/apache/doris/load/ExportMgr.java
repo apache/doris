@@ -38,6 +38,8 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
 
@@ -142,6 +144,85 @@ public class ExportMgr {
 
         // check auth
         checkCancelExportJobAuth(InternalCatalog.INTERNAL_CATALOG_NAME, stmt.getDbName(), matchExportJobs);
+        // Must add lock to protect export job.
+        // Because job may be cancelled when generating task executors,
+        // the cancel process may clear the task executor list at same time,
+        // which will cause ConcurrentModificationException
+        writeLock();
+        try {
+            for (ExportJob exportJob : matchExportJobs) {
+                // exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
+                exportJob.updateExportJobState(ExportJobState.CANCELLED, 0L, null,
+                        ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
+            }
+        } catch (JobException e) {
+            throw new AnalysisException(e.getMessage());
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private List<ExportJob> getWaitingCancelJobs(
+            String label, String state,
+            Expression operator)
+            throws AnalysisException {
+        Predicate<ExportJob> jobFilter = buildCancelJobFilter(label, state, operator);
+        readLock();
+        try {
+            return getJobs().stream().filter(jobFilter).collect(Collectors.toList());
+        } finally {
+            readUnlock();
+        }
+    }
+
+    @VisibleForTesting
+    public static Predicate<ExportJob> buildCancelJobFilter(
+            String label, String state,
+            Expression operator)
+            throws AnalysisException {
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
+                CaseSensibility.LABEL.getCaseSensibility());
+
+        return job -> {
+            boolean labelFilter = true;
+            boolean stateFilter = true;
+            if (StringUtils.isNotEmpty(label)) {
+                labelFilter = label.contains("%") ? matcher.match(job.getLabel()) :
+                    job.getLabel().equalsIgnoreCase(label);
+            }
+            if (StringUtils.isNotEmpty(state)) {
+                stateFilter = job.getState().name().equalsIgnoreCase(state);
+            }
+
+            if (operator != null && operator instanceof Or) {
+                return labelFilter || stateFilter;
+            }
+
+            return labelFilter && stateFilter;
+        };
+    }
+
+    /**
+     * used for Nereids planner
+     */
+    public void cancelExportJob(
+            String label,
+            String state,
+            Expression operator, String dbName)
+            throws DdlException, AnalysisException {
+        // List of export jobs waiting to be cancelled
+        List<ExportJob> matchExportJobs = getWaitingCancelJobs(label, state, operator);
+        if (matchExportJobs.isEmpty()) {
+            throw new DdlException("Export job(s) do not exist");
+        }
+        matchExportJobs = matchExportJobs.stream()
+            .filter(job -> !job.isFinalState()).collect(Collectors.toList());
+        if (matchExportJobs.isEmpty()) {
+            throw new DdlException("All export job(s) are at final state (CANCELLED/FINISHED)");
+        }
+
+        // check auth
+        checkCancelExportJobAuth(InternalCatalog.INTERNAL_CATALOG_NAME, dbName, matchExportJobs);
         // Must add lock to protect export job.
         // Because job may be cancelled when generating task executors,
         // the cancel process may clear the task executor list at same time,

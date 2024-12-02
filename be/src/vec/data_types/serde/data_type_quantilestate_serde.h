@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <arrow/array/builder_binary.h>
 #include <gen_cpp/types.pb.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -32,6 +33,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/serde/data_type_nullable_serde.h"
 
 namespace doris {
 
@@ -43,12 +45,23 @@ public:
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override {
-        return Status::NotSupported("serialize_one_cell_to_json with type [{}]", column.get_name());
+        /**
+        * For null values in ordinary types, we use \N to represent them;
+        * for null values in nested types, we use null to represent them, just like the json format.
+        */
+        if (_nesting_level >= 2) {
+            bw.write(DataTypeNullableSerDe::NULL_IN_COMPLEX_TYPE.c_str(),
+                     strlen(NULL_IN_COMPLEX_TYPE.c_str()));
+        } else {
+            bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
+                     strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
+        }
+        return Status::OK();
     }
 
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override {
-        return Status::NotSupported("serialize_column_to_json with type [{}]", column.get_name());
+        SERIALIZE_COLUMN_TO_JSON();
     }
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override {
@@ -102,8 +115,21 @@ public:
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "write_column_to_arrow with type " + column.get_name());
+        const auto& col = assert_cast<const ColumnQuantileState&>(column);
+        auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
+        for (size_t string_i = start; string_i < end; ++string_i) {
+            if (null_map && (*null_map)[string_i]) {
+                checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                 array_builder->type()->name());
+            } else {
+                auto& quantile_state_value = const_cast<QuantileState&>(col.get_element(string_i));
+                std::string memory_buffer(quantile_state_value.get_serialized_size(), '0');
+                quantile_state_value.serialize((uint8_t*)memory_buffer.data());
+                checkArrowStatus(builder.Append(memory_buffer.data(),
+                                                static_cast<int>(memory_buffer.size())),
+                                 column.get_name(), array_builder->type()->name());
+            }
+        }
     }
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override {
@@ -126,7 +152,27 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override {
-        return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
+        auto& col_data = assert_cast<const ColumnQuantileState&>(column);
+        orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+
+        INIT_MEMORY_FOR_ORC_WRITER()
+
+        for (size_t row_id = start; row_id < end; row_id++) {
+            if (cur_batch->notNull[row_id] == 1) {
+                auto quantilestate_value = const_cast<QuantileState&>(col_data.get_element(row_id));
+                size_t len = quantilestate_value.get_serialized_size();
+
+                REALLOC_MEMORY_FOR_ORC_WRITER()
+
+                quantilestate_value.serialize((uint8_t*)(bufferRef.data) + offset);
+                cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+                cur_batch->length[row_id] = len;
+                offset += len;
+            }
+        }
+
+        cur_batch->numElements = end - start;
+        return Status::OK();
     }
 
 private:

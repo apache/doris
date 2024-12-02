@@ -46,6 +46,8 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -246,23 +248,22 @@ public class LoadManager implements Writable {
      * Match need cancel loadJob by stmt.
      **/
     @VisibleForTesting
-    public static void addNeedCancelLoadJob(CancelLoadStmt stmt, List<LoadJob> loadJobs, List<LoadJob> matchLoadJobs)
+    public static void addNeedCancelLoadJob(String label, String state, Expression operator,
+                                            List<LoadJob> loadJobs, List<LoadJob> matchLoadJobs)
             throws AnalysisException {
-        String label = stmt.getLabel();
-        String state = stmt.getState();
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
                 CaseSensibility.LABEL.getCaseSensibility());
         matchLoadJobs.addAll(
                 loadJobs.stream()
                         .filter(job -> job.getState() != JobState.CANCELLED)
                         .filter(job -> {
-                            if (stmt.getOperator() != null) {
+                            if (operator != null) {
                                 // compound
                                 boolean labelFilter =
                                         label.contains("%") ? matcher.match(job.getLabel())
                                                 : job.getLabel().equalsIgnoreCase(label);
                                 boolean stateFilter = job.getState().name().equalsIgnoreCase(state);
-                                return Operator.AND.equals(stmt.getOperator()) ? labelFilter && stateFilter :
+                                return operator instanceof And ? labelFilter && stateFilter :
                                         labelFilter || stateFilter;
                             }
                             if (StringUtils.isNotEmpty(label)) {
@@ -274,6 +275,83 @@ public class LoadManager implements Writable {
                             }
                             return false;
                         }).collect(Collectors.toList())
+        );
+    }
+
+    /**
+     * Cancel load job by stmt.
+     **/
+    public void cancelLoadJob(String dbName, String label, String state, Expression operator)
+            throws DdlException, AnalysisException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        // List of load jobs waiting to be cancelled
+        List<LoadJob> unfinishedLoadJob;
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
+            if (labelToLoadJobs == null) {
+                throw new DdlException("Load job does not exist");
+            }
+            List<LoadJob> matchLoadJobs = Lists.newArrayList();
+            addNeedCancelLoadJob(label, state, operator,
+                    labelToLoadJobs.values().stream().flatMap(Collection::stream).collect(Collectors.toList()),
+                    matchLoadJobs);
+            if (matchLoadJobs.isEmpty()) {
+                throw new DdlException("Load job does not exist");
+            }
+            // check state here
+            unfinishedLoadJob =
+                    matchLoadJobs.stream().filter(entity -> !entity.isTxnDone()).collect(Collectors.toList());
+            if (unfinishedLoadJob.isEmpty()) {
+                throw new DdlException("There is no uncompleted job");
+            }
+        } finally {
+            readUnlock();
+        }
+        for (LoadJob loadJob : unfinishedLoadJob) {
+            try {
+                loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
+            } catch (DdlException e) {
+                throw new DdlException(
+                        "Cancel load job [" + loadJob.getId() + "] fail, " + "label=[" + loadJob.getLabel()
+                                +
+                                "] failed msg=" + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Match need cancel loadJob by stmt.
+     **/
+    @VisibleForTesting
+    public static void addNeedCancelLoadJob(CancelLoadStmt stmt, List<LoadJob> loadJobs, List<LoadJob> matchLoadJobs)
+            throws AnalysisException {
+        String label = stmt.getLabel();
+        String state = stmt.getState();
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
+                CaseSensibility.LABEL.getCaseSensibility());
+        matchLoadJobs.addAll(
+                loadJobs.stream()
+                .filter(job -> job.getState() != JobState.CANCELLED)
+                .filter(job -> {
+                    if (stmt.getOperator() != null) {
+                        // compound
+                        boolean labelFilter =
+                                label.contains("%") ? matcher.match(job.getLabel())
+                                : job.getLabel().equalsIgnoreCase(label);
+                        boolean stateFilter = job.getState().name().equalsIgnoreCase(state);
+                        return Operator.AND.equals(stmt.getOperator()) ? labelFilter && stateFilter :
+                            labelFilter || stateFilter;
+                    }
+                    if (StringUtils.isNotEmpty(label)) {
+                        return label.contains("%") ? matcher.match(job.getLabel())
+                            : job.getLabel().equalsIgnoreCase(label);
+                    }
+                    if (StringUtils.isNotEmpty(state)) {
+                        return job.getState().name().equalsIgnoreCase(state);
+                    }
+                    return false;
+                }).collect(Collectors.toList())
         );
     }
 
@@ -299,7 +377,7 @@ public class LoadManager implements Writable {
             }
             // check state here
             unfinishedLoadJob =
-                    matchLoadJobs.stream().filter(entity -> !entity.isTxnDone()).collect(Collectors.toList());
+                matchLoadJobs.stream().filter(entity -> !entity.isTxnDone()).collect(Collectors.toList());
             if (unfinishedLoadJob.isEmpty()) {
                 throw new DdlException("There is no uncompleted job");
             }
@@ -311,9 +389,9 @@ public class LoadManager implements Writable {
                 loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
             } catch (DdlException e) {
                 throw new DdlException(
-                        "Cancel load job [" + loadJob.getId() + "] fail, " + "label=[" + loadJob.getLabel()
-                                +
-                                "] failed msg=" + e.getMessage());
+                    "Cancel load job [" + loadJob.getId() + "] fail, " + "label=[" + loadJob.getLabel()
+                        +
+                        "] failed msg=" + e.getMessage());
             }
         }
     }

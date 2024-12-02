@@ -2730,3 +2730,213 @@ values('1','A','2020-09-02 00:00:00')
 INSERT INTO catalog_pg_test.num_zero (id, num) VALUES ('001', 123.45);
 INSERT INTO catalog_pg_test.num_zero (id, num) VALUES ('002', 678.90);
 INSERT INTO catalog_pg_test.num_zero (id, num) VALUES ('003', 1011.12);
+
+INSERT INTO catalog_pg_test.test_all_types_2d_array VALUES
+(1,
+    ARRAY[ARRAY['abc', 'def']::text[], ARRAY['ghi', 'jkl']::text[]],
+    ARRAY[ARRAY['abc', 'def']::text[], ARRAY['ghi', 'jkl']::text[]],
+    ARRAY[ARRAY['2022-10-11'::date, '2022-11-12'::date], ARRAY['2023-01-01'::date, '2023-02-02'::date]],
+    ARRAY[ARRAY[1, 2], ARRAY[3, 4]],
+    ARRAY[ARRAY[1, 2], ARRAY[2, 3]],
+    ARRAY[ARRAY[3, 4], ARRAY[4, 5]],
+    ARRAY[ARRAY['2022-10-22 10:59:59'::timestamp, '2023-01-01 12:00:00'::timestamp],
+          ARRAY['2023-02-01 14:30:00'::timestamp, '2023-02-10 16:45:00'::timestamp]],
+    ARRAY[ARRAY[34.123, 45.678], ARRAY[56.789, 67.890]],
+    ARRAY[ARRAY[0::bit, 1::bit], ARRAY[1::bit, 0::bit]],
+    ARRAY[ARRAY[12.123456, 34.567890], ARRAY[56.789123, 45.678345]],
+    ARRAY[ARRAY['10.16.10.14'::cidr, '192.168.1.1'::cidr],
+          ARRAY['172.16.0.1'::cidr, '192.168.2.2'::cidr]],
+    ARRAY[ARRAY['10.16.10.14'::inet, '192.168.1.1'::inet],
+          ARRAY['172.16.0.1'::inet, '192.168.2.2'::inet]],
+    ARRAY[ARRAY['ff:ff:ff:ff:ff:AA'::macaddr, '00:14:22:01:23:45'::macaddr],
+          ARRAY['11:22:33:44:55:66'::macaddr, '77:88:99:00:11:22'::macaddr]],
+    ARRAY[ARRAY['1010101010'::bit(10), '1100101010'::bit(10)],
+          ARRAY['1110001111'::bit(10), '0001110000'::bit(10)]],
+    ARRAY[ARRAY[cast(10 as bit(5)), cast(20 as bit(5))],
+          ARRAY[cast(30 as bit(5)), cast(40 as bit(5))]],
+    ARRAY[ARRAY['{"id":1}'::jsonb, '{"id":2}'::jsonb],
+          ARRAY['{"id":3}'::jsonb, '{"id":4}'::jsonb]],
+    ARRAY[ARRAY['(1,1)'::point, '(2,2)'::point],
+          ARRAY['(3,3)'::point, '(4,4)'::point]],
+    ARRAY[ARRAY['{1,1,1}'::line, '{2,2,2}'::line],
+          ARRAY['{3,3,3}'::line, '{4,4,4}'::line]],
+    ARRAY[ARRAY['(1,1),(2,2)'::lseg, '(3,3),(4,4)'::lseg],
+          ARRAY['(5,5),(6,6)'::lseg, '(7,7),(8,8)'::lseg]],
+    ARRAY[ARRAY['(1,1),(2,2)'::box, '(5,5),(6,6)'::box],
+          ARRAY['(7,7),(8,8)'::box, '(9,9),(10,10)'::box]],
+    ARRAY[ARRAY['(1,1),(2,2),(2,1)'::path, '(3,3),(4,4),(5,5)'::path],
+          ARRAY['(6,6),(7,7),(8,8)'::path, '(9,9),(10,10),(11,11)'::path]],
+    ARRAY[ARRAY['((1,1),(2,2),(2,1))'::polygon, '((3,3),(4,4),(5,5))'::polygon],
+          ARRAY['((6,6),(7,7),(8,8))'::polygon, '((9,9),(10,10),(11,11))'::polygon]],
+    ARRAY[ARRAY['<(0,0),1>'::circle, '<(5,5),10>'::circle],
+          ARRAY['<(2,2),3>'::circle, '<(7,7),14>'::circle]]
+);
+
+INSERT INTO catalog_pg_test.test_all_types_array VALUES
+(1,
+    ARRAY['abc', 'def'],
+    ARRAY['ghi', 'jkl'],
+    ARRAY['2022-10-11'::date, '2022-11-12'::date],
+    ARRAY[1, 2],
+    ARRAY[2, 3],
+    ARRAY[3, 4],
+    ARRAY['2022-10-22 10:59:59'::timestamp, '2023-01-01 12:00:00'::timestamp],
+    ARRAY[34.123, 45.678],
+    ARRAY[0::bit, 1::bit],
+    ARRAY[12.123456, 34.567890],
+    ARRAY['10.16.10.14'::cidr, '192.168.1.1'::cidr],
+    ARRAY['10.16.10.14'::inet, '192.168.0.1'::inet],
+    ARRAY['ff:ff:ff:ff:ff:AA'::macaddr, '00:14:22:01:23:45'::macaddr],
+    ARRAY['1010101010'::bit(10), '1100101010'::bit(10)],
+    ARRAY[cast('00010' as bit(5)), cast('10100' as bit(5))],  -- bit(5) values need 5 bits
+    ARRAY['{"id":1}'::jsonb, '{"id":2}'::jsonb],
+    ARRAY['(1,1)'::point, '(2,2)'::point],
+    ARRAY['{1,1,1}'::line, '{2,2,2}'::line],
+    ARRAY['(1,1),(2,2)'::lseg, '(3,3),(4,4)'::lseg],
+    ARRAY['(1,1),(2,2)'::box, '(5,5),(6,6)'::box],
+    ARRAY['(1,1),(2,2),(2,1)'::path, '(3,3),(4,4),(5,5)'::path],
+    ARRAY['((1,1),(2,2),(2,1))'::polygon, '((3,3),(4,4),(5,5))'::polygon],
+    ARRAY['<(0,0),1>'::circle, '<(5,5),10>'::circle]
+);
+
+INSERT INTO catalog_pg_test.test_all_support_types_array (
+    id, char_value, varchar_value, text_value, date_value,
+    smallint_value, int_value, bigint_value, timestamp_value,
+    timestamptz_value, bool_value, float4_value, float8_value
+) VALUES (
+    1,
+    ARRAY['A', 'B', 'C'],
+    ARRAY['Hello', 'World'],
+    ARRAY['Text1', 'Text2'],
+    ARRAY['2024-01-01'::date, '2024-01-02'::date],
+    ARRAY[10, 20],
+    ARRAY[100, 200],
+    ARRAY[1000, 2000],
+    ARRAY['2024-01-01 10:00:00'::timestamp, '2024-01-02 12:00:00'::timestamp],
+    ARRAY['2024-01-01 10:00:00+00'::timestamptz, '2024-01-02 12:00:00+00'::timestamptz],
+    ARRAY[true, false],
+    ARRAY[1.1, 2.2],
+    ARRAY[3.3, 4.4]
+);
+
+INSERT INTO catalog_pg_test.test_all_support_types_array (
+    id, char_value, varchar_value, text_value, date_value,
+    smallint_value, int_value, bigint_value, timestamp_value,
+    timestamptz_value, bool_value, float4_value, float8_value
+) VALUES (
+    2,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+);
+
+INSERT INTO catalog_pg_test.test_all_support_types_array (
+    id, char_value, varchar_value, text_value, date_value,
+    smallint_value, int_value, bigint_value, timestamp_value,
+    timestamptz_value, bool_value, float4_value, float8_value
+) VALUES (
+    3,
+    ARRAY['A', 'B', 'C', null],
+    ARRAY['Hello', 'World', null],
+    ARRAY['Text1', 'Text2', null],
+    ARRAY['2024-01-01'::date, '2024-01-02'::date, null],
+    ARRAY[10, 20, null],
+    ARRAY[100, 200, null],
+    ARRAY[1000, 2000, null],
+    ARRAY['2024-01-01 10:00:00'::timestamp, '2024-01-02 12:00:00'::timestamp, null],
+    ARRAY['2024-01-01 10:00:00+00'::timestamptz, '2024-01-02 12:00:00+00'::timestamptz, null],
+    ARRAY[true, false, null],
+    ARRAY[1.1, 2.2, null],
+    ARRAY[3.3, 4.4, null]
+);
+
+INSERT INTO catalog_pg_test.test_all_support_types_array_2d (
+    id, char_value, varchar_value, text_value, date_value,
+    smallint_value, int_value, bigint_value, timestamp_value,
+    timestamptz_value, bool_value, float4_value, float8_value
+) VALUES (
+    1,
+    ARRAY[ARRAY['A', 'B'], ARRAY['C', 'D']],
+    ARRAY[ARRAY['Hello', 'World'], ARRAY['Foo', 'Bar']],
+    ARRAY[ARRAY['Text1', 'Text2'], ARRAY['Text3', 'Text4']],
+    ARRAY[ARRAY['2024-01-01'::date, '2024-01-02'::date], ARRAY['2024-02-01'::date, '2024-02-02'::date]],
+    ARRAY[ARRAY[10, 20], ARRAY[30, 40]],
+    ARRAY[ARRAY[100, 200], ARRAY[300, 400]],
+    ARRAY[ARRAY[1000, 2000], ARRAY[3000, 4000]],
+    ARRAY[ARRAY['2024-01-01 10:00:00'::timestamp, '2024-01-02 12:00:00'::timestamp], ARRAY['2024-03-01 10:00:00'::timestamp, '2024-03-02 12:00:00'::timestamp]],
+    ARRAY[ARRAY['2024-01-01 10:00:00+00'::timestamptz, '2024-01-02 12:00:00+00'::timestamptz], ARRAY['2024-03-01 10:00:00+00'::timestamptz, '2024-03-02 12:00:00+00'::timestamptz]],
+    ARRAY[ARRAY[true, false], ARRAY[false, true]],
+    ARRAY[ARRAY[1.1, 2.2], ARRAY[3.3, 4.4]],
+    ARRAY[ARRAY[5.5, 6.6], ARRAY[7.7, 8.8]]
+);
+
+INSERT INTO catalog_pg_test.test_all_support_types_array_2d (
+    id, char_value, varchar_value, text_value, date_value,
+    smallint_value, int_value, bigint_value, timestamp_value,
+    timestamptz_value, bool_value, float4_value, float8_value
+) VALUES (
+    2,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+);
+
+INSERT INTO catalog_pg_test.test_all_support_types_array_2d (
+    id, char_value, varchar_value, text_value, date_value,
+    smallint_value, int_value, bigint_value, timestamp_value,
+    timestamptz_value, bool_value, float4_value, float8_value
+) VALUES (
+    3,
+    ARRAY[ARRAY['A', null], ARRAY['C', 'D']],
+    ARRAY[ARRAY['Hello', null], ARRAY['Foo', 'Bar']],
+    ARRAY[ARRAY['Text1', null], ARRAY['Text3', 'Text4']],
+    ARRAY[ARRAY['2024-01-01'::date, null], ARRAY['2024-02-01'::date, '2024-02-02'::date]],
+    ARRAY[ARRAY[10, null], ARRAY[30, 40]],
+    ARRAY[ARRAY[100, null], ARRAY[300, 400]],
+    ARRAY[ARRAY[1000, null], ARRAY[3000, 4000]],
+    ARRAY[ARRAY['2024-01-01 10:00:00'::timestamp, null], ARRAY['2024-03-01 10:00:00'::timestamp, '2024-03-02 12:00:00'::timestamp]],
+    ARRAY[ARRAY['2024-01-01 10:00:00+00'::timestamptz, null], ARRAY['2024-03-01 10:00:00+00'::timestamptz, '2024-03-02 12:00:00+00'::timestamptz]],
+    ARRAY[ARRAY[true,null], ARRAY[false, true]],
+    ARRAY[ARRAY[1.1, null], ARRAY[3.3, 4.4]],
+    ARRAY[ARRAY[5.5, null], ARRAY[7.7, 8.8]]
+);
+
+
+INSERT INTO catalog_pg_test.test_all_support_types_array_2d (
+    id, char_value, varchar_value, text_value, date_value,
+    smallint_value, int_value, bigint_value, timestamp_value,
+    timestamptz_value, bool_value, float4_value, float8_value
+) VALUES (
+    4,
+    ARRAY[ARRAY['A', 'B'], ARRAY[NULL, NULL]],
+    ARRAY[ARRAY['Hello', 'World'], ARRAY[NULL, NULL]],
+    ARRAY[ARRAY['Text1', 'Text2'], ARRAY[NULL, NULL]],
+    ARRAY[ARRAY['2024-01-01'::date, '2024-01-02'::date], ARRAY[NULL::date, NULL::date]],
+    ARRAY[ARRAY[10, 20], ARRAY[NULL::smallint, NULL::smallint]],
+    ARRAY[ARRAY[100, 200], ARRAY[NULL::int, NULL::int]],
+    ARRAY[ARRAY[1000, 2000], ARRAY[NULL::bigint, NULL::bigint]],
+    ARRAY[ARRAY['2024-01-01 10:00:00'::timestamp, '2024-01-02 12:00:00'::timestamp], ARRAY[NULL::timestamp, NULL::timestamp]],
+    ARRAY[ARRAY['2024-01-01 10:00:00+00'::timestamptz, '2024-01-02 12:00:00+00'::timestamptz], ARRAY[NULL::timestamptz, NULL::timestamptz]],
+    ARRAY[ARRAY[true, false], ARRAY[NULL::boolean, NULL::boolean]],
+    ARRAY[ARRAY[1.1, 2.2], ARRAY[NULL::real, NULL::real]],
+    ARRAY[ARRAY[5.5, 6.6], ARRAY[NULL::double precision, NULL::double precision]]
+);
+

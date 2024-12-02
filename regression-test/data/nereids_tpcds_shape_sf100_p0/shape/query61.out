@@ -29,7 +29,7 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF6 ss_promo_sk->[p_promo_sk]
 ----------------------------------PhysicalProject
-------------------------------------filter((((promotion.p_channel_dmail = 'Y') OR (promotion.p_channel_email = 'Y')) OR (promotion.p_channel_tv = 'Y')))
+------------------------------------filter(OR[(promotion.p_channel_dmail = 'Y'),(promotion.p_channel_email = 'Y'),(promotion.p_channel_tv = 'Y')])
 --------------------------------------PhysicalOlapScan[promotion] apply RFs: RF6
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF5 s_store_sk->[ss_store_sk]

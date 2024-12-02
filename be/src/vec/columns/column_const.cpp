@@ -72,10 +72,6 @@ ColumnPtr ColumnConst::convert_to_full_column() const {
     return data->replicate(Offsets(1, cast_set<Offset>(s)));
 }
 
-ColumnPtr ColumnConst::remove_low_cardinality() const {
-    return ColumnConst::create(data->convert_to_full_column_if_low_cardinality(), s);
-}
-
 ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) const {
     column_match_filter_size(s, filt.size());
 

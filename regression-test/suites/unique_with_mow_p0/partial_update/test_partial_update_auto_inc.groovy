@@ -103,6 +103,46 @@ suite("test_partial_update_auto_inc") {
             time 10000
         }
         order_qt_select_6 "select * from test_primary_key_partial_update_auto_inc2"
-        sql """ DROP TABLE IF EXISTS test_primary_key_partial_update_auto_inc2 """
+
+
+        sql """ DROP TABLE IF EXISTS test_primary_key_partial_update_auto_inc3 force; """
+        sql """ create table test_primary_key_partial_update_auto_inc3
+            (
+                `id`                      bigint         not null AUTO_INCREMENT,
+                `project_code`            varchar(20)    not null,
+                `period_num`              int,
+                `c2`     int
+            ) unique KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS auto
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "enable_unique_key_merge_on_write" = "true"
+            );   """
+        sql "set enable_unique_key_partial_update=true;"
+        sql "set enable_insert_strict=false;"
+        sql "sync;"
+        
+        sql "insert into test_primary_key_partial_update_auto_inc3(project_code,period_num) values ('test1',15),('test2',29),('test3',49);"
+        qt_sql "select project_code,period_num from test_primary_key_partial_update_auto_inc3 order by project_code,period_num;"
+        qt_sql "select count(distinct id) from test_primary_key_partial_update_auto_inc3;"
+
+
+        sql """ DROP TABLE IF EXISTS test_primary_key_partial_update_auto_inc4 """
+        sql """ CREATE TABLE test_primary_key_partial_update_auto_inc4 (
+                        `k1` BIGINT NOT NULL AUTO_INCREMENT,
+                        `k2` int,
+                        `c1` int,
+                        `c2` int,
+                        `c3` int)
+                        UNIQUE KEY(`k1`,`k2`) DISTRIBUTED BY HASH(`k1`,`k2`) BUCKETS 1
+                        PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true"); """
+        sql "set enable_unique_key_partial_update=true;"
+        sql "set enable_insert_strict=false;"
+        sql "sync;"
+
+        test {
+            sql "insert into test_primary_key_partial_update_auto_inc4(c1,c2) values(1,1),(2,2),(3,3)"
+            exception "Partial update should include all key columns, missing: k2"
+        }
     }
 }

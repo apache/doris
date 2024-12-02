@@ -1114,9 +1114,6 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
         std::lock_guard l(*local_merge_filters->lock);
         local_merge_filters->merge_size_times--;
         local_merge_filters->local_merged_size += local_filter_size;
-        if (_has_local_target) {
-            set_synced_size(local_filter_size);
-        }
         if (local_merge_filters->merge_size_times) {
             return Status::OK();
         } else {
@@ -1286,6 +1283,13 @@ PrimitiveType IRuntimeFilter::column_type() const {
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
+
+    if (!_wrapper->is_ignored() && _wrapper->is_bloomfilter() &&
+        !_wrapper->get_bloomfilter()->inited()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "bf not inited and not ignored, rf: {}",
+                        debug_string());
+    }
+
     COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - registration_time_) * NANOS_PER_MILLIS));
     _rf_state_atomic.store(RuntimeFilterState::READY);
     if (!_filter_timer.empty()) {
@@ -1538,10 +1542,13 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile(uint64_t local_merge_
 
 std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
-            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, "
-            "build_bf_cardinality: {}, error_msg: {}",
+            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, ignored: {}, "
+            "build_bf_cardinality: {}, dependency: {}, synced_size: {}, has_local_target: {}, "
+            "has_remote_target: {},error_msg: [{}]",
             _filter_id, to_string(_runtime_filter_type), _is_broadcast_join,
-            _wrapper->get_build_bf_cardinality(), _wrapper->_context->err_msg);
+            _wrapper->_context->ignored, _wrapper->get_build_bf_cardinality(),
+            _dependency ? _dependency->debug_string() : "none", _synced_size, _has_local_target,
+            _has_remote_target, _wrapper->_context->err_msg);
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
@@ -1594,9 +1601,7 @@ RuntimeFilterType IRuntimeFilter::get_real_type() {
 }
 
 bool IRuntimeFilter::need_sync_filter_size() {
-    return (type() == RuntimeFilterType::IN_OR_BLOOM_FILTER ||
-            type() == RuntimeFilterType::BLOOM_FILTER) &&
-           _wrapper->get_build_bf_cardinality() && !_is_broadcast_join;
+    return _wrapper->get_build_bf_cardinality() && !_is_broadcast_join;
 }
 
 void IRuntimeFilter::update_filter(std::shared_ptr<RuntimePredicateWrapper> wrapper,

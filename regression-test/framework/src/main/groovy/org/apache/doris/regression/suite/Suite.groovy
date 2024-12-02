@@ -1641,6 +1641,10 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    boolean isClusterKeyEnabled() {
+        return getFeConfig("random_add_cluster_keys_for_mow").equals("true")
+    }
+
     boolean enableStoragevault() {
         if (Strings.isNullOrEmpty(context.config.metaServiceHttpAddress)
                 || Strings.isNullOrEmpty(context.config.instanceId)
@@ -1979,9 +1983,8 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = true;
                 for (String mv_name : mv_names) {
-                    success = success && result.contains("${mv_name} chose")
+                    Assert.assertEquals(true, result.contains("${mv_name} chose"))
                 }
-                Assert.assertEquals(true, success)
             }
         }
     }
