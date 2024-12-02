@@ -500,10 +500,10 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
                                 hadoopConf: Configuration): PartitionedFile => Iterator[InternalRow] = {
     partitionedFile => {
       var hadoopStorageConfiguration = new HadoopStorageConfiguration(hadoopConf);
-      var sotragePath = new StoragePath(partitionedFile.toPath.toUri.getPath);
+      var storagePath = new StoragePath(partitionedFile.toPath.toUri.getPath);
       var emptySchema = org.apache.hudi.common.util.Option.empty[org.apache.avro.Schema]()
       val reader = new HoodieHBaseAvroHFileReader(
-        hadoopStorageConfiguration, sotragePath, emptySchema)
+        hadoopStorageConfiguration, storagePath, emptySchema)
 
       val requiredRowSchema = requiredDataSchema.structTypeSchema
       // NOTE: Schema has to be parsed at this point, since Avro's [[Schema]] aren't serializable

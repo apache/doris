@@ -750,10 +750,31 @@ Status VFileScanner::_get_next_reader() {
 
         // create reader for specific format
         Status init_status;
-        TFileFormatType::type format_type = range.format_type;
+        // for compatibility, if format_type is not set in range, use the format type of params
+        TFileFormatType::type format_type =
+                range.__isset.format_type ? range.format_type : _params->format_type;
         // JNI reader can only push down column value range
         bool push_down_predicates =
                 !_is_load && _params->format_type != TFileFormatType::FORMAT_JNI;
+        // for compatibility, this logic is deprecated in 3.1
+        if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
+            if (range.table_format_params.table_format_type == "hudi" &&
+                range.table_format_params.hudi_params.delta_logs.empty()) {
+                // fall back to native reader if there is no log file
+                format_type = TFileFormatType::FORMAT_PARQUET;
+            } else if (range.table_format_params.table_format_type == "paimon" &&
+                       !range.table_format_params.paimon_params.__isset.paimon_split) {
+                // use native reader
+                auto format = range.table_format_params.paimon_params.file_format;
+                if (format == "orc") {
+                    format_type = TFileFormatType::FORMAT_ORC;
+                } else if (format == "parquet") {
+                    format_type = TFileFormatType::FORMAT_PARQUET;
+                } else {
+                    return Status::InternalError("Not supported paimon file format: {}", format);
+                }
+            }
+        }
         bool need_to_get_parsed_schema = false;
         switch (format_type) {
         case TFileFormatType::FORMAT_JNI: {
