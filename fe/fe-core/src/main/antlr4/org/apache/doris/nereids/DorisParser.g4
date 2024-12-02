@@ -236,6 +236,7 @@ supportedShowStatement
     | SHOW FILE ((FROM | IN) database=multipartIdentifier)?                         #showSmallFiles 
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE CATALOG name=identifier                                           #showCreateCatalog
+    | SHOW COLLATION wildWhere?                                                     #showCollation
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
@@ -307,7 +308,6 @@ unsupportedShowStatement
     | SHOW CATALOG name=identifier                                                  #showCatalog
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
-    | SHOW COLLATION wildWhere?                                                     #showCollation
     | SHOW ((CHAR SET) | CHARSET) wildWhere?                                        #showCharset
     | SHOW COUNT LEFT_PAREN ASTERISK RIGHT_PAREN (WARNINGS | ERRORS)                #showWaringErrorCount
     | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWaringErrors

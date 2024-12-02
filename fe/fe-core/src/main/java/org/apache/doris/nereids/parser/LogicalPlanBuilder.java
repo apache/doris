@@ -224,6 +224,7 @@ import org.apache.doris.nereids.DorisParser.SetVariableWithTypeContext;
 import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
 import org.apache.doris.nereids.DorisParser.ShowBrokerContext;
+import org.apache.doris.nereids.DorisParser.ShowCollationContext;
 import org.apache.doris.nereids.DorisParser.ShowConfigContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateCatalogContext;
@@ -512,6 +513,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
@@ -4781,5 +4783,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tabletIdLists.add(Long.parseLong(tabletToken.getText()));
         });
         return new ShowTabletsBelongCommand(tabletIdLists);
+    }
+
+    @Override
+    public LogicalPlan visitShowCollation(ShowCollationContext ctx) {
+        String wild = null;
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                wild = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
+            } else if (ctx.wildWhere().WHERE() != null) {
+                wild = ctx.wildWhere().expression().getText();
+            }
+        }
+        return new ShowCollationCommand(wild);
     }
 }
