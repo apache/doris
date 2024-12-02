@@ -143,7 +143,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (split instanceof PaimonSplit) {
             PaimonSplit paimonSplit = (PaimonSplit) split;
             if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_JNI
-                    && paimonSplit.getSplit() != null) {
+                    && paimonSplit.getSplit() == null) {
                 // fall back to JNI reader
                 String fileFormat = getFileFormat(paimonSplit.getPathString());
                 if (fileFormat.equals("orc")) {
