@@ -150,11 +150,10 @@ protected:
 
     virtual int64_t get_metadata_size() const { return sizeof(T); }
 
-    void update_metadata_size();
+    virtual void update_metadata_size();
 
     MetadataAdder<T>& operator=(const MetadataAdder<T>& other) = default;
 
-private:
     int64_t _current_meta_size {0};
 
     void add_mem_size(int64_t val);

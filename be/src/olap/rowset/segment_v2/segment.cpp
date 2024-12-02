@@ -178,6 +178,17 @@ int64_t Segment::get_metadata_size() const {
            (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0);
 }
 
+void Segment::update_metadata_size() {
+    int64_t old_size = _current_meta_size;
+    _current_meta_size = get_metadata_size();
+    int64_t size_diff = _current_meta_size - old_size;
+
+    add_mem_size(size_diff);
+
+    g_segment_estimate_mem_bytes << _meta_mem_usage - _tracked_meta_mem_usage;
+    _tracked_meta_mem_usage = _meta_mem_usage;
+}
+
 Status Segment::_open() {
     _footer_pb = std::make_unique<SegmentFooterPB>();
     RETURN_IF_ERROR(_parse_footer(_footer_pb.get()));
@@ -195,8 +206,6 @@ Status Segment::_open() {
         _meta_mem_usage += _pk_index_meta->ByteSizeLong();
     }
 
-    update_metadata_size();
-
     _meta_mem_usage += sizeof(*this);
     _meta_mem_usage += _tablet_schema->num_columns() * config::estimated_mem_per_column_reader;
 
@@ -204,8 +213,8 @@ Status Segment::_open() {
     _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
     // 0.01 comes from PrimaryKeyIndexBuilder::init
     _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
-    g_segment_estimate_mem_bytes << _meta_mem_usage - _tracked_meta_mem_usage;
-    _tracked_meta_mem_usage = _meta_mem_usage;
+
+    update_metadata_size();
 
     return Status::OK();
 }
@@ -473,6 +482,7 @@ Status Segment::_load_pk_bloom_filter() {
         // for BE UT "segment_cache_test"
         return _load_pk_bf_once.call([this] {
             _meta_mem_usage += 100;
+            update_metadata_size();
             return Status::OK();
         });
     }

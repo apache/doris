@@ -212,24 +212,20 @@ std::string MemTrackerLimiter::print_address_sanitizers() {
 RuntimeProfile* MemTrackerLimiter::make_profile(RuntimeProfile* profile) const {
     RuntimeProfile* profile_snapshot = profile->create_child(
             fmt::format("{}@{}@id={}", _label, type_string(_type), _uid.to_string()), true, false);
-    RuntimeProfile::Counter* current_usage_counter =
-            ADD_COUNTER(profile_snapshot, "CurrentUsage", TUnit::BYTES);
-    RuntimeProfile::Counter* peak_usage_counter =
-            ADD_COUNTER(profile_snapshot, "PeakUsage", TUnit::BYTES);
-    COUNTER_SET(current_usage_counter, consumption());
-    COUNTER_SET(peak_usage_counter, peak_consumption());
+    RuntimeProfile::HighWaterMarkCounter* usage_counter =
+            profile_snapshot->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
+    COUNTER_SET(usage_counter, peak_consumption());
+    COUNTER_SET(usage_counter, consumption());
     if (has_limit()) {
         RuntimeProfile::Counter* limit_counter =
                 ADD_COUNTER(profile_snapshot, "Limit", TUnit::BYTES);
         COUNTER_SET(limit_counter, _limit);
     }
     if (reserved_peak_consumption() != 0) {
-        RuntimeProfile::Counter* reserved_counter =
-                ADD_COUNTER(profile_snapshot, "ReservedMemory", TUnit::BYTES);
-        RuntimeProfile::Counter* reserved_peak_counter =
-                ADD_COUNTER(profile_snapshot, "ReservedPeakMemory", TUnit::BYTES);
+        RuntimeProfile::HighWaterMarkCounter* reserved_counter =
+                profile_snapshot->AddHighWaterMarkCounter("ReservedMemory", TUnit::BYTES);
+        COUNTER_SET(reserved_counter, reserved_peak_consumption());
         COUNTER_SET(reserved_counter, reserved_consumption());
-        COUNTER_SET(reserved_peak_counter, reserved_peak_consumption());
     }
     return profile_snapshot;
 }
