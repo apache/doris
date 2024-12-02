@@ -464,7 +464,7 @@ public:
 
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.
-      * reverse - reverse ordering (ascending).
+      * reverse - true: descending order, false: ascending order.
       * limit - if isn't 0, then only first limit elements of the result column could be sorted.
       * nan_direction_hint - see above.
       */
