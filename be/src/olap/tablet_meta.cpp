@@ -1091,7 +1091,9 @@ uint64_t DeleteBitmap::cardinality() const {
     std::shared_lock l(lock);
     uint64_t res = 0;
     for (auto entry : delete_bitmap) {
-        res += entry.second.cardinality();
+        if (std::get<1>(entry.first) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            res += entry.second.cardinality();
+        }
     }
     return res;
 }
@@ -1100,7 +1102,9 @@ uint64_t DeleteBitmap::get_size() const {
     std::shared_lock l(lock);
     uint64_t charge = 0;
     for (auto& [k, v] : delete_bitmap) {
-        charge += v.getSizeInBytes();
+        if (std::get<1>(k) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            charge += v.getSizeInBytes();
+        }
     }
     return charge;
 }
@@ -1232,7 +1236,13 @@ void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::
 
 uint64_t DeleteBitmap::get_delete_bitmap_count() {
     std::shared_lock l(lock);
-    return delete_bitmap.size();
+    uint64_t count = 0;
+    for (auto it = delete_bitmap.begin(); it != delete_bitmap.end(); it++) {
+        if (std::get<1>(it->first) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            count++;
+        }
+    }
+    return count;
 }
 
 // We cannot just copy the underlying memory to construct a string

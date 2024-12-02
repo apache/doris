@@ -168,6 +168,8 @@ private:
 
     Status do_compact_ordered_rowsets();
 
+    void process_old_version_delete_bitmap();
+
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
 
     PendingRowsetGuard _pending_rs_guard;
