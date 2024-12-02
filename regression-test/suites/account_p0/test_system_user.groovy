@@ -15,16 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.qe;
+import org.junit.Assert;
 
-import org.apache.doris.common.Status;
-import org.apache.doris.qe.runtime.PipelineExecutionTask;
-import org.apache.doris.thrift.TReportExecStatusParams;
-
-public interface JobProcessor {
-    void setPipelineExecutionTask(PipelineExecutionTask pipelineExecutionTask);
-
-    void cancel(Status cancelReason);
-
-    void updateFragmentExecStatus(TReportExecStatusParams params);
+suite("test_system_user") {
+    test {
+          sql """
+              create user `root`;
+          """
+          exception "root"
+    }
+    test {
+          sql """
+              drop user `root`;
+          """
+          exception "system"
+    }
+    test {
+          sql """
+              drop user `admin`;
+          """
+          exception "system"
+    }
 }
