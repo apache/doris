@@ -178,6 +178,8 @@ supportedCreateStatement
     | CREATE (OR REPLACE)? VIEW (IF NOT EXISTS)? name=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         (COMMENT STRING_LITERAL)? AS query                                #createView
+    | CREATE FILE name=STRING_LITERAL
+        ((FROM | IN) database=identifier)? properties=propertyClause            #createFile        
     | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
         LIKE existedTable=multipartIdentifier
         (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
@@ -752,8 +754,6 @@ unsupportedCreateStatement
         (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
         passwordOption (COMMENT STRING_LITERAL)?                                #createUser
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
-    | CREATE FILE name=STRING_LITERAL
-        ((FROM | IN) database=identifier)? properties=propertyClause            #createFile
     | CREATE INDEX (IF NOT EXISTS)? name=identifier
         ON tableName=multipartIdentifier identifierList
         (USING (BITMAP | NGRAM_BF | INVERTED))?
