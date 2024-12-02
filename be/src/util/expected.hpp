@@ -221,7 +221,8 @@ template <typename E>
 #ifdef _MSC_VER
   __assume(0);
 #else
- throw Exception(Status::FatalError("__builtin_unreachable"));
+ LOG(FATAL) << "__builtin_unreachable";
+  __builtin_unreachable();
 #endif
 #endif
 }

@@ -24,7 +24,6 @@
 #include <memory>
 #include <typeinfo>
 
-#include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "serde/data_type_string_serde.h"
 #include "vec/columns/column_fixed_length_object.h"
@@ -64,8 +63,9 @@ public:
     Field get_default() const override { return String(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        throw Exception(
-                Status::FatalError("Unimplemented get_field for DataTypeFixedLengthObject"));
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Unimplemented get_field for DataTypeFixedLengthObject");
+        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }

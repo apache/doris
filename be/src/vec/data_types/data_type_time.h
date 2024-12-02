@@ -28,7 +28,6 @@
 #include <memory>
 #include <string>
 
-#include "common/exception.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -83,7 +82,7 @@ class DataTypeTimeV2 final : public DataTypeNumberBase<Float64> {
 public:
     DataTypeTimeV2(int scale = 0) : _scale(scale) {
         if (UNLIKELY(scale > 6)) {
-            throw Exception(Status::FatalError("Scale {} is out of bounds", scale));
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scale {} is out of bounds", scale);
         }
         if (scale == -1) {
             _scale = 0;

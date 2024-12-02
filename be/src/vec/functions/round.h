@@ -124,8 +124,9 @@ struct IntegerRoundingComputation {
             return target_scale > 1 ? x * target_scale : x;
         }
         }
-        throw Exception(Status::FatalError("IntegerRoundingComputation __builtin_unreachable ",
-                                           rounding_mode));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "IntegerRoundingComputation __builtin_unreachable ", rounding_mode);
+        __builtin_unreachable();
     }
 
     static ALWAYS_INLINE T compute(T x, T scale, T target_scale) {
@@ -136,8 +137,9 @@ struct IntegerRoundingComputation {
         case ScaleMode::Negative:
             return compute_impl(x, scale, target_scale);
         }
-        throw Exception(Status::FatalError("IntegerRoundingComputation __builtin_unreachable ",
-                                           scale_mode));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "IntegerRoundingComputation __builtin_unreachable ", scale_mode);
+        __builtin_unreachable();
     }
 
     static ALWAYS_INLINE void compute(const T* __restrict in, U scale, T* __restrict out,
@@ -224,7 +226,8 @@ inline float roundWithMode(float x, RoundingMode mode) {
     case RoundingMode::Trunc:
         return truncf(x);
     }
-    throw Exception(Status::FatalError("roundWithMode __builtin_unreachable ", mode));
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR, "roundWithMode __builtin_unreachable ", mode);
+    __builtin_unreachable();
 }
 
 template <TieBreakingMode tie_breaking_mode>
@@ -244,7 +247,8 @@ inline double roundWithMode(double x, RoundingMode mode) {
     case RoundingMode::Trunc:
         return trunc(x);
     }
-    throw Exception(Status::FatalError("roundWithMode __builtin_unreachable ", mode));
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR, "roundWithMode __builtin_unreachable ", mode);
+    __builtin_unreachable();
 }
 
 template <typename T, TieBreakingMode tie_breaking_mode>
@@ -412,8 +416,9 @@ public:
         case 10000000000000000000ULL:
             return applyImpl<10000000000000000000ULL>(in, out);
         default:
-            throw Exception(
-                    Status::FatalError("IntegerRoundingImpl __builtin_unreachable ", scale));
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "IntegerRoundingImpl __builtin_unreachable ", scale);
+            __builtin_unreachable();
         }
     }
 
@@ -497,8 +502,11 @@ struct Dispatcher {
             return col_res;
         } else {
             auto error_type = std::make_shared<T>();
-            throw Exception(Status::FatalError(
-                    "Dispatcher apply_vec_const __builtin_unreachable {}", error_type->get_name()));
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Dispatcher apply_vec_const __builtin_unreachable {}",
+                                   error_type->get_name());
+            __builtin_unreachable();
+            return nullptr;
         }
     }
 
@@ -574,8 +582,11 @@ struct Dispatcher {
             return col_res;
         } else {
             auto error_type = std::make_shared<T>();
-            throw Exception(Status::FatalError("Dispatcher apply_vec_vec __builtin_unreachable {}",
-                                               error_type->get_name()));
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Dispatcher apply_vec_vec __builtin_unreachable {}",
+                                   error_type->get_name());
+            __builtin_unreachable();
+            return nullptr;
         }
     }
 
@@ -656,8 +667,11 @@ struct Dispatcher {
             return col_res;
         } else {
             auto error_type = std::make_shared<T>();
-            throw Exception(Status::FatalError(
-                    "Dispatcher apply_const_vec __builtin_unreachable {}", error_type->get_name()));
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Dispatcher apply_const_vec __builtin_unreachable {}",
+                                   error_type->get_name());
+            __builtin_unreachable();
+            return nullptr;
         }
     }
 };

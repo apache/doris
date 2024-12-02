@@ -87,7 +87,8 @@ public:
         }
         std::stringstream error_string;
         node.printTo(error_string);
-        throw Exception(Status::FatalError("Unkown literal {}", error_string.str()));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unkown literal {}", error_string.str());
+        return {};
     }
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {

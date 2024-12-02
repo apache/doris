@@ -89,8 +89,8 @@ public:
     Field get_default() const override { return HyperLogLog::empty(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        throw Exception(Status::FatalError("Unimplemented get_field for HLL"));
-    }
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Unimplemented get_field for HLL");
+        __builtin_unreachable();
 
     static void serialize_as_stream(const HyperLogLog& value, BufferWritable& buf);
 

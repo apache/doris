@@ -65,7 +65,9 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal256>>) {
             return TYPE_DECIMAL256;
         }
-        throw Exception(Status::FatalError("get_primitive_type __builtin_unreachable"));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "get_primitive_type __builtin_unreachable");
+        __builtin_unreachable();
     }
 
     DataTypeDecimalSerDe(int scale_, int precision_, int nesting_level = 1)

@@ -114,7 +114,7 @@ public:
 
     DataTypeDateTimeV2(UInt32 scale = 0) : _scale(scale) {
         if (UNLIKELY(scale > 6)) {
-            throw Exception(Status::FatalError("Scale {} is out of bounds", scale));
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scale {} is out of bounds", scale);
         }
     }
 

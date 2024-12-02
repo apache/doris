@@ -74,8 +74,9 @@ DataTypeStruct::DataTypeStruct(const DataTypes& elems_, const Strings& names_)
         : elems(elems_), names(names_), have_explicit_names(true) {
     size_t size = elems.size();
     if (names.size() != size) {
-        throw Exception(Status::FatalError(
-                "Wrong number of names passed to constructor of DataTypeStruct"));
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Wrong number of names passed to constructor of DataTypeStruct");
+        __builtin_unreachable();
     }
 
     Status st = check_tuple_names(names);
@@ -298,7 +299,9 @@ size_t DataTypeStruct::get_position_by_name(const String& name) const {
             return i;
         }
     }
-    throw Exception(Status::FatalError("Struct doesn't have element with name  {}", name));
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                           "Struct doesn't have element with name  " + name);
+    __builtin_unreachable();
 }
 
 std::optional<size_t> DataTypeStruct::try_get_position_by_name(const String& name) const {
