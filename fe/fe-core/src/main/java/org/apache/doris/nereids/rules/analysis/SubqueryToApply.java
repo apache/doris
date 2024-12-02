@@ -42,9 +42,9 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -424,9 +424,9 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     Map<Expression, Expression> replaceMap = new HashMap<>();
                     NamedExpression agg = ((ScalarSubquery) subquery).getTopLevelScalarAggFunction().get();
                     if (agg instanceof Alias) {
-                        if (((Alias) agg).child() instanceof AlwaysNotNullable) {
-                            AlwaysNotNullable notNullableAggFunc =
-                                    (AlwaysNotNullable) ((Alias) agg).child();
+                        if (((Alias) agg).child() instanceof NotNullableAggregateFunction) {
+                            NotNullableAggregateFunction notNullableAggFunc =
+                                    (NotNullableAggregateFunction) ((Alias) agg).child();
                             if (subquery.getQueryPlan() instanceof LogicalProject) {
                                 LogicalProject logicalProject =
                                         (LogicalProject) subquery.getQueryPlan();
