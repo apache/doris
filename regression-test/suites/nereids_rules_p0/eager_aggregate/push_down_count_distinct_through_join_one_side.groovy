@@ -48,7 +48,7 @@ suite("push_down_count_distinct_through_join_one_side") {
     sql "insert into count_with_distinct_t values (8, null, 'c')"
     sql "insert into count_with_distinct_t values (9, 3, null)"
     sql "insert into count_with_distinct_t values (10, null, null)"
-    sql "analyze table count_with_distinct_t with sync;"
+    sql "analyze table count_with_distinct_t with full with sync;"
     qt_shape """
         explain shape plan select /*+use_cbo_rule(PUSH_DOWN_AGG_WITH_DISTINCT_THROUGH_JOIN_ONE_SIDE)*/   count(distinct t1.score) from count_with_distinct_t t1, count_with_distinct_t t2 where t1.id = t2.id group by t1.name;
     """
