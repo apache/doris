@@ -72,9 +72,9 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private long splitRowCount;
     private long splitByteSize;
 
-    int connectTimeout;
-    int readTimeout;
-    int retryTimes;
+    private int connectTimeout;
+    private int readTimeout;
+    private int retryTimes;
 
     private static final Map<String, ZoneId> REGION_ZONE_MAP;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(

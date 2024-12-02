@@ -101,6 +101,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             SelectedPartitions selectedPartitions, boolean needCheckColumnPriv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
                 selectedPartitions, needCheckColumnPriv);
+    }
 
     // For old planner
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
