@@ -1542,7 +1542,7 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile(uint64_t local_merge_
 
 std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
-            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, ignored: {}"
+            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, ignored: {}, "
             "build_bf_cardinality: {}, dependency: {}, synced_size: {}, has_local_target: {}, "
             "has_remote_target: {},error_msg: [{}]",
             _filter_id, to_string(_runtime_filter_type), _is_broadcast_join,
