@@ -30,7 +30,6 @@ import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -259,8 +258,6 @@ public class ConnectContext {
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
 
-    private List<TableIf> tables = null;
-
     private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
 
     public Map<String, ColumnStatistic> getTotalColumnStatisticMap() {
@@ -436,14 +433,6 @@ public class ConnectContext {
 
     public PreparedStatementContext getPreparedStementContext(String stmtName) {
         return this.preparedStatementContextMap.get(stmtName);
-    }
-
-    public List<TableIf> getTables() {
-        return tables;
-    }
-
-    public void setTables(List<TableIf> tables) {
-        this.tables = tables;
     }
 
     public void closeTxn() {

@@ -111,7 +111,17 @@ public class Minidump {
     /** Nereids minidump entry, argument should be absolute address of minidump path */
     public static void main(String[] args) {
         assert (args.length == 1);
-        Minidump minidump = MinidumpUtils.loadMinidumpInputs(args[0]);
+        Minidump minidump = null;
+        try {
+            minidump = MinidumpUtils.loadMinidumpInputs(args[0]);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        StatementContext statementContext = new StatementContext(ConnectContext.get(),
+                new OriginStatement(minidump.getSql(), 0));
+        statementContext.setTables(minidump.getTables());
+        ConnectContext.get().setStatementContext(statementContext);
         JSONObject resultPlan = MinidumpUtils.executeSql(minidump.getSql());
         JSONObject minidumpResult = new JSONObject(minidump.getResultPlanJson());
 

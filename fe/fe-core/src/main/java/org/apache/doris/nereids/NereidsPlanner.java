@@ -344,8 +344,8 @@ public class NereidsPlanner extends Planner {
 
     private void initCascadesContext(LogicalPlan plan, PhysicalProperties requireProperties) {
         cascadesContext = CascadesContext.initContext(statementContext, plan, requireProperties);
-        if (statementContext.getConnectContext().getTables() != null) {
-            cascadesContext.setTables(statementContext.getConnectContext().getTables());
+        if (statementContext.getTables() != null) {
+            cascadesContext.setTables(statementContext.getTables());
         }
     }
 
