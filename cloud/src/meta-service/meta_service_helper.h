@@ -248,4 +248,5 @@ void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
 bool is_dropped_tablet(Transaction* txn, const std::string& instance_id, int64_t index_id,
                        int64_t partition_id);
 
+std::size_t get_segments_key_bounds_bytes(const doris::RowsetMetaCloudPB& rowset_meta);
 } // namespace doris::cloud
