@@ -235,6 +235,8 @@ supportedShowStatement
         ((FROM | IN) database=identifier)?                                          #showView
     | SHOW PLUGINS                                                                  #showPlugins    
     | SHOW REPOSITORIES                                                             #showRepositories
+    | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)?
+        (LIKE STRING_LITERAL)?                                                      #showEncryptKeys    
     | SHOW BRIEF? CREATE TABLE name=multipartIdentifier                             #showCreateTable
     | SHOW FULL? PROCESSLIST                                                        #showProcessList
     | SHOW ROLES                                                                    #showRoles        
@@ -352,7 +354,6 @@ unsupportedShowStatement
     | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
     | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL                                 #showQueryProfile
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
-    | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showEncryptKeys
     | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
     | SHOW TABLE CREATION ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTableCreation
     | SHOW CATALOG RECYCLE BIN wildWhere?                                           #showCatalogRecycleBin
@@ -485,6 +486,7 @@ unsupportedCancelStatement
 
 supportedAdminStatement
     : ADMIN SHOW REPLICA DISTRIBUTION FROM baseTableRef                             #adminShowReplicaDistribution
+    | ADMIN DIAGNOSE TABLET tabletId=INTEGER_VALUE                                  #adminDiagnoseTablet
     ;
 
 supportedRecoverStatement
@@ -513,7 +515,6 @@ unsupportedAdminStatement
         (COMMA backends+=STRING_LITERAL) RIGHT_PAREN)?                              #adminCleanTrash
     | ADMIN SET TABLE name=multipartIdentifier
         PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
-    | ADMIN DIAGNOSE TABLET tabletId=INTEGER_VALUE                                  #adminDiagnoseTablet
     | ADMIN SHOW TABLET STORAGE FORMAT VERBOSE?                                     #adminShowTabletStorageFormat
     | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
     | ADMIN SET TABLE name=multipartIdentifier STATUS properties=propertyClause?    #adminSetTableStatus
