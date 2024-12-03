@@ -85,7 +85,8 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
 #ifndef BE_TEST
     TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     if (master_addr.hostname.empty() || master_addr.port == 0) {
-        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST);
+        LOG(WARNING) << "Not found master fe, Can't auth API request: " << req->debug_string();
+        HttpChannel::send_error(req, HttpStatus::SERVICE_UNAVAILABLE);
         return -1;
     }
     {
@@ -95,7 +96,10 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
                     client->checkAuth(auth_result, auth_request);
                 });
         if (!status) {
-            HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST);
+            LOG(WARNING) << "CheckAuth Rpc Fail.Fe Ip:" << master_addr.hostname
+                         << ", Fe port:" << master_addr.port << ".Status:" << status.to_string()
+                         << ".Request: " << req->debug_string();
+            HttpChannel::send_error(req, HttpStatus::SERVICE_UNAVAILABLE);
             return -1;
         }
     }
