@@ -15,21 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv;
+#pragma once
 
-import org.apache.doris.common.AnalysisException;
+#include <arrow/type.h>
 
-import java.util.Map;
-import java.util.Optional;
+#include <shared_mutex>
 
-/**
- * get all related partition descs
- */
-public class MTMVRelatedPartitionDescInitGenerator implements MTMVRelatedPartitionDescGeneratorService {
+#include "vec/exec/format/table/iceberg/schema.h"
 
-    @Override
-    public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult) throws AnalysisException {
-        lastResult.setItems(mvPartitionInfo.getRelatedTable().getAndCopyPartitionItems(Optional.empty()));
-    }
-}
+namespace doris {
+namespace iceberg {
+
+class ArrowSchemaUtil {
+public:
+    static Status convert(const Schema* schema, const std::string& timezone,
+                          std::vector<std::shared_ptr<arrow::Field>>& fields);
+
+private:
+    static const char* PARQUET_FIELD_ID;
+    static const char* ORIGINAL_TYPE;
+    static const char* MAP_TYPE_VALUE;
+
+    static Status convert_to(const iceberg::NestedField& field,
+                             std::shared_ptr<arrow::Field>* arrow_field,
+                             const std::string& timezone);
+};
+
+} // namespace iceberg
+} // namespace doris

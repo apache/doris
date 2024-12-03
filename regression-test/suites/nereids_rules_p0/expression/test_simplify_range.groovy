@@ -15,21 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv;
-
-import org.apache.doris.common.AnalysisException;
-
-import java.util.Map;
-import java.util.Optional;
-
-/**
- * get all related partition descs
- */
-public class MTMVRelatedPartitionDescInitGenerator implements MTMVRelatedPartitionDescGeneratorService {
-
-    @Override
-    public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult) throws AnalysisException {
-        lastResult.setItems(mvPartitionInfo.getRelatedTable().getAndCopyPartitionItems(Optional.empty()));
+suite('test_simplify_range') {
+    def tbl_1 = 'test_simplify_range_tbl_1'
+    sql "DROP TABLE IF EXISTS  ${tbl_1} FORCE"
+    sql "CREATE TABLE ${tbl_1}(a DECIMAL(16,8), b INT) PROPERTIES ('replication_num' = '1')"
+    sql "INSERT INTO ${tbl_1} VALUES(null, 10)"
+    test {
+        sql "SELECT a BETWEEN 100.02 and 40.123 OR a IN (54.0402) AND b < 10 FROM ${tbl_1}"
+        result([[null]])
     }
+    sql "DROP TABLE IF EXISTS  ${tbl_1} FORCE"
 }

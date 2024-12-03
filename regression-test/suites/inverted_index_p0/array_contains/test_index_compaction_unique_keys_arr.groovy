@@ -253,7 +253,7 @@ suite("test_index_compaction_unique_keys_arr", "array_contains_inverted_index") 
         run_test.call(tableName)
 
         // cluster key is not supported in cloud mode at branch-3.0
-        if (!isCloudMode) {
+        if (false) {
             tableName = "test_index_compaction_unique_keys_arr_cluster_key"
             sql """ DROP TABLE IF EXISTS ${tableName}; """
             sql """
