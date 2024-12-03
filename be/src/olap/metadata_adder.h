@@ -150,7 +150,7 @@ protected:
 
     virtual int64_t get_metadata_size() const { return sizeof(T); }
 
-    virtual void update_metadata_size();
+    void update_metadata_size();
 
     MetadataAdder<T>& operator=(const MetadataAdder<T>& other) = default;
 

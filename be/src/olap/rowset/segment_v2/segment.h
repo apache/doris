@@ -92,7 +92,7 @@ public:
     ~Segment();
 
     int64_t get_metadata_size() const override;
-    void update_metadata_size() override;
+    void update_metadata_size();
 
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);

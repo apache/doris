@@ -179,12 +179,7 @@ int64_t Segment::get_metadata_size() const {
 }
 
 void Segment::update_metadata_size() {
-    int64_t old_size = _current_meta_size;
-    _current_meta_size = get_metadata_size();
-    int64_t size_diff = _current_meta_size - old_size;
-
-    add_mem_size(size_diff);
-
+    MetadataAdder::update_metadata_size();
     g_segment_estimate_mem_bytes << _meta_mem_usage - _tracked_meta_mem_usage;
     _tracked_meta_mem_usage = _meta_mem_usage;
 }

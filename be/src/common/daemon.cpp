@@ -502,8 +502,9 @@ void Daemon::cache_prune_stale_thread() {
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
         if (config::cache_periodic_prune_stale_sweep_sec <= 0) {
             LOG(WARNING) << "config of cache clean interval is: [" << interval
-                         << "], cache prune stale thread pause 3600s ";
-            interval = 3600;
+                         << "], it means the cache prune stale thread is disabled, will wait 3s "
+                            "and check again.";
+            interval = 3;
             continue;
         }
         if (config::disable_memory_gc) {
