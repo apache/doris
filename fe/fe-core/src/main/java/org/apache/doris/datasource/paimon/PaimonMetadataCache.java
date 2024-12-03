@@ -44,7 +44,6 @@ import org.jetbrains.annotations.NotNull;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -115,12 +114,8 @@ public class PaimonMetadataCache {
     private PaimonSnapshotCacheValue loadSnapshot(PaimonSnapshotCacheKey key) {
         try {
             PaimonSnapshot latestSnapshot = loadLatestSnapshot(key);
-            PaimonExternalTable paimonExternalTable
-                    = (PaimonExternalTable) ((PaimonExternalCatalog) key.getCatalog()).getDbOrAnalysisException(
-                            key.getDbName())
-                    .getTableOrAnalysisException(
-                            key.getTableName());
-            List<Column> partitionColumns = paimonExternalTable.getPartitionColumns(Optional.empty());
+            List<Column> partitionColumns = getPaimonSchema(key.getCatalog(), key.getDbName(), key.getTableName(),
+                    latestSnapshot.getSchemaId()).getPartitionColumns();
             PaimonPartitionInfo partitionInfo = loadPartitionInfo(key, partitionColumns);
             return new PaimonSnapshotCacheValue(partitionInfo, latestSnapshot);
         } catch (IOException | AnalysisException e) {
