@@ -100,14 +100,16 @@ public class PaimonMetadataCache {
                 key.getTableName() + Catalog.SYSTEM_TABLE_SPLITTER + SchemasTable.SCHEMAS);
         PredicateBuilder builder = new PredicateBuilder(table.rowType());
         Predicate predicate = builder.equal(0, key.getSchemaId());
+        // Adding predicates will also return excess data
         List<InternalRow> rows = PaimonUtil.read(table, new int[][] {{0}, {1}, {2}}, predicate);
-        if (rows.size() != 1) {
-            throw new CacheException("failed to loadPaimonSchemaBySchemaId for: %s.%s.%s.%s",
-                    null, key.getCatalog().getName(), key.getDbName(), key.getTableName(), key.getSchemaId());
+        for (InternalRow row : rows) {
+            PaimonSchema schema = PaimonUtil.rowToSchema(row);
+            if (schema.getSchemaId() == key.getSchemaId()) {
+                return schema;
+            }
         }
-        InternalRow internalRow = rows.get(0);
-        return PaimonUtil.rowToSchema(internalRow);
-
+        throw new CacheException("failed to loadSchema for: %s.%s.%s.%s",
+                null, key.getCatalog().getName(), key.getDbName(), key.getTableName(), key.getSchemaId());
     }
 
     @NotNull
