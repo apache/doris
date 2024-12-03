@@ -104,6 +104,7 @@ public class PredicatesSplitter {
         return Predicates.SplitPredicate.of(
                 equalPredicates.isEmpty() ? null : ExpressionUtils.and(equalPredicates),
                 rangePredicates.isEmpty() ? null : ExpressionUtils.and(rangePredicates),
+                null,
                 residualPredicates.isEmpty() ? null : ExpressionUtils.and(residualPredicates));
     }
 

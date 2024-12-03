@@ -23,18 +23,24 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -139,7 +145,7 @@ public class Predicates {
     /**
      * compensate range predicates
      */
-    public static Set<Expression> compensateRangePredicate(StructInfo queryStructInfo,
+    public static Map<Expression, Literal> compensateRangePredicate(StructInfo queryStructInfo,
             StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping,
             ComparisonResult comparisonResult,
@@ -159,7 +165,7 @@ public class Predicates {
         Sets.difference(viewRangeQueryBasedSet, queryRangeSet).copyInto(differentExpressions);
         // the range predicate in query and view is same, don't need to compensate
         if (differentExpressions.isEmpty()) {
-            return differentExpressions;
+            return ImmutableMap.of();
         }
         // try to normalize the different expressions
         Set<Expression> normalizedExpressions =
@@ -168,7 +174,18 @@ public class Predicates {
             // normalized expressions is not in query, can not compensate
             return null;
         }
-        return normalizedExpressions;
+        Map<Expression, Literal> normalizedExpressionsWithLiteral = new HashMap<>();
+        for (Expression expression : normalizedExpressions) {
+            Set<Literal> literalSet = expression.collect(expressionTreeNode -> expressionTreeNode instanceof Literal);
+            if (!(expression instanceof ComparisonPredicate)
+                    || (expression instanceof GreaterThan || expression instanceof LessThan)
+                    || literalSet.size() != 1) {
+                normalizedExpressionsWithLiteral.put(expression, null);
+                continue;
+            }
+            normalizedExpressionsWithLiteral.put(expression, literalSet.iterator().next());
+        }
+        return normalizedExpressionsWithLiteral;
     }
 
     private static Set<Expression> normalizeExpression(Expression expression, CascadesContext cascadesContext) {
@@ -220,14 +237,19 @@ public class Predicates {
      */
     public static final class SplitPredicate {
         public static final SplitPredicate INVALID_INSTANCE =
-                SplitPredicate.of(null, null, null);
+                SplitPredicate.of(null, null, null, null);
         private final Optional<Expression> equalPredicate;
         private final Optional<Expression> rangePredicate;
+        private final Optional<Map<Expression, Literal>> rangePredicateMap;
         private final Optional<Expression> residualPredicate;
 
-        public SplitPredicate(Expression equalPredicate, Expression rangePredicate, Expression residualPredicate) {
+        public SplitPredicate(Expression equalPredicate,
+                Expression rangePredicate,
+                Map<Expression, Literal> rangePredicateMap,
+                Expression residualPredicate) {
             this.equalPredicate = Optional.ofNullable(equalPredicate);
             this.rangePredicate = Optional.ofNullable(rangePredicate);
+            this.rangePredicateMap = Optional.ofNullable(rangePredicateMap);
             this.residualPredicate = Optional.ofNullable(residualPredicate);
         }
 
@@ -239,6 +261,10 @@ public class Predicates {
             return rangePredicate.orElse(BooleanLiteral.TRUE);
         }
 
+        public Map<Expression, Literal> getRangePredicateMap() {
+            return rangePredicateMap.orElse(ImmutableMap.of());
+        }
+
         public Expression getResidualPredicate() {
             return residualPredicate.orElse(BooleanLiteral.TRUE);
         }
@@ -248,8 +274,9 @@ public class Predicates {
          */
         public static SplitPredicate of(Expression equalPredicates,
                 Expression rangePredicates,
+                Map<Expression, Literal> rangePredicateSet,
                 Expression residualPredicates) {
-            return new SplitPredicate(equalPredicates, rangePredicates, residualPredicates);
+            return new SplitPredicate(equalPredicates, rangePredicates, rangePredicateSet, residualPredicates);
         }
 
         /**
