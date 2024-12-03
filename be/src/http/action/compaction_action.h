@@ -74,7 +74,7 @@ private:
     Status _check_param(HttpRequest* req, uint64_t* id_param, const std::string param_name);
 
 private:
-    CompactionActionType _type;
+    CompactionActionType _compaction_type;
 };
 
 } // end namespace doris
