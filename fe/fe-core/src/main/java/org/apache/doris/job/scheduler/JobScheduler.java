@@ -146,7 +146,11 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     private void cycleTimerJobScheduler(T job, long startTimeWindowMs) {
         List<Long> delaySeconds = job.getJobConfig().getTriggerDelayTimes(System.currentTimeMillis(),
                 startTimeWindowMs, latestBatchSchedulerTimerTaskTimeMs);
-        log.info("job {} scheduler timer job, delay seconds is {}", job.getJobName(), delaySeconds);
+        if (CollectionUtils.isEmpty(delaySeconds)) {
+            log.info("skip job {} scheduler timer job, delay seconds is empty", job.getJobName());
+            return;
+        }
+        log.info("job {} scheduler timer job, delay seconds size is {}", job.getJobName(), delaySeconds.size());
         if (CollectionUtils.isNotEmpty(delaySeconds)) {
             delaySeconds.forEach(delaySecond -> {
                 TimerJobSchedulerTask<T> timerJobSchedulerTask = new TimerJobSchedulerTask<>(timerJobDisruptor, job);
