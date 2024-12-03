@@ -21,7 +21,6 @@
 #include <ostream>
 
 #include "common/config.h"
-#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/split.h"
@@ -46,11 +45,13 @@ bool BackendOptions::init() {
     Status status = get_hosts(&hosts);
 
     if (!status.ok()) {
-        throw Exception(Status::FatalError("{}", status));
+        LOG(FATAL) << status;
+        return false;
     }
 
     if (hosts.empty()) {
-        throw Exception(Status::FatalError("failed to get host"));
+        LOG(FATAL) << "failed to get host";
+        return false;
     }
     if (!analyze_localhost(_s_localhost, _bind_ipv6, &_s_priority_cidrs, &hosts)) {
         return false;
@@ -115,7 +116,8 @@ bool BackendOptions::analyze_priority_cidrs(const std::string& priority_networks
     for (auto& cidr_str : cidr_strs) {
         CIDR cidr;
         if (!cidr.reset(cidr_str)) {
-            throw Exception(Status::FatalError("wrong cidr format. cidr_str={}", cidr_str));
+            LOG(FATAL) << "wrong cidr format. cidr_str=" << cidr_str;
+            return false;
         }
         cidrs->push_back(cidr);
     }
@@ -139,7 +141,8 @@ bool BackendOptions::analyze_localhost(std::string& localhost, bool& bind_ipv6,
                       << addr_it->get_host_address();
         }
         if (localhost.empty()) {
-            throw Exception(Status::FatalError("fail to find one valid address, exit."));
+            LOG(FATAL) << "fail to find one valid address, exit.";
+            return false;
         }
     } else {
         std::string loopback;

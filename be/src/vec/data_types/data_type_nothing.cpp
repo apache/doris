@@ -31,7 +31,7 @@ MutableColumnPtr DataTypeNothing::create_column() const {
 }
 
 char* DataTypeNothing::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-   throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "serialize not support");
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "serialize not support");
     __builtin_unreachable();
 }
 
