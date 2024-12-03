@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -32,13 +33,16 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 
 /**
  * AdminCompactTableCommand
  */
-public class AdminCompactTableCommand extends Command {
-
+public class AdminCompactTableCommand extends Command implements ForwardWithSync {
+    private static final Logger LOG = LogManager.getLogger(AdminCompactTableCommand.class);
     private TableRefInfo tableRefInfo;
     private EqualTo where;
 
@@ -122,5 +126,11 @@ public class AdminCompactTableCommand extends Command {
         } else {
             return "base";
         }
+    }
+
+    @Override
+    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
+        LOG.info("AdminCompactTableCommand not supported in cloud mode");
+        throw new DdlException("Unsupported operation");
     }
 }

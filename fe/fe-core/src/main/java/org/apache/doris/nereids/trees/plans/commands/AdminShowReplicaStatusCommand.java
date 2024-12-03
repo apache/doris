@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MetadataViewer;
@@ -27,6 +28,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -42,6 +45,8 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -54,6 +59,7 @@ public class AdminShowReplicaStatusCommand extends ShowCommand {
             .add("LastSuccessVersion").add("CommittedVersion").add("SchemaHash").add("VersionNum")
             .add("IsBad").add("IsUserDrop").add("State").add("Status")
             .build();
+    private static final Logger LOG = LogManager.getLogger(AdminShowReplicaStatusCommand.class);
 
     private TableRefInfo tableRefInfo;
     private Expression where;
@@ -99,6 +105,7 @@ public class AdminShowReplicaStatusCommand extends ShowCommand {
 
         // bind relation
         tableRefInfo.analyze(ctx);
+        Util.prohibitExternalCatalog(tableRefInfo.getTableNameInfo().getCtl(), this.getClass().getSimpleName());
 
         if (!validateWhere()) {
             throw new AnalysisException(
@@ -150,5 +157,22 @@ public class AdminShowReplicaStatusCommand extends ShowCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitAdminShowReplicaStatusCommand(this, context);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
+    }
+
+    @Override
+    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
+        if (!ctx.getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
+            LOG.info("ShowReplicaStatusCommand not supported in cloud mode");
+            throw new DdlException("Unsupported operation");
+        }
     }
 }
