@@ -145,6 +145,9 @@ public abstract class AbstractSelectMaterializedIndexRule {
     }
 
     protected static boolean containAllKeyColumns(OlapTable table, MaterializedIndex index) {
+        if (table.getKeysType() == KeysType.UNIQUE_KEYS) {
+            return true;
+        }
         Set<String> mvColNames = table.getKeyColumnsByIndexId(index.getId()).stream()
                 .map(c -> normalizeName(parseMvColumnToSql(c.getNameWithoutMvPrefix())))
                 .collect(Collectors.toCollection(() -> new TreeSet<String>(String.CASE_INSENSITIVE_ORDER)));
