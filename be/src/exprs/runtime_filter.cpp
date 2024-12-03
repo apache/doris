@@ -1360,7 +1360,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
 
     RuntimeFilterParams params;
     params.enable_fixed_len_to_uint32_v2 = options->__isset.enable_fixed_len_to_uint32_v2 &&
-                                          options->enable_fixed_len_to_uint32_v2;
+                                           options->enable_fixed_len_to_uint32_v2;
     params.filter_id = _filter_id;
     params.filter_type = _runtime_filter_type;
     params.column_return_type = build_ctx->root()->type().type;
