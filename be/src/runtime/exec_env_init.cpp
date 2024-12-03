@@ -434,10 +434,12 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                 cache_path.path, cache_path.init_settings());
         if (!cache_status.ok()) {
             if (!doris::config::ignore_broken_disk) {
-                LOG(FATAL) << "failed to init file cache, err: " << cache_status;
+                LOG(FATAL) << "failed to init file cache, path: " << cache_path.path
+                           << " err: " << cache_status;
                 exit(-1);
             }
-            LOG(WARNING) << "failed to init file cache, err: " << cache_status;
+            LOG(WARNING) << "failed to init file cache, path: " << cache_path.path
+                         << " err: " << cache_status;
         }
         cache_path_set.emplace(cache_path.path);
     }
