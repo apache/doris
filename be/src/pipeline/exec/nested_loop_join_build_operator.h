@@ -55,7 +55,7 @@ public:
 private:
     friend class NestedLoopJoinBuildSinkOperatorX;
     uint64_t _build_rows = 0;
-    uint64_t _total_mem_usage = 0;
+    int64_t _total_mem_usage = 0;
     bool _should_collected_blocks = true;
     std::shared_ptr<VRuntimeFilterSlotsCross> _runtime_filter_slots;
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;

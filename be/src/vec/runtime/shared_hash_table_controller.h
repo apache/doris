@@ -92,6 +92,8 @@ public:
     std::map<int /*node id*/, ContextTypePtr> _shared_contexts;
 };
 
+// shared hash table is used by hash join when is broadcast join
+// could one instance build the hash table, other instances shared it directly
 class SharedHashTableController : public BaseController<SharedHashTableContextPtr> {
 public:
     void append_dependency(int node_id, std::shared_ptr<pipeline::Dependency> dep,
@@ -118,6 +120,8 @@ struct SharedCollectedDataContext {
 };
 using SharedCollectedDataContextPtr = std::shared_ptr<SharedCollectedDataContext>;
 
+// shared collected data is used by nested loop join, as now will always broadcast the right table in doris
+// so could use one instance to collected block data and save it, other instances shared data directly.
 class SharedCollectedDataController : public BaseController<SharedCollectedDataContextPtr> {
 public:
     void append_dependency(int node_id, std::shared_ptr<pipeline::Dependency> dep) {

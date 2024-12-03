@@ -75,6 +75,8 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     _runtime_filter_slots =
             std::make_shared<VRuntimeFilterSlotsCross>(runtime_filters(), _filter_src_expr_ctxs);
 
+    // shared collected data is used by nested loop join, as now will always broadcast the right table in doris
+    // so could use one instance to collected block data and save it, other instances shared data directly.
     _should_collected_blocks = true;
     if (state->enable_share_hash_table_for_broadcast_join()) {
         _should_collected_blocks = info.task_idx == 0;
@@ -83,9 +85,8 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
                     state->fragment_instance_id(), p.node_id());
         }
     }
-
-    profile()->add_info_string("SharedCollectedEnabled",
-                               std::to_string(state->enable_share_hash_table_for_broadcast_join()));
+    auto* record_profile = _should_collected_blocks ? profile() : faker_runtime_profile();
+    _runtime_filter_compute_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
     profile()->add_info_string("ShouldCollectedBlocks", std::to_string(_should_collected_blocks));
     if (!_should_collected_blocks) {
         _dependency->block();
@@ -213,6 +214,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
             local_state._shared_state->left_side_eos = true;
         }
         local_state._dependency->set_ready_to_read();
+        COUNTER_SET(local_state._memory_used_counter, local_state._total_mem_usage);
     }
 
     return Status::OK();
