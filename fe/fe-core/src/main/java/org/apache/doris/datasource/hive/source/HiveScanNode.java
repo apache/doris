@@ -58,8 +58,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Setter;
-import org.apache.hadoop.hive.common.ValidTxnList;
-import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
@@ -268,7 +266,14 @@ public class HiveScanNode extends FileQueryScanNode {
             List<Split> allFiles, String bindBrokerName, int numBackends) throws IOException, UserException {
         List<FileCacheValue> fileCaches;
         if (hiveTransaction != null) {
-            fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
+            try {
+                fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
+            } catch (Exception e) {
+                // Release shared load (getValidWriteIds acquire Lock).
+                // If no exception is throw, the lock will be released when `finalizeQuery()`.
+                Env.getCurrentHiveTransactionMgr().deregister(hiveTransaction.getQueryId());
+                throw e;
+            }
         } else {
             boolean withCache = Config.max_external_file_cache_num > 0;
             fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1, bindBrokerName);
@@ -368,13 +373,10 @@ public class HiveScanNode extends FileQueryScanNode {
             }
             hiveTransaction.addPartition(partition.getPartitionName(hmsTable.getPartitionColumns()));
         }
-        ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
-                ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
-        ValidTxnList validTxnList = hiveTransaction.getValidTxns(
+        Map<String, String> txnValidIds = hiveTransaction.getValidWriteIds(
                 ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
 
-        return cache.getFilesByTransaction(partitions, validWriteIds, validTxnList,
-            hiveTransaction.isFullAcid(),  skipCheckingAcidVersionFile, hmsTable.getId(), bindBrokerName);
+        return cache.getFilesByTransaction(partitions, txnValidIds, hiveTransaction.isFullAcid(), bindBrokerName);
     }
 
     @Override
