@@ -235,6 +235,8 @@ supportedShowStatement
         ((FROM | IN) database=identifier)?                                          #showView
     | SHOW PLUGINS                                                                  #showPlugins    
     | SHOW REPOSITORIES                                                             #showRepositories
+    | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)?
+        (LIKE STRING_LITERAL)?                                                      #showEncryptKeys    
     | SHOW BRIEF? CREATE TABLE name=multipartIdentifier                             #showCreateTable
     | SHOW FULL? PROCESSLIST                                                        #showProcessList
     | SHOW ROLES                                                                    #showRoles        
@@ -352,7 +354,6 @@ unsupportedShowStatement
     | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
     | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL                                 #showQueryProfile
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
-    | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showEncryptKeys
     | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
     | SHOW TABLE CREATION ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTableCreation
     | SHOW CATALOG RECYCLE BIN wildWhere?                                           #showCatalogRecycleBin

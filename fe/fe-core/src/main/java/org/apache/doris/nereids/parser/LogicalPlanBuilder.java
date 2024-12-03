@@ -243,6 +243,7 @@ import org.apache.doris.nereids.DorisParser.ShowCreateViewContext;
 import org.apache.doris.nereids.DorisParser.ShowDeleteContext;
 import org.apache.doris.nereids.DorisParser.ShowDiagnoseTabletContext;
 import org.apache.doris.nereids.DorisParser.ShowDynamicPartitionContext;
+import org.apache.doris.nereids.DorisParser.ShowEncryptKeysContext;
 import org.apache.doris.nereids.DorisParser.ShowEventsContext;
 import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
@@ -538,6 +539,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
@@ -1901,6 +1903,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             str = str.substring(1, str.length() - 1);
         }
         return str;
+    }
+
+    @Override
+    public LogicalPlan visitShowEncryptKeys(ShowEncryptKeysContext ctx) {
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            dbName = nameParts.get(0); // only one entry possible
+        }
+
+        String likeString = null;
+        if (ctx.LIKE() != null) {
+            likeString = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new ShowEncryptKeysCommand(dbName, likeString);
     }
 
     @Override
