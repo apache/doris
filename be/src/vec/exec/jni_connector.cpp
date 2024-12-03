@@ -63,7 +63,9 @@ namespace doris::vectorized {
     M(TypeIndex::Date, ColumnVector<Int64>, Int64)                  \
     M(TypeIndex::DateV2, ColumnVector<UInt32>, UInt32)              \
     M(TypeIndex::DateTime, ColumnVector<Int64>, Int64)              \
-    M(TypeIndex::DateTimeV2, ColumnVector<UInt64>, UInt64)
+    M(TypeIndex::DateTimeV2, ColumnVector<UInt64>, UInt64)          \
+    M(TypeIndex::IPv4, ColumnVector<IPv4>, IPv4)                    \
+    M(TypeIndex::IPv6, ColumnVector<IPv6>, IPv6)
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
@@ -450,6 +452,10 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
         return "float";
     case TYPE_DOUBLE:
         return "double";
+    case TYPE_IPV4:
+        return "ipv4";
+    case TYPE_IPV6:
+        return "ipv6";
     case TYPE_VARCHAR:
         [[fallthrough]];
     case TYPE_CHAR:
@@ -534,6 +540,10 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
         return "float";
     case TYPE_DOUBLE:
         return "double";
+    case TYPE_IPV4:
+        return "ipv4";
+    case TYPE_IPV6:
+        return "ipv6";
     case TYPE_VARCHAR: {
         buffer << "varchar(" << desc.len << ")";
         return buffer.str();
