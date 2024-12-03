@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -60,10 +61,10 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     }
 
     public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
-                           Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot) {
-        // todo: real snapshotId
+            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                table.initSelectedPartitions(Optional.empty()), tableSample, tableSnapshot);
+                table.initSelectedPartitions(ConnectContext.get().getStatementContext().getSnapshot(table)),
+                tableSample, tableSnapshot);
     }
 
     public SelectedPartitions getSelectedPartitions() {

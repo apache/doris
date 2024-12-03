@@ -538,11 +538,15 @@ public class StatementContext implements Closeable {
     /**
      * Obtain snapshot information of mvcc
      *
-     * @param mvccTable mvccTable
-     * @return MvccSnapshot
+     * @param tableIf tableIf
+     * @return Optional<MvccSnapshot>
      */
-    public MvccSnapshot getSnapshot(MvccTable mvccTable) {
-        return snapshots.get(new MvccTableInfo(mvccTable));
+    public Optional<MvccSnapshot> getSnapshot(TableIf tableIf) {
+        if (!(tableIf instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
+        return snapshots.containsKey(mvccTableInfo) ? Optional.of(snapshots.get(mvccTableInfo)) : Optional.empty();
     }
 
     /**
