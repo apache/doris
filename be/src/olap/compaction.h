@@ -84,7 +84,7 @@ protected:
 
     int64_t merge_way_num();
 
-    Status _update_delete_bitmap();
+    virtual Status update_delete_bitmap() = 0;
 
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
@@ -148,6 +148,8 @@ protected:
 
     virtual Status modify_rowsets();
 
+    Status update_delete_bitmap() override;
+
     StorageEngine& _engine;
 
 private:
@@ -176,6 +178,8 @@ public:
 
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
+
+    Status update_delete_bitmap() override;
 
     virtual void garbage_collection();
 
