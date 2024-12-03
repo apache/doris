@@ -35,12 +35,16 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -411,25 +415,72 @@ public class HyperGraphComparator {
         return edgeMap;
     }
 
+    // Such as the filter as following, their expression is same, but should be different filter edge
+    // Only construct edge that can mapping, the edges which can not mapping would be handled by buildComparisonRes
+    //     LogicalJoin[569]
+    //       |--LogicalProject[567]
+    //       |  +--LogicalFilter[566] ( predicates=(l_orderkey#10 IS NULL OR ( not (l_orderkey#10 = 1))) )
+    //       |     +--LogicalJoin[565]
+    //       |        |--LogicalProject[562]
+    //       |        |  +--LogicalOlapScan
+    //       |        +--LogicalProject[564]
+    //       |           +--LogicalFilter[563] ( predicates=(l_orderkey#10 IS NULL OR ( not (l_orderkey#10 = 1))))
+    //       |              +--LogicalOlapScan
+    //       +--LogicalProject[568]
+    //         +--LogicalOlapScan
     private Map<Edge, Edge> constructQueryToViewFilterMapWithExpr() {
-        Map<Expression, Edge> viewExprToEdge = getViewFilterEdges().stream()
+        Multimap<Expression, Edge> viewExprToEdge = HashMultimap.create();
+        getViewFilterEdges().stream()
                 .flatMap(e -> e.getExpressions().stream().map(expr -> Pair.of(expr, e)))
-                .collect(ImmutableMap.toImmutableMap(p -> p.first, p -> p.second));
-        Map<Expression, Edge> queryExprToEdge = getQueryFilterEdges().stream()
-                .flatMap(e -> e.getExpressions().stream().map(expr -> Pair.of(expr, e)))
-                .collect(ImmutableMap.toImmutableMap(p -> p.first, p -> p.second));
+                .forEach(pair -> viewExprToEdge.put(pair.key(), pair.value()));
 
-        HashMap<Edge, Edge> edgeMap = new HashMap<>();
-        for (Entry<Expression, Edge> entry : queryExprToEdge.entrySet()) {
-            if (edgeMap.containsKey(entry.getValue())) {
+        Multimap<Expression, Edge> queryExprToEdge = HashMultimap.create();
+        getQueryFilterEdges().stream()
+                .flatMap(e -> e.getExpressions().stream().map(expr -> Pair.of(expr, e)))
+                .forEach(pair -> queryExprToEdge.put(pair.key(), pair.value()));
+
+        HashMap<Edge, Edge> queryToViewEdgeMap = new HashMap<>();
+        for (Entry<Expression, Collection<Edge>> entry : queryExprToEdge.asMap().entrySet()) {
+            Expression queryExprViewBased = logicalCompatibilityContext.getViewFilterExprFromQuery(entry.getKey());
+            if (queryExprViewBased == null) {
                 continue;
             }
-            Expression viewExpr = logicalCompatibilityContext.getViewFilterExprFromQuery(entry.getKey());
-            if (viewExprToEdge.containsKey(viewExpr)) {
-                edgeMap.put(entry.getValue(), Objects.requireNonNull(viewExprToEdge.get(viewExpr)));
+            Collection<Edge> viewEdges = viewExprToEdge.get(queryExprViewBased);
+            if (viewEdges.isEmpty()) {
+                continue;
+            }
+            for (Edge queryEdge : entry.getValue()) {
+                for (Edge viewEdge : viewEdges) {
+                    if (!isSubTreeNodesEquals(queryEdge, viewEdge, logicalCompatibilityContext)) {
+                        // Such as query filter edge is <{1} --FILTER-- {}> but view filter edge is
+                        // <{0, 1} --FILTER-- {}>, though they are all
+                        // l_orderkey#10 IS NULL OR ( not (l_orderkey#10 = 1)) but they are different actually
+                        continue;
+                    }
+                    queryToViewEdgeMap.put(queryEdge, viewEdge);
+                }
             }
         }
-        return edgeMap;
+        return queryToViewEdgeMap;
+    }
+
+    private static boolean isSubTreeNodesEquals(Edge queryEdge, Edge viewEdge,
+            LogicalCompatibilityContext logicalCompatibilityContext) {
+        if (!(queryEdge instanceof FilterEdge) || !(viewEdge instanceof FilterEdge)) {
+            return false;
+        }
+        // subTreeNodes should be equal
+        BiMap<Integer, Integer> queryToViewNodeIdMapping =
+                logicalCompatibilityContext.getQueryToViewNodeIDMapping();
+        List<Integer> queryNodeIndexViewBasedList = new ArrayList<>();
+        for (int queryNodeIndex : LongBitmap.getIterator(queryEdge.getSubTreeNodes())) {
+            Integer queryNodeIndexViewBased = queryToViewNodeIdMapping.get(queryNodeIndex);
+            if (queryNodeIndexViewBased == null) {
+                return false;
+            }
+            queryNodeIndexViewBasedList.add(queryNodeIndexViewBased);
+        }
+        return LongBitmap.newBitmap(queryNodeIndexViewBasedList) == viewEdge.getSubTreeNodes();
     }
 
     private void refreshViewEdges() {
