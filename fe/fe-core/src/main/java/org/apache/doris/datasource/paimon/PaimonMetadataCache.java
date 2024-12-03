@@ -150,7 +150,7 @@ public class PaimonMetadataCache {
     private PaimonSnapshot loadLatestSnapshot(PaimonSnapshotCacheKey key) throws IOException {
         Table table = ((PaimonExternalCatalog) key.getCatalog()).getPaimonTable(key.getDbName(),
                 key.getTableName() + Catalog.SYSTEM_TABLE_SPLITTER + SnapshotsTable.SNAPSHOTS);
-        // snapshotId
+        // snapshotId and schemaId
         List<InternalRow> rows = PaimonUtil.read(table, new int[][] {{0}, {1}}, null);
         long latestSnapshotId = 0L;
         long latestSchemaId = 0L;
