@@ -539,7 +539,7 @@ public class StatementContext implements Closeable {
      * Obtain snapshot information of mvcc
      *
      * @param tableIf tableIf
-     * @return Optional<MvccSnapshot>
+     * @return MvccSnapshot
      */
     public Optional<MvccSnapshot> getSnapshot(TableIf tableIf) {
         if (!(tableIf instanceof MvccTable)) {
