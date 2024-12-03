@@ -129,7 +129,8 @@ public class ReadLockTest extends SSBTestBase {
                 PhysicalProperties.ANY
         );
         Map<List<String>, TableIf> f = statementContext.getTables();
-        Assertions.assertEquals(2, f.size());
+        // when table in insert would not be added to statement context, but be lock when insert
+        Assertions.assertEquals(1, f.size());
         Set<String> tableNames = new HashSet<>();
         for (Map.Entry<List<String>, TableIf> entry : f.entrySet()) {
             TableIf table = entry.getValue();
