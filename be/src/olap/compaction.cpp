@@ -908,7 +908,8 @@ Status CompactionMixin::modify_rowsets() {
             LOG(INFO) << "RowLocation Set inited succ for tablet:" << _tablet->tablet_id();
         }
         std::unique_ptr<std::map<RowsetSharedPtr, RowLocationPairList>> location_map;
-        if (config::enable_rowid_conversion_correctness_check) {
+        if (config::enable_rowid_conversion_correctness_check &&
+            tablet()->tablet_schema()->cluster_key_idxes().empty()) {
             location_map = std::make_unique<std::map<RowsetSharedPtr, RowLocationPairList>>();
             LOG(INFO) << "Location Map inited succ for tablet:" << _tablet->tablet_id();
         }
