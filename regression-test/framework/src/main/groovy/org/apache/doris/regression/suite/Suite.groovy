@@ -773,7 +773,7 @@ class Suite implements GroovyInterceptable {
         }
         if (cleanOperator==true){
             if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
-            quickTest("", """ SELECT * FROM ${tbName}  """, true)
+            quickTest("", """ SELECT * FROM ${tbName}  """, [order:true])
             sql """ DROP TABLE  ${tbName} """
         }
     }
@@ -1248,7 +1248,12 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
-    void quickRunTest(String tag, Object arg, boolean isOrder = false) {
+    // params containsKey
+    //     order: output in order
+    //     dump_sql: output sql
+    void quickRunTest(String tag, Object arg, Map<String, Object> params) {
+        def isOrder = params.getOrDefault('order', false) as boolean
+        def isDumpSql = params.getOrDefault('dump_sql', false) as boolean
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
@@ -1284,7 +1289,7 @@ class Suite implements GroovyInterceptable {
             Iterator<List<Object>> realResults = result.iterator()
             // generate and save to .out file
             def writer = context.getOutputWriter(context.config.forceGenerateOutputFile)
-            writer.write(realResults, tag)
+            writer.write(realResults, tag, isDumpSql ? "${arg}" : "")
         } else {
             if (!context.outputFile.exists()) {
                 throw new IllegalStateException("Missing outputFile: ${context.outputFile.getAbsolutePath()}")
@@ -1329,7 +1334,7 @@ class Suite implements GroovyInterceptable {
 
             Iterator<List<Object>> realResultsIter = realResults.iterator()
             def realWriter = context.getRealOutputWriter(true)
-            realWriter.write(realResultsIter, tag)
+            realWriter.write(realResultsIter, tag, isDumpSql ? "${arg}" : "")
 
             String errorMsg = null
             try {
@@ -1352,7 +1357,8 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    void quickTest(String tag, String sql, boolean isOrder = false) {
+    void quickTest(String tag, String sql, Map<String, Object> params = [:]) {
+        def isOrder = params.getOrDefault('order', false) as boolean
         logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
         if (tag.contains("hive_docker")) {
             String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
@@ -1362,23 +1368,38 @@ class Suite implements GroovyInterceptable {
             String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
             sql = cleanedSqlStr
         }
-        quickRunTest(tag, sql, isOrder)
+        quickRunTest(tag, sql, params)
     }
 
-    void quickExecute(String tag, PreparedStatement stmt) {
+    void quickExecute(String tag, PreparedStatement stmt, Map<String, Object> params) {
         logger.info("Execute tag: ${tag}, sql: ${stmt}".toString())
-        quickRunTest(tag, stmt)
+        quickRunTest(tag, stmt, params)
     }
 
     @Override
     Object invokeMethod(String name, Object args) {
+        def parseQuickTestArgs = { ->
+            def argList = args as Object[]
+            if (argList.size() == 1) {
+                return [[:], argList[0]]
+            } else {
+                return [(Map<String, Object>) argList[0], argList[1]]
+            }
+        }
         // qt: quick test
         if (name.startsWith("qt_")) {
-            return quickTest(name.substring("qt_".length()), (args as Object[])[0] as String)
+            // qt [dump_sql:true], "SELECT * FROM tbl"
+            def (params, sql) = parseQuickTestArgs()
+            return quickTest(name.substring("qt_".length()), sql as String, params)
         } else if (name.startsWith("order_qt_")) {
-            return quickTest(name.substring("order_qt_".length()), (args as Object[])[0] as String, true)
+            // qt_order [dump_sql:true], "SELECT * FROM tbl"
+            def (params, sql) = parseQuickTestArgs()
+            params['order'] = true
+            return quickTest(name.substring("order_qt_".length()), sql as String, params)
         } else if (name.startsWith("qe_")) {
-            return quickExecute(name.substring("qe_".length()), (args as Object[])[0] as PreparedStatement)
+            // qe [dump_sql:true], "SELECT * FROM tbl"
+            def (params, sql) = parseQuickTestArgs()
+            return quickExecute(name.substring("qe_".length()), sql as PreparedStatement, params)
         } else if (name.startsWith("assert") && name.length() > "assert".length()) {
             // delegate to junit Assertions dynamically
             return Assertions."$name"(*args) // *args: spread-dot

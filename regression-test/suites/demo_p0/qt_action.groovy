@@ -27,6 +27,9 @@ suite("qt_action") {
      */
     qt_select "select 1, 'beijing' union all select 2, 'shanghai'"
 
+    // when set dump_sql = true, it will dump sql into the out file
+    qt_select [dump_sql:true], "select 1, 'beijing' union all select 2, 'shanghai'"
+
     qt_select2 "select 2"
 
     // order result by string dict then compare to .out file.

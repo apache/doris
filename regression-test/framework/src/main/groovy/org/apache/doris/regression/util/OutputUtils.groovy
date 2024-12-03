@@ -203,9 +203,14 @@ class OutputUtils {
             }
         }
 
-        synchronized void write(Iterator<List<String>> real, String comment) {
+        synchronized void write(Iterator<List<String>> real, String comment, String dumpSql) {
             if (writer != null) {
                 writer.println("-- !${comment} --")
+                if (!dumpSql.trim().isEmpty()) {
+                    for (def line : dumpSql.trim().split('\n')) {
+                        writer.println("--  ${line}")
+                    }
+                }
                 while (real.hasNext()) {
                     writer.println(toCsvString(real.next() as List<Object>))
                 }

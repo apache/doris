@@ -3,6 +3,11 @@
 1	beijing
 2	shanghai
 
+-- !select --
+--  select 1, 'beijing' union all select 2, 'shanghai'
+1	beijing
+2	shanghai
+
 -- !select2 --
 2
 

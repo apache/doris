@@ -86,7 +86,7 @@ class SqlFileSource implements ScriptSource {
                         String singleSql = sqls.get(i)
                         String tagName = (i == 0) ? tag : "${tag}_${i + 1}"
                         try {
-                            quickTest(tagName, singleSql, order)
+                            quickTest(tagName, singleSql, [order:order])
                         } catch (Throwable e) {
                             String curException = "exception : ${e.getMessage()}\n" + "sql is :" + "${singleSql}\n"
                             exceptionStr += curException
