@@ -1872,7 +1872,7 @@ private:
             ColumnPtr col_to = data_type_to->create_column();
             if (!variant.is_finalized()) {
                 // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
-                const_cast<ColumnObject&>(variant).finalize();
+                variant.assume_mutable()->finalize();
             }
             // It's important to convert as many elements as possible in this context. For instance,
             // if the root of this variant column is a number column, converting it to a number column

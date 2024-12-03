@@ -128,8 +128,7 @@ private:
             // src subcolumns empty but src row count may not be 0
             (*result)->assume_mutable()->insert_many_defaults(src.size());
             // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
-            auto& variant = assert_cast<const ColumnObject&>(*(*result));
-            const_cast<ColumnObject&>(variant).finalize();
+            (*result)->assume_mutable()->finalize();
             return Status::OK();
         }
         if (src.is_scalar_variant() &&
@@ -154,7 +153,8 @@ private:
                 }
             }
             *result = ColumnObject::create(true, type, std::move(result_column));
-            ((ColumnObject&)(*result)).finalize();
+            // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
+            (*result)->assume_mutable()->finalize();
             return Status::OK();
         } else {
             auto mutable_src = src.clone_finalized();
@@ -196,7 +196,8 @@ private:
                 result_col->insert_many_defaults(src.size());
             }
             *result = result_col->get_ptr();
-            ((ColumnObject&)(*result)).finalize();
+            // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
+            (*result)->assume_mutable()->finalize();
             VLOG_DEBUG << "dump new object "
                        << static_cast<const ColumnObject*>(result_col.get())->debug_string()
                        << ", path " << path.get_path();
