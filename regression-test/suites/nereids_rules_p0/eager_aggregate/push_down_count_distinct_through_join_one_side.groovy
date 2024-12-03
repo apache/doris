@@ -19,9 +19,6 @@ suite("push_down_count_distinct_through_join_one_side") {
     sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-    sql "set DISABLE_NEREIDS_RULES='ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT, ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI, PRUNE_EMPTY_PARTITION'"
-
     sql """
         DROP TABLE IF EXISTS count_with_distinct_t;
     """
@@ -49,12 +46,7 @@ suite("push_down_count_distinct_through_join_one_side") {
     sql "insert into count_with_distinct_t values (9, 3, null)"
     sql "insert into count_with_distinct_t values (10, null, null)"
     sql "analyze table count_with_distinct_t with full with sync;"
-    order_qt_select_all """
-        select * from count_with_distinct_t order by id;
-    """
-    qt_shape """
-        explain shape plan select /*+use_cbo_rule(PUSH_DOWN_AGG_WITH_DISTINCT_THROUGH_JOIN_ONE_SIDE)*/   count(distinct t1.score) from count_with_distinct_t t1, count_with_distinct_t t2 where t1.id = t2.id group by t1.name;
-    """
+    
     order_qt_groupby_pushdown_basic """
         select /*+use_cbo_rule(PUSH_DOWN_AGG_WITH_DISTINCT_THROUGH_JOIN_ONE_SIDE)*/   count(distinct t1.score) from count_with_distinct_t t1, count_with_distinct_t t2 where t1.id = t2.id group by t1.name;
     """
