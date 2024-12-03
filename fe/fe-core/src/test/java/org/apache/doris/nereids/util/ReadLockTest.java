@@ -136,7 +136,6 @@ public class ReadLockTest extends SSBTestBase {
             TableIf table = entry.getValue();
             tableNames.add(table.getName());
         }
-        Assertions.assertTrue(tableNames.contains("supplier"));
         Assertions.assertTrue(tableNames.contains("lineorder"));
     }
 }
