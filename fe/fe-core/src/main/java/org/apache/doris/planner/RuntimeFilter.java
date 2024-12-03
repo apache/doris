@@ -228,11 +228,11 @@ public final class RuntimeFilter {
 
         boolean enableSyncFilterSize = ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable().enableSyncRuntimeFilterSize();
-        // there are two cases need merge rf
-        // 1. hasRemoteTargets is true means join type is hash shuffle join then rf will
-        // merged into one
-        // 2. hasSerialTargets is true means scan is pooled then rf need merged into one
-        boolean needMerge = hasRemoteTargets || hasSerialTargets;
+
+        // there are two cases has local exchange between join and scan
+        // 1. hasRemoteTargets is true means join probe side do least once shuffle (has shuffle between join and scan)
+        // 2. hasSerialTargets is true means scan is pooled (has local shuffle between join and scan)
+        boolean needShuffle = hasRemoteTargets || hasSerialTargets;
 
         // There are two cases where all instances of rf have the same size.
         // 1. enableSyncFilterSize is true means backends will collect global size and send to every instance
@@ -242,10 +242,10 @@ public final class RuntimeFilter {
         // build runtime filter by exact distinct count if all of 3 conditions are met:
         // 1. only single eq conjunct
         // 2. rf type may be bf
-        // 3. each filter only acts on self instance(do not need any merge), or size of
+        // 3. each filter only acts on self instance(do not need any shuffle), or size of
         // all filters will be same
         boolean buildBfExactly = singleEq && (runtimeFilterType == TRuntimeFilterType.IN_OR_BLOOM
-                || runtimeFilterType == TRuntimeFilterType.BLOOM) && (!needMerge || hasGlobalSize);
+                || runtimeFilterType == TRuntimeFilterType.BLOOM) && (!needShuffle || hasGlobalSize);
         tFilter.setBuildBfExactly(buildBfExactly);
 
         tFilter.setType(runtimeFilterType);
