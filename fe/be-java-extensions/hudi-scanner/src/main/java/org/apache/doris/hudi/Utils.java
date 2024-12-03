@@ -18,7 +18,7 @@
 package org.apache.doris.hudi;
 
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopUGI;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -75,7 +75,13 @@ public class Utils {
     }
 
     public static HoodieTableMetaClient getMetaClient(Configuration conf, String basePath) {
-        return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf), () -> HoodieTableMetaClient.builder()
-                .setConf(conf).setBasePath(basePath).build());
+        AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(conf);
+        HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+        try {
+            return hadoopAuthenticator.doAs(() -> HoodieTableMetaClient.builder()
+                    .setConf(conf).setBasePath(basePath).build());
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to get HoodieTableMetaClient", e);
+        }
     }
 }
