@@ -1435,7 +1435,7 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
 
         // Process inverted indexes
         std::vector<std::pair<int64_t, std::string>> index_ids;
-        // default format as v2.
+        // default format as v1.
         InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V1;
 
         if (rs.has_tablet_schema()) {
