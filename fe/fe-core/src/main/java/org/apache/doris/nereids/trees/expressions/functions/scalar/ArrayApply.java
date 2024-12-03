@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -43,7 +44,7 @@ public class ArrayApply extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.retArgType(0)
                     .args(ArrayType.of(new AnyDataType(0)), VarcharType.SYSTEM_DEFAULT,
-                            new AnyDataType(0)));
+                            new FollowToAnyDataType(0)));
 
     /**
      * constructor
@@ -92,6 +93,16 @@ public class ArrayApply extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
+        if (getArgument(0).getDataType().isArrayType()
+                &&
+                ((ArrayType) getArgument(0).getDataType()).getItemType()
+                        .isSameTypeForComplexTypeParam(getArgument(2).getDataType())) {
+            // return least common type
+            return ImmutableList.of(
+                    FunctionSignature.retArgType(0)
+                            .args(ArrayType.of(new AnyDataType(0)), VarcharType.SYSTEM_DEFAULT,
+                                    new AnyDataType(0)));
+        }
         return SIGNATURES;
     }
 }

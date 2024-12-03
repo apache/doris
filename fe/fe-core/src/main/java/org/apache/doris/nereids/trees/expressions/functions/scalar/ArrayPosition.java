@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -39,7 +40,7 @@ public class ArrayPosition extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0))
+                    .args(ArrayType.of(new AnyDataType(0)), new FollowToAnyDataType(0))
     );
 
     /**
@@ -70,6 +71,15 @@ public class ArrayPosition extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
+        if (getArgument(0).getDataType().isArrayType()
+                &&
+                ((ArrayType) getArgument(0).getDataType()).getItemType()
+                        .isSameTypeForComplexTypeParam(getArgument(1).getDataType())) {
+            // return least common type
+            return ImmutableList.of(
+                    FunctionSignature.ret(BigIntType.INSTANCE)
+                            .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0)));
+        }
         return SIGNATURES;
     }
 }
