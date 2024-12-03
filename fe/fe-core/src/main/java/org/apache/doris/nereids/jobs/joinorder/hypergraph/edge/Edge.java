@@ -42,7 +42,9 @@ public abstract class Edge {
     // added by the graph simplifier.
     private final long leftRequiredNodes;
     private final long rightRequiredNodes;
+    // The nodes needed which to prevent wrong association or l-association
     private long leftExtendedNodes;
+    // The nodes needed which to prevent wrong association or r-association
     private long rightExtendedNodes;
 
     // record the left child edges and right child edges in origin plan tree
@@ -53,8 +55,11 @@ public abstract class Edge {
     private final BitSet curOperatorEdges = new BitSet();
     // record all sub nodes behind in this operator. It's T function in paper
     private final long subTreeNodes;
-
+    // The edges which prevents association or l-association when join edge
+    // and prevents push down or pull up when filter edge in the left of edge
     private final Set<JoinEdge> leftRejectEdges;
+    // The edges which prevents association or r-association
+    // and prevents push down or pull up when filter edge in the right of edge
     private final Set<JoinEdge> rightRejectEdges;
 
     /**

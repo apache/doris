@@ -90,6 +90,7 @@ import org.apache.doris.nereids.DorisParser.ComplexColTypeListContext;
 import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.CreateEncryptkeyContext;
+import org.apache.doris.nereids.DorisParser.CreateFileContext;
 import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.CreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.CreateRoleContext;
@@ -242,6 +243,7 @@ import org.apache.doris.nereids.DorisParser.ShowCreateViewContext;
 import org.apache.doris.nereids.DorisParser.ShowDeleteContext;
 import org.apache.doris.nereids.DorisParser.ShowDiagnoseTabletContext;
 import org.apache.doris.nereids.DorisParser.ShowDynamicPartitionContext;
+import org.apache.doris.nereids.DorisParser.ShowEncryptKeysContext;
 import org.apache.doris.nereids.DorisParser.ShowEventsContext;
 import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
@@ -479,6 +481,7 @@ import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
@@ -536,6 +539,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
@@ -1899,6 +1903,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             str = str.substring(1, str.length() - 1);
         }
         return str;
+    }
+
+    @Override
+    public LogicalPlan visitShowEncryptKeys(ShowEncryptKeysContext ctx) {
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            dbName = nameParts.get(0); // only one entry possible
+        }
+
+        String likeString = null;
+        if (ctx.LIKE() != null) {
+            likeString = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new ShowEncryptKeysCommand(dbName, likeString);
     }
 
     @Override
@@ -4678,6 +4697,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
                 ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
         return new CreateRoleCommand(ctx.EXISTS() != null, ctx.name.getText(), comment);
+    }
+
+    @Override
+    public LogicalPlan visitCreateFile(CreateFileContext ctx) {
+        String dbName = null;
+        if (ctx.database != null) {
+            dbName = ctx.database.getText();
+        }
+        Map<String, String> properties = ctx.propertyClause() != null
+                                    ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        return new CreateFileCommand(stripQuotes(ctx.name.getText()), dbName, properties);
     }
 
     @Override
