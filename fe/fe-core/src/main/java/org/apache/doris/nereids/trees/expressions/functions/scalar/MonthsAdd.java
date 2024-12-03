@@ -21,10 +21,9 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -43,7 +42,7 @@ import java.util.List;
  */
 public class MonthsAdd extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature,
-        ComputeSignatureForDateArithmetic, PropagateNullableOnDateLikeV2Args, Monotonic {
+        ComputeSignatureForDateArithmetic, PropagateNullableOnDateLikeV2Args, DateAddSubMonotonic {
 
     // When enable_date_conversion is true, we prefer to V2 signature.
     // This preference follows original planner. refer to ScalarType.getDefaultDateType()
@@ -79,21 +78,6 @@ public class MonthsAdd extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMonthsAdd(this, context);
-    }
-
-    @Override
-    public boolean isMonotonic() {
-        return child(1) instanceof IntegerLiteral;
-    }
-
-    @Override
-    public boolean isPositive() {
-        return true;
-    }
-
-    @Override
-    public int getMonotonicFunctionChildIndex() {
-        return 0;
     }
 
     @Override

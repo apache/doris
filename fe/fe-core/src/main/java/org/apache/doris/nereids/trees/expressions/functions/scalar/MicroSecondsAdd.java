@@ -19,10 +19,9 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -37,7 +36,8 @@ import java.util.List;
  * ScalarFunction 'MicroSeconds_add'.
  */
 public class MicroSecondsAdd extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args, Monotonic {
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args,
+        DateAddSubMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.MAX)
@@ -67,21 +67,6 @@ public class MicroSecondsAdd extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMicroSecondsAdd(this, context);
-    }
-
-    @Override
-    public boolean isMonotonic() {
-        return child(1) instanceof IntegerLiteral;
-    }
-
-    @Override
-    public boolean isPositive() {
-        return true;
-    }
-
-    @Override
-    public int getMonotonicFunctionChildIndex() {
-        return 0;
     }
 
     @Override
