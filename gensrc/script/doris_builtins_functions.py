@@ -1153,7 +1153,7 @@ visible_functions = {
         [['str_to_date'], 'DATETIMEV2', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATETIMEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['date', 'to_date', 'datev2', 'to_datev2'], 'DATEV2', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
+        [['date', 'to_date', 'datev2', 'to_datev2'], 'DATEV2', ['DATETIMEV2'], ''],
 
         [['dayname'], 'VARCHAR', ['DATETIMEV2'], ''],
         [['monthname'], 'VARCHAR', ['DATETIMEV2'], ''],
