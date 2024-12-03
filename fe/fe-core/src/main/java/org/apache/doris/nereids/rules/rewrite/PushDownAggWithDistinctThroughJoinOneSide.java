@@ -144,7 +144,8 @@ public class PushDownAggWithDistinctThroughJoinOneSide implements RewriteRuleFac
                     rightAggOutputBuilder.build(), join.right());
         }
 
-        Preconditions.checkState(leftJoin != join.left() || rightJoin != join.right());
+        Preconditions.checkState(leftJoin != join.left() || rightJoin != join.right(),
+                "not pushing down aggr with distinct through join on single side successfully");
         Plan newJoin = join.withChildren(leftJoin, rightJoin);
         LogicalAggregate<? extends Plan> newAggOverJoin = agg.withChildGroupByAndOutput(
                 ImmutableList.copyOf(newAggOverJoinGroupByKeys), projects, newJoin);
