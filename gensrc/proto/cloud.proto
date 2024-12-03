@@ -140,7 +140,6 @@ message ClusterPB {
 message NodeInfoPB {
     enum NodeType {
         UNKNOWN = 0;
-         // lagacy logic for one-master-multi-observer mode
         FE_MASTER = 1;
         FE_OBSERVER = 2;
         FE_FOLLOWER = 3;

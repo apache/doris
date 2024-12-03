@@ -29,6 +29,7 @@
 #include <sstream>
 #include <vector>
 
+#include "common/config.h"
 #include "common/logging.h"
 
 namespace doris::cloud {
@@ -158,8 +159,21 @@ static bool get_hosts_v4(std::vector<InetAddress>* hosts) {
     return true;
 }
 
+// Check if ip eq 127.0.0.1, ms/recycler exit
+static void check_is_loopback(const std::string& localhost_str) {
+    if (config::prohibit_use_loopback_addresses && "127.0.0.1" == localhost_str) {
+        LOG(WARNING) << "enable check prohibit use loopback addr, but localhost=" << localhost_str
+                     << ", so exit(-1)";
+        exit(-1);
+    }
+}
+
 std::string get_local_ip(const std::string& priority_networks) {
     std::string localhost_str = butil::my_ip_cstr();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&localhost_str](int*) {
+        check_is_loopback(localhost_str);
+        LOG(INFO) << "at last, localhost=" << localhost_str;
+    });
     if (priority_networks == "") {
         LOG(INFO) << "use butil::my_ip_cstr(), local host ip=" << localhost_str;
         return localhost_str;

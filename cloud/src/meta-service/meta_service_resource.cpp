@@ -2012,6 +2012,14 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         for (auto& n : request->cluster().nodes()) {
             NodeInfo node;
             node.instance_id = request->instance_id();
+            // add fe node, force change type FE_MASTER to FE_FOLLOWER
+            if (config::force_change_to_multi_follower_mode && n.has_node_type() &&
+                n.node_type() == NodeInfoPB::FE_MASTER) {
+                auto& mutable_node = const_cast<std::decay_t<decltype(n)>&>(n);
+                mutable_node.set_node_type(NodeInfoPB::FE_FOLLOWER);
+                LOG(INFO) << "add fe master node, force change it to follwer type, n="
+                          << mutable_node.DebugString();
+            }
             node.node_info = n;
             node.cluster_id = request->cluster().cluster_id();
             node.cluster_name = request->cluster().cluster_name();
@@ -2273,6 +2281,14 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         code = MetaServiceCode::UNDEFINED_ERR;
     }
 
+    // ugly but easy to repair
+    // not change cloud.proto add err_code
+    if (request->op() == AlterClusterRequest::DROP_NODE &&
+        msg.find("not found") != std::string::npos) {
+        // see convert_ms_code_to_http_code, reuse CLUSTER_NOT_FOUND, return http status code 404
+        code = MetaServiceCode::CLUSTER_NOT_FOUND;
+    }
+
     if (code != MetaServiceCode::OK) return;
 
     auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] {
@@ -2386,6 +2402,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         response->mutable_cluster()->CopyFrom(instance.clusters());
         LOG_EVERY_N(INFO, 100) << "get all cluster info, " << msg;
     } else {
+        bool is_instance_changed = false;
         for (int i = 0; i < instance.clusters_size(); ++i) {
             auto& c = instance.clusters(i);
             std::set<std::string> mysql_users;
@@ -2395,10 +2412,50 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
             if ((c.has_cluster_name() && c.cluster_name() == cluster_name) ||
                 (c.has_cluster_id() && c.cluster_id() == cluster_id) ||
                 mysql_users.count(mysql_user_name)) {
+                // stock master-observers auto change to multi-followers
+                int64_t config_need_change =
+                        config::force_change_to_multi_follower_mode == true ? 1 : 0;
+                TEST_SYNC_POINT_CALLBACK("MetaServiceImpl_get_cluster_set_config",
+                                         &config_need_change);
+                if (config_need_change && c.type() == ClusterPB::SQL) {
+                    for (auto& node : c.nodes()) {
+                        if (node.node_type() == NodeInfoPB::FE_MASTER) {
+                            auto& mutable_node = const_cast<std::decay_t<decltype(node)>&>(node);
+                            auto now_time = std::chrono::system_clock::now();
+                            uint64_t time = std::chrono::duration_cast<std::chrono::seconds>(
+                                                    now_time.time_since_epoch())
+                                                    .count();
+                            mutable_node.set_mtime(time);
+                            mutable_node.set_node_type(NodeInfoPB::FE_FOLLOWER);
+                            is_instance_changed = true;
+                            LOG(INFO) << "enable force change master-observers mode to "
+                                         "multi-followers, so change FE type to FE_FOLLOWER, node="
+                                      << mutable_node.DebugString();
+                        }
+                    }
+                }
                 // just one cluster
                 response->add_cluster()->CopyFrom(c);
                 LOG_EVERY_N(INFO, 100) << "found a cluster, instance_id=" << instance.instance_id()
                                        << " cluster=" << msg;
+            }
+        }
+        if (is_instance_changed) {
+            val = instance.SerializeAsString();
+            if (val.empty()) {
+                msg = "failed to serialize";
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                return;
+            }
+
+            txn->put(key, val);
+            LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key)
+                      << " json=" << proto_to_json(instance);
+            err = txn->commit();
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::COMMIT>(err);
+                msg = fmt::format("failed to commit kv txn, err={}", err);
+                LOG(WARNING) << msg;
             }
         }
     }

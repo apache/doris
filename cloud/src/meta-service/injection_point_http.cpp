@@ -88,6 +88,25 @@ static void register_suites() {
     });
 }
 
+HttpResponse set_value(const std::string& point, const brpc::URI& uri) {
+    std::string value_str(http_query(uri, "value"));
+    int64_t value = 0;
+    try {
+        value = std::stol(value_str);
+    } catch (const std::exception& e) {
+        auto msg = fmt::format("invalid value:{}", value_str);
+        LOG(WARNING) << msg;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
+    }
+
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back(point, [point, value](auto&& args) {
+        LOG(INFO) << "injection point hit, point=" << point << " set value=" << value;
+        *try_any_cast<int64_t*>(args[0]) = value;
+    });
+    return http_json_reply(MetaServiceCode::OK, "OK");
+}
+
 HttpResponse set_sleep(const std::string& point, const brpc::URI& uri) {
     std::string duration_str(http_query(uri, "duration"));
     int64_t duration = 0;
@@ -136,6 +155,8 @@ HttpResponse handle_set(const brpc::URI& uri) {
         return set_sleep(point, uri);
     } else if (behavior == "return") {
         return set_return(point, uri);
+    } else if (behavior == "set") {
+        return set_value(point, uri);
     }
 
     return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "unknown behavior: " + behavior);
@@ -202,6 +223,9 @@ HttpResponse handle_disable(const brpc::URI& uri) {
 
 // curl "ms_ip:port/MetaService/http/v1/injection_point?token=greedisgood9999&op=set
 //     &name=${injection_point_name}&behavior=return" # return void
+
+// curl "ms_ip:port/MetaService/http/v1/injection_point?token=greedisgood9999&op=set
+//     &name=${injection_point_name}&behavior=set&value=10" # set value 10
 // ```
 
 HttpResponse process_injection_point(MetaServiceImpl* service, brpc::Controller* ctrl) {

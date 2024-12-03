@@ -227,9 +227,11 @@ TEST(ResourceTest, ModifyNodesIpTest) {
         auto* c = ins.mutable_clusters()->Add();
         c->set_cluster_name("cluster_name_1");
         c->set_cluster_id("cluster_id_1");
+        c->set_type(ClusterPB::COMPUTE);
         auto* c1 = ins.mutable_clusters()->Add();
         c1->set_cluster_name("cluster_name_2");
         c1->set_cluster_id("cluster_id_2");
+        c1->set_type(ClusterPB::COMPUTE);
         *try_any_cast<InstanceInfoPB*>(args[1]) = ins;
     });
     sp->enable_processing();
@@ -286,9 +288,11 @@ TEST(ResourceTest, ModifyNodesHostTest) {
         auto* c = ins.mutable_clusters()->Add();
         c->set_cluster_name("cluster_name_1");
         c->set_cluster_id("cluster_id_1");
+        c->set_type(ClusterPB::COMPUTE);
         auto* c1 = ins.mutable_clusters()->Add();
         c1->set_cluster_name("cluster_name_2");
         c1->set_cluster_id("cluster_id_2");
+        c1->set_type(ClusterPB::COMPUTE);
         *try_any_cast<InstanceInfoPB*>(args[1]) = ins;
     });
     sp->enable_processing();
