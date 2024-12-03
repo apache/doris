@@ -123,6 +123,7 @@ public class Minidump {
 
         StatementContext statementContext = new StatementContext(ConnectContext.get(),
                 new OriginStatement(minidump.getSql(), 0));
+        statementContext.setTables(minidump.getTables());
         ConnectContext.get().setStatementContext(statementContext);
         JSONObject resultPlan = MinidumpUtils.executeSql(minidump.getSql());
         JSONObject minidumpResult = new JSONObject(minidump.getResultPlanJson());
