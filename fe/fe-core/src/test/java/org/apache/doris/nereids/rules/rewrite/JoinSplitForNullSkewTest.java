@@ -59,7 +59,6 @@ public class JoinSplitForNullSkewTest extends TestWithFeService implements MemoP
                         logicalProject(logicalJoin(logicalFilter(any()).when(f -> f.getConjuncts().size() == 1 && f.getConjuncts().iterator().next() instanceof Not), any()))));
     }
 
-
     @Test
     void testRewriteLeftJoinSelectSomeColumns() {
         PlanChecker.from(connectContext)
@@ -67,38 +66,38 @@ public class JoinSplitForNullSkewTest extends TestWithFeService implements MemoP
                 .rewrite()
                 .printlnTree()
                 .matches(logicalUnion(logicalProject(logicalFilter(any()).when(f -> {
-                            if (f.getConjuncts().size() != 1) {
-                                return false;
-                            }
-                            Expression firstConjunct = f.getConjuncts().iterator().next();
-                            if (!(firstConjunct instanceof IsNull)) {
-                                return false;
-                            }
-                            if (!(firstConjunct.child(0) instanceof SlotReference)) {
-                                return false;
-                            }
-                            if (!((SlotReference) firstConjunct.child(0)).getQualifiedName().equals("internal.test.t1.c")) {
-                                return false;
-                            }
-                            return true;
-                        })),
-                        logicalProject(logicalJoin(logicalProject(logicalFilter(any()).when(f -> {
-                            if (f.getConjuncts().size() != 1) {
-                                return false;
-                            }
-                            Expression firstConjunct = f.getConjuncts().iterator().next();
-                            if (!(firstConjunct instanceof Not) || !(firstConjunct.child(0) instanceof IsNull)) {
-                                return false;
-                            }
-                            Expression expr = firstConjunct.child(0).child(0);
-                            if (!(expr instanceof SlotReference)) {
-                                return false;
-                            }
-                            if (!((SlotReference) expr).getQualifiedName().equals("internal.test.t1.c")) {
-                                return false;
-                            }
-                            return true;
-                        })), any()))));
+                    if (f.getConjuncts().size() != 1) {
+                        return false;
+                    }
+                    Expression firstConjunct = f.getConjuncts().iterator().next();
+                    if (!(firstConjunct instanceof IsNull)) {
+                        return false;
+                    }
+                    if (!(firstConjunct.child(0) instanceof SlotReference)) {
+                        return false;
+                    }
+                    if (!((SlotReference) firstConjunct.child(0)).getQualifiedName().equals("internal.test.t1.c")) {
+                        return false;
+                    }
+                    return true;
+                })),
+                logicalProject(logicalJoin(logicalProject(logicalFilter(any()).when(f -> {
+                    if (f.getConjuncts().size() != 1) {
+                        return false;
+                    }
+                    Expression firstConjunct = f.getConjuncts().iterator().next();
+                    if (!(firstConjunct instanceof Not) || !(firstConjunct.child(0) instanceof IsNull)) {
+                        return false;
+                    }
+                    Expression expr = firstConjunct.child(0).child(0);
+                    if (!(expr instanceof SlotReference)) {
+                        return false;
+                    }
+                    if (!((SlotReference) expr).getQualifiedName().equals("internal.test.t1.c")) {
+                        return false;
+                    }
+                    return true;
+                })), any()))));
     }
 
     @Test
