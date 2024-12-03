@@ -117,20 +117,21 @@ struct creator_without_type {
     template <typename AggregateFunctionTemplate, typename... TArgs>
     static AggregateFunctionPtr create(const DataTypes& argument_types_,
                                        const bool result_is_nullable, TArgs&&... args) {
-        IAggregateFunction* result(new AggregateFunctionTemplate(std::forward<TArgs>(args)...,
-                                                                 remove_nullable(argument_types_)));
+        std::unique_ptr<IAggregateFunction> result(std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., remove_nullable(argument_types_)));
         if (have_nullable(argument_types_)) {
             std::visit(
                     [&](auto multi_arguments, auto result_is_nullable) {
-                        result = new NullableT<multi_arguments, result_is_nullable,
-                                               AggregateFunctionTemplate>(result, argument_types_);
+                        result.reset(new NullableT<multi_arguments, result_is_nullable,
+                                                   AggregateFunctionTemplate>(result.release(),
+                                                                              argument_types_));
                     },
                     make_bool_variant(argument_types_.size() > 1),
                     make_bool_variant(result_is_nullable));
         }
 
         CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
-        return AggregateFunctionPtr(result);
+        return AggregateFunctionPtr(result.release());
     }
 
     /// AggregateFunctionTemplate will handle the nullable arguments, no need to use
@@ -139,10 +140,10 @@ struct creator_without_type {
     static AggregateFunctionPtr create_ignore_nullable(const DataTypes& argument_types_,
                                                        const bool /*result_is_nullable*/,
                                                        TArgs&&... args) {
-        IAggregateFunction* result(
-                new AggregateFunctionTemplate(std::forward<TArgs>(args)..., argument_types_));
+        std::unique_ptr<IAggregateFunction> result = std::make_unique<AggregateFunctionTemplate>(
+                std::forward<TArgs>(args)..., argument_types_);
         CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
-        return AggregateFunctionPtr(result);
+        return AggregateFunctionPtr(result.release());
     }
 };
 
