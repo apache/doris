@@ -24,6 +24,7 @@ import org.apache.doris.common.jni.vec.NativeColumnValue.NativeValue;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -41,9 +42,13 @@ import java.util.Map;
  * see <a href="https://github.com/apache/spark/blob/master/sql/core/src/main/java/org/apache/spark/sql/execution/vectorized/WritableColumnVector.java">WritableColumnVector</a>
  */
 public class VectorColumn {
+    public static final Logger LOG = Logger.getLogger(VectorColumn.class);
     // String is stored as array<byte>
     // The default string length to initialize the capacity.
     private static final int DEFAULT_STRING_LENGTH = 4;
+
+    //add a new flag for const column
+    private boolean isConst = false;
 
     // NullMap column address
     private long nullMap;
@@ -75,6 +80,7 @@ public class VectorColumn {
 
     // Create writable column
     private VectorColumn(ColumnType columnType, int capacity) {
+        this.isConst = false;
         this.columnType = columnType;
         this.capacity = 0;
         this.nullMap = 0;
@@ -106,6 +112,7 @@ public class VectorColumn {
 
     // restore the child of string column & restore meta column
     private VectorColumn(long address, int capacity, ColumnType columnType) {
+        this.isConst = false;
         this.columnType = columnType;
         this.capacity = capacity;
         this.nullMap = 0;
@@ -122,7 +129,7 @@ public class VectorColumn {
         }
     }
 
-    // Create readable column
+    // Create readable column, and maybe pass by const column in Readable column
     private VectorColumn(ColumnType columnType, int numRows, long columnMetaAddress) {
         if (columnType.isUnsupported()) {
             throw new RuntimeException("Unsupported type for column: " + columnType.getName());
@@ -130,14 +137,27 @@ public class VectorColumn {
         long address = columnMetaAddress;
         this.capacity = numRows;
         this.columnType = columnType;
+        Long constFlag = OffHeap.getLong(null, address);
+        address += 8;
+        if (constFlag != 0) {
+            this.isConst = true;
+        }
+        // record the real rows even if it's const column
+        // as only one rows in const column
+        int realRows = this.isConst ? 1 : numRows;
         this.nullMap = OffHeap.getLong(null, address);
         address += 8;
         this.numNulls = 0;
         if (this.nullMap != 0) {
-            nulls = OffHeap.getBoolean(null, nullMap, numRows);
+            nulls = OffHeap.getBoolean(null, nullMap, realRows);
             for (boolean isNull : nulls) {
                 if (isNull) {
-                    this.numNulls++;
+                    if (this.isConst) {
+                        // all of const is null value
+                        this.numNulls += numRows;
+                    } else {
+                        this.numNulls++;
+                    }
                 }
             }
         }
@@ -162,7 +182,7 @@ public class VectorColumn {
             this.offsets = OffHeap.getLong(null, address);
             address += 8;
             this.data = 0;
-            int length = OffHeap.getInt(null, this.offsets + (numRows - 1) * 4L);
+            int length = OffHeap.getInt(null, this.offsets + (realRows - 1) * 4L);
             childColumns = new VectorColumn[1];
             childColumns[0] = new VectorColumn(OffHeap.getLong(null, address), length,
                     new ColumnType("#stringBytes", Type.BYTE));
@@ -221,6 +241,10 @@ public class VectorColumn {
         return columnType;
     }
 
+    public boolean isConst() {
+        return isConst;
+    }
+
     /**
      * Release columns and meta information
      */
@@ -248,6 +272,7 @@ public class VectorColumn {
         capacity = 0;
         numNulls = 0;
         appendIndex = 0;
+        isConst = false;
     }
 
     private void throwReserveException(int requiredCapacity, Throwable cause) {
@@ -1450,6 +1475,11 @@ public class VectorColumn {
     }
 
     public Object[] getObjectColumn(int start, int end) {
+        // for const column only one row in column
+        if (isConst()) {
+            start = 0;
+            end = 1;
+        }
         switch (columnType.getType()) {
             case BOOLEAN:
                 return getBooleanColumn(start, end);
@@ -1583,6 +1613,7 @@ public class VectorColumn {
 
     // for test only.
     public void dump(StringBuilder sb, int i) {
+        i = isConst() ? 0 : i;
         if (isNullAt(i)) {
             sb.append("NULL");
             return;

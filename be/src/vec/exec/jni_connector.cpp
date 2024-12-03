@@ -602,17 +602,28 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
 Status JniConnector::_fill_column_meta(ColumnPtr& doris_column, DataTypePtr& data_type,
                                        std::vector<long>& meta_data) {
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
+    ColumnPtr const_doris_column = nullptr;
+    // insert const flag
+    if (is_column_const(*doris_column)) {
+        meta_data.emplace_back((long)1);
+        const auto& const_column = assert_cast<const ColumnConst&>(*doris_column);
+        const_doris_column = const_column.get_data_column_ptr();
+    } else {
+        meta_data.emplace_back((long)0);
+        const_doris_column = doris_column;
+    }
+
     // insert null map address
     MutableColumnPtr data_column;
-    if (doris_column->is_nullable()) {
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(doris_column->assume_mutable().get());
+    if (const_doris_column->is_nullable()) {
+        auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(
+                const_doris_column->assume_mutable().get());
         data_column = nullable_column->get_nested_column_ptr();
         NullMap& null_map = nullable_column->get_null_map_data();
         meta_data.emplace_back((long)null_map.data());
     } else {
         meta_data.emplace_back(0);
-        data_column = doris_column->assume_mutable();
+        data_column = const_doris_column->assume_mutable();
     }
     switch (logical_type) {
 #define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)                                         \
@@ -686,11 +697,6 @@ Status JniConnector::to_java_table(Block* block, size_t num_rows, const ColumnNu
     // insert number of rows
     meta_data.emplace_back(num_rows);
     for (size_t i : arguments) {
-        if (is_column_const(*(block->get_by_position(i).column))) {
-            auto doris_column = block->get_by_position(i).column->convert_to_full_column_if_const();
-            bool is_nullable = block->get_by_position(i).type->is_nullable();
-            block->replace_by_position(i, is_nullable ? make_nullable(doris_column) : doris_column);
-        }
         auto& column_with_type_and_name = block->get_by_position(i);
         RETURN_IF_ERROR(_fill_column_meta(column_with_type_and_name.column,
                                           column_with_type_and_name.type, meta_data));
