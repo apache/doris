@@ -108,26 +108,24 @@ public class ExportMgr {
                 }
             }
             unprotectAddJob(job);
-            // delete existing files
-            if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
-                if (job.getBrokerDesc() == null) {
-                    throw new AnalysisException("Local file system does not support delete existing files");
-                }
-                String fullPath = job.getExportPath();
-                BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
-                        job.getBrokerDesc());
-            }
-            Env.getCurrentEnv().getEditLog().logExportCreate(job);
-            // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
-            job.getCopiedTaskExecutors().forEach(executor -> {
-                Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
-            });
-            LOG.info("add export job. {}", job);
-
         } finally {
             writeUnlock();
         }
-
+        // delete existing files
+        if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
+            if (job.getBrokerDesc() == null) {
+                throw new AnalysisException("Local file system does not support delete existing files");
+            }
+            String fullPath = job.getExportPath();
+            BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
+                    job.getBrokerDesc());
+        }
+        Env.getCurrentEnv().getEditLog().logExportCreate(job);
+        // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
+        for (int i = 0; i < job.getCopiedTaskExecutors().size(); i++) {
+            Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(job.getCopiedTaskExecutors().get(i));
+        }
+        LOG.info("add export job. {}", job);
     }
 
     public void cancelExportJob(CancelExportStmt stmt) throws DdlException, AnalysisException {
