@@ -134,15 +134,15 @@ public class PaimonUtil {
 
     private static String getPartitionName(List<Column> partitionColumns, String partitionValueStr) {
         Preconditions.checkNotNull(partitionValueStr);
-        List<String> partitionValues = JsonSerdeUtil.fromJson(partitionValueStr, new TypeReference<List<String>>() {
-        });
-        Preconditions.checkState(partitionColumns.size() == partitionValues.size());
+        String[] partitionValues = partitionValueStr.replace("[", "").replace("]", "")
+                .split(",");
+        Preconditions.checkState(partitionColumns.size() == partitionValues.length);
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < partitionColumns.size(); ++i) {
             if (i != 0) {
                 sb.append("/");
             }
-            sb.append(partitionColumns.get(i).getName()).append("=").append(partitionValues.get(i));
+            sb.append(partitionColumns.get(i).getName()).append("=").append(partitionValues[i]);
         }
         return sb.toString();
     }
