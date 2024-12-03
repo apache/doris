@@ -206,7 +206,10 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public List<Column> getFullSchema() {
-        Optional<MvccSnapshot> snapshot = ConnectContext.get().getStatementContext().getSnapshot(this);
+        Optional<MvccSnapshot> snapshot = Optional.empty();
+        if (ConnectContext.get() != null) {
+            snapshot = ConnectContext.get().getStatementContext().getSnapshot(this);
+        }
         return getPaimonSchemaCacheValue(snapshot).getSchema();
     }
 
