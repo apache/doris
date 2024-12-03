@@ -36,6 +36,7 @@
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class IColumn;
@@ -598,3 +599,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

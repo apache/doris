@@ -99,6 +99,7 @@
     } while (false)
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct creator_without_type {
     template <bool multi_arguments, bool f, typename T>
@@ -260,3 +261,5 @@ using creator_with_decimal_type = creator_with_type_base<false, false, true>;
 using creator_with_type = creator_with_type_base<true, true, true>;
 
 } // namespace  doris::vectorized
+
+#include "common/compile_check_end.h"
