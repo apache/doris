@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
@@ -191,6 +192,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateJobCommand(CreateJobCommand createJobCommand, C context) {
         return visitCommand(createJobCommand, context);
+    }
+
+    default R visitCreateFileCommand(CreateFileCommand createFileCommand, C context) {
+        return visitCommand(createFileCommand, context);
     }
 
     default R visitAlterMTMVCommand(AlterMTMVCommand alterMTMVCommand, C context) {
