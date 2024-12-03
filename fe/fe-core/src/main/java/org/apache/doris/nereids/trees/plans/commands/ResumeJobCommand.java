@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -29,8 +28,8 @@ import org.apache.doris.qe.StmtExecutor;
  * pause job
  */
 public class ResumeJobCommand extends AlterJobStatusCommand implements ForwardWithSync {
-    public ResumeJobCommand(Expression wildWhere) {
-        super(PlanType.RESUME_JOB_COMMAND, wildWhere);
+    public ResumeJobCommand(String jobName) {
+        super(PlanType.RESUME_JOB_COMMAND, jobName);
     }
 
     @Override

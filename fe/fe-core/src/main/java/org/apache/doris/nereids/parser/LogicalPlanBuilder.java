@@ -926,39 +926,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitPauseJob(DorisParser.PauseJobContext ctx) {
-        Expression wildWhere = null;
-        if (ctx.wildWhere() != null) {
-            wildWhere = getWildWhere(ctx.wildWhere());
-        }
-        return new PauseJobCommand(wildWhere);
+        return new PauseJobCommand(stripQuotes(ctx.jobNameValue.getText()));
     }
 
     @Override
     public LogicalPlan visitDropJob(DorisParser.DropJobContext ctx) {
-        Expression wildWhere = null;
-        if (ctx.wildWhere() != null) {
-            wildWhere = getWildWhere(ctx.wildWhere());
-        }
         boolean ifExists = ctx.EXISTS() != null;
-        return new DropJobCommand(wildWhere, ifExists);
+        return new DropJobCommand(stripQuotes(ctx.jobNameValue.getText()), ifExists);
     }
 
     @Override
     public LogicalPlan visitResumeJob(DorisParser.ResumeJobContext ctx) {
-        Expression wildWhere = null;
-        if (ctx.wildWhere() != null) {
-            wildWhere = getWildWhere(ctx.wildWhere());
-        }
-        return new ResumeJobCommand(wildWhere);
+        return new ResumeJobCommand(stripQuotes(ctx.jobNameValue.getText()));
     }
 
     @Override
     public LogicalPlan visitCancelJobTask(DorisParser.CancelJobTaskContext ctx) {
-        Expression wildWhere = null;
-        if (ctx.wildWhere() != null) {
-            wildWhere = getWildWhere(ctx.wildWhere());
-        }
-        return new CancelJobTaskCommand(wildWhere);
+        String jobName = stripQuotes(ctx.jobNameValue.getText());
+        Long taskId = Long.valueOf(ctx.taskIdValue.getText());
+        return new CancelJobTaskCommand(jobName, taskId);
     }
 
     @Override

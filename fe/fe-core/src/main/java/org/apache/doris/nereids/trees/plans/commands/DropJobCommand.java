@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -30,8 +29,8 @@ import org.apache.doris.qe.StmtExecutor;
 public class DropJobCommand extends AlterJobStatusCommand implements ForwardWithSync {
     private final boolean ifExists;
 
-    public DropJobCommand(Expression wildWhere, boolean ifExists) {
-        super(PlanType.DROP_JOB_COMMAND, wildWhere);
+    public DropJobCommand(String jobName, boolean ifExists) {
+        super(PlanType.DROP_JOB_COMMAND, jobName);
         this.ifExists = ifExists;
     }
 
