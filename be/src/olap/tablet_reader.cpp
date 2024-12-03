@@ -598,8 +598,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, bloom_filter.second, column.type(),
-                                   _reader_context.runtime_state->be_exec_version(), &column);
+    return create_column_predicate(index, bloom_filter.second, column.type(), &column);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(
@@ -609,8 +608,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, in_filter.second, column.type(),
-                                   _reader_context.runtime_state->be_exec_version(), &column);
+    return create_column_predicate(index, in_filter.second, column.type(), &column);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(
@@ -620,8 +618,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, bitmap_filter.second, column.type(),
-                                   _reader_context.runtime_state->be_exec_version(), &column);
+    return create_column_predicate(index, bitmap_filter.second, column.type(), &column);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& function_filter) {
@@ -631,8 +628,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
     return create_column_predicate(index, std::make_shared<FunctionFilter>(function_filter),
-                                   column.type(), _reader_context.runtime_state->be_exec_version(),
-                                   &column);
+                                   column.type(), &column);
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
