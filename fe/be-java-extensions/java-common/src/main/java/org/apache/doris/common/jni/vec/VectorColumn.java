@@ -169,7 +169,7 @@ public class VectorColumn {
             if (!columnType.isStruct()) {
                 this.offsets = OffHeap.getLong(null, address);
                 address += 8;
-                childRows = getArrayEndOffset(numRows - 1);
+                childRows = getArrayEndOffset(realRows - 1);
             }
             this.data = 0;
             List<ColumnType> children = columnType.getChildTypes();
