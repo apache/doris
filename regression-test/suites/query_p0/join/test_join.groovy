@@ -720,7 +720,7 @@ suite("test_join", "query,p0") {
     }
 
     qt_left_anti_join_with_other_pred "select b.k1 from baseall b left anti join test t on b.k1 = t.k1 and 1 = 2 order by b.k1"
-
+    // null not in (1,2,3,null) = true
     qt_left_anti_join_null_1 "select b.k1 from baseall b left anti join test t on b.k1 = t.k1 order by b.k1"
 
     qt_left_anti_join_null_2 "select b.k1 from baseall b left anti join test_join_empty_view t on b.k1 = t.k1 order by b.k1"
@@ -931,6 +931,7 @@ suite("test_join", "query,p0") {
     // https://github.com/apache/doris/issues/4210
     qt_join_bug3"""select * from baseall t1 where k1 = (select min(k1) from test t2 where t2.k1 = t1.k1 and t2.k2=t1.k2)
            order by k1"""
+    // null not in (1,2,3) = false
     qt_join_bug4"""select b.k1 from baseall b where b.k1 not in( select k1 from baseall where k1 is not null )"""
 
 
@@ -1330,4 +1331,14 @@ suite("test_join", "query,p0") {
     qt_sql """ select /*+SET_VAR(batch_size=1, disable_join_reorder=true)*/ count(DISTINCT dcqewrt.engineer)  as active_person_count from tbl1 dcqewrt left join [broadcast] tbl2 dd on dd.data_dt = dcqewrt.data_dt; """
     sql """ DROP TABLE IF EXISTS tbl2; """
     sql """ DROP TABLE IF EXISTS tbl1; """
+
+
+    sql "drop table if exists t01;"
+    sql "drop table if exists t02;"
+    sql"""create table t01 (id int, a varchar(10)) properties ("replication_num" = "1");"""
+    sql"""create table t02 (id int, b varchar(10)) properties ("replication_num" = "1");"""
+    sql"insert into t01 values (1, 'a'), (2, null), (3, 'c');"
+    sql"insert into t02 values (1, 'b');"
+    qt_sql"select * from t01 where (not like (a, 'a%')) <=> 'b';"
+    qt_sql"select * from t01 where (not like (a, 'a%')) <=> (select max(b) from t02); "
 }

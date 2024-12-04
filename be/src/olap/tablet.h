@@ -115,7 +115,6 @@ public:
 
     DataDir* data_dir() const { return _data_dir; }
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
-    TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
 
     const std::string& tablet_path() const { return _tablet_path; }
 
@@ -221,9 +220,11 @@ public:
 
     // operation for compaction
     bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
-    uint32_t calc_compaction_score(
+    bool suitable_for_compaction(
             CompactionType compaction_type,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
+
+    uint32_t calc_compaction_score();
 
     // This function to find max continuous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
@@ -276,8 +277,6 @@ public:
     void delete_all_files();
 
     void check_tablet_path_exists();
-
-    TabletInfo get_tablet_info() const;
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
@@ -360,7 +359,7 @@ public:
     // MUST hold EXCLUSIVE `_meta_lock`
     void add_rowsets(const std::vector<RowsetSharedPtr>& to_add);
     // MUST hold EXCLUSIVE `_meta_lock`
-    void delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
+    Status delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
 
     // MUST hold SHARED `_meta_lock`
     const auto& rowset_map() const { return _rs_version_map; }
@@ -418,7 +417,8 @@ public:
     CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() override;
     Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                               DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                              const RowsetIdUnorderedSet& cur_rowset_ids) override;
+                              const RowsetIdUnorderedSet& cur_rowset_ids,
+                              int64_t lock_id = -1) override;
 
     void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);
     bool check_all_rowset_segment();
@@ -449,13 +449,7 @@ public:
     void gc_binlogs(int64_t version);
     Status ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb);
 
-    inline void report_error(const Status& st) {
-        if (st.is<ErrorCode::IO_ERROR>()) {
-            ++_io_error_times;
-        } else if (st.is<ErrorCode::CORRUPTION>()) {
-            _io_error_times = config::max_tablet_io_errors + 1;
-        }
-    }
+    void report_error(const Status& st);
 
     inline int64_t get_io_error_times() const { return _io_error_times; }
 
@@ -481,6 +475,24 @@ public:
     }
     inline bool is_full_compaction_running() const { return _is_full_compaction_running; }
     void clear_cache() override;
+
+    int32_t get_compaction_score() const { return _compaction_score; }
+
+    void set_compaction_score(int32_t compaction_score) { _compaction_score = compaction_score; }
+
+    void add_compaction_score(int32_t score) {
+        if (_compaction_score < 0) {
+            return;
+        }
+        _compaction_score += score;
+    }
+
+    void minus_compaction_score(int32_t score) {
+        if (_compaction_score < 0) {
+            return;
+        }
+        _compaction_score -= score;
+    }
 
 private:
     Status _init_once_action();
@@ -520,6 +532,10 @@ private:
     ////////////////////////////////////////////////////////////////////////////
 
     void _clear_cache_by_rowset(const BetaRowsetSharedPtr& rowset);
+    void check_table_size_correctness();
+    std::string get_segment_path(const RowsetMetaSharedPtr& rs_meta, int64_t seg_id);
+    int64_t get_segment_file_size(const RowsetMetaSharedPtr& rs_meta);
+    int64_t get_inverted_index_file_szie(const RowsetMetaSharedPtr& rs_meta);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -608,6 +624,9 @@ private:
     std::shared_ptr<const VersionWithTime> _visible_version;
 
     std::atomic_bool _is_full_compaction_running = false;
+
+    int32_t _compaction_score = -1;
+    int32_t _score_check_cnt = 0;
 };
 
 inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {

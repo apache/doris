@@ -38,7 +38,6 @@ suite("inner_join_dphyp") {
       o_comment        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (PARTITION `day_2` VALUES LESS THAN ('2023-12-30'))
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -69,7 +68,6 @@ suite("inner_join_dphyp") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (PARTITION `day_1` VALUES LESS THAN ('2023-12-30'))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -124,6 +122,10 @@ suite("inner_join_dphyp") {
     sql """analyze table lineitem with sync;"""
     sql """analyze table orders with sync;"""
     sql """analyze table partsupp with sync;"""
+
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table orders modify column o_comment set stats ('row_count'='8');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
     // without filter
     def mv1_0 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY " +

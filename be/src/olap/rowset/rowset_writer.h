@@ -31,6 +31,7 @@
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "vec/core/block.h"
@@ -79,7 +80,7 @@ public:
                 "RowsetWriter not support add_block");
     }
     virtual Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
-                               bool is_key, uint32_t max_rows_per_segment) {
+                               bool is_key, uint32_t max_rows_per_segment, bool has_cluster_key) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support add_columns");
     }
@@ -93,6 +94,24 @@ public:
     virtual Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
                                       FileType file_type = FileType::SEGMENT_FILE) {
         return Status::NotSupported("RowsetWriter does not support create_file_writer");
+    }
+
+    virtual Status create_inverted_index_file_writer(
+            uint32_t segment_id, InvertedIndexFileWriterPtr* index_file_writer) {
+        // Create file writer for the inverted index format v2.
+        io::FileWriterPtr idx_file_v2_ptr;
+        if (_context.tablet_schema->get_inverted_index_storage_format() !=
+            InvertedIndexStorageFormatPB::V1) {
+            RETURN_IF_ERROR(
+                    create_file_writer(segment_id, idx_file_v2_ptr, FileType::INVERTED_INDEX_FILE));
+        }
+        std::string segment_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                _context.segment_path(segment_id))};
+        *index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+                _context.fs(), segment_prefix, _context.rowset_id.to_string(), segment_id,
+                _context.tablet_schema->get_inverted_index_storage_format(),
+                std::move(idx_file_v2_ptr));
+        return Status::OK();
     }
 
     // explicit flush all buffered rows into segment file.

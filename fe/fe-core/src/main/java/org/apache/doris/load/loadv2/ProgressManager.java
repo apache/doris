@@ -67,13 +67,13 @@ public class ProgressManager {
         }
     }
 
-    public String getProgressInfo(String id) {
+    public String getProgressInfo(String id, boolean finished) {
         String progressInfo = "Unknown id: " + id;
         Progress progress = idToProgress.get(id);
         if (progress != null) {
             int finish = progress.getFinishedScanNums();
             int total = progress.getTotalScanNums();
-            String currentProgress = String.format("%.2f", progress.getProgress());
+            String currentProgress = String.format("%.2f", progress.getProgress(finished));
             progressInfo = currentProgress + "% (" + finish + "/" + total + ")";
         }
         return progressInfo;
@@ -107,12 +107,13 @@ public class ProgressManager {
             return result;
         }
 
-        public double getProgress() {
+        public double getProgress(boolean finished) {
             // if no scan range found, the progress should be finished(100%)
-            if (totalScanNums == 0) {
-                return 100.0;
+            int finishedScanNums = getFinishedScanNums();
+            if (totalScanNums == 0 || finishedScanNums == totalScanNums) {
+                return finished ? 100.0 : 99.99;
             }
-            return getFinishedScanNums() * 100 / (double) totalScanNums;
+            return finishedScanNums * 100.0 / totalScanNums;
         }
 
         public Progress(int totalScanNums) {
@@ -127,7 +128,7 @@ public class ProgressManager {
             sb.append("/");
             sb.append(totalScanNums);
             sb.append(" => ");
-            sb.append(getProgress());
+            sb.append(getProgress(true));
             sb.append("%");
             return sb.toString();
         }

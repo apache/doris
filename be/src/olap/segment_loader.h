@@ -75,9 +75,9 @@ public:
     // Holding all opened segments of a rowset.
     class CacheValue : public LRUCacheValueBase {
     public:
-        ~CacheValue() override { segment.reset(); }
+        CacheValue(segment_v2::SegmentSharedPtr segment_) : segment(std::move(segment_)) {}
 
-        segment_v2::SegmentSharedPtr segment;
+        const segment_v2::SegmentSharedPtr segment;
     };
 
     SegmentCache(size_t memory_bytes_limit, size_t segment_num_limit)
@@ -117,14 +117,20 @@ public:
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
-                         bool use_cache = false, bool need_load_pk_index_and_bf = false);
+                         bool use_cache = false, bool need_load_pk_index_and_bf = false,
+                         OlapReaderStatistics* index_load_stats = nullptr);
 
     void erase_segment(const SegmentCache::CacheKey& key);
 
     void erase_segments(const RowsetId& rowset_id, int64_t num_segments);
 
-    // Just used for BE UT
-    int64_t cache_mem_usage() const { return _cache_mem_usage; }
+    int64_t cache_mem_usage() const {
+#ifdef BE_TEST
+        return _cache_mem_usage;
+#else
+        return _segment_cache->value_mem_consumption();
+#endif
+    }
 
 private:
     SegmentLoader();
@@ -159,6 +165,18 @@ public:
     void set_inited() {
         DCHECK(!_init);
         _init = true;
+    }
+
+    segment_v2::SegmentSharedPtr pop_unhealthy_segment() {
+        if (segments.empty()) {
+            return nullptr;
+        }
+        segment_v2::SegmentSharedPtr last_segment = segments.back();
+        if (last_segment->healthy_status().ok()) {
+            return nullptr;
+        }
+        segments.pop_back();
+        return last_segment;
     }
 
 private:

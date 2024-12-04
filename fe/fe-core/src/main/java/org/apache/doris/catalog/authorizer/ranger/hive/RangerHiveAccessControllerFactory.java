@@ -31,6 +31,6 @@ public class RangerHiveAccessControllerFactory implements AccessControllerFactor
 
     @Override
     public CatalogAccessController createAccessController(Map<String, String> prop) {
-        return new RangerCacheHiveAccessController(prop);
+        return new RangerHiveAccessController(prop);
     }
 }

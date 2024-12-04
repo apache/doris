@@ -114,6 +114,11 @@ public class TabletStatMgr extends MasterDaemon {
                 Long tableDataSize = 0L;
                 Long tableTotalReplicaDataSize = 0L;
 
+                Long tableTotalLocalIndexSize = 0L;
+                Long tableTotalLocalSegmentSize = 0L;
+                Long tableTotalRemoteIndexSize = 0L;
+                Long tableTotalRemoteSegmentSize = 0L;
+
                 Long tableRemoteDataSize = 0L;
 
                 Long tableReplicaCount = 0L;
@@ -134,15 +139,18 @@ public class TabletStatMgr extends MasterDaemon {
                                 Long tabletDataSize = 0L;
                                 Long tabletRemoteDataSize = 0L;
 
-                                Long tabletRowCount = 0L;
+                                Long tabletRowCount = Long.MAX_VALUE;
 
                                 boolean tabletReported = false;
                                 for (Replica replica : tablet.getReplicas()) {
                                     LOG.debug("Table {} replica {} current version {}, report version {}",
                                             olapTable.getName(), replica.getId(),
                                             replica.getVersion(), replica.getLastReportVersion());
+                                    // Replica with less row count is more accurate than the others
+                                    // when replicas' version are identical. Because less row count
+                                    // means this replica does more compaction than the others.
                                     if (replica.checkVersionCatchUp(version, false)
-                                            && replica.getRowCount() >= tabletRowCount) {
+                                            && replica.getRowCount() < tabletRowCount) {
                                         // 1. If replica version and reported replica version are all equal to
                                         // PARTITION_INIT_VERSION, set tabletReported to true, which indicates this
                                         // tablet is empty for sure when previous report.
@@ -168,11 +176,19 @@ public class TabletStatMgr extends MasterDaemon {
                                         tabletRemoteDataSize = replica.getRemoteDataSize();
                                     }
                                     tableReplicaCount++;
+                                    tableTotalLocalIndexSize += replica.getLocalInvertedIndexSize();
+                                    tableTotalLocalSegmentSize += replica.getLocalSegmentSize();
+                                    tableTotalRemoteIndexSize += replica.getRemoteInvertedIndexSize();
+                                    tableTotalRemoteSegmentSize += replica.getRemoteSegmentSize();
                                 }
 
                                 tableDataSize += tabletDataSize;
                                 tableRemoteDataSize += tabletRemoteDataSize;
 
+                                // When all BEs are down, avoid set Long.MAX_VALUE to index and table row count. Use 0.
+                                if (tabletRowCount == Long.MAX_VALUE) {
+                                    tabletRowCount = 0L;
+                                }
                                 tableRowCount += tabletRowCount;
                                 indexRowCount += tabletRowCount;
                                 // Only when all tablets of this index are reported, we set indexReported to true.
@@ -189,7 +205,9 @@ public class TabletStatMgr extends MasterDaemon {
                     // this is only one thread to update table statistics, readLock is enough
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(), table.getName(),
                             tableDataSize, tableTotalReplicaDataSize,
-                            tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L));
+                            tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L,
+                            tableTotalLocalIndexSize, tableTotalLocalSegmentSize,
+                            tableTotalRemoteIndexSize, tableTotalRemoteSegmentSize));
 
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("finished to set row num for table: {} in database: {}",
@@ -213,6 +231,10 @@ public class TabletStatMgr extends MasterDaemon {
                     if (replica != null) {
                         replica.setDataSize(stat.getDataSize());
                         replica.setRemoteDataSize(stat.getRemoteDataSize());
+                        replica.setLocalInvertedIndexSize(stat.getLocalIndexSize());
+                        replica.setLocalSegmentSize(stat.getLocalSegmentSize());
+                        replica.setRemoteInvertedIndexSize(stat.getRemoteIndexSize());
+                        replica.setRemoteSegmentSize(stat.getRemoteSegmentSize());
                         replica.setRowCount(stat.getRowCount());
                         replica.setTotalVersionCount(stat.getTotalVersionCount());
                         replica.setVisibleVersionCount(stat.isSetVisibleVersionCount() ? stat.getVisibleVersionCount()

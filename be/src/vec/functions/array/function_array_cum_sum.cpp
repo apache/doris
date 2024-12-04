@@ -35,13 +35,18 @@ namespace doris::vectorized {
 
 // array_cum_sum([1, 2, 3, 4, 5]) -> [1, 3, 6, 10, 15]
 // array_cum_sum([1, NULL, 3, NULL, 5]) -> [1, NULL, 4, NULL, 9]
+template <bool enable_decimal256>
 class FunctionArrayCumSum : public IFunction {
 public:
     using NullMapType = PaddedPODArray<UInt8>;
 
-    static constexpr auto name = "array_cum_sum";
+    static constexpr auto name = enable_decimal256 ? "array_cum_sum_decimal256" : "array_cum_sum";
 
-    static FunctionPtr create() { return std::make_shared<FunctionArrayCumSum>(); }
+    static FunctionPtr create() {
+        return std::make_shared<FunctionArrayCumSum<enable_decimal256>>();
+    }
+
+    using DecimalResultType = std::conditional_t<enable_decimal256, Decimal256, Decimal128V3>;
 
     String get_name() const override { return name; }
 
@@ -76,8 +81,8 @@ public:
             return_type = std::make_shared<DataTypeDecimal<Decimal128V2>>(
                     DataTypeDecimal<Decimal128V2>::max_precision(), scale);
         } else if (which.is_decimal()) {
-            return_type = std::make_shared<DataTypeDecimal<Decimal128V3>>(
-                    DataTypeDecimal<Decimal128V3>::max_precision(), scale);
+            return_type = std::make_shared<DataTypeDecimal<DecimalResultType>>(
+                    DataTypeDecimal<DecimalResultType>::max_precision(), scale);
         }
         if (return_type) {
             return std::make_shared<DataTypeArray>(make_nullable(return_type));
@@ -92,7 +97,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        const size_t result, size_t input_rows_count) const override {
+                        const uint32_t result, size_t input_rows_count) const override {
         auto src_arg = block.get_by_position(arguments[0]);
         ColumnPtr src_column = src_arg.column->convert_to_full_column_if_const();
 
@@ -163,14 +168,17 @@ private:
             res = _execute_number<Float64, Float64>(src_column, src_offsets, src_null_map,
                                                     res_nested_ptr);
         } else if (which.is_decimal32()) {
-            res = _execute_number<Decimal32, Decimal128V3>(src_column, src_offsets, src_null_map,
-                                                           res_nested_ptr);
+            res = _execute_number<Decimal32, DecimalResultType>(src_column, src_offsets,
+                                                                src_null_map, res_nested_ptr);
         } else if (which.is_decimal64()) {
-            res = _execute_number<Decimal64, Decimal128V3>(src_column, src_offsets, src_null_map,
-                                                           res_nested_ptr);
+            res = _execute_number<Decimal64, DecimalResultType>(src_column, src_offsets,
+                                                                src_null_map, res_nested_ptr);
         } else if (which.is_decimal128v3()) {
-            res = _execute_number<Decimal128V3, Decimal128V3>(src_column, src_offsets, src_null_map,
-                                                              res_nested_ptr);
+            res = _execute_number<Decimal128V3, DecimalResultType>(src_column, src_offsets,
+                                                                   src_null_map, res_nested_ptr);
+        } else if (which.is_decimal256()) {
+            res = _execute_number<Decimal256, DecimalResultType>(src_column, src_offsets,
+                                                                 src_null_map, res_nested_ptr);
         } else if (which.is_decimal128v2()) {
             res = _execute_number<Decimal128V2, Decimal128V2>(src_column, src_offsets, src_null_map,
                                                               res_nested_ptr);
@@ -244,7 +252,8 @@ private:
 };
 
 void register_function_array_cum_sum(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArrayCumSum>();
+    factory.register_function<FunctionArrayCumSum<false>>(FunctionArrayCumSum<false>::name);
+    factory.register_function<FunctionArrayCumSum<true>>(FunctionArrayCumSum<true>::name);
 }
 
 } // namespace doris::vectorized

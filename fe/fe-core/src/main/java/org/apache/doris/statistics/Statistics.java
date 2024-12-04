@@ -119,7 +119,8 @@ public class Statistics {
             // the following columnStatistic.isUnKnown() judgment is loop inside since current doris
             // supports partial stats deriving, i.e, allowing part of tables have stats and other parts don't,
             // or part of columns have stats but other parts don't, especially join and filter estimation.
-            if (!checkColumnStatsValid(columnStatistic, rowCount) && !columnStatistic.isUnKnown()) {
+            if (!columnStatistic.isUnKnown() && (!checkColumnStatsValid(columnStatistic, rowCount)
+                    || isNumNullsDecreaseByProportion && columnStatistic.numNulls != 0)) {
                 ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
                 double ndv = Math.min(columnStatistic.ndv, rowCount);
                 double numNulls = Math.min(columnStatistic.numNulls * factor, rowCount - ndv);

@@ -784,6 +784,123 @@ suite("parse_sql_from_sql_cache") {
             sql "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment1*/ * from test_use_plan_cache22 order by 1, 2"
 
             assertHasCache "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment2*/ * from test_use_plan_cache22 order by 1, 2"
+        }),
+        extraThread("is_cache_profile", {
+            createTestTable "test_use_plan_cache23"
+
+            // after partition changed 10s, the sql cache can be used
+            sleep(10000)
+
+            sql "set enable_nereids_planner=true"
+            sql "set enable_fallback_to_original_planner=false"
+            sql "set enable_sql_cache=true"
+
+            int randomInt = Math.random() * 2000000000
+            sql "select ${randomInt} from test_use_plan_cache23"
+            profile("sql_cache_23_${randomInt}") {
+                run {
+                    sql "/* sql_cache_23_${randomInt} */ select ${randomInt} from test_use_plan_cache23"
+                }
+
+                check { profileString, exception ->
+                    log.info(profileString)
+                    assertTrue(profileString.contains("Is  Cached:  Yes"))
+                }
+            }
+
+            randomInt = Math.random() * 2000000000
+            sql "select * from (select $randomInt as id)a"
+            profile("sql_cache_23_${randomInt}_2") {
+                run {
+                    sql "/* sql_cache_23_${randomInt}_2 */ select * from (select $randomInt as id)a"
+                }
+
+                check { profileString, exception ->
+                    log.info(profileString)
+                    assertTrue(profileString.contains("Is  Cached:  Yes"))
+                }
+            }
+        }),
+        extraThread("sql_cache_with_date_format", {
+            sql "set enable_sql_cache=true"
+            for (def i in 0..3) {
+                def result = sql "select FROM_UNIXTIME(UNIX_TIMESTAMP(), 'yyyy-MM-dd HH:mm:ss')"
+                assertNotEquals("yyyy-MM-dd HH:mm:ss", result[0][0])
+            }
+        }),
+        extraThread("test_same_sql_with_different_db", {
+            def dbName1 = "test_db1"
+            def dbName2 = "test_db2"
+            def tableName = "test_cache_table"
+
+            sql "CREATE DATABASE IF NOT EXISTS ${dbName1}"
+            sql "DROP TABLE IF EXISTS ${dbName1}.${tableName}"
+            sql """
+                CREATE TABLE IF NOT EXISTS ${dbName1}.${tableName} (
+                  `k1` date NOT NULL COMMENT "",
+                  `k2` int(11) NOT NULL COMMENT ""
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`k1`, `k2`)
+                COMMENT "OLAP"
+                PARTITION BY RANGE(`k1`)
+                (PARTITION p202411 VALUES [('2024-11-01'), ('2024-12-01')))
+                DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1
+                PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+                )
+            """
+            sql "CREATE DATABASE IF NOT EXISTS ${dbName2}"
+            sql "DROP TABLE IF EXISTS ${dbName2}.${tableName}"
+            sql """
+                CREATE TABLE IF NOT EXISTS ${dbName2}.${tableName} (
+                  `k1` date NOT NULL COMMENT "",
+                  `k2` int(11) NOT NULL COMMENT ""
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`k1`, `k2`)
+                COMMENT "OLAP"
+                PARTITION BY RANGE(`k1`)
+                (PARTITION p202411 VALUES [('2024-11-01'), ('2024-12-01')))
+                DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1
+                PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+                )
+            """
+
+            sql """
+                INSERT INTO ${dbName1}.${tableName} VALUES 
+                        ("2024-11-29",0),
+                        ("2024-11-30",0)
+            """
+            // after partition changed 10s, the sql cache can be used
+            sleep(10000)
+            sql """
+                INSERT INTO ${dbName2}.${tableName} VALUES 
+                        ("2024-11-29",0)
+            """
+            // after partition changed 10s, the sql cache can be used
+            sleep(10000)
+
+            sql "set enable_sql_cache=true"
+            sql "use ${dbName1}"
+            List<List<Object>> result1 = sql """
+                SELECT COUNT(*) FROM ${tableName}
+            """
+            assertEquals(result1[0][0],2)
+
+            sql "use ${dbName2}"
+            List<List<Object>> result2 = sql """
+                SELECT COUNT(*) FROM ${tableName}
+            """
+            assertEquals(result2[0][0],1)
+
+            sql "DROP TABLE IF EXISTS ${dbName1}.${tableName}"
+            sql "DROP TABLE IF EXISTS ${dbName2}.${tableName}"
+            sql "DROP DATABASE IF EXISTS ${dbName1}"
+            sql "DROP DATABASE IF EXISTS ${dbName2}"
         })
     ).get()
 }

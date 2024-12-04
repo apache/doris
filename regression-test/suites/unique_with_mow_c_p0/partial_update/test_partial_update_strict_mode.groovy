@@ -17,6 +17,9 @@
 // under the License.
 
 suite("test_partial_update_strict_mode", "p0") {
+    if (isClusterKeyEnabled()) {
+        return
+    }
 
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
@@ -117,7 +120,7 @@ suite("test_partial_update_strict_mode", "p0") {
                     assertEquals("Fail", json.Status)
                     assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
                     assertEquals(3, json.NumberTotalRows)
-                    assertEquals(1, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberLoadedRows)
                     assertEquals(2, json.NumberFilteredRows)
                 }
             }
@@ -166,7 +169,6 @@ suite("test_partial_update_strict_mode", "p0") {
                     assertEquals("Fail", json.Status)
                     assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
                     assertEquals(3, json.NumberTotalRows)
-                    assertEquals(1, json.NumberLoadedRows)
                     assertEquals(2, json.NumberFilteredRows)
                 }
             }

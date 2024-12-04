@@ -22,6 +22,7 @@
 #include <math.h>
 #include <stdint.h>
 
+#include <cassert>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -30,6 +31,8 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
+#include "common/exception.h"
 #include "gen_cpp/descriptors.pb.h"
 #include "gtest/gtest_pred_impl.h"
 #include "olap/hll.h"
@@ -263,6 +266,20 @@ TEST(BlockSerializeTest, Map) {
     EXPECT_EQ(block.dump_data(), new_block.dump_data());
 }
 
+TEST(BlockSerializeTest, Bigstr) {
+    DataTypePtr s = std::make_shared<DataTypeString>();
+    MutableColumnPtr col = ColumnString::create();
+    std::string bigdata;
+    bigdata.resize(std::numeric_limits<int32_t>::max() - 5);
+    col->insert_data(bigdata.data(), bigdata.length());
+    try {
+        s->get_uncompressed_serialized_bytes(*col, BeExecVersionManager::get_newest_version());
+    } catch (std::exception e) {
+        return;
+    }
+    assert(false);
+}
+
 TEST(BlockSerializeTest, Struct) {
     TabletSchema schema;
     TabletColumn struct_col;
@@ -277,7 +294,7 @@ TEST(BlockSerializeTest, Struct) {
         DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
         DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
         Tuple t1, t2;
-        t1.push_back(String("amory cute"));
+        t1.push_back(Field(String("amory cute")));
         t1.push_back(__int128_t(37));
         t1.push_back(true);
         t2.push_back("null");

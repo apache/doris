@@ -17,43 +17,38 @@
 
 #include "partitioner.h"
 
+#include "common/cast_set.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "runtime/thread_context.h"
 #include "vec/columns/column_const.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
-template <typename HashValueType, typename ChannelIds>
-Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* state, Block* block,
-                                                               MemTracker* mem_tracker) const {
-    int rows = block->rows();
+template <typename ChannelIds>
+Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Block* block) const {
+    size_t rows = block->rows();
 
     if (rows > 0) {
         auto column_to_keep = block->columns();
 
-        int result_size = _partition_expr_ctxs.size();
+        int result_size = cast_set<int>(_partition_expr_ctxs.size());
         std::vector<int> result(result_size);
 
         _hash_vals.resize(rows);
         std::fill(_hash_vals.begin(), _hash_vals.end(), 0);
         auto* __restrict hashes = _hash_vals.data();
-        {
-            SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
-            RETURN_IF_ERROR(_get_partition_column_result(block, result));
-        }
+        { RETURN_IF_ERROR(_get_partition_column_result(block, result)); }
         for (int j = 0; j < result_size; ++j) {
             _do_hash(unpack_if_const(block->get_by_position(result[j]).column).first, hashes, j);
         }
 
-        for (int i = 0; i < rows; i++) {
+        for (size_t i = 0; i < rows; i++) {
             hashes[i] = ChannelIds()(hashes[i], _partition_count);
         }
 
-        {
-            SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
-            Block::erase_useless_column(block, column_to_keep);
-        }
+        { Block::erase_useless_column(block, column_to_keep); }
     }
     return Status::OK();
 }
@@ -61,47 +56,23 @@ Status Partitioner<HashValueType, ChannelIds>::do_partitioning(RuntimeState* sta
 template <typename ChannelIds>
 void Crc32HashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column,
                                                 uint32_t* __restrict result, int idx) const {
-    column->update_crcs_with_value(result, Base::_partition_expr_ctxs[idx]->root()->type().type,
-                                   column->size());
-}
-
-template <typename ChannelIds>
-void XXHashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column, uint64_t* __restrict result,
-                                             int /*idx*/) const {
-    column->update_hashes_with_value(result);
-}
-
-template <typename ChannelIds>
-Status XXHashPartitioner<ChannelIds>::clone(RuntimeState* state,
-                                            std::unique_ptr<PartitionerBase>& partitioner) {
-    auto* new_partitioner = new XXHashPartitioner(Base::_partition_count);
-    partitioner.reset(new_partitioner);
-    new_partitioner->_partition_expr_ctxs.resize(Base::_partition_expr_ctxs.size());
-    for (size_t i = 0; i < Base::_partition_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(Base::_partition_expr_ctxs[i]->clone(
-                state, new_partitioner->_partition_expr_ctxs[i]));
-    }
-    return Status::OK();
+    column->update_crcs_with_value(result, _partition_expr_ctxs[idx]->root()->type().type,
+                                   cast_set<uint32_t>(column->size()));
 }
 
 template <typename ChannelIds>
 Status Crc32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
                                                std::unique_ptr<PartitionerBase>& partitioner) {
-    auto* new_partitioner = new Crc32HashPartitioner(Base::_partition_count);
+    auto* new_partitioner = new Crc32HashPartitioner<ChannelIds>(cast_set<int>(_partition_count));
     partitioner.reset(new_partitioner);
-    new_partitioner->_partition_expr_ctxs.resize(Base::_partition_expr_ctxs.size());
-    for (size_t i = 0; i < Base::_partition_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(Base::_partition_expr_ctxs[i]->clone(
-                state, new_partitioner->_partition_expr_ctxs[i]));
+    new_partitioner->_partition_expr_ctxs.resize(_partition_expr_ctxs.size());
+    for (size_t i = 0; i < _partition_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(
+                _partition_expr_ctxs[i]->clone(state, new_partitioner->_partition_expr_ctxs[i]));
     }
     return Status::OK();
 }
 
-template class Partitioner<size_t, pipeline::LocalExchangeChannelIds>;
-template class XXHashPartitioner<pipeline::LocalExchangeChannelIds>;
-template class Partitioner<size_t, ShuffleChannelIds>;
-template class XXHashPartitioner<ShuffleChannelIds>;
-template class Partitioner<uint32_t, ShuffleChannelIds>;
 template class Crc32HashPartitioner<ShuffleChannelIds>;
 template class Crc32HashPartitioner<SpillPartitionChannelIds>;
 

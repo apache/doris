@@ -14,6 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
+
 suite("test_materialized_view_bitmap", "rollup") {
 
     def tbName1 = "test_materialized_view_bitmap"
@@ -34,19 +38,14 @@ suite("test_materialized_view_bitmap", "rollup") {
 
     sql "CREATE MATERIALIZED VIEW test_neg as select k1,bitmap_union(to_bitmap(k2)), bitmap_union(to_bitmap(k3)) FROM ${tbName1} GROUP BY k1;"
     max_try_secs = 60
-    while (max_try_secs--) {
+    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
         String res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
             assertEquals("FINISHED", res)
             sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
+            return true;
         }
+        return false;
     }
 
     explain {

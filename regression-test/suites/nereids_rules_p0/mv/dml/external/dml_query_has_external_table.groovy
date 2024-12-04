@@ -70,17 +70,6 @@ suite("dml_query_has_external_table") {
     )
     """
 
-        def create_async_mv = { mv_name, mv_sql ->
-            sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-            sql"""
-            CREATE MATERIALIZED VIEW ${mv_name} 
-            BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES ('replication_num' = '1') 
-            AS ${mv_sql}
-            """
-            waitingMTMVTaskFinished(getJobName(db, mv_name))
-        }
 
         def result_test_sql = """select * from insert_target_olap_table;"""
 
@@ -97,7 +86,7 @@ suite("dml_query_has_external_table") {
         count_value;
         """
 
-        create_async_mv(insert_into_async_mv_name_external, """
+        create_async_mv(dbName, insert_into_async_mv_name_external, """
         select
         id,
         count_value
@@ -114,26 +103,15 @@ suite("dml_query_has_external_table") {
         sql "set enable_dml_materialized_view_rewrite=true";
         sql "set enable_dml_materialized_view_rewrite_when_base_table_data_unawareness=false";
 
-        explain {
-            sql """
+        mv_not_part_in( """
             insert into insert_target_olap_table 
-            ${insert_into_async_query_external}"""
-            check {result ->
-                !result.contains(insert_into_async_mv_name_external)
-            }
-        }
+            ${insert_into_async_query_external}""", insert_into_async_mv_name_external)
 
         sql "set enable_dml_materialized_view_rewrite_when_base_table_data_unawareness=true";
-        explain {
-            sql """
+        mv_rewrite_success_without_check_chosen("""
             insert into insert_target_olap_table 
             ${insert_into_async_query_external}
-            """
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(insert_into_async_mv_name_external) : false
-            }
-        }
+            """, insert_into_async_mv_name_external)
 
         sql """insert into insert_target_olap_table ${insert_into_async_query_external}"""
         order_qt_query_insert_into_async_mv_after "${result_test_sql}"

@@ -113,8 +113,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             // 1. Get input block from scanner
             {
                 // get block time
-                auto* timer = _local_state->_scan_timer;
-                SCOPED_TIMER(timer);
+                SCOPED_TIMER(_local_state->_scan_timer);
                 RETURN_IF_ERROR(_get_block_impl(state, block, eof));
                 if (*eof) {
                     DCHECK(block->rows() == 0);
@@ -128,8 +127,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
             // 2. Filter the output block finally.
             {
-                auto* timer = _local_state->_filter_timer;
-                SCOPED_TIMER(timer);
+                SCOPED_TIMER(_local_state->_filter_timer);
                 RETURN_IF_ERROR(_filter_output_block(block));
             }
             // record rows return (after filter) for _limit check

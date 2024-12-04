@@ -28,7 +28,9 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class TruncateTableInfo implements Writable {
     @SerializedName(value = "dbId")
@@ -45,13 +47,17 @@ public class TruncateTableInfo implements Writable {
     private boolean isEntireTable = false;
     @SerializedName(value = "rawSql")
     private String rawSql = "";
+    @SerializedName(value = "op")
+    private Map<Long, String> oldPartitions = new HashMap<>();
+    @SerializedName(value = "force")
+    private boolean force = true; // older version it was forced always.
 
     public TruncateTableInfo() {
 
     }
 
     public TruncateTableInfo(long dbId, String db, long tblId, String table, List<Partition> partitions,
-            boolean isEntireTable, String rawSql) {
+            boolean isEntireTable, String rawSql, List<Partition> oldPartitions, boolean force) {
         this.dbId = dbId;
         this.db = db;
         this.tblId = tblId;
@@ -59,6 +65,10 @@ public class TruncateTableInfo implements Writable {
         this.partitions = partitions;
         this.isEntireTable = isEntireTable;
         this.rawSql = rawSql;
+        for (Partition partition : oldPartitions) {
+            this.oldPartitions.put(partition.getId(), partition.getName());
+        }
+        this.force = force;
     }
 
     public long getDbId() {
@@ -81,9 +91,18 @@ public class TruncateTableInfo implements Writable {
         return partitions;
     }
 
+    public Map<Long, String> getOldPartitions() {
+        return oldPartitions == null ? new HashMap<>() : oldPartitions;
+    }
+
     public boolean isEntireTable() {
         return isEntireTable;
     }
+
+    public boolean getForce() {
+        return force;
+    }
+
 
     public String getRawSql() {
         return rawSql;

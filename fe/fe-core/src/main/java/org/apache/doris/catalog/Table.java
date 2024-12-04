@@ -40,6 +40,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -324,7 +325,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             boolean res = this.commitLock.tryLock(timeout, unit);
             if (!res && unit.toSeconds(timeout) >= 1) {
                 LOG.warn("Failed to try table {}'s cloud commit lock. timeout {} {}. Current owner: {}",
-                        name, timeout, unit.name(), rwLock.getOwner());
+                        name, timeout, unit.name(), this.commitLock.getOwner());
             }
             return res;
         } catch (InterruptedException e) {
@@ -393,7 +394,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     }
 
     public List<Column> getFullSchema() {
-        return fullSchema;
+        return ImmutableList.copyOf(fullSchema);
     }
 
     // should override in subclass if necessary
@@ -403,7 +404,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     public List<Column> getBaseSchema(boolean full) {
         if (full) {
-            return fullSchema;
+            return ImmutableList.copyOf(fullSchema);
         } else {
             return fullSchema.stream().filter(Column::isVisible).collect(Collectors.toList());
         }
@@ -445,6 +446,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return 0;
     }
 
+    public long getIndexLength() {
+        return 0;
+    }
 
     public TTableDescriptor toThrift() {
         return null;
@@ -623,7 +627,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     @Override
     public long fetchRowCount() {
-        return 0;
+        return UNKNOWN_ROW_COUNT;
     }
 
     @Override
@@ -639,5 +643,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     @Override
     public boolean autoAnalyzeEnabled() {
         return true;
+    }
+
+    @Override
+    public TableIndexes getTableIndexes() {
+        return new TableIndexes();
     }
 }

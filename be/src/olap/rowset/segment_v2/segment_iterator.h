@@ -156,6 +156,11 @@ public:
         return _inverted_index_iterators;
     }
 
+    bool has_inverted_index_in_iterators() const {
+        return std::any_of(_inverted_index_iterators.begin(), _inverted_index_iterators.end(),
+                           [](const auto& iterator) { return iterator != nullptr; });
+    }
+
 private:
     Status _next_batch_internal(vectorized::Block* block);
 
@@ -229,6 +234,7 @@ private:
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
+    void _collect_runtime_filter_predicate();
     void _output_non_pred_columns(vectorized::Block* block);
     [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                  std::vector<rowid_t>& rowid_vector,
@@ -377,6 +383,8 @@ private:
 
     void _calculate_expr_in_remaining_conjunct_root();
 
+    void _clear_iterators();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -426,8 +434,8 @@ private:
     // first, read predicate columns by various index
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
-    std::vector<ColumnId> _first_read_column_ids;
-    std::vector<ColumnId> _second_read_column_ids;
+    std::vector<ColumnId> _predicate_column_ids;
+    std::vector<ColumnId> _non_predicate_column_ids;
     std::vector<ColumnId> _columns_to_filter;
     std::vector<ColumnId> _converted_column_ids;
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block

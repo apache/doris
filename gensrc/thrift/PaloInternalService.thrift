@@ -226,8 +226,8 @@ struct TQueryOptions {
   72: optional bool enable_orc_lazy_mat = true
 
   73: optional i64 scan_queue_mem_limit
-
-  74: optional bool enable_scan_node_run_serial = false; 
+  // deprecated
+  74: optional bool enable_scan_node_run_serial = false;
 
   75: optional bool enable_insert_strict = false;
 
@@ -317,10 +317,11 @@ struct TQueryOptions {
 
   118: optional TSerdeDialect serde_dialect = TSerdeDialect.DORIS;
 
-  119: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
+  119: optional bool enable_match_without_inverted_index = true;
 
-  120: optional bool enable_match_without_inverted_index = true;
-  121: optional bool enable_fallback_on_missing_inverted_index = true;
+  120: optional bool enable_fallback_on_missing_inverted_index = true;
+
+  121: optional bool keep_carriage_return = false; // \n,\r\n split line in CSV.
 
   122: optional i32 runtime_bloom_filter_min_size = 1048576;
 
@@ -348,6 +349,15 @@ struct TQueryOptions {
 
   135: optional bool enable_parallel_outfile = false;
 
+  136: optional bool enable_phrase_query_sequential_opt = true;
+
+  137: optional bool enable_auto_create_when_overwrite = false;
+
+  138: optional i64 orc_tiny_stripe_threshold_bytes = 8388608;
+  139: optional i64 orc_once_max_read_bytes = 8388608;
+  140: optional i64 orc_max_merge_distance_bytes = 1048576;
+
+  141: optional bool ignore_runtime_filter_error = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
@@ -371,6 +381,7 @@ struct TRuntimeFilterTargetParamsV2 {
   1: required list<Types.TUniqueId> target_fragment_instance_ids
   // The address of the instance where the fragment is expected to run
   2: required Types.TNetworkAddress target_fragment_instance_addr
+  3: optional list<i32> target_fragment_ids
 }
 
 struct TRuntimeFilterParams {
@@ -765,7 +776,7 @@ struct TPipelineInstanceParams {
   4: optional i32 sender_id
   5: optional TRuntimeFilterParams runtime_filter_params
   6: optional i32 backend_num
-  7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans // deprecated
   8: optional list<i32> topn_filter_source_node_ids // deprecated after we set topn_filter_descs
   9: optional list<PlanNodes.TTopnFilterDesc> topn_filter_descs
 }
@@ -809,7 +820,7 @@ struct TPipelineFragmentParams {
   33: optional i32 num_local_sink
   34: optional i32 num_buckets
   35: optional map<i32, i32> bucket_seq_to_instance_idx
-  36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans // deprecated
   37: optional i32 parallel_instances
   38: optional i32 total_instances
   39: optional map<i32, i32> shuffle_idx_to_instance_idx

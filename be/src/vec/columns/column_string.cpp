@@ -22,7 +22,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <ostream>
+#include <cstring>
 
 #include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
@@ -34,6 +34,7 @@
 #include "vec/core/sort_block.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 void ColumnStr<T>::sanity_check() const {
@@ -74,26 +75,43 @@ MutableColumnPtr ColumnStr<T>::clone_resized(size_t to_size) const {
             res->offsets.assign(offsets.begin(), offsets.end());
             res->chars.assign(chars.begin(), chars.end());
         }
-
-        res->offsets.resize_fill(to_size, chars.size());
+        // If offset is uint32, size will not exceed, check the size when inserting data into ColumnStr<T>.
+        res->offsets.resize_fill(to_size, static_cast<T>(chars.size()));
     }
 
     return res;
 }
 
 template <typename T>
-MutableColumnPtr ColumnStr<T>::get_shrinked_column() {
-    auto shrinked_column = ColumnStr<T>::create();
-    shrinked_column->get_offsets().reserve(offsets.size());
-    shrinked_column->get_chars().reserve(chars.size());
-    for (int i = 0; i < size(); i++) {
-        StringRef str = get_data_at(i);
-        reinterpret_cast<ColumnStr<T>*>(shrinked_column.get())
-                ->insert_data(str.data, strnlen(str.data, str.size));
+void ColumnStr<T>::shrink_padding_chars() {
+    if (size() == 0) {
+        return;
     }
-    return shrinked_column;
+    char* data = reinterpret_cast<char*>(chars.data());
+    auto* offset = offsets.data();
+    size_t size = offsets.size();
+
+    // deal the 0-th element. no need to move.
+    auto next_start = offset[0];
+    offset[0] = static_cast<T>(strnlen(data, size_at(0)));
+    for (size_t i = 1; i < size; i++) {
+        // get the i-th length and whole move it to cover the last's trailing void
+        auto length = strnlen(data + next_start, offset[i] - next_start);
+        memmove(data + offset[i - 1], data + next_start, length);
+        // offset i will be changed. so save the old value for (i+1)-th to get its length.
+        next_start = offset[i];
+        offset[i] = offset[i - 1] + static_cast<T>(length);
+    }
+    chars.resize_fill(offsets.back()); // just call it to shrink memory here. no possible to expand.
 }
 
+// This method is only called by MutableBlock::merge_ignore_overflow
+// by hash join operator to collect build data to avoid
+// the total string length of a ColumnStr<uint32_t> column exceeds the 4G limit.
+//
+// After finishing collecting build data, a ColumnStr<uint32_t> column
+// will be converted to ColumnStr<uint64_t> if the total string length
+// exceeds the 4G limit by calling Block::replace_if_overflow.
 template <typename T>
 void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IColumn& src,
                                                      size_t start, size_t length) {
@@ -108,8 +126,8 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
                 "Parameter out of bound in IColumnStr<T>::insert_range_from method.");
     }
 
-    size_t nested_offset = src_concrete.offset_at(start);
-    size_t nested_length = src_concrete.offsets[start + length - 1] - nested_offset;
+    auto nested_offset = src_concrete.offset_at(start);
+    auto nested_length = src_concrete.offsets[start + length - 1] - nested_offset;
 
     size_t old_chars_size = chars.size();
     chars.resize(old_chars_size + nested_length);
@@ -119,10 +137,12 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
         offsets.assign(src_concrete.offsets.begin(), src_concrete.offsets.begin() + length);
     } else {
         size_t old_size = offsets.size();
-        size_t prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
+        auto prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
         offsets.resize(old_size + length);
 
         for (size_t i = 0; i < length; ++i) {
+            // unsinged integer overflow is well defined in C++,
+            // so we don't need to check the overflow here.
             offsets[old_size + i] =
                     src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
         }
@@ -134,34 +154,65 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
     if (length == 0) {
         return;
     }
+    auto do_insert = [&](const auto& src_concrete) {
+        const auto& src_offsets = src_concrete.get_offsets();
+        const auto& src_chars = src_concrete.get_chars();
+        if (start + length > src_offsets.size()) {
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "Parameter out of bound in IColumnStr<T>::insert_range_from method.");
+        }
+        auto nested_offset = src_offsets[static_cast<ssize_t>(start) - 1];
+        auto nested_length = src_offsets[start + length - 1] - nested_offset;
 
-    const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
+        size_t old_chars_size = chars.size();
+        check_chars_length(old_chars_size + nested_length, offsets.size() + length);
+        chars.resize(old_chars_size + nested_length);
+        memcpy(&chars[old_chars_size], &src_chars[nested_offset], nested_length);
 
-    if (start + length > src_concrete.offsets.size()) {
-        throw doris::Exception(
-                doris::ErrorCode::INTERNAL_ERROR,
-                "Parameter out of bound in IColumnStr<T>::insert_range_from method.");
+        using OffsetsType = std::decay_t<decltype(src_offsets)>;
+        if (std::is_same_v<T, typename OffsetsType::value_type> && start == 0 && offsets.empty()) {
+            offsets.assign(src_offsets.begin(), src_offsets.begin() + length);
+        } else {
+            size_t old_size = offsets.size();
+            auto prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
+            offsets.resize(old_size + length);
+
+            for (size_t i = 0; i < length; ++i) {
+                // if Offsets is uint32, size will not exceed range of uint32, cast is OK.
+                offsets[old_size + i] =
+                        static_cast<T>(src_offsets[start + i] - nested_offset) + prev_max_offset;
+            }
+        }
+    };
+    // insert_range_from maybe called by ColumnArray::insert_indices_from(which is used by hash join operator),
+    // so we need to support both ColumnStr<uint32_t> and ColumnStr<uint64_t>
+    if (src.is_column_string64()) {
+        do_insert(assert_cast<const ColumnStr<uint64_t>&>(src));
+    } else {
+        do_insert(assert_cast<const ColumnStr<uint32_t>&>(src));
     }
+}
 
-    size_t nested_offset = src_concrete.offset_at(start);
-    size_t nested_length = src_concrete.offsets[start + length - 1] - nested_offset;
+template <typename T>
+void ColumnStr<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    const auto& string_column = assert_cast<const ColumnStr<T>&>(src);
+    auto [data_val, data_length] = string_column.get_data_at(position);
 
     size_t old_chars_size = chars.size();
-    check_chars_length(old_chars_size + nested_length, offsets.size() + length);
-    chars.resize(old_chars_size + nested_length);
-    memcpy(&chars[old_chars_size], &src_concrete.chars[nested_offset], nested_length);
+    check_chars_length(old_chars_size + data_length * length, offsets.size() + length);
+    chars.resize(old_chars_size + data_length * length);
 
-    if (start == 0 && offsets.empty()) {
-        offsets.assign(src_concrete.offsets.begin(), src_concrete.offsets.begin() + length);
-    } else {
-        size_t old_size = offsets.size();
-        size_t prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
-        offsets.resize(old_size + length);
+    auto old_size = offsets.size();
+    offsets.resize(old_size + length);
 
-        for (size_t i = 0; i < length; ++i) {
-            offsets[old_size + i] =
-                    src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
-        }
+    auto start_pos = old_size;
+    auto end_pos = old_size + length;
+    auto prev_pos = old_chars_size;
+    for (; start_pos < end_pos; ++start_pos) {
+        memcpy(&chars[prev_pos], data_val, data_length);
+        offsets[start_pos] = static_cast<T>(prev_pos + data_length);
+        prev_pos = prev_pos + data_length;
     }
 }
 
@@ -181,7 +232,8 @@ void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indic
         for (const auto* x = indices_begin; x != indices_end; ++x) {
             int64_t src_offset = *x;
             total_chars_size += src_offset_data[src_offset] - src_offset_data[src_offset - 1];
-            dst_offsets_data[dst_offsets_pos++] = total_chars_size;
+            // if Offsets is uint32, size will not exceed range of uint32, cast is OK.
+            dst_offsets_data[dst_offsets_pos++] = static_cast<T>(total_chars_size);
         }
         check_chars_length(total_chars_size, offsets.size());
 
@@ -219,13 +271,16 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
     if (null_data == nullptr) {
         for (size_t i = 0; i < s; i++) {
             auto data_ref = get_data_at(i);
-            hashes[i] = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hashes[i]);
+            // If offset is uint32, size will not exceed, check the size when inserting data into ColumnStr<T>.
+            hashes[i] = HashUtil::zlib_crc_hash(data_ref.data, static_cast<uint32_t>(data_ref.size),
+                                                hashes[i]);
         }
     } else {
         for (size_t i = 0; i < s; i++) {
             if (null_data[i] == 0) {
                 auto data_ref = get_data_at(i);
-                hashes[i] = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hashes[i]);
+                hashes[i] = HashUtil::zlib_crc_hash(
+                        data_ref.data, static_cast<uint32_t>(data_ref.size), hashes[i]);
             }
         }
     }
@@ -343,8 +398,9 @@ ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) 
 template <typename T>
 StringRef ColumnStr<T>::serialize_value_into_arena(size_t n, Arena& arena,
                                                    char const*& begin) const {
-    uint32_t string_size(size_at(n));
-    uint32_t offset(offset_at(n));
+    // Use uint32 instead of size_t to reduce agg key's length.
+    auto string_size(static_cast<uint32_t>(size_at(n)));
+    auto offset(static_cast<uint32_t>(offset_at(n)));
 
     StringRef res;
     res.size = sizeof(string_size) + string_size;
@@ -373,7 +429,7 @@ const char* ColumnStr<T>::deserialize_and_insert_from_arena(const char* pos) {
 
 template <typename T>
 size_t ColumnStr<T>::get_max_row_byte_size() const {
-    size_t max_size = 0;
+    T max_size = 0;
     size_t num_rows = offsets.size();
     for (size_t i = 0; i < num_rows; ++i) {
         max_size = std::max(max_size, size_at(i));
@@ -386,8 +442,9 @@ template <typename T>
 void ColumnStr<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                  size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        uint32_t offset(offset_at(i));
-        uint32_t string_size(size_at(i));
+        // Use uint32 instead of size_t to reduce agg key's length.
+        auto offset(static_cast<uint32_t>(offset_at(i)));
+        auto string_size(static_cast<uint32_t>(size_at(i)));
 
         auto* ptr = const_cast<char*>(keys[i].data + keys[i].size);
         memcpy_fixed<uint32_t>(ptr, (char*)&string_size);
@@ -410,8 +467,8 @@ void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
             memcpy(dest, null_map + i, sizeof(uint8_t));
 
             if (null_map[i] == 0) {
-                UInt32 offset(offset_at(i));
-                UInt32 string_size(size_at(i));
+                auto offset(offset_at(i));
+                auto string_size(size_at(i));
 
                 memcpy_fixed<UInt32>(dest + 1, (char*)&string_size);
                 memcpy(dest + 1 + sizeof(string_size), &chars[offset], string_size);
@@ -427,8 +484,8 @@ void ColumnStr<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, siz
             // serialize null first
             memcpy(dest, null_map + i, sizeof(uint8_t));
 
-            UInt32 offset(offset_at(i));
-            UInt32 string_size(size_at(i));
+            auto offset(offset_at(i));
+            auto string_size(size_at(i));
 
             memcpy_fixed<UInt32>(dest + 1, (char*)&string_size);
             memcpy(dest + 1 + sizeof(string_size), &chars[offset], string_size);
@@ -511,8 +568,8 @@ ColumnPtr ColumnStr<T>::replicate(const IColumn::Offsets& replicate_offsets) con
     T current_new_offset = 0;
 
     for (size_t i = 0; i < col_size; ++i) {
-        size_t size_to_replicate = replicate_offsets[i] - prev_replicate_offset;
-        size_t string_size = offsets[i] - prev_string_offset;
+        T size_to_replicate = replicate_offsets[i] - prev_replicate_offset;
+        T string_size = offsets[i] - prev_string_offset;
 
         for (size_t j = 0; j < size_to_replicate; ++j) {
             current_new_offset += string_size;

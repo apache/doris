@@ -18,13 +18,16 @@
 package org.apache.doris.common.classloader;
 
 import org.apache.doris.common.jni.utils.ExpiringMap;
+import org.apache.doris.common.jni.utils.Log4jOutputStream;
 import org.apache.doris.common.jni.utils.UdfClassCache;
 
 import com.google.common.collect.Streams;
+import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -54,6 +57,7 @@ public class ScannerLoader {
      * Load all classes from $DORIS_HOME/lib/java_extensions/*
      */
     public void loadAllScannerJars() {
+        redirectStdStreamsToLog4j();
         String basePath = System.getenv("DORIS_HOME");
         File library = new File(basePath, "/lib/java_extensions/");
         // TODO: add thread pool to load each scanner
@@ -64,6 +68,16 @@ public class ScannerLoader {
                 loadJarClassFromDir(sd, classLoader);
             }
         });
+    }
+
+    private void redirectStdStreamsToLog4j() {
+        Logger outLogger = Logger.getLogger("stdout");
+        PrintStream logPrintStream = new PrintStream(new Log4jOutputStream(outLogger, Level.INFO));
+        System.setOut(logPrintStream);
+
+        Logger errLogger = Logger.getLogger("stderr");
+        PrintStream errorPrintStream = new PrintStream(new Log4jOutputStream(errLogger, Level.ERROR));
+        System.setErr(errorPrintStream);
     }
 
     public static UdfClassCache getUdfClassLoader(String functionSignature) {

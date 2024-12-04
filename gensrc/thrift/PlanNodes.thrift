@@ -309,6 +309,7 @@ struct TIcebergFileDesc {
     // Deprecated
     5: optional Exprs.TExpr file_select_conjunct;
     6: optional string original_file_path;
+    7: optional i64 row_count;
 }
 
 struct TPaimonDeletionFileDesc {
@@ -320,17 +321,18 @@ struct TPaimonDeletionFileDesc {
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
-    3: optional string db_name
-    4: optional string table_name
+    3: optional string db_name // deprecated
+    4: optional string table_name // deprecated
     5: optional string paimon_predicate
-    6: optional map<string, string> paimon_options
-    7: optional i64 ctl_id
-    8: optional i64 db_id
-    9: optional i64 tbl_id
-    10: optional i64 last_update_time
+    6: optional map<string, string> paimon_options // deprecated
+    7: optional i64 ctl_id // deprecated
+    8: optional i64 db_id // deprecated
+    9: optional i64 tbl_id // deprecated
+    10: optional i64 last_update_time // deprecated
     11: optional string file_format
     12: optional TPaimonDeletionFileDesc deletion_file;
-    13: optional map<string, string> hadoop_conf
+    13: optional map<string, string> hadoop_conf // deprecated
+    14: optional string paimon_table  // deprecated
 }
 
 struct TTrinoConnectorFileDesc {
@@ -351,7 +353,6 @@ struct TMaxComputeFileDesc {
     1: optional string partition_spec // deprecated 
     2: optional string session_id 
     3: optional string table_batch_read_session
-
 }
 
 struct THudiFileDesc {
@@ -365,6 +366,7 @@ struct THudiFileDesc {
     8: optional list<string> column_names;
     9: optional list<string> column_types;
     10: optional list<string> nested_fields;
+    11: optional string hudi_jni_scanner;
 }
 
 struct TLakeSoulFileDesc {
@@ -404,6 +406,7 @@ enum TTextSerdeType {
 struct TFileScanRangeParams {
     // deprecated, move to TFileScanRange
     1: optional Types.TFileType file_type;
+    // deprecated, move to TFileScanRange
     2: optional TFileFormatType format_type;
     // deprecated, move to TFileScanRange
     3: optional TFileCompressType compress_type;
@@ -444,6 +447,13 @@ struct TFileScanRangeParams {
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
     21: optional Types.TUniqueId load_id
     22: optional TTextSerdeType  text_serde_type 
+    // used by flexible partial update
+    23: optional string sequence_map_col
+    // table from FE, used for jni scanner
+    // BE can use table director:
+    //    1. Reduce the access to HMS and HDFS on the JNI side.
+    //    2. There will be no inconsistency between the fe and be tables.
+    24: optional string serialized_table
 }
 
 struct TFileRangeDesc {
@@ -471,6 +481,7 @@ struct TFileRangeDesc {
     // for hive table, different files may have different fs,
     // so fs_name should be with TFileRangeDesc
     12: optional string fs_name
+    13: optional TFileFormatType format_type;
 }
 
 struct TSplitSource {
@@ -1284,7 +1295,9 @@ struct TRuntimeFilterDesc {
   // true, if join type is null aware like <=>. rf should dispose the case
   15: optional bool null_aware;
 
-  16: optional bool sync_filter_size;
+  16: optional bool sync_filter_size; // Deprecated
+  
+  17: optional bool build_bf_exactly;
 }
 
 
@@ -1363,6 +1376,7 @@ struct TPlanNode {
   49: optional i64 push_down_count
 
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
+  51: optional bool is_serial_operator
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

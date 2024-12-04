@@ -142,6 +142,7 @@ suite("test_compaction_uniq_keys_row_store", "p0") {
             PROPERTIES ( "replication_num" = "1",
                     "enable_unique_key_merge_on_write" = "true",
                     "light_schema_change" = "true",
+                    "enable_unique_key_skip_bitmap_column" = "false",
                     "store_row_column" = "true"
             );
         """

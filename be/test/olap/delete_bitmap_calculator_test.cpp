@@ -103,7 +103,8 @@ public:
         io::FileWriterPtr file_writer;
         Status st = fs->create_file(path, &file_writer);
         EXPECT_TRUE(st.ok());
-        SegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, nullptr, opts);
+        SegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, nullptr, opts,
+                             nullptr);
         st = writer.init();
         EXPECT_TRUE(st.ok());
 
@@ -127,7 +128,8 @@ public:
         EXPECT_NE("", writer.min_encoded_key().to_string());
         EXPECT_NE("", writer.max_encoded_key().to_string());
 
-        st = segment_v2::Segment::open(fs, path, segment_id, rowset_id, query_schema,
+        int64_t tablet_id = 100;
+        st = segment_v2::Segment::open(fs, path, tablet_id, segment_id, rowset_id, query_schema,
                                        io::FileReaderOptions {}, res);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(nrows, (*res)->num_rows());

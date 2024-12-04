@@ -42,6 +42,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -66,7 +67,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         ++data(place).count;
     }
 
@@ -104,7 +105,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         int64_t peer_group_count = frame_end - frame_start;
         if (WindowFunctionRank::data(place).peer_group_start != frame_start) {
             WindowFunctionRank::data(place).peer_group_start = frame_start;
@@ -149,7 +150,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         if (WindowFunctionDenseRank::data(place).peer_group_start != frame_start) {
             WindowFunctionDenseRank::data(place).peer_group_start = frame_start;
             WindowFunctionDenseRank::data(place).rank++;
@@ -181,7 +182,7 @@ class WindowFunctionPercentRank final
         : public IAggregateFunctionDataHelper<PercentRankData, WindowFunctionPercentRank> {
 private:
     static double _cal_percent(int64 rank, int64 total_rows) {
-        return total_rows <= 1 ? 0.0 : (rank - 1) * 1.0 / (total_rows - 1);
+        return total_rows <= 1 ? 0.0 : double(rank - 1) * 1.0 / double(total_rows - 1);
     }
 
 public:
@@ -196,7 +197,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         int64_t peer_group_count = frame_end - frame_start;
         if (WindowFunctionPercentRank::data(place).peer_group_start != frame_start) {
             WindowFunctionPercentRank::data(place).peer_group_start = frame_start;
@@ -254,7 +255,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         check_default(place, partition_start, partition_end);
         int64_t peer_group_count = frame_end - frame_start;
         if (WindowFunctionCumeDist::data(place).peer_group_start != frame_start) {
@@ -270,7 +271,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        auto cume_dist = data(place).numerator * 1.0 / data(place).denominator;
+        auto cume_dist = (double)data(place).numerator * 1.0 / (double)data(place).denominator;
         assert_cast<ColumnFloat64&>(to).get_data().push_back(cume_dist);
     }
 
@@ -298,7 +299,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         // some variables are partition related, but there is no chance to init them
         // when the new partition arrives, so we calculate them every time now.
         // Partition = big_bucket_num * big_bucket_size + small_bucket_num * small_bucket_size
@@ -542,7 +543,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         this->data(place).add_range_single_place(partition_start, partition_end, frame_start,
                                                  frame_end, columns);
     }
@@ -554,7 +555,7 @@ public:
     }
 
     void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena*) const override {
         throw doris::Exception(Status::FatalError("WindowFunctionLeadLagData do not support add"));
     }
     void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {
@@ -575,3 +576,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

@@ -51,6 +51,7 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
+#include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
@@ -63,17 +64,29 @@
 #include "util/slice.h"
 #include "util/string_util.h"
 
-#define FINALLY_CLOSE_OUTPUT(x)       \
-    try {                             \
-        if (x != nullptr) x->close(); \
-    } catch (...) {                   \
-    }
 namespace doris::segment_v2 {
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
 const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
 const float MAXMBSortInHeap = 512.0 * 8;
 const int DIMS = 1;
+
+bool InvertedIndexColumnWriter::check_support_inverted_index(const TabletColumn& column) {
+    // bellow types are not supported in inverted index for extracted columns
+    static std::set<FieldType> invalid_types = {
+            FieldType::OLAP_FIELD_TYPE_DOUBLE,
+            FieldType::OLAP_FIELD_TYPE_JSONB,
+            FieldType::OLAP_FIELD_TYPE_ARRAY,
+            FieldType::OLAP_FIELD_TYPE_FLOAT,
+    };
+    if (column.is_extracted_column() && (invalid_types.contains(column.type()))) {
+        return false;
+    }
+    if (column.is_variant_type()) {
+        return false;
+    }
+    return true;
+}
 
 template <FieldType field_type>
 class InvertedIndexColumnWriterImpl : public InvertedIndexColumnWriter {
@@ -101,6 +114,12 @@ public:
 
     Status init() override {
         try {
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriter::init_field_type_not_supported", {
+                return Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                        "Field type not supported");
+            })
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriter::init_inverted_index_writer_init_error",
+                            { _CLTHROWA(CL_ERR_IO, "debug point: init index error"); })
             if constexpr (field_is_slice_type(field_type)) {
                 return init_fulltext_index();
             } else if constexpr (field_is_numeric_type(field_type)) {
@@ -115,15 +134,10 @@ public:
         }
     }
 
-    void close() {
-        if (_index_writer) {
-            _index_writer->close();
-            _index_writer.reset();
-        }
-    }
-
     void close_on_error() override {
         try {
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriter::close_on_error_throw_exception",
+                            { _CLTHROWA(CL_ERR_IO, "debug point: close on error"); })
             if (_index_writer) {
                 _index_writer->close();
             }
@@ -143,6 +157,9 @@ public:
         _bkd_writer = std::make_shared<lucene::util::bkd::bkd_writer>(
                 max_doc, DIMS, DIMS, value_length, MAX_LEAF_COUNT, MAXMBSortInHeap,
                 total_point_count, true, config::max_depth_in_bkd_tree);
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::init_bkd_index_throw_error", {
+            _CLTHROWA(CL_ERR_IllegalArgument, "debug point: create bkd_writer error");
+        })
         return open_index_directory();
     }
 
@@ -157,6 +174,10 @@ public:
     }
 
     Status open_index_directory() {
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::open_index_directory_error", {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "debug point: open_index_directory_error");
+        })
         _dir = DORIS_TRY(_index_file_writer->open(_index_meta));
         return Status::OK();
     }
@@ -165,7 +186,13 @@ public:
         bool create_index = true;
         bool close_dir_on_shutdown = true;
         auto index_writer = std::make_unique<lucene::index::IndexWriter>(
-                _dir, _analyzer.get(), create_index, close_dir_on_shutdown);
+                _dir.get(), _analyzer.get(), create_index, close_dir_on_shutdown);
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_index_writer_setRAMBufferSizeMB_error",
+                        { index_writer->setRAMBufferSizeMB(-100); })
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_index_writer_setMaxBufferedDocs_error",
+                        { index_writer->setMaxBufferedDocs(1); })
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_index_writer_setMergeFactor_error",
+                        { index_writer->setMergeFactor(1); })
         index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
         index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
         index_writer->setMaxFieldLength(MAX_FIELD_LEN);
@@ -230,6 +257,8 @@ public:
 
         try {
             _index_writer->addDocument(_doc.get());
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_document_throw_error",
+                            { _CLTHROWA(CL_ERR_IO, "debug point: add_document io error"); })
         } catch (const CLuceneError& e) {
             close_on_error();
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -241,6 +270,8 @@ public:
     Status add_null_document() {
         try {
             _index_writer->addNullDocument(_doc.get());
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_null_document_throw_error",
+                            { _CLTHROWA(CL_ERR_IO, "debug point: add_null_document io error"); })
         } catch (const CLuceneError& e) {
             close_on_error();
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -253,6 +284,10 @@ public:
         _null_bitmap.addRange(_rid, _rid + count);
         _rid += count;
         if constexpr (field_is_slice_type(field_type)) {
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_nulls_field_nullptr",
+                            { _field = nullptr; })
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_nulls_index_writer_nullptr",
+                            { _index_writer = nullptr; })
             if (_field == nullptr || _index_writer == nullptr) {
                 LOG(ERROR) << "field or index writer is null in inverted index writer.";
                 return Status::InternalError(
@@ -271,17 +306,30 @@ public:
         return Status::OK();
     }
 
-    void new_inverted_index_field(const char* field_value_data, size_t field_value_size) {
-        if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
-            _parser_type != InvertedIndexParserType::PARSER_NONE) {
-            new_char_token_stream(field_value_data, field_value_size, _field);
-        } else {
-            new_field_char_value(field_value_data, field_value_size, _field);
+    Status new_inverted_index_field(const char* field_value_data, size_t field_value_size) {
+        try {
+            if (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
+                _parser_type != InvertedIndexParserType::PARSER_NONE) {
+                new_char_token_stream(field_value_data, field_value_size, _field);
+            } else {
+                new_field_char_value(field_value_data, field_value_size, _field);
+            }
+        } catch (const CLuceneError& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError create new index field error: {}", e.what());
         }
+        return Status::OK();
     }
 
     void new_char_token_stream(const char* s, size_t len, lucene::document::Field* field) {
         _char_string_reader->init(s, len, false);
+        DBUG_EXECUTE_IF(
+                "InvertedIndexColumnWriterImpl::new_char_token_stream__char_string_reader_init_"
+                "error",
+                {
+                    _CLTHROWA(CL_ERR_UnsupportedOperation,
+                              "UnsupportedOperationException: CLStream::init");
+                })
         auto* stream = _analyzer->reusableTokenStream(field->name(), _char_string_reader.get());
         field->setValue(stream);
     }
@@ -299,6 +347,10 @@ public:
 
     Status add_values(const std::string fn, const void* values, size_t count) override {
         if constexpr (field_is_slice_type(field_type)) {
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_values_field_is_nullptr",
+                            { _field = nullptr; })
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_values_index_writer_is_nullptr",
+                            { _index_writer = nullptr; })
             if (_field == nullptr || _index_writer == nullptr) {
                 LOG(ERROR) << "field or index writer is null in inverted index writer.";
                 return Status::InternalError(
@@ -312,7 +364,7 @@ public:
                     (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
                     RETURN_IF_ERROR(add_null_document());
                 } else {
-                    new_inverted_index_field(v->get_data(), v->get_size());
+                    RETURN_IF_ERROR(new_inverted_index_field(v->get_data(), v->get_size()));
                     RETURN_IF_ERROR(add_document());
                 }
                 ++v;
@@ -326,12 +378,17 @@ public:
 
     Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* null_map,
                             const uint8_t* offsets_ptr, size_t count) override {
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_array_values_count_is_zero",
+                        { count = 0; })
         if (count == 0) {
             // no values to add inverted index
             return Status::OK();
         }
         const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
         if constexpr (field_is_slice_type(field_type)) {
+            DBUG_EXECUTE_IF(
+                    "InvertedIndexColumnWriterImpl::add_array_values_index_writer_is_nullptr",
+                    { _index_writer = nullptr; })
             if (_index_writer == nullptr) {
                 LOG(ERROR) << "index writer is null in inverted index writer.";
                 return Status::InternalError("index writer is null in inverted index writer");
@@ -357,7 +414,15 @@ public:
                         continue;
                     } else {
                         // now we temp create field . later make a pool
-                        if (Status st = create_field(&new_field); st != Status::OK()) {
+                        Status st = create_field(&new_field);
+                        DBUG_EXECUTE_IF(
+                                "InvertedIndexColumnWriterImpl::add_array_values_create_field_"
+                                "error",
+                                {
+                                    st = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                            "debug point: add_array_values_create_field_error");
+                                })
+                        if (st != Status::OK()) {
                             LOG(ERROR) << "create field "
                                        << string(_field_name.begin(), _field_name.end())
                                        << " error:" << st;
@@ -409,7 +474,14 @@ public:
                     // avoid to add doc which without any field which may make threadState init skip
                     // init fieldDataArray, then will make error with next doc with fields in
                     // resetCurrentFieldData
-                    if (Status st = create_field(&new_field); st != Status::OK()) {
+                    Status st = create_field(&new_field);
+                    DBUG_EXECUTE_IF(
+                            "InvertedIndexColumnWriterImpl::add_array_values_create_field_error_2",
+                            {
+                                st = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                        "debug point: add_array_values_create_field_error_2");
+                            })
+                    if (st != Status::OK()) {
                         LOG(ERROR)
                                 << "create field " << string(_field_name.begin(), _field_name.end())
                                 << " error:" << st;
@@ -443,6 +515,11 @@ public:
     Status add_array_values(size_t field_size, const CollectionValue* values,
                             size_t count) override {
         if constexpr (field_is_slice_type(field_type)) {
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_array_values_field_is_nullptr",
+                            { _field = nullptr; })
+            DBUG_EXECUTE_IF(
+                    "InvertedIndexColumnWriterImpl::add_array_values_index_writer_is_nullptr",
+                    { _index_writer = nullptr; })
             if (_field == nullptr || _index_writer == nullptr) {
                 LOG(ERROR) << "field or index writer is null in inverted index writer.";
                 return Status::InternalError(
@@ -461,7 +538,7 @@ public:
                     item_data_ptr = (uint8_t*)item_data_ptr + field_size;
                 }
                 auto value = join(strings, " ");
-                new_inverted_index_field(value.c_str(), value.length());
+                RETURN_IF_ERROR(new_inverted_index_field(value.c_str(), value.length()));
                 _rid++;
                 RETURN_IF_ERROR(add_document());
                 values++;
@@ -530,7 +607,6 @@ public:
             buf.resize(size);
             _null_bitmap.write(reinterpret_cast<char*>(buf.data()), false);
             null_bitmap_out->writeBytes(buf.data(), size);
-            null_bitmap_out->close();
         }
     }
 
@@ -540,6 +616,7 @@ public:
             std::unique_ptr<lucene::store::IndexOutput> data_out = nullptr;
             std::unique_ptr<lucene::store::IndexOutput> index_out = nullptr;
             std::unique_ptr<lucene::store::IndexOutput> meta_out = nullptr;
+            ErrorContext error_context;
             try {
                 // write bkd file
                 if constexpr (field_is_numeric_type(field_type)) {
@@ -568,16 +645,11 @@ public:
                                 << "Inverted index writer create output error occurred: nullptr";
                         _CLTHROWA(CL_ERR_IO, "Create output error with nullptr");
                     }
-                    meta_out->close();
-                    data_out->close();
-                    index_out->close();
-                    _dir->close();
                 } else if constexpr (field_is_slice_type(field_type)) {
                     null_bitmap_out = std::unique_ptr<
                             lucene::store::IndexOutput>(_dir->createOutput(
                             InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()));
                     write_null_bitmap(null_bitmap_out.get());
-                    close();
                     DBUG_EXECUTE_IF(
                             "InvertedIndexWriter._throw_clucene_error_in_fulltext_writer_close", {
                                 _CLTHROWA(CL_ERR_IO,
@@ -585,19 +657,24 @@ public:
                             });
                 }
             } catch (CLuceneError& e) {
-                FINALLY_CLOSE_OUTPUT(null_bitmap_out)
-                FINALLY_CLOSE_OUTPUT(meta_out)
-                FINALLY_CLOSE_OUTPUT(data_out)
-                FINALLY_CLOSE_OUTPUT(index_out)
-                if constexpr (field_is_numeric_type(field_type)) {
-                    FINALLY_CLOSE_OUTPUT(_dir)
-                } else if constexpr (field_is_slice_type(field_type)) {
-                    FINALLY_CLOSE_OUTPUT(_index_writer);
-                }
-                LOG(WARNING) << "Inverted index writer finish error occurred: " << e.what();
-                return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                        "Inverted index writer finish error occurred:{}", e.what());
+                error_context.eptr = std::current_exception();
+                error_context.err_msg.append("Inverted index writer finish error occurred: ");
+                error_context.err_msg.append(e.what());
+                LOG(ERROR) << error_context.err_msg;
             }
+            FINALLY({
+                FINALLY_CLOSE(null_bitmap_out);
+                FINALLY_CLOSE(meta_out);
+                FINALLY_CLOSE(data_out);
+                FINALLY_CLOSE(index_out);
+                if constexpr (field_is_numeric_type(field_type)) {
+                    FINALLY_CLOSE(_dir);
+                } else if constexpr (field_is_slice_type(field_type)) {
+                    FINALLY_CLOSE(_index_writer);
+                    // After closing the _index_writer, it needs to be reset to null to prevent issues of not closing it or closing it multiple times.
+                    _index_writer.reset();
+                }
+            })
 
             return Status::OK();
         }
@@ -620,7 +697,7 @@ private:
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;
     InvertedIndexCtxSPtr _inverted_index_ctx = nullptr;
-    DorisFSDirectory* _dir = nullptr;
+    std::shared_ptr<DorisFSDirectory> _dir = nullptr;
     const KeyCoder* _value_key_coder;
     const TabletIndex* _index_meta;
     InvertedIndexParserType _parser_type;
@@ -651,6 +728,8 @@ Status InvertedIndexColumnWriter::create(const Field* field,
     bool single_field = true;
     if (type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         const auto* array_typeinfo = dynamic_cast<const ArrayTypeInfo*>(typeinfo);
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_array_typeinfo_is_nullptr",
+                        { array_typeinfo = nullptr; })
         if (array_typeinfo != nullptr) {
             typeinfo = array_typeinfo->item_type_info();
             type = typeinfo->type();
@@ -661,6 +740,8 @@ Status InvertedIndexColumnWriter::create(const Field* field,
         }
     }
 
+    DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_unsupported_type_for_inverted_index",
+                    { type = FieldType::OLAP_FIELD_TYPE_FLOAT; })
     switch (type) {
 #define M(TYPE)                                                           \
     case TYPE:                                                            \

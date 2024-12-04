@@ -125,7 +125,8 @@ Status CumulativeCompaction::execute_compact() {
         tablet()->set_last_cumu_compaction_success_time(UnixMillis());
     }
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
-    DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
+    DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(
+            _input_rowsets_total_size);
 
     return Status::OK();
 }
@@ -144,7 +145,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
         DCHECK(missing_versions.size() % 2 == 0);
         LOG(WARNING) << "There are missed versions among rowsets. "
                      << "total missed version size: " << missing_versions.size() / 2
-                     << " first missed version prev rowset verison=" << missing_versions[0]
+                     << ", first missed version prev rowset verison=" << missing_versions[0]
                      << ", first missed version next rowset version=" << missing_versions[1]
                      << ", tablet=" << _tablet->tablet_id();
     }

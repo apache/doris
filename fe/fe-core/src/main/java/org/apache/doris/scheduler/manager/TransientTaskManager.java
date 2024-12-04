@@ -22,10 +22,13 @@ import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 
 import lombok.Setter;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.concurrent.ConcurrentHashMap;
 
 public class TransientTaskManager {
+    private static final Logger LOG = LogManager.getLogger(TransientTaskManager.class);
     /**
      * key: taskId
      * value: memory task executor of this task
@@ -57,10 +60,20 @@ public class TransientTaskManager {
         Long taskId = executor.getId();
         taskExecutorMap.put(taskId, executor);
         disruptor.tryPublishTask(taskId);
+        LOG.info("add memory task, taskId: {}", taskId);
         return taskId;
     }
 
     public void cancelMemoryTask(Long taskId) throws JobException {
-        taskExecutorMap.get(taskId).cancel();
+        try {
+            taskExecutorMap.get(taskId).cancel();
+        } finally {
+            removeMemoryTask(taskId);
+        }
+    }
+
+    public void removeMemoryTask(Long taskId) {
+        taskExecutorMap.remove(taskId);
+        LOG.info("remove memory task, taskId: {}", taskId);
     }
 }

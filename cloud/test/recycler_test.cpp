@@ -255,14 +255,63 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
     return 0;
 }
 
+static int create_committed_rowset_with_rowset_id(TxnKv* txn_kv, StorageVaultAccessor* accessor,
+                                                  const std::string& resource_id, int64_t tablet_id,
+                                                  int64_t start_version, int64_t end_version,
+                                                  std::string rowset_id, bool segments_overlap,
+                                                  int num_segments) {
+    std::string key;
+    std::string val;
+
+    MetaRowsetKeyInfo key_info {instance_id, tablet_id, end_version};
+    meta_rowset_key(key_info, &key);
+
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0); // useless but required
+    rowset_pb.set_rowset_id_v2(rowset_id);
+    rowset_pb.set_num_segments(num_segments);
+    rowset_pb.set_tablet_id(tablet_id);
+    rowset_pb.set_resource_id(resource_id);
+    rowset_pb.set_creation_time(current_time);
+    rowset_pb.set_start_version(start_version);
+    rowset_pb.set_end_version(end_version);
+    rowset_pb.set_segments_overlap_pb(segments_overlap ? OVERLAPPING : NONOVERLAPPING);
+    rowset_pb.SerializeToString(&val);
+
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    txn->put(key, val);
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+
+    for (int i = 0; i < num_segments; ++i) {
+        auto path = segment_path(tablet_id, rowset_id, i);
+        accessor->put_file(path, "");
+    }
+    return 0;
+}
+
+static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::string rowset_id,
+                                  int64_t start_version, int64_t end_version) {
+    for (int64_t ver {start_version}; ver <= end_version; ver++) {
+        auto key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+        std::string val {"test_data"};
+        txn->put(key, val);
+    }
+}
+
 static int create_tablet(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int64_t partition_id,
-                         int64_t tablet_id) {
+                         int64_t tablet_id, bool is_mow = false) {
     std::unique_ptr<Transaction> txn;
     if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
         return -1;
     }
     doris::TabletMetaCloudPB tablet_meta;
     tablet_meta.set_tablet_id(tablet_id);
+    tablet_meta.set_enable_unique_key_merge_on_write(is_mow);
     auto val = tablet_meta.SerializeAsString();
     auto key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
     txn->put(key, val);
@@ -275,6 +324,7 @@ static int create_tablet(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int6
     TabletIndexPB tablet_idx_pb;
     tablet_idx_pb.set_db_id(db_id);
     tablet_idx_pb.set_table_id(table_id);
+    tablet_idx_pb.set_index_id(index_id);
     tablet_idx_pb.set_partition_id(partition_id);
     tablet_idx_pb.set_tablet_id(tablet_id);
     auto idx_val = tablet_idx_pb.SerializeAsString();
@@ -2576,6 +2626,352 @@ TEST(CheckerTest, do_inspect) {
     }
 }
 
+TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
+    // normal case, all delete bitmaps belong to a rowset
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    // create some rowsets with delete bitmaps in merge-on-write tablet
+    for (int tablet_id = 600001; tablet_id <= 600010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        int64_t rowset_start_id = 400;
+        for (int ver = 2; ver <= 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, ver, rowset_id, false, 1);
+            if (ver >= 5) {
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val {"test"};
+                txn->put(delete_bitmap_key, delete_bitmap_val);
+            } else {
+                // delete bitmaps may be spilitted into mulitiple KVs if too large
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val(1000, 'A');
+                cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+            }
+        }
+    }
+
+    // also create some rowsets without delete bitmaps in non merge-on-write tablet
+    for (int tablet_id = 700001; tablet_id <= 700010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));
+        int64_t rowset_start_id = 500;
+        for (int ver = 2; ver < 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, ver, rowset_id, false, 1);
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
+    // abnormal case, some delete bitmaps arem leaked
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    // tablet_id -> [rowset_id, version, segment_id]
+    std::map<std::int64_t, std::set<std::tuple<std::string, int64_t, int64_t>>>
+            expected_abnormal_delete_bitmaps {}, real_abnormal_delete_bitmaps {};
+    std::map<std::int64_t, std::set<std::tuple<std::string, int64_t, int64_t>>>
+            expected_leaked_delete_bitmaps {}, real_leaked_delete_bitmaps {};
+    auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back(
+            "InstanceChecker::do_delete_bitmap_inverted_check.get_abnormal_delete_bitmap",
+            [&real_abnormal_delete_bitmaps](auto&& args) {
+                int64_t tablet_id = *try_any_cast<int64_t*>(args[0]);
+                std::string rowset_id = *try_any_cast<std::string*>(args[1]);
+                int64_t version = *try_any_cast<int64_t*>(args[2]);
+                int64_t segment_id = *try_any_cast<int64_t*>(args[3]);
+                real_abnormal_delete_bitmaps[tablet_id].insert({rowset_id, version, segment_id});
+            });
+    sp->set_call_back(
+            "InstanceChecker::do_delete_bitmap_inverted_check.get_leaked_delete_bitmap",
+            [&real_leaked_delete_bitmaps](auto&& args) {
+                int64_t tablet_id = *try_any_cast<int64_t*>(args[0]);
+                std::string rowset_id = *try_any_cast<std::string*>(args[1]);
+                int64_t version = *try_any_cast<int64_t*>(args[2]);
+                int64_t segment_id = *try_any_cast<int64_t*>(args[3]);
+                real_leaked_delete_bitmaps[tablet_id].insert({rowset_id, version, segment_id});
+            });
+    sp->enable_processing();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    // create some rowsets with delete bitmaps in merge-on-write tablet
+    for (int tablet_id = 800001; tablet_id <= 800010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        int64_t rowset_start_id = 600;
+        for (int ver = 2; ver <= 20; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+
+            if (ver >= 10) {
+                // only create rowsets for some versions
+                create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                       ver, ver, rowset_id, false, 1);
+            } else {
+                expected_leaked_delete_bitmaps[tablet_id].insert({rowset_id, ver, 0});
+            }
+
+            if (ver >= 5) {
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val {"test"};
+                txn->put(delete_bitmap_key, delete_bitmap_val);
+            } else {
+                // delete bitmaps may be spilitted into mulitiple KVs if too large
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val(1000, 'A');
+                cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+            }
+        }
+    }
+
+    // create some rowsets with delete bitmaps in non merge-on-write tablet
+    for (int tablet_id = 900001; tablet_id <= 900010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));
+        int64_t rowset_start_id = 700;
+        for (int ver = 2; ver < 6; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, ver, rowset_id, false, 1);
+            auto delete_bitmap_key =
+                    meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+            std::string delete_bitmap_val {"test2"};
+            txn->put(delete_bitmap_key, delete_bitmap_val);
+
+            expected_abnormal_delete_bitmaps[tablet_id].insert({rowset_id, ver, 0});
+        }
+    }
+
+    // create some rowsets without delete bitmaps in non merge-on-write tablet
+    for (int tablet_id = 700001; tablet_id <= 700010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));
+        int64_t rowset_start_id = 500;
+        for (int ver = 2; ver < 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, ver, rowset_id, false, 1);
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 1);
+    ASSERT_EQ(expected_leaked_delete_bitmaps, real_leaked_delete_bitmaps);
+    ASSERT_EQ(expected_abnormal_delete_bitmaps, real_abnormal_delete_bitmaps);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_optimize_check_normal) {
+    config::delete_bitmap_storage_optimize_check_version_gap = 0;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    int64_t rowset_start_id = 600;
+
+    for (int tablet_id = 800001; tablet_id <= 800005; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {{2, 2}, {3, 3}, {4, 4}, {5, 5},
+                                                              {6, 7}, {8, 8}, {9, 9}};
+        std::vector<std::pair<int64_t, int64_t>> delete_bitmaps_vers {
+                {7, 9}, {8, 9}, {7, 9}, {7, 9}, {7, 9}, {8, 9}, {9, 9}};
+        std::vector<bool> segments_overlap {true, true, true, true, false, true, true};
+        for (size_t i {0}; i < 7; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i].first,
+                                  delete_bitmaps_vers[i].second);
+        }
+    }
+
+    for (int tablet_id = 800006; tablet_id <= 800010; ++tablet_id) {
+        // [7-7] cumu compaction output rowset start_version == end_version
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {{2, 2}, {3, 3}, {4, 4}, {5, 5},
+                                                              {6, 6}, {7, 7}, {8, 8}, {9, 9}};
+        std::vector<std::pair<int64_t, int64_t>> delete_bitmaps_vers {
+                {7, 9}, {8, 9}, {7, 9}, {7, 9}, {7, 9}, {7, 9}, {8, 9}, {9, 9}};
+        std::vector<bool> segments_overlap {true, true, false, true, false, true, true, true};
+        for (size_t i {0}; i < 8; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i].first,
+                                  delete_bitmaps_vers[i].second);
+        }
+    }
+
+    for (int tablet_id = 800011; tablet_id <= 800015; ++tablet_id) {
+        // no rowsets are compacted
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {{2, 2}, {3, 3}, {4, 4}, {5, 5},
+                                                              {6, 6}, {7, 7}, {8, 8}, {9, 9}};
+        std::vector<std::pair<int64_t, int64_t>> delete_bitmaps_vers {
+                {2, 9}, {3, 9}, {4, 9}, {5, 9}, {6, 9}, {7, 9}, {8, 9}, {9, 9}};
+        std::vector<bool> segments_overlap {true, true, true, true, true, true, true, true};
+        for (size_t i {0}; i < 8; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i].first,
+                                  delete_bitmaps_vers[i].second);
+        }
+    }
+
+    for (int tablet_id = 800016; tablet_id <= 800020; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {
+                {2, 5}, {6, 6}, {7, 7}, {8, 8}, {9, 9}};
+        std::vector<std::pair<int64_t, int64_t>> delete_bitmaps_vers {
+                {5, 9}, {6, 9}, {7, 9}, {8, 9}, {9, 9}};
+        std::vector<bool> segments_overlap {false, true, true, true, true};
+        for (size_t i {0}; i < 5; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i].first,
+                                  delete_bitmaps_vers[i].second);
+        }
+    }
+
+    // also create some rowsets without delete bitmaps in non merge-on-write tablet
+    for (int tablet_id = 700001; tablet_id <= 700010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));
+        int64_t rowset_start_id = 500;
+        for (int ver = 2; ver < 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, ver, rowset_id, false, 1);
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_optimize_check_abnormal) {
+    config::delete_bitmap_storage_optimize_check_version_gap = 0;
+    // abnormal case, some rowsets' delete bitmaps are not deleted as expected
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    // tablet_id -> [rowset_id]
+    std::map<std::int64_t, std::set<std::string>> expected_abnormal_rowsets {};
+    std::map<std::int64_t, std::set<std::string>> real_abnormal_rowsets {};
+    auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("InstanceChecker::check_delete_bitmap_storage_optimize.get_abnormal_rowset",
+                      [&real_abnormal_rowsets](auto&& args) {
+                          int64_t tablet_id = *try_any_cast<int64_t*>(args[0]);
+                          std::string rowset_id = *try_any_cast<std::string*>(args[1]);
+                          real_abnormal_rowsets[tablet_id].insert(rowset_id);
+                      });
+    sp->enable_processing();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+
+    int64_t rowset_start_id = 700;
+    for (int tablet_id = 900001; tablet_id <= 900005; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {{2, 2}, {3, 3}, {4, 4}, {5, 5},
+                                                              {6, 7}, {8, 8}, {9, 9}};
+        std::vector<std::pair<int64_t, int64_t>> delete_bitmaps_vers {
+                {2, 9}, {7, 9}, {4, 9}, {7, 9}, {7, 9}, {8, 9}, {9, 9}};
+        std::vector<bool> segments_overlap {true, true, true, true, false, true, true};
+        for (size_t i {0}; i < 7; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i].first,
+                                  delete_bitmaps_vers[i].second);
+            if (delete_bitmaps_vers[i].first < 7) {
+                expected_abnormal_rowsets[tablet_id].insert(rowset_id);
+            }
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(), 1);
+    ASSERT_EQ(expected_abnormal_rowsets, real_abnormal_rowsets);
+}
+
 TEST(RecyclerTest, delete_rowset_data) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -2596,6 +2992,111 @@ TEST(RecyclerTest, delete_rowset_data) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
         schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+        for (int j = 0; j < i; ++j) {
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
+        }
+    }
+
+    {
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+        auto accessor = recycler.accessor_map_.begin()->second;
+        int64_t txn_id_base = 114115;
+        int64_t tablet_id_base = 10015;
+        int64_t index_id_base = 1000;
+        // Delete each rowset directly using one RowsetPB
+        for (int i = 0; i < 100; ++i) {
+            int64_t txn_id = txn_id_base + i;
+            for (int j = 0; j < 20; ++j) {
+                auto rowset = create_rowset("recycle_tmp_rowsets", tablet_id_base + j,
+                                            index_id_base + j % 4, 5, schemas[i % 5], txn_id);
+                create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1);
+                ASSERT_EQ(0, recycler.delete_rowset_data(rowset));
+            }
+        }
+
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_all(&list_iter));
+        ASSERT_FALSE(list_iter->has_next());
+    }
+    {
+        InstanceInfoPB tmp_instance;
+        std::string resource_id = "recycle_tmp_rowsets";
+        tmp_instance.set_instance_id(instance_id);
+        auto tmp_obj_info = tmp_instance.add_obj_info();
+        tmp_obj_info->set_id(resource_id);
+        tmp_obj_info->set_ak(config::test_s3_ak);
+        tmp_obj_info->set_sk(config::test_s3_sk);
+        tmp_obj_info->set_endpoint(config::test_s3_endpoint);
+        tmp_obj_info->set_region(config::test_s3_region);
+        tmp_obj_info->set_bucket(config::test_s3_bucket);
+        tmp_obj_info->set_prefix(resource_id);
+
+        InstanceRecycler recycler(txn_kv, tmp_instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+        auto accessor = recycler.accessor_map_.begin()->second;
+        // Delete multiple rowset files using one series of RowsetPB
+        constexpr int index_id = 10001, tablet_id = 10002;
+        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        for (int i = 0; i < 10; ++i) {
+            auto rowset = create_rowset(resource_id, tablet_id, index_id, 5, schemas[i % 5]);
+            create_recycle_rowset(
+                    txn_kv.get(), accessor.get(), rowset,
+                    static_cast<RecycleRowsetPB::Type>(i % (RecycleRowsetPB::Type_MAX + 1)), true);
+
+            rowset_pbs.emplace_back(std::move(rowset));
+        }
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs));
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_all(&list_iter));
+        ASSERT_FALSE(list_iter->has_next());
+    }
+    {
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+        auto accessor = recycler.accessor_map_.begin()->second;
+        // Delete multiple rowset files using one series of RowsetPB
+        constexpr int index_id = 20001, tablet_id = 20002;
+        // Delete each rowset file directly using it's id to construct one path
+        for (int i = 0; i < 1000; ++i) {
+            auto rowset =
+                    create_rowset("recycle_tmp_rowsets", tablet_id, index_id, 5, schemas[i % 5]);
+            create_recycle_rowset(txn_kv.get(), accessor.get(), rowset, RecycleRowsetPB::COMPACT,
+                                  true);
+            ASSERT_EQ(0, recycler.delete_rowset_data(rowset.resource_id(), rowset.tablet_id(),
+                                                     rowset.rowset_id_v2()));
+        }
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_all(&list_iter));
+        ASSERT_FALSE(list_iter->has_next());
+    }
+}
+
+TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_tmp_rowsets");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_tmp_rowsets");
+
+    std::vector<doris::TabletSchemaCloudPB> schemas;
+    for (int i = 0; i < 5; ++i) {
+        auto& schema = schemas.emplace_back();
+        schema.set_schema_version(i);
+        //schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
             auto index = schema.add_index();
             index->set_index_id(j);

@@ -54,6 +54,7 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -147,7 +148,7 @@ public class MTMVPartitionDefinition {
             MTMVRelatedTableIf mtmvBaseRealtedTable = MTMVUtil.getRelatedTable(relatedTableInfo.getTableInfo());
             Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             try {
-                partitionColumnNames.addAll(mtmvBaseRealtedTable.getPartitionColumnNames());
+                partitionColumnNames.addAll(mtmvBaseRealtedTable.getPartitionColumnNames(Optional.empty()));
             } catch (DdlException e) {
                 throw new AnalysisException(e.getMessage(), e);
             }

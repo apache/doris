@@ -122,9 +122,9 @@ enum TStorageBackendType {
 // This enum is used to distinguish between different organizational methods
 // of inverted index data, affecting how the index is stored and accessed.
 enum TInvertedIndexFileStorageFormat {
-    DEFAULT, // Default format, unspecified storage method.
-    V1,      // Index per idx: Each index is stored separately based on its identifier.
-    V2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+    DEFAULT = 0, // Default format, unspecified storage method.
+    V1 = 1,      // Index per idx: Each index is stored separately based on its identifier.
+    V2 = 2      // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
 }
 
 struct TScalarType {
@@ -716,6 +716,12 @@ enum TMergeType {
   APPEND,
   MERGE,
   DELETE
+}
+
+enum TUniqueKeyUpdateMode {
+  UPSERT,
+  UPDATE_FIXED_COLUMNS,
+  UPDATE_FLEXIBLE_COLUMNS
 }
 
 enum TSortType {

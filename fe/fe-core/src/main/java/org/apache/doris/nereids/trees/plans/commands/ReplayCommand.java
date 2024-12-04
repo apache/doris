@@ -57,6 +57,10 @@ public class ReplayCommand extends Command implements NoForward {
         return dumpFileFullPath;
     }
 
+    public ReplayType getReplayType() {
+        return replayType;
+    }
+
     /**
      * explain level.
      */
@@ -95,6 +99,7 @@ public class ReplayCommand extends Command implements NoForward {
         // 3. run nereids planner with sql in minidump file
         StatementContext statementContext = new StatementContext(ConnectContext.get(),
                 new OriginStatement(minidump.getSql(), 0));
+        statementContext.setTables(minidump.getTables());
         ConnectContext.get().setStatementContext(statementContext);
         JSONObject resultPlan = MinidumpUtils.executeSql(minidump.getSql());
         JSONObject minidumpResult = new JSONObject(minidump.getResultPlanJson());

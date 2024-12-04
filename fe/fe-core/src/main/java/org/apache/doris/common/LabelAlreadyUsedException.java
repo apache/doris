@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
@@ -35,6 +36,26 @@ public class LabelAlreadyUsedException extends DdlException {
 
     public LabelAlreadyUsedException(String msg, boolean isLabel) {
         super(isLabel ? "Label [" + msg + "] has already been used." : msg);
+    }
+
+    public LabelAlreadyUsedException(String msg, boolean isLabel, TxnStatusPB txnStatus) {
+        super(isLabel ? "Label [" + msg + "] has already been used." : msg);
+        switch (txnStatus) {
+            case TXN_STATUS_UNKNOWN:
+            case TXN_STATUS_PREPARED:
+                jobStatus = "RUNNING";
+                break;
+            case TXN_STATUS_PRECOMMITTED:
+                jobStatus = "PRECOMMITTED";
+                break;
+            case TXN_STATUS_COMMITTED:
+            case TXN_STATUS_VISIBLE:
+                jobStatus = "FINISHED";
+                break;
+            default:
+                Preconditions.checkState(false, txnStatus);
+                break;
+        }
     }
 
     public LabelAlreadyUsedException(TransactionState txn) {

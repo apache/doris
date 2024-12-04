@@ -31,8 +31,11 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.VariableAnnotation;
+import org.apache.doris.common.util.SerializationUtils;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
+import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -40,7 +43,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.similarity.JaroWinklerDistance;
 import org.apache.logging.log4j.LogManager;
@@ -469,6 +471,11 @@ public class VariableMgr {
         try {
             String json = info.getPersistJsonString();
             JSONObject root = (JSONObject) JSONValue.parse(json);
+            // if not variable version, we set it to 0 to ensure we could force set global variable.
+            boolean hasVariableVersion = root.containsKey(GlobalVariable.VARIABLE_VERSION);
+            if (!hasVariableVersion) {
+                GlobalVariable.variableVersion = GlobalVariable.VARIABLE_VERSION_0;
+            }
             for (Object varName : root.keySet()) {
                 VarContext varContext = ctxByVarName.get((String) varName);
                 if (Env.isCheckpointThread()) {
@@ -728,9 +735,13 @@ public class VariableMgr {
         rlock.lock();
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
-                // not show removed variables
                 VarAttr varAttr = entry.getValue().getField().getAnnotation(VarAttr.class);
+                // not show removed variables
                 if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                    continue;
+                }
+                // not show invisible variables
+                if ((VariableMgr.INVISIBLE & varAttr.flag()) != 0) {
                     continue;
                 }
                 // Filter variable not match to the regex.
@@ -946,5 +957,63 @@ public class VariableMgr {
             builder.put(attr.name(), new VarContext(field, null, GLOBAL | attr.flag(), getValue(null, field)));
         }
         return builder;
+    }
+
+    public static void forceUpdateVariables() {
+        int currentVariableVersion = GlobalVariable.variableVersion;
+        if (currentVariableVersion == GlobalVariable.VARIABLE_VERSION_0) {
+            // update from 2.0.15 or below to 2.0.16 or higher
+            if (VariableMgr.newSessionVariable().nereidsTimeoutSecond == 5) {
+                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                        SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
+            }
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_100) {
+            // update from 2.1.6 or below to 2.1.7 or higher
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    SessionVariable.ENABLE_NEREIDS_DML,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    SessionVariable.ENABLE_NEREIDS_DML_WITH_PIPELINE,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    SessionVariable.ENABLE_NEREIDS_PLANNER,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    SessionVariable.ENABLE_PIPELINE_X_ENGINE,
+                    String.valueOf(true));
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_101) {
+            if (StatisticsUtil.getAutoAnalyzeTableWidthThreshold()
+                    < StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD) {
+                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                        SessionVariable.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
+                        String.valueOf(StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD));
+            }
+            if (StatisticsUtil.getTableStatsHealthThreshold()
+                    < StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD) {
+                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                        SessionVariable.TABLE_STATS_HEALTH_THRESHOLD,
+                        String.valueOf(StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD));
+            }
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_200) {
+            // update from 3.0.2 or below to 3.0.3 or higher
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
+                    String.valueOf(false));
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_300) {
+            // update to master
+            // do nothing
+        }
+        if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    GlobalVariable.VARIABLE_VERSION,
+                    String.valueOf(GlobalVariable.CURRENT_VARIABLE_VERSION));
+        }
     }
 }

@@ -48,7 +48,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // new one scanner
     _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
-    _schema_scanner->set_dependency(_data_dependency, _finish_dependency);
+    _schema_scanner->set_dependency(_data_dependency);
     if (nullptr == _schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }

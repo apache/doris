@@ -33,7 +33,6 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_set.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -62,7 +61,7 @@ using ColumnString = ColumnStr<UInt32>;
 template <typename T>
 struct OverlapSetImpl {
     using ElementNativeType = typename NativeType<typename T::value_type>::Type;
-    using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>, 4>;
+    using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
     Set set;
     void insert_array(const IColumn* column, size_t start, size_t size) {
         const auto& vec = assert_cast<const T&>(*column).get_data();
@@ -73,7 +72,7 @@ struct OverlapSetImpl {
     bool find_any(const IColumn* column, size_t start, size_t size) {
         const auto& vec = assert_cast<const T&>(*column).get_data();
         for (size_t i = start; i < start + size; ++i) {
-            if (set.find(vec[i])) {
+            if (set.contains(vec[i])) {
                 return true;
             }
         }
@@ -83,7 +82,7 @@ struct OverlapSetImpl {
 
 template <>
 struct OverlapSetImpl<ColumnString> {
-    using Set = HashSetWithStackMemory<StringRef, DefaultHash<StringRef>, 4>;
+    using Set = phmap::flat_hash_set<StringRef, DefaultHash<StringRef>>;
     Set set;
     void insert_array(const IColumn* column, size_t start, size_t size) {
         for (size_t i = start; i < start + size; ++i) {
@@ -92,7 +91,7 @@ struct OverlapSetImpl<ColumnString> {
     }
     bool find_any(const IColumn* column, size_t start, size_t size) {
         for (size_t i = start; i < start + size; ++i) {
-            if (set.find(column->get_data_at(i))) {
+            if (set.contains(column->get_data_at(i))) {
                 return true;
             }
         }
@@ -156,7 +155,7 @@ public:
         ColumnPtr arg_column = arguments[0].column;
         DataTypePtr arg_type = arguments[0].type;
         if ((is_column_nullable(*arg_column) && !is_column_const(*remove_nullable(arg_column))) ||
-            !is_column_const(*arg_column)) {
+            (!is_column_nullable(*arg_column) && !is_column_const(*arg_column))) {
             // if not we should skip inverted index and evaluate in expression
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, array_overlap only support const value");
@@ -184,22 +183,18 @@ public:
         }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         const Array& query_val = param_value.get<Array>();
-        for (size_t i = 0; i < query_val.size(); ++i) {
-            Field nested_query_val = query_val[i];
+        for (auto nested_query_val : query_val) {
+            // any element inside array is NULL, return NULL
+            // by current arrays_overlap execute logic.
+            if (nested_query_val.is_null()) {
+                return Status::OK();
+            }
             std::shared_ptr<roaring::Roaring> single_res = std::make_shared<roaring::Roaring>();
             RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                     nested_param_type, &nested_query_val, query_param));
-            Status st = iter->read_from_inverted_index(
+            RETURN_IF_ERROR(iter->read_from_inverted_index(
                     data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, single_res);
-            if (st.code() == ErrorCode::INVERTED_INDEX_NO_TERMS) {
-                // if analyzed param with no term, we do not filter any rows
-                // return all rows with OK status
-                roaring->addRange(0, num_rows);
-                break;
-            } else if (st != Status::OK()) {
-                return st;
-            }
+                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, single_res));
             *roaring |= *single_res;
         }
 
@@ -211,7 +206,15 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
+        DBUG_EXECUTE_IF("array_func.arrays_overlap", {
+            auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "array_func.arrays_overlap", "req_id", 0);
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "{} has already execute inverted index req_id {} , should not execute expr "
+                    "with rows: {}",
+                    get_name(), req_id, input_rows_count);
+        });
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto right_column =

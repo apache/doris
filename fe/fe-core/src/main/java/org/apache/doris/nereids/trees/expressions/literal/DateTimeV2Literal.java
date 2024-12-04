@@ -77,7 +77,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             this.second = localDateTime.getSecond();
             this.microSecond -= 1000000;
         }
-        if (checkRange() || checkDate()) {
+        if (checkRange() || checkDate(year, month, day)) {
             // may fallback to legacy planner. make sure the behaviour of rounding is same.
             throw new AnalysisException("datetime literal [" + toString() + "] is out of range");
         }

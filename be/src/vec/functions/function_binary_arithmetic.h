@@ -42,7 +42,6 @@
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
-
 // Arithmetic operations: +, -, *, |, &, ^, ~
 // need implement apply(a, b)
 
@@ -1030,7 +1029,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto* left_generic = block.get_by_position(arguments[0]).type.get();
         auto* right_generic = block.get_by_position(arguments[1]).type.get();
         auto* result_generic = block.get_by_position(result).type.get();

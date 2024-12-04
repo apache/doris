@@ -16,7 +16,10 @@
 // under the License.
 
 suite("test_transactional_hive", "p0,external,hive,external_docker,external_docker_hive") {
+    String skip_checking_acid_version_file = "false"
+
     def q01 = {
+        sql """set skip_checking_acid_version_file=${skip_checking_acid_version_file}"""
         qt_q01 """
         select * from orc_full_acid order by id;
         """
@@ -32,6 +35,7 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
     }
 
     def q01_par = {
+        sql """set skip_checking_acid_version_file=${skip_checking_acid_version_file}"""
         qt_q01 """
         select * from orc_full_acid_par order by id;
         """
@@ -54,7 +58,7 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String catalog_name = "test_transactional_${hivePrefix}"
@@ -67,6 +71,11 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
             );"""
             sql """use `${catalog_name}`.`default`"""
 
+            skip_checking_acid_version_file = "false"
+            q01()
+            q01_par()
+
+            skip_checking_acid_version_file = "true"
             q01()
             q01_par()
 

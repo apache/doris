@@ -129,9 +129,9 @@ public class ShowCacheHotSpotStmt extends ShowStmt implements NotFallbackInParse
                             + "sum(query_per_week) as query_per_week_total "
                             + "FROM " + TABLE_NAME.toString()
                             + " group by cluster_id, cluster_name, table_id, table_name, insert_day) ");
-            StringBuilder q2 = new StringBuilder("select cluster_id as compute_group_id, "
-                            + "cluster_name as compute_group_name, "
-                            + "table_id, table_name as hot_table_name from (select row_number() "
+            StringBuilder q2 = new StringBuilder("select cluster_id as ComputeGroupId, "
+                            + "cluster_name as ComputeGroupName, "
+                            + "table_id as TableId, table_name as TableName from (select row_number() "
                             + "over (partition by cluster_id order by insert_day desc, "
                             + "query_per_day_total desc, query_per_week_total desc) as dr2, "
                             + "* from t1) t2 where dr2 = 1;");
@@ -145,18 +145,18 @@ public class ShowCacheHotSpotStmt extends ShowStmt implements NotFallbackInParse
                             + " where " +  whereExpr.get(0)
                             + "group by cluster_id, cluster_name, table_id, "
                             + "table_name, partition_id, partition_name, insert_day)");
-            StringBuilder q2 = new StringBuilder("select table_id, table_name, "
-                            + "partition_id, partition_name as hot_partition_name from (select row_number() "
+            StringBuilder q2 = new StringBuilder("select table_id as TableId, table_name as TableName, "
+                            + "partition_id as PartitionId, partition_name as PartitionName from (select row_number() "
                             + "over (partition by cluster_id, table_id order by insert_day desc, "
                             + "query_per_day_total desc, query_per_week_total desc) as dr2, "
                             + "* from t1) t2 where dr2 = 1;");
             query = q1.append(q2);
         } else if (metaDataPos == 2) {
-            query = new StringBuilder("select partition_id, partition_name "
-            + "FROM " + TABLE_NAME.toString()
+            query = new StringBuilder("select partition_id as PartitionId, partition_name as PartitionName"
+            + " FROM " + TABLE_NAME.toString()
             + " where " +  whereExpr.get(0)
             + " and " + whereExpr.get(1)
-            + "group by cluster_id, cluster_name, table_id, "
+            + " group by cluster_id, cluster_name, table_id, "
             + "table_name, partition_id, partition_name;");
         }
         Preconditions.checkState(query != null);

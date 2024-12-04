@@ -1933,6 +1933,11 @@ public class ShowExecutor {
         Map<String, Expr> filterMap = showStmt.getFilterMap();
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
 
+        // catalog.getClient().listPartitionNames() returned string is the encoded string.
+        // example: insert into tmp partition(pt="1=3/3") values( xxx );
+        //          show partitions from tmp: pt=1%3D3%2F3
+        // Need to consider whether to call `HiveUtil.toPartitionColNameAndValues` method
+
         if (limit != null && limit.hasLimit() && limit.getOffset() == 0
                 && (orderByPairs == null || !orderByPairs.get(0).isDesc())) {
             // hmsClient returns unordered partition list, hence if offset > 0 cannot pass limit
@@ -2124,30 +2129,32 @@ public class ShowExecutor {
                         }
                     }
                 }
-                if (sizeLimit > -1 && tabletInfos.size() < sizeLimit) {
+                if (showStmt.hasOffset() && showStmt.getOffset() >= tabletInfos.size()) {
                     tabletInfos.clear();
-                } else if (sizeLimit > -1) {
-                    tabletInfos = tabletInfos.subList((int) showStmt.getOffset(), (int) sizeLimit);
-                }
-
-                // order by
-                List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
-                ListComparator<List<Comparable>> comparator = null;
-                if (orderByPairs != null) {
-                    OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-                    comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
                 } else {
-                    // order by tabletId, replicaId
-                    comparator = new ListComparator<>(0, 1);
-                }
-                Collections.sort(tabletInfos, comparator);
-
-                for (List<Comparable> tabletInfo : tabletInfos) {
-                    List<String> oneTablet = new ArrayList<String>(tabletInfo.size());
-                    for (Comparable column : tabletInfo) {
-                        oneTablet.add(column.toString());
+                    // order by
+                    List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+                    ListComparator<List<Comparable>> comparator = null;
+                    if (orderByPairs != null) {
+                        OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+                        comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
+                    } else {
+                        // order by tabletId, replicaId
+                        comparator = new ListComparator<>(0, 1);
                     }
-                    rows.add(oneTablet);
+                    Collections.sort(tabletInfos, comparator);
+                    if (sizeLimit > -1) {
+                        tabletInfos = tabletInfos.subList((int) showStmt.getOffset(),
+                                Math.min((int) sizeLimit, tabletInfos.size()));
+                    }
+
+                    for (List<Comparable> tabletInfo : tabletInfos) {
+                        List<String> oneTablet = new ArrayList<String>(tabletInfo.size());
+                        for (Comparable column : tabletInfo) {
+                            oneTablet.add(column.toString());
+                        }
+                        rows.add(oneTablet);
+                    }
                 }
             } finally {
                 olapTable.readUnlock();
@@ -2231,7 +2238,9 @@ public class ShowExecutor {
     private void handleShowExport() throws AnalysisException {
         ShowExportStmt showExportStmt = (ShowExportStmt) stmt;
         Env env = Env.getCurrentEnv();
-        DatabaseIf db = env.getCurrentCatalog().getDbOrAnalysisException(showExportStmt.getDbName());
+        CatalogIf catalog = env.getCatalogMgr()
+                .getCatalogOrAnalysisException(showExportStmt.getCtlName());
+        DatabaseIf db = catalog.getDbOrAnalysisException(showExportStmt.getDbName());
         long dbId = db.getId();
 
         ExportMgr exportMgr = env.getExportMgr();
@@ -3405,8 +3414,7 @@ public class ShowExecutor {
             UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()
                     .filter(storageVault -> auth.checkStorageVaultPriv(user, storageVault.getName(),
-                            PrivPredicate.USAGE)
-                    )
+                            PrivPredicate.USAGE))
                     .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
             if (resp.hasDefaultStorageVaultId()) {

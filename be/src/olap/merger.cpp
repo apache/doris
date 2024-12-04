@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <stddef.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <iterator>
@@ -91,23 +92,14 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
 
     if (stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
+        reader_params.rowid_conversion = stats_output->rowid_conversion;
+        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
     }
 
     reader_params.return_columns.resize(cur_tablet_schema.num_columns());
     std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_IF_ERROR(reader.init(reader_params));
-
-    if (reader_params.record_rowids) {
-        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
-        // init segment rowid map for rowid conversion
-        std::vector<uint32_t> segment_num_rows;
-        for (auto& rs_split : reader_params.rs_splits) {
-            RETURN_IF_ERROR(rs_split.rs_reader->get_segment_num_rows(&segment_num_rows));
-            stats_output->rowid_conversion->init_segment_map(
-                    rs_split.rs_reader->rowset()->rowset_id(), segment_num_rows);
-        }
-    }
 
     vectorized::Block block = cur_tablet_schema.create_block(reader_params.return_columns);
     size_t output_rows = 0;
@@ -209,7 +201,7 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
                 << ", delete_sign_idx=" << delete_sign_idx;
     // for duplicate no keys
     if (!key_columns.empty()) {
-        column_groups->emplace_back(std::move(key_columns));
+        column_groups->emplace_back(key_columns);
     }
 
     std::vector<uint32_t> value_columns;
@@ -268,29 +260,22 @@ Status Merger::vertical_compact_one_group(
     }
 
     reader_params.tablet_schema = merge_tablet_schema;
+    bool has_cluster_key = false;
     if (!tablet->tablet_schema()->cluster_key_idxes().empty()) {
         reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+        has_cluster_key = true;
     }
 
     if (is_key && stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
+        reader_params.rowid_conversion = stats_output->rowid_conversion;
+        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
     }
 
     reader_params.return_columns = column_group;
     reader_params.origin_return_columns = &reader_params.return_columns;
     reader_params.batch_size = batch_size;
     RETURN_IF_ERROR(reader.init(reader_params, sample_info));
-
-    if (reader_params.record_rowids) {
-        stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
-        // init segment rowid map for rowid conversion
-        std::vector<uint32_t> segment_num_rows;
-        for (auto& rs_split : reader_params.rs_splits) {
-            RETURN_IF_ERROR(rs_split.rs_reader->get_segment_num_rows(&segment_num_rows));
-            stats_output->rowid_conversion->init_segment_map(
-                    rs_split.rs_reader->rowset()->rowset_id(), segment_num_rows);
-        }
-    }
 
     vectorized::Block block = tablet_schema.create_block(reader_params.return_columns);
     size_t output_rows = 0;
@@ -307,7 +292,8 @@ Status Merger::vertical_compact_one_group(
                                        "failed to read next block when merging rowsets of tablet " +
                                                std::to_string(tablet->tablet_id()));
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                dst_rowset_writer->add_columns(&block, column_group, is_key, max_rows_per_segment),
+                dst_rowset_writer->add_columns(&block, column_group, is_key, max_rows_per_segment,
+                                               has_cluster_key),
                 "failed to write block when merging rowsets of tablet " +
                         std::to_string(tablet->tablet_id()));
 

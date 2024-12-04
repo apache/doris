@@ -64,6 +64,7 @@ suite("test_partial_update_merge_type", "p0") {
                 file 'merge1.csv'
                 time 10000
             }
+            sql "sync"
             qt_sql_1_1 """select * from ${tableName} order by k;"""
             // 1.2 merge_type=MERGE, no sequence col, no value col
             streamLoad {
@@ -77,6 +78,7 @@ suite("test_partial_update_merge_type", "p0") {
                 file 'merge5.csv'
                 time 10000
             }
+            sql "sync"
             qt_sql_1_2 """select * from ${tableName} order by k;"""
             // 2.1 merge_type=DELETE, no sequence col
             streamLoad {
@@ -101,6 +103,7 @@ suite("test_partial_update_merge_type", "p0") {
                 file 'merge6.csv'
                 time 10000
             }
+            sql "sync"
             qt_sql_2_2 """select * from ${tableName} order by k;"""
 
 
@@ -132,6 +135,7 @@ suite("test_partial_update_merge_type", "p0") {
                 file 'merge3.csv'
                 time 10000
             }
+            sql "sync"
             qt_sql_3_1 """select * from ${tableName} order by k;"""
             inspect_rows """select k,c1,c2,c3,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_SEQUENCE_COL__;"""
             // 3.2 merge_type=MERGE, has sequence type col, no value col
@@ -147,6 +151,7 @@ suite("test_partial_update_merge_type", "p0") {
                 file 'merge7.csv'
                 time 10000
             }
+            sql "sync"
             qt_sql_3_2 """select * from ${tableName} order by k;"""
             inspect_rows """select k,c1,c2,c3,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_SEQUENCE_COL__;"""
 
@@ -162,6 +167,7 @@ suite("test_partial_update_merge_type", "p0") {
                 file 'merge4.csv'
                 time 10000
             }
+            sql "sync"
             qt_sql_4_1 """select * from ${tableName} order by k;"""
             inspect_rows """select k,c1,c2,c3,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_SEQUENCE_COL__;"""
             // 4.2 merge_type=DELETE, has sequence type col, no value col
@@ -176,6 +182,7 @@ suite("test_partial_update_merge_type", "p0") {
                 file 'merge8.csv'
                 time 10000
             }
+            sql "sync"
             qt_sql_4_2 """select * from ${tableName} order by k;"""
             inspect_rows """select k,c1,c2,c3,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_SEQUENCE_COL__;"""
 

@@ -29,6 +29,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_)
         : NullMapProvider(std::move(null_map_)), nested_column(std::move(nested_column_)) {
@@ -51,17 +52,8 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     _need_update_has_null = true;
 }
 
-bool ColumnNullable::could_shrinked_column() {
-    return get_nested_column_ptr()->could_shrinked_column();
-}
-
-MutableColumnPtr ColumnNullable::get_shrinked_column() {
-    if (could_shrinked_column()) {
-        return ColumnNullable::create(get_nested_column_ptr()->get_shrinked_column(),
-                                      get_null_map_column_ptr());
-    } else {
-        return ColumnNullable::create(get_nested_column_ptr(), get_null_map_column_ptr());
-    }
+void ColumnNullable::shrink_padding_chars() {
+    get_nested_column_ptr()->shrink_padding_chars();
 }
 
 void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
@@ -71,7 +63,7 @@ void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t
     } else {
         const auto* __restrict real_null_data =
                 assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
-        for (int i = start; i < end; ++i) {
+        for (size_t i = start; i < end; ++i) {
             if (real_null_data[i] != 0) {
                 hash = HashUtil::xxHash64NullWithSeed(hash);
             }
@@ -87,7 +79,7 @@ void ColumnNullable::update_crc_with_value(size_t start, size_t end, uint32_t& h
     } else {
         const auto* __restrict real_null_data =
                 assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
-        for (int i = start; i < end; ++i) {
+        for (size_t i = start; i < end; ++i) {
             if (real_null_data[i] != 0) {
                 hash = HashUtil::zlib_crc_hash_null(hash);
             }
@@ -194,16 +186,27 @@ void ColumnNullable::insert_data(const char* pos, size_t length) {
 }
 
 void ColumnNullable::insert_many_strings(const StringRef* strings, size_t num) {
+    auto not_null_count = 0;
     for (size_t i = 0; i != num; ++i) {
         if (strings[i].data == nullptr) {
-            nested_column->insert_default();
+            _push_false_to_nullmap(not_null_count);
+            not_null_count = 0;
             get_null_map_data().push_back(1);
             _has_null = true;
         } else {
-            nested_column->insert_data(strings[i].data, strings[i].size);
-            _push_false_to_nullmap(1);
+            not_null_count++;
         }
     }
+    if (not_null_count) {
+        _push_false_to_nullmap(not_null_count);
+    }
+    nested_column->insert_many_strings(strings, num);
+}
+
+void ColumnNullable::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    const auto& nullable_col = assert_cast<const ColumnNullable&>(src);
+    get_null_map_column().insert_many_from(nullable_col.get_null_map_column(), position, length);
+    get_nested_column().insert_many_from(*nullable_col.nested_column, position, length);
 }
 
 StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
@@ -632,18 +635,6 @@ ColumnPtr remove_nullable(const ColumnPtr& column) {
     }
 
     return column;
-}
-
-void check_set_nullable(ColumnPtr& argument_column, ColumnVector<UInt8>::MutablePtr& null_map,
-                        bool is_single) {
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(*argument_column)) {
-        // Danger: Here must dispose the null map data first! Because
-        // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-        // of column nullable mem of null map
-        VectorizedUtils::update_null_map(null_map->get_data(), nullable->get_null_map_data(),
-                                         is_single);
-        argument_column = nullable->get_nested_column_ptr();
-    }
 }
 
 } // namespace doris::vectorized

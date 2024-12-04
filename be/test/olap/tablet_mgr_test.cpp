@@ -436,7 +436,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
             cumulative_compaction_policies);
     ASSERT_EQ(compact_tablets.size(), 1);
     ASSERT_EQ(compact_tablets[0]->tablet_id(), 10);
-    ASSERT_EQ(score, 13);
+    ASSERT_EQ(score, 14);
 
     // create 10 tablets enable single compact
     // 5 tablets do cumu compaction, 5 tablets do single compaction
@@ -451,7 +451,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
     ASSERT_EQ(compact_tablets.size(), 2);
     ASSERT_EQ(compact_tablets[0]->tablet_id(), 19);
     ASSERT_EQ(compact_tablets[1]->tablet_id(), 20);
-    ASSERT_EQ(score, 23);
+    ASSERT_EQ(score, 24);
 
     create_tablet(21, false, rowset_size++);
 
@@ -460,7 +460,7 @@ TEST_F(TabletMgrTest, FindTabletWithCompact) {
             cumulative_compaction_policies);
     ASSERT_EQ(compact_tablets.size(), 1);
     ASSERT_EQ(compact_tablets[0]->tablet_id(), 21);
-    ASSERT_EQ(score, 24);
+    ASSERT_EQ(score, 25);
 
     // drop all tablets
     for (int64_t id = 1; id <= 20; ++id) {

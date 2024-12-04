@@ -26,10 +26,12 @@
 #include "common/status.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 AutoIncIDBuffer::AutoIncIDBuffer(int64_t db_id, int64_t table_id, int64_t column_id)
         : _db_id(db_id),
@@ -44,10 +46,18 @@ void AutoIncIDBuffer::set_batch_size_at_least(size_t batch_size) {
 }
 
 Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
+    LOG_INFO(
+            "[AutoIncIDBuffer::_fetch_ids_from_fe] begin to fetch auto-increment values from fe, "
+            "db_id={}, table_id={}, column_id={}, length={}",
+            _db_id, _table_id, _column_id, length);
     constexpr uint32_t FETCH_AUTOINC_MAX_RETRY_TIMES = 3;
     _rpc_status = Status::OK();
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     for (uint32_t retry_times = 0; retry_times < FETCH_AUTOINC_MAX_RETRY_TIMES; retry_times++) {
+        DBUG_EXECUTE_IF("AutoIncIDBuffer::_fetch_ids_from_fe.failed", {
+            _rpc_status = Status::InternalError<false>("injected error");
+            break;
+        });
         TAutoIncrementRangeRequest request;
         TAutoIncrementRangeResult result;
         request.__set_db_id(_db_id);
@@ -67,8 +77,9 @@ Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
 
         if (_rpc_status.is<ErrorCode::NOT_MASTER>()) {
             LOG_WARNING(
-                    "Failed to fetch auto-incremnt range, requested to non-master FE@{}:{}, change "
-                    "to request to FE@{}:{}. retry_time={}, db_id={}, table_id={}, column_id={}",
+                    "Failed to fetch auto-increment range, requested to non-master FE@{}:{}, "
+                    "change to request to FE@{}:{}. retry_time={}, db_id={}, table_id={}, "
+                    "column_id={}",
                     master_addr.hostname, master_addr.port, result.master_address.hostname,
                     result.master_address.port, retry_times, _db_id, _table_id, _column_id);
             master_addr = result.master_address;
@@ -78,7 +89,7 @@ Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
 
         if (!_rpc_status.ok()) {
             LOG_WARNING(
-                    "Failed to fetch auto-incremnt range, encounter rpc failure. "
+                    "Failed to fetch auto-increment range, encounter rpc failure. "
                     "errmsg={}, retry_time={}, db_id={}, table_id={}, column_id={}",
                     _rpc_status.to_string(), retry_times, _db_id, _table_id, _column_id);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -86,7 +97,7 @@ Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
         }
         if (result.length != length) [[unlikely]] {
             auto msg = fmt::format(
-                    "Failed to fetch auto-incremnt range, request length={}, but get "
+                    "Failed to fetch auto-increment range, request length={}, but get "
                     "result.length={}, retry_time={}, db_id={}, table_id={}, column_id={}",
                     length, result.length, retry_times, _db_id, _table_id, _column_id);
             LOG(WARNING) << msg;
@@ -96,14 +107,14 @@ Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
         }
 
         LOG_INFO(
-                "get auto-incremnt range from FE@{}:{}, start={}, length={}, elapsed={}ms, "
+                "get auto-increment range from FE@{}:{}, start={}, length={}, elapsed={}ms, "
                 "retry_time={}, db_id={}, table_id={}, column_id={}",
                 master_addr.hostname, master_addr.port, result.start, result.length,
                 get_auto_inc_range_rpc_ns / 1000000, retry_times, _db_id, _table_id, _column_id);
         return result.start;
     }
     CHECK(!_rpc_status.ok());
-    return _rpc_status;
+    return ResultError(_rpc_status);
 }
 
 void AutoIncIDBuffer::_get_autoinc_ranges_from_buffers(
@@ -153,10 +164,19 @@ Status AutoIncIDBuffer::_launch_async_fetch_task(size_t length) {
     RETURN_IF_ERROR(_rpc_token->submit_func([=, this]() {
         auto&& res = _fetch_ids_from_fe(length);
         if (!res.has_value()) [[unlikely]] {
+            auto&& err = res.error();
+            LOG_WARNING(
+                    "[AutoIncIDBuffer::_launch_async_fetch_task] failed to fetch auto-increment "
+                    "values from fe, db_id={}, table_id={}, column_id={}, status={}",
+                    _db_id, _table_id, _column_id, err);
             _is_fetching = false;
             return;
         }
         int64_t start = res.value();
+        LOG_INFO(
+                "[AutoIncIDBuffer::_launch_async_fetch_task] successfully fetch auto-increment "
+                "values from fe, db_id={}, table_id={}, column_id={}, start={}, length={}",
+                _db_id, _table_id, _column_id, start, length);
         {
             std::lock_guard<std::mutex> lock {_latch};
             _buffers.emplace_back(start, length);

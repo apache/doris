@@ -28,6 +28,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.TableQueryOperatorChecker;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.ObjectId;
@@ -210,28 +212,25 @@ public class StructInfo {
         });
         // Collect expression from join condition in hyper graph
         for (JoinEdge edge : hyperGraph.getJoinEdges()) {
-            List<Expression> hashJoinConjuncts = edge.getHashJoinConjuncts();
+            List<? extends Expression> joinConjunctExpressions = edge.getExpressions();
             // shuttle expression in edge for the build of LogicalCompatibilityContext later.
             // Record the exprId to expr map in the processing to strut info
             // TODO get exprId to expr map when complex project is ready in join dege
-            hashJoinConjuncts.forEach(conjunctExpr -> {
-                ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
-                        new ExpressionLineageReplacer.ExpressionReplaceContext(
-                                Lists.newArrayList(conjunctExpr), ImmutableSet.of(),
-                                ImmutableSet.of(), new BitSet());
-                topPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
-                // Replace expressions by expression map
-                List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+            ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
+                    new ExpressionLineageReplacer.ExpressionReplaceContext(
+                            joinConjunctExpressions.stream().map(expr -> (Expression) expr)
+                                    .collect(Collectors.toList()),
+                            ImmutableSet.of(), ImmutableSet.of(), new BitSet());
+            topPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
+            // Replace expressions by expression map
+            List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+            for (int i = 0; i < replacedExpressions.size(); i++) {
                 putShuttledExpressionsToExpressionsMap(shuttledExpressionsToExpressionsMap,
-                        ExpressionPosition.JOIN_EDGE, replacedExpressions.get(0), conjunctExpr);
-                // Record this, will be used in top level expression shuttle later, see the method
-                // ExpressionLineageReplacer#visitGroupPlan
-                namedExprIdAndExprMapping.putAll(replaceContext.getExprIdExpressionMap());
-            });
-            List<Expression> otherJoinConjuncts = edge.getOtherJoinConjuncts();
-            if (!otherJoinConjuncts.isEmpty()) {
-                return false;
+                        ExpressionPosition.JOIN_EDGE, replacedExpressions.get(i), joinConjunctExpressions.get(i));
             }
+            // Record this, will be used in top level expression shuttle later, see the method
+            // ExpressionLineageReplacer#visitGroupPlan
+            namedExprIdAndExprMapping.putAll(replaceContext.getExprIdExpressionMap());
         }
         // Collect expression from where in hyper graph
         hyperGraph.getFilterEdges().forEach(filterEdge -> {
@@ -326,6 +325,11 @@ public class StructInfo {
                 cascadesContext);
         valid = valid
                 && hyperGraph.getNodes().stream().allMatch(n -> ((StructInfoNode) n).getExpressions() != null);
+        // if relationList has any relation which contains table operator,
+        // such as query with sample, index, table, is invalid
+        boolean invalid = relationList.stream().anyMatch(relation ->
+                ((AbstractPlan) relation).accept(TableQueryOperatorChecker.INSTANCE, null));
+        valid = valid && !invalid;
         // collect predicate from top plan which not in hyper graph
         Set<Expression> topPlanPredicates = new LinkedHashSet<>();
         topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
@@ -619,9 +623,6 @@ public class StructInfo {
                 PlanCheckContext checkContext) {
             checkContext.setAlreadyMeetJoin(true);
             if (!checkContext.getSupportJoinTypes().contains(join.getJoinType())) {
-                return false;
-            }
-            if (!join.getOtherJoinConjuncts().isEmpty()) {
                 return false;
             }
             return visit(join, checkContext);

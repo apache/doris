@@ -255,6 +255,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
+    _reader_context.rowid_conversion = read_params.rowid_conversion;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
@@ -464,13 +465,32 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
     // UNIQUE_KEYS will compare all keys as before
     if (_tablet_schema->keys_type() == DUP_KEYS || (_tablet_schema->keys_type() == UNIQUE_KEYS &&
                                                     _tablet->enable_unique_key_merge_on_write())) {
-        // find index in vector _return_columns
-        //   for the read_orderby_key_num_prefix_columns orderby keys
-        for (uint32_t i = 0; i < read_params.read_orderby_key_num_prefix_columns; i++) {
-            for (uint32_t idx = 0; idx < _return_columns.size(); idx++) {
-                if (_return_columns[idx] == i) {
-                    _orderby_key_columns.push_back(idx);
-                    break;
+        if (!_tablet_schema->cluster_key_idxes().empty()) {
+            for (uint32_t i = 0; i < read_params.read_orderby_key_num_prefix_columns; i++) {
+                auto cid = _tablet_schema->cluster_key_idxes()[i];
+                auto index = _tablet_schema->field_index(cid);
+                if (index < 0) {
+                    return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                            "could not find cluster key column with unique_id=" +
+                            std::to_string(cid) +
+                            " in tablet schema, tablet_id=" + std::to_string(_tablet->tablet_id()));
+                }
+                for (uint32_t idx = 0; idx < _return_columns.size(); idx++) {
+                    if (_return_columns[idx] == index) {
+                        _orderby_key_columns.push_back(idx);
+                        break;
+                    }
+                }
+            }
+        } else {
+            // find index in vector _return_columns
+            //   for the read_orderby_key_num_prefix_columns orderby keys
+            for (uint32_t i = 0; i < read_params.read_orderby_key_num_prefix_columns; i++) {
+                for (uint32_t idx = 0; idx < _return_columns.size(); idx++) {
+                    if (_return_columns[idx] == i) {
+                        _orderby_key_columns.push_back(idx);
+                        break;
+                    }
                 }
             }
         }

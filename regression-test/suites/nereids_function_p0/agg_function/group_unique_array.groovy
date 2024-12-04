@@ -43,10 +43,10 @@ suite("group_unique_array") {
         (4, "2023-01-03", "sql")
         """
     qt_1 """
-    select collect_set(k1),collect_set(k1,2) from test_group_unique_array_table;
+    select array_sort(collect_set(k1)),array_sort(collect_set(k1,2)) from test_group_unique_array_table;
     """
     qt_2 """
-    select k1,collect_set(k2),collect_set(k3,1) from test_group_unique_array_table group by k1 order by k1;
+    select k1,array_sort(collect_set(k2)),array_sort(collect_set(k3,1)) from test_group_unique_array_table group by k1 order by k1;
     """
     qt_3 """
     select collect_set(k3) over() from test_group_unique_array_table;

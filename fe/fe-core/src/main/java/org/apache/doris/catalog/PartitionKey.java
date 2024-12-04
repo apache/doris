@@ -373,15 +373,14 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             if (expr == MaxLiteral.MAX_VALUE || expr.isNullLiteral()) {
                 value = expr.toSql();
                 sb.append(value);
-                continue;
             } else {
                 value = "\"" + expr.getRealValue() + "\"";
                 if (expr instanceof DateLiteral) {
                     DateLiteral dateLiteral = (DateLiteral) expr;
                     value = dateLiteral.toSql();
                 }
+                sb.append(value);
             }
-            sb.append(value);
 
             if (keys.size() - 1 != i) {
                 sb.append(", ");

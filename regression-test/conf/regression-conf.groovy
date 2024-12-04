@@ -24,8 +24,8 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 jdbcUser = "root"
 jdbcPassword = ""
 
@@ -205,6 +205,9 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
+enableExternalHudiTest = false
+hudiEmrCatalog = "***********"
+
 enableObjStorageTest=false
 enableMaxComputeTest=false
 aliYunAk="***********"
@@ -252,3 +255,7 @@ lakesoulMinioAK="*******"
 lakesoulMinioSK="*******"
 lakesoulMinioEndpoint="*******"
 
+// cloud
+metaServiceToken = "greedisgood9999"
+instanceId = "default_instance_id"
+multiClusterInstance = "default_instance_id"

@@ -38,9 +38,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_map.h"
 #include "vec/common/hash_table/hash_map_context.h"
-#include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
@@ -117,7 +115,7 @@ public:
 #endif // __GNUC__
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnRawPtrs data_columns(arguments.size());
         const ColumnArray::Offsets64* offsets = nullptr;
         ColumnPtr src_offsets;
@@ -256,7 +254,7 @@ private:
                         continue;
                     }
                 }
-                auto& mapped = ctx.lazy_emplace(key_getter, j, creator, creator_for_null_key);
+                auto& mapped = *ctx.lazy_emplace(key_getter, j, creator, creator_for_null_key);
                 mapped++;
                 dst_values[j] = mapped;
             }

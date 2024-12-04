@@ -36,17 +36,23 @@ class DateLiteralTest {
 
     @Test
     void testNormalize() {
-        String s = DateLiteral.normalize("2021-5");
+        String s = DateLiteral.normalize("2021-5").get();
         Assertions.assertEquals("2021-05", s);
-        s = DateLiteral.normalize("2021-5-1");
+        s = DateLiteral.normalize("2021-5-1").get();
         Assertions.assertEquals("2021-05-01", s);
-        s = DateLiteral.normalize("2021-5-01");
+        s = DateLiteral.normalize("2021-5-01").get();
         Assertions.assertEquals("2021-05-01", s);
 
-        s = DateLiteral.normalize("2021-5-01 0:0:0");
+        s = DateLiteral.normalize("2021-5-01 0:0:0").get();
         Assertions.assertEquals("2021-05-01 00:00:00", s);
-        s = DateLiteral.normalize("2021-5-01 0:0:0.001");
+        s = DateLiteral.normalize("2021-5-01 0:0:0.001").get();
         Assertions.assertEquals("2021-05-01 00:00:00.001", s);
+        s = DateLiteral.normalize("2021-5-01 0:0:0.12345678").get();
+        Assertions.assertEquals("2021-05-01 00:00:00.1234567", s);
+        s = DateLiteral.normalize("2021-5-1    Asia/Shanghai").get();
+        Assertions.assertEquals("2021-05-01Asia/Shanghai", s);
+        s = DateLiteral.normalize("2021-5-1 0:0:0.12345678   Asia/Shanghai").get();
+        Assertions.assertEquals("2021-05-01 00:00:00.1234567Asia/Shanghai", s);
     }
 
     @Test

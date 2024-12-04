@@ -109,7 +109,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
 }
 
 Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block,
-                                      const ColumnNumbers& arguments, size_t result,
+                                      const ColumnNumbers& arguments, uint32_t result,
                                       size_t /*input_rows_count*/) const {
     DCHECK_EQ(arguments.size(), 2);
     const auto& [src_column, left_const] =
@@ -142,6 +142,12 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             }
             inverted_index_ctx.parser_type = get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(properties));
+            if (inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
+                return Status::Error<doris::ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+                        "unsupported parser type. currently, only 'english', 'chinese', and "
+                        "'unicode' analyzers are supported.");
+            }
+
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
             inverted_index_ctx.char_filter_map =
                     get_parser_char_filter_map_from_properties(properties);

@@ -18,9 +18,9 @@
 #pragma once
 
 #include <cctz/time_zone.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <orc/OrcFile.hh>
@@ -34,12 +34,14 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
 #include "orc/Reader.hh"
 #include "orc/Type.hh"
 #include "orc/Vector.hh"
+#include "orc/sargs/Literal.hh"
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -50,6 +52,8 @@
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
+#include "vec/exprs/vliteral.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class RuntimeState;
@@ -78,13 +82,6 @@ class DataBuffer;
 namespace doris::vectorized {
 
 class ORCFileInputStream;
-
-struct OrcPredicate {
-    std::string col_name;
-    orc::PredicateDataType data_type;
-    std::vector<orc::Literal> literals;
-    SQLFilterOp op;
-};
 
 struct LazyReadContext {
     VExprContextSPtrs conjuncts;
@@ -227,6 +224,8 @@ private:
         RuntimeProfile::Counter* decode_value_time = nullptr;
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
         RuntimeProfile::Counter* filter_block_time = nullptr;
+        RuntimeProfile::Counter* selected_row_group_count = nullptr;
+        RuntimeProfile::Counter* evaluated_row_group_count = nullptr;
     };
 
     class ORCFilterImpl : public orc::ORCFilter {
@@ -290,8 +289,27 @@ private:
                         bool* is_hive1_orc);
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
-    bool _init_search_argument(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+
+    // functions for building search argument until _init_search_argument
+    std::tuple<bool, orc::Literal, orc::PredicateDataType> _make_orc_literal(
+            const VSlotRef* slot_ref, const VLiteral* literal);
+    bool _check_slot_can_push_down(const VExprSPtr& expr);
+    bool _check_literal_can_push_down(const VExprSPtr& expr, uint16_t child_id);
+    bool _check_rest_children_can_push_down(const VExprSPtr& expr);
+    bool _check_expr_can_push_down(const VExprSPtr& expr);
+    void _build_less_than(const VExprSPtr& expr,
+                          std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    void _build_less_than_equals(const VExprSPtr& expr,
+                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    void _build_equals(const VExprSPtr& expr, std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    void _build_filter_in(const VExprSPtr& expr,
+                          std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    void _build_is_null(const VExprSPtr& expr,
+                        std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_search_argument(const VExprSPtr& expr,
+                                std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _init_search_argument(const VExprContextSPtrs& conjuncts);
+
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_system_properties();
@@ -577,17 +595,19 @@ private:
     bool _is_hive1_orc_or_use_idx = false;
 
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
+    // TODO: check if we can remove _col_name_to_file_col_name_low_case
+    std::unordered_map<std::string, std::string> _col_name_to_file_col_name_low_case;
     std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;
     std::unique_ptr<ORCFileInputStream> _file_input_stream;
     Statistics _statistics;
     OrcProfile _orc_profile;
+    orc::ReaderMetrics _reader_metrics;
 
     std::unique_ptr<orc::ColumnVectorBatch> _batch;
     std::unique_ptr<orc::Reader> _reader;
     std::unique_ptr<orc::RowReader> _row_reader;
     std::unique_ptr<ORCFilterImpl> _orc_filter;
-    orc::ReaderOptions _reader_options;
     orc::RowReaderOptions _row_reader_options;
 
     std::shared_ptr<io::FileSystem> _file_system;
@@ -629,6 +649,9 @@ private:
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
     //support iceberg position delete .
     std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
+    std::unordered_map<const VSlotRef*, orc::PredicateDataType>
+            _vslot_ref_to_orc_predicate_data_type;
+    std::unordered_map<const VLiteral*, orc::Literal> _vliteral_to_orc_literal;
 };
 
 class ORCFileInputStream : public orc::InputStream, public ProfileCollector {
@@ -643,7 +666,11 @@ public:
               _io_ctx(io_ctx),
               _profile(profile) {}
 
-    ~ORCFileInputStream() override = default;
+    ~ORCFileInputStream() override {
+        if (_file_reader != nullptr) {
+            _file_reader->collect_profile_before_close();
+        }
+    }
 
     uint64_t getLength() const override { return _file_reader->size(); }
 
@@ -656,6 +683,12 @@ public:
     void beforeReadStripe(std::unique_ptr<orc::StripeInformation> current_strip_information,
                           std::vector<bool> selected_columns) override;
 
+    void set_all_tiny_stripes() { _is_all_tiny_stripes = true; }
+
+    io::FileReaderSPtr& get_file_reader() { return _file_reader; }
+
+    io::FileReaderSPtr& get_inner_reader() { return _inner_reader; }
+
 protected:
     void _collect_profile_at_runtime() override {};
     void _collect_profile_before_close() override;
@@ -664,10 +697,10 @@ private:
     const std::string& _file_name;
     io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
+    bool _is_all_tiny_stripes = false;
     // Owned by OrcReader
     OrcReader::Statistics* _statistics = nullptr;
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
-
 } // namespace doris::vectorized

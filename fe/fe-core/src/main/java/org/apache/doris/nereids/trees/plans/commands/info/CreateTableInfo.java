@@ -74,6 +74,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -82,13 +83,17 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -98,7 +103,6 @@ import java.util.stream.Collectors;
  * table info in creating table.
  */
 public class CreateTableInfo {
-
     public static final String ENGINE_OLAP = "olap";
     public static final String ENGINE_JDBC = "jdbc";
     public static final String ENGINE_ELASTICSEARCH = "elasticsearch";
@@ -109,6 +113,8 @@ public class CreateTableInfo {
     public static final String ENGINE_ICEBERG = "iceberg";
     private static final ImmutableSet<AggregateType> GENERATED_COLUMN_ALLOW_AGG_TYPE =
             ImmutableSet.of(AggregateType.REPLACE, AggregateType.REPLACE_IF_NOT_NULL);
+
+    private static final Logger LOG = LogManager.getLogger(CreateTableInfo.class);
 
     private final boolean ifNotExists;
     private String ctlName;
@@ -126,6 +132,7 @@ public class CreateTableInfo {
     private Map<String, String> properties;
     private Map<String, String> extProperties;
     private boolean isEnableMergeOnWrite = false;
+    private boolean isEnableSkipBitmapColumn = false;
 
     private boolean isExternal = false;
     private String clusterName = null;
@@ -420,6 +427,35 @@ public class CreateTableInfo {
                 }
             }
 
+            try {
+                if (Config.random_add_cluster_keys_for_mow && isEnableMergeOnWrite && clusterKeysColumnNames.isEmpty()
+                        && PropertyAnalyzer.analyzeUseLightSchemaChange(new HashMap<>(properties))) {
+                    // exclude columns whose data type can not be cluster key, see {@link ColumnDefinition#validate}
+                    List<ColumnDefinition> clusterKeysCandidates = columns.stream().filter(c -> {
+                        DataType type = c.getType();
+                        return !(type.isFloatLikeType() || type.isStringType() || type.isArrayType()
+                                || type.isBitmapType() || type.isHllType() || type.isQuantileStateType()
+                                || type.isJsonType()
+                                || type.isVariantType()
+                                || type.isMapType()
+                                || type.isStructType());
+                    }).collect(Collectors.toList());
+                    if (clusterKeysCandidates.size() > 0) {
+                        clusterKeysColumnNames = new ArrayList<>();
+                        Random random = new Random();
+                        int randomClusterKeysCount = random.nextInt(clusterKeysCandidates.size()) + 1;
+                        Collections.shuffle(clusterKeysCandidates);
+                        for (int i = 0; i < randomClusterKeysCount; i++) {
+                            clusterKeysColumnNames.add(clusterKeysCandidates.get(i).getName());
+                        }
+                        LOG.info("Randomly add cluster keys for table {}.{}: {}",
+                                dbName, tableName, clusterKeysColumnNames);
+                    }
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+
             validateKeyColumns();
             if (!clusterKeysColumnNames.isEmpty()) {
                 if (!isEnableMergeOnWrite) {
@@ -494,6 +530,35 @@ public class CreateTableInfo {
                 } else {
                     columns.add(ColumnDefinition.newVersionColumnDefinition(AggregateType.REPLACE));
                 }
+            }
+
+            if (properties != null) {
+                if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
+                        && !(keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
+                    throw new AnalysisException("tablet property enable_unique_key_skip_bitmap_column can"
+                            + "only be set in merge-on-write unique table.");
+                }
+                // the merge-on-write table must have enable_unique_key_skip_bitmap_column table property
+                // and its value should be consistent with whether the table's full schema contains
+                // the skip bitmap hidden column
+                if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+                    properties = PropertyAnalyzer.addEnableUniqueKeySkipBitmapPropertyIfNotExists(properties);
+                    // `analyzeXXX` would modify `properties`, which will be used later,
+                    // so we just clone a properties map here.
+                    try {
+                        isEnableSkipBitmapColumn = PropertyAnalyzer.analyzeUniqueKeySkipBitmapColumn(
+                                new HashMap<>(properties));
+                    } catch (Exception e) {
+                        throw new AnalysisException(e.getMessage(), e.getCause());
+                    }
+                }
+            }
+
+            if (isEnableSkipBitmapColumn && keysType.equals(KeysType.UNIQUE_KEYS)) {
+                if (isEnableMergeOnWrite) {
+                    columns.add(ColumnDefinition.newSkipBitmapColumnDef(AggregateType.NONE));
+                }
+                // TODO(bobhan1): add support for mor table
             }
 
             // validate partition
@@ -577,6 +642,14 @@ public class CreateTableInfo {
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
+            boolean disableInvertedIndexV1ForVariant = false;
+            try {
+                disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                            new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
+                                && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
 
             for (IndexDefinition indexDef : indexes) {
                 indexDef.validate();
@@ -588,7 +661,8 @@ public class CreateTableInfo {
                     boolean found = false;
                     for (ColumnDefinition column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, keysType, isEnableMergeOnWrite);
+                            indexDef.checkColumn(column, keysType, isEnableMergeOnWrite,
+                                                                disableInvertedIndexV1ForVariant);
                             found = true;
                             break;
                         }
@@ -790,7 +864,7 @@ public class CreateTableInfo {
                     break;
                 }
             }
-            if (sameKey) {
+            if (sameKey && !Config.random_add_cluster_keys_for_mow) {
                 throw new AnalysisException("Unique keys and cluster keys should be different.");
             }
             // check that cluster key column exists

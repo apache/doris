@@ -2339,7 +2339,7 @@ suite("load") {
     """
 
     sql """
-    alter table call_center modify column cc_closed_date_sk set stats ('row_count'='42', 'ndv'='0', 'num_nulls'='42', 'min_value'='0', 'max_value'='179769313', 'data_size'='168')
+    alter table call_center modify column cc_closed_date_sk set stats ('row_count'='42', 'ndv'='0', 'num_nulls'='42', 'data_size'='168')
     """
 
     sql """

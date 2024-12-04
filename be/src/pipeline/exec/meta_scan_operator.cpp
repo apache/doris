@@ -20,7 +20,7 @@
 #include "vec/exec/scan/vmeta_scanner.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 Status MetaScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     if (Base::_eos) {
         return Status::OK();

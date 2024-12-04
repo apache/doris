@@ -80,6 +80,13 @@ public class SqlBlockRuleMgr implements Writable {
      **/
     public List<SqlBlockRule> getSqlBlockRule(ShowSqlBlockRuleStmt stmt) throws AnalysisException {
         String ruleName = stmt.getRuleName();
+        return getSqlBlockRule(ruleName);
+    }
+
+    /**
+     * Get SqlBlockRule by rulename.
+     **/
+    public List<SqlBlockRule> getSqlBlockRule(String ruleName) throws AnalysisException {
         if (StringUtils.isNotEmpty(ruleName)) {
             if (nameToSqlBlockRuleMap.containsKey(ruleName)) {
                 SqlBlockRule sqlBlockRule = nameToSqlBlockRuleMap.get(ruleName);
@@ -109,12 +116,15 @@ public class SqlBlockRuleMgr implements Writable {
      * Create SqlBlockRule for create stmt.
      **/
     public void createSqlBlockRule(CreateSqlBlockRuleStmt stmt) throws UserException {
+        createSqlBlockRule(SqlBlockRule.fromCreateStmt(stmt), stmt.isIfNotExists());
+    }
+
+    public void createSqlBlockRule(SqlBlockRule sqlBlockRule, boolean isIfNotExists) throws UserException {
         writeLock();
         try {
-            SqlBlockRule sqlBlockRule = SqlBlockRule.fromCreateStmt(stmt);
             String ruleName = sqlBlockRule.getName();
             if (existRule(ruleName)) {
-                if (stmt.isIfNotExists()) {
+                if (isIfNotExists) {
                     return;
                 }
                 throw new DdlException("the sql block rule " + ruleName + " already create");
@@ -139,9 +149,12 @@ public class SqlBlockRuleMgr implements Writable {
      * Alter SqlBlockRule for alter stmt.
      **/
     public void alterSqlBlockRule(AlterSqlBlockRuleStmt stmt) throws AnalysisException, DdlException {
+        alterSqlBlockRule(SqlBlockRule.fromAlterStmt(stmt));
+    }
+
+    public void alterSqlBlockRule(SqlBlockRule sqlBlockRule) throws AnalysisException, DdlException {
         writeLock();
         try {
-            SqlBlockRule sqlBlockRule = SqlBlockRule.fromAlterStmt(stmt);
             String ruleName = sqlBlockRule.getName();
             if (!existRule(ruleName)) {
                 throw new DdlException("the sql block rule " + ruleName + " not exist");
@@ -196,12 +209,15 @@ public class SqlBlockRuleMgr implements Writable {
      * Drop SqlBlockRule for drop stmt.
      **/
     public void dropSqlBlockRule(DropSqlBlockRuleStmt stmt) throws DdlException {
+        dropSqlBlockRule(stmt.getRuleNames(), stmt.isIfExists());
+    }
+
+    public void dropSqlBlockRule(List<String> ruleNames, boolean isIfExists) throws DdlException {
         writeLock();
         try {
-            List<String> ruleNames = stmt.getRuleNames();
             for (String ruleName : ruleNames) {
                 if (!existRule(ruleName)) {
-                    if (stmt.isIfExists()) {
+                    if (isIfExists) {
                         continue;
                     }
                     throw new DdlException("the sql block rule " + ruleName + " not exist");

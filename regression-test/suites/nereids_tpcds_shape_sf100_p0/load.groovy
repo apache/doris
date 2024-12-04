@@ -1299,7 +1299,7 @@ alter table web_page modify column wp_max_ad_count set stats ('row_count'='2040'
 """
 
 sql """
-alter table call_center modify column cc_closed_date_sk set stats ('row_count'='30', 'ndv'='0', 'min_value'='2415022', 'max_value'='2488070', 'avg_size'='120', 'max_size'='120' )
+alter table call_center modify column cc_closed_date_sk set stats ('row_count'='30', 'ndv'='0', 'num_nulls'='42', 'avg_size'='120', 'max_size'='120' )
 """
 
 sql """
@@ -2016,10 +2016,6 @@ alter table customer_address modify column ca_county set stats ('row_count'='100
 
 sql """
 alter table ship_mode modify column sm_contract set stats ('row_count'='20', 'ndv'='20', 'min_value'='2mM8l', 'max_value'='yVfotg7Tio3MVhBg6Bkn', 'avg_size'='252', 'max_size'='252' )
-"""
-
-sql """
-alter table call_center modify column cc_closed_date_sk set stats ('row_count'='30', 'ndv'='0', 'min_value'='0', 'max_value'='0', 'avg_size'='120', 'max_size'='120' )
 """
 
 sql """

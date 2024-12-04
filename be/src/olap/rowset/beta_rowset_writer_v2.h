@@ -140,7 +140,7 @@ public:
     }
 
     bool is_partial_update() override {
-        return _context.partial_update_info && _context.partial_update_info->is_partial_update;
+        return _context.partial_update_info && _context.partial_update_info->is_partial_update();
     }
 
 private:
@@ -153,10 +153,9 @@ private:
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
 
     SegmentFileCollection _seg_files;
+    InvertedIndexFileCollection _idx_files;
 
     SegmentCreator _segment_creator;
-
-    InvertedIndexFilesInfo _idx_files_info;
 
     fmt::memory_buffer vlog_buffer;
 

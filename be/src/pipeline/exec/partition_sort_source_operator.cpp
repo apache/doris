@@ -58,7 +58,6 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                 }
             }
             if (!output_block->empty()) {
-                COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
                 local_state._num_rows_returned += output_block->rows();
             }
             return Status::OK();
@@ -80,7 +79,6 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                local_state._sort_idx >= local_state._shared_state->partition_sorts.size();
     }
     if (!output_block->empty()) {
-        COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
         local_state._num_rows_returned += output_block->rows();
     }
     return Status::OK();

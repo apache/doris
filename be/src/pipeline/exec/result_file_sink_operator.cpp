@@ -31,9 +31,7 @@ namespace doris::pipeline {
 
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)
-        : AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>(parent, state),
-          _serializer(
-                  std::make_unique<vectorized::BlockSerializer<ResultFileSinkLocalState>>(this)) {}
+        : AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>(parent, state) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
@@ -74,9 +72,8 @@ Status ResultFileSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     if (state->query_options().enable_parallel_outfile) {
-        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->query_id(), _buf_size, &_sender, state->execution_timeout(),
-                state->batch_size()));
+        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(state->query_id(), _buf_size,
+                                                                       &_sender, state));
     }
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
@@ -87,12 +84,6 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
     SCOPED_TIMER(_init_timer);
     _sender_id = info.sender_id;
 
-    _brpc_wait_timer = ADD_TIMER(_profile, "BrpcSendTime.Wait");
-    _local_send_timer = ADD_TIMER(_profile, "LocalSendTime");
-    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
-    _split_block_distribute_by_channel_timer =
-            ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
-    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     CHECK(p._file_opts.get() != nullptr);
     // create sender
@@ -100,9 +91,9 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         _sender = _parent->cast<ResultFileSinkOperatorX>()._sender;
     } else {
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->fragment_instance_id(), p._buf_size, &_sender, state->execution_timeout(),
-                state->batch_size()));
+                state->fragment_instance_id(), p._buf_size, &_sender, state));
     }
+    _sender->set_dependency(state->fragment_instance_id(), _dependency->shared_from_this());
 
     // create writer
     _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
@@ -143,14 +134,6 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
             state->fragment_instance_id());
 
     return Base::close(state, exec_status);
-}
-
-template <typename ChannelPtrType>
-void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
-                                                   Status st) {
-    channel->set_receiver_eof(st);
-    // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
-    static_cast<void>(channel->close(state, Status::OK()));
 }
 
 Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {

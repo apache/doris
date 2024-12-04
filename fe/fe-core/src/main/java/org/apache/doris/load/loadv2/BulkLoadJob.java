@@ -147,6 +147,8 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             bulkLoadJob.setComment(stmt.getComment());
             bulkLoadJob.setJobProperties(stmt.getProperties());
             bulkLoadJob.checkAndSetDataSourceInfo((Database) db, stmt.getDataDescriptions());
+            // In the construction method, there may not be table information yet
+            bulkLoadJob.rebuildAuthorizationInfo();
             return bulkLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
@@ -177,6 +179,10 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
     private AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());
+    }
+
+    public void rebuildAuthorizationInfo() throws MetaNotFoundException {
+        this.authorizationInfo = gatherAuthInfo();
     }
 
     @Override

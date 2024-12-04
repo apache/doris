@@ -24,6 +24,7 @@
 #include "vec/spill/spill_writer.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class ThreadPool;
 
@@ -110,3 +111,4 @@ private:
 using SpillStreamSPtr = std::shared_ptr<SpillStream>;
 } // namespace vectorized
 } // namespace doris
+#include "common/compile_check_end.h"

@@ -29,7 +29,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
@@ -65,7 +65,7 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     // 3. lookup the cache and find proper slot order
     hit_cache = QueryCache::instance()->lookup(_cache_key, _version, &_query_cache_handle);
-    _runtime_profile->add_info_string("HitCache", hit_cache ? "1" : "0");
+    _runtime_profile->add_info_string("HitCache", std::to_string(hit_cache));
     if (hit_cache && !cache_param.force_refresh_query_cache) {
         _hit_cache_results = _query_cache_handle.get_cache_result();
         auto hit_cache_slot_orders = _query_cache_handle.get_cache_slot_orders();
@@ -125,13 +125,16 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
 
     if (local_state._hit_cache_results == nullptr) {
         Defer insert_cache([&] {
-            if (*eos && local_state._need_insert_cache) {
-                local_state._runtime_profile->add_info_string("InsertCache", "1");
-                local_state._global_cache->insert(local_state._cache_key, local_state._version,
-                                                  local_state._local_cache_blocks,
-                                                  local_state._slot_orders,
-                                                  local_state._current_query_cache_bytes);
-                local_state._local_cache_blocks.clear();
+            if (*eos) {
+                local_state._runtime_profile->add_info_string(
+                        "InsertCache", std::to_string(local_state._need_insert_cache));
+                if (local_state._need_insert_cache) {
+                    local_state._global_cache->insert(local_state._cache_key, local_state._version,
+                                                      local_state._local_cache_blocks,
+                                                      local_state._slot_orders,
+                                                      local_state._current_query_cache_bytes);
+                    local_state._local_cache_blocks.clear();
+                }
             }
         });
 
@@ -156,14 +159,12 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
             local_state._current_query_cache_rows += output_block->rows();
             auto mem_consume = output_block->allocated_bytes();
             local_state._current_query_cache_bytes += mem_consume;
-            local_state._mem_tracker->consume(mem_consume);
 
             if (_cache_param.entry_max_bytes < local_state._current_query_cache_bytes ||
                 _cache_param.entry_max_rows < local_state._current_query_cache_rows) {
                 // over the max bytes, pass through the data, no need to do cache
                 local_state._local_cache_blocks.clear();
                 local_state._need_insert_cache = false;
-                local_state._runtime_profile->add_info_string("InsertCache", "0");
             } else {
                 local_state._local_cache_blocks.emplace_back(std::move(output_block));
             }

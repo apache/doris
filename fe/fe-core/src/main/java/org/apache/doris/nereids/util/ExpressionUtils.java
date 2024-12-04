@@ -21,10 +21,18 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
+import org.apache.doris.nereids.rules.expression.rules.ReplaceVariableByLiteral;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -50,9 +58,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.BooleanType;
@@ -63,15 +73,18 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -121,18 +134,24 @@ public class ExpressionUtils {
 
     private static List<Expression> extract(Class<? extends Expression> type, Expression expr) {
         List<Expression> result = Lists.newArrayList();
-        extract(type, expr, result);
+        Deque<Expression> stack = new ArrayDeque<>();
+        stack.push(expr);
+        while (!stack.isEmpty()) {
+            Expression current = stack.pop();
+            if (type.isInstance(current)) {
+                for (Expression child : current.children()) {
+                    stack.push(child);
+                }
+            } else {
+                result.add(current);
+            }
+        }
+        result = Lists.reverse(result);
         return result;
     }
 
     private static void extract(Class<? extends Expression> type, Expression expr, Collection<Expression> result) {
-        if (type.isInstance(expr)) {
-            CompoundPredicate predicate = (CompoundPredicate) expr;
-            extract(type, predicate.left(), result);
-            extract(type, predicate.right(), result);
-        } else {
-            result.add(expr);
-        }
+        result.addAll(extract(type, expr));
     }
 
     public static Optional<Pair<Slot, Slot>> extractEqualSlot(Expression expr) {
@@ -470,6 +489,18 @@ public class ExpressionUtils {
         return true;
     }
 
+    /**
+     * return true if all children are literal but not null literal.
+     */
+    public static boolean isAllNonNullLiteral(List<Expression> children) {
+        for (Expression child : children) {
+            if ((!(child instanceof Literal)) || (child instanceof NullLiteral)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** matchNumericType */
     public static boolean matchNumericType(List<Expression> children) {
         for (Expression child : children) {
@@ -714,15 +745,15 @@ public class ExpressionUtils {
     /**
      * extract uniform slot for the given predicate, such as a = 1 and b = 2
      */
-    public static ImmutableSet<Slot> extractUniformSlot(Expression expression) {
-        ImmutableSet.Builder<Slot> builder = new ImmutableSet.Builder<>();
+    public static ImmutableMap<Slot, Expression> extractUniformSlot(Expression expression) {
+        ImmutableMap.Builder<Slot, Expression> builder = new ImmutableMap.Builder<>();
         if (expression instanceof And) {
-            builder.addAll(extractUniformSlot(expression.child(0)));
-            builder.addAll(extractUniformSlot(expression.child(1)));
+            builder.putAll(extractUniformSlot(expression.child(0)));
+            builder.putAll(extractUniformSlot(expression.child(1)));
         }
         if (expression instanceof EqualTo) {
             if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
-                builder.add((Slot) expression.child(0));
+                builder.put((Slot) expression.child(0), expression.child(1));
             }
         }
         return builder.build();
@@ -949,5 +980,67 @@ public class ExpressionUtils {
             }
         }
         return true;
+    }
+
+    /** analyze the unbound expression and fold it to literal */
+    public static Literal analyzeAndFoldToLiteral(ConnectContext ctx, Expression expression) throws UserException {
+        Scope scope = new Scope(new ArrayList<>());
+        LogicalEmptyRelation plan = new LogicalEmptyRelation(
+                ConnectContext.get().getStatementContext().getNextRelationId(),
+                new ArrayList<>());
+        CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
+                PhysicalProperties.ANY);
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
+        Expression boundExpr = UnboundSlotRewriter.INSTANCE.rewrite(expression, null);
+        Expression analyzedExpr;
+        try {
+            analyzedExpr = analyzer.analyze(boundExpr, new ExpressionRewriteContext(cascadesContext));
+        } catch (AnalysisException e) {
+            throw new UserException(expression + " must be constant value");
+        }
+        ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
+        ExpressionRuleExecutor executor = new ExpressionRuleExecutor(ImmutableList.of(
+                ExpressionRewrite.bottomUp(ReplaceVariableByLiteral.INSTANCE)
+        ));
+        Expression rewrittenExpression = executor.rewrite(analyzedExpr, context);
+        Expression foldExpression = FoldConstantRule.evaluate(rewrittenExpression, context);
+        if (foldExpression instanceof Literal) {
+            return (Literal) foldExpression;
+        } else {
+            throw new UserException(expression + " must be constant value");
+        }
+    }
+
+    /**
+     * mergeList
+     */
+    public static List<Expression> mergeList(List<Expression> list1, List<Expression> list2) {
+        ImmutableList.Builder<Expression> builder = ImmutableList.builder();
+        for (Expression expression : list1) {
+            if (expression != null) {
+                builder.add(expression);
+            }
+        }
+        for (Expression expression : list2) {
+            if (expression != null) {
+                builder.add(expression);
+            }
+        }
+        return builder.build();
+    }
+
+    private static class UnboundSlotRewriter extends DefaultExpressionRewriter<Void> {
+        public static final UnboundSlotRewriter INSTANCE = new UnboundSlotRewriter();
+
+        public Expression rewrite(Expression e, Void ctx) {
+            return e.accept(this, ctx);
+        }
+
+        @Override
+        public Expression visitUnboundSlot(UnboundSlot unboundSlot, Void ctx) {
+            // set exec_mem_limit=21G, '21G' will be parsed as unbound slot
+            // we need to rewrite it to String Literal '21G'
+            return new StringLiteral(unboundSlot.getName());
+        }
     }
 }

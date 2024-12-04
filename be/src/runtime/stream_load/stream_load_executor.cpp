@@ -83,6 +83,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         ctx->number_loaded_rows = state->num_rows_load_success();
         ctx->number_filtered_rows = state->num_rows_load_filtered();
         ctx->number_unselected_rows = state->num_rows_load_unselected();
+        ctx->loaded_bytes = state->num_bytes_load_total();
         int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
         if (!ctx->group_commit && num_selected_rows > 0 &&
             (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
@@ -98,6 +99,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         } else {
             LOG(WARNING) << "fragment execute failed"
                          << ", err_msg=" << status->to_string() << ", " << ctx->brief();
+            ctx->number_loaded_rows = 0;
             // cancel body_sink, make sender known it
             if (ctx->body_sink != nullptr) {
                 ctx->body_sink->cancel(status->to_string());
@@ -133,13 +135,6 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                 static_cast<void>(this->commit_txn(ctx.get()));
             }
         }
-
-        LOG(INFO) << "finished to execute stream load. label=" << ctx->label
-                  << ", txn_id=" << ctx->txn_id << ", query_id=" << ctx->id
-                  << ", receive_data_cost_ms="
-                  << (ctx->receive_and_read_data_cost_nanos - ctx->read_data_cost_nanos) / 1000000
-                  << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
-                  << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000;
     };
 
     // Reset thread memory tracker, otherwise SCOPED_ATTACH_TASK will be called nested, nesting is
@@ -178,12 +173,12 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
         request.__set_timeout(ctx->timeout_second);
     }
     request.__set_request_id(ctx->id.to_thrift());
-    request.__set_backend_id(_exec_env->master_info()->backend_id);
+    request.__set_backend_id(_exec_env->cluster_info()->backend_id);
 
     TLoadTxnBeginResult result;
     Status status;
     int64_t duration_ns = 0;
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     if (master_addr.hostname.empty() || master_addr.port == 0) {
         status = Status::Error<SERVICE_UNAVAILABLE>("Have not get FE Master heartbeat yet");
     } else {
@@ -220,7 +215,7 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
     TLoadTxnCommitRequest request;
     get_commit_request(ctx, request);
 
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     TLoadTxnCommitResult result;
     int64_t duration_ns = 0;
     {
@@ -265,7 +260,7 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
         request.__set_txnId(ctx->txn_id);
     }
 
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     TLoadTxn2PCResult result;
     int64_t duration_ns = 0;
     {
@@ -317,7 +312,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     TLoadTxnCommitRequest request;
     get_commit_request(ctx, request);
 
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     TLoadTxnCommitResult result;
 #ifndef BE_TEST
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
@@ -349,7 +344,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
 void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     DorisMetrics::instance()->stream_load_txn_rollback_request_total->increment(1);
 
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     TLoadTxnRollbackRequest request;
     set_request_auth(&request, ctx->auth);
     request.__set_db(ctx->db);

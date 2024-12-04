@@ -172,9 +172,10 @@ public class JobExecutionConfiguration {
         long firstTriggerTime = windowStartTimeMs + (intervalMs - ((windowStartTimeMs - startTimeMs)
                 % intervalMs)) % intervalMs;
         if (firstTriggerTime < currentTimeMs) {
-            firstTriggerTime += intervalMs;
+            // Calculate how many intervals to add to get the largest trigger time < currentTimeMs
+            long intervalsToAdd = (currentTimeMs - firstTriggerTime) / intervalMs;
+            firstTriggerTime += intervalsToAdd * intervalMs;
         }
-
         if (firstTriggerTime > windowEndTimeMs) {
             return timestamps; // Return an empty list if there won't be any trigger time
         }

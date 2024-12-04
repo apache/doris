@@ -40,6 +40,8 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.maxcompute.source.MaxComputeSplit.SplitType;
 import org.apache.doris.datasource.property.constants.MCProperties;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -49,6 +51,7 @@ import org.apache.doris.thrift.TMaxComputeFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.aliyun.odps.OdpsType;
+import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.table.TableIdentifier;
 import com.aliyun.odps.table.configuration.ArrowOptions;
 import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
@@ -59,11 +62,16 @@ import com.aliyun.odps.table.read.split.InputSplitAssigner;
 import com.aliyun.odps.table.read.split.impl.IndexedInputSplit;
 import com.google.common.collect.Maps;
 import jline.internal.Log;
+import lombok.Setter;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -76,16 +84,33 @@ import java.util.stream.Collectors;
 public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
-    TableBatchReadSession tableBatchReadSession;
+    private TableBatchReadSession tableBatchReadSession;
+    private Predicate filterPredicate;
+    private static final LocationPath ROW_OFFSET_PATH = new LocationPath("/row_offset", Maps.newHashMap());
+    private static final LocationPath BYTE_SIZE_PATH = new LocationPath("/byte_size", Maps.newHashMap());
 
-    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
-        this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE, needCheckColumnPriv);
+    @Setter
+    private SelectedPartitions selectedPartitions = null;
+
+    // For new planner
+    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc,
+            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv) {
+        this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
+                selectedPartitions, needCheckColumnPriv);
     }
 
-    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-                              StatisticalType statisticalType, boolean needCheckColumnPriv) {
+    // For old planner
+    public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+        this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
+                SelectedPartitions.NOT_PRUNED, needCheckColumnPriv);
+    }
+
+    private MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+            StatisticalType statisticalType, SelectedPartitions selectedPartitions,
+            boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         table = (MaxComputeExternalTable) desc.getTable();
+        this.selectedPartitions = selectedPartitions;
     }
 
     @Override
@@ -109,11 +134,26 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         rangeDesc.setSize(maxComputeSplit.getLength());
     }
 
-    void createTableBatchReadSession() throws UserException {
-        Predicate filterPredicate = convertPredicate();
-
+    // Return false if no need to read any partition data.
+    // Return true if need to read partition data.
+    boolean createTableBatchReadSession() throws UserException {
         List<String> requiredPartitionColumns = new ArrayList<>();
         List<String> orderedRequiredDataColumns = new ArrayList<>();
+
+        List<PartitionSpec> requiredPartitionSpecs = new ArrayList<>();
+        //if requiredPartitionSpecs is empty, get all partition data.
+        if (!table.getPartitionColumns().isEmpty() && selectedPartitions != SelectedPartitions.NOT_PRUNED) {
+            this.totalPartitionNum = selectedPartitions.totalPartitionNum;
+            this.selectedPartitionNum = selectedPartitions.selectedPartitions.size();
+
+            if (selectedPartitions.selectedPartitions.isEmpty()) {
+                //no need read any partition data.
+                return false;
+            }
+            selectedPartitions.selectedPartitions.forEach(
+                    (key, value) -> requiredPartitionSpecs.add(new PartitionSpec(key))
+            );
+        }
 
         Set<String> requiredSlots =
                 desc.getSlots().stream().map(e -> e.getColumn().getName()).collect(Collectors.toSet());
@@ -144,6 +184,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                             .withSettings(mcCatalog.getSettings())
                             .withSplitOptions(mcCatalog.getSplitOption())
                             .requiredPartitionColumns(requiredPartitionColumns)
+                            .requiredPartitions(requiredPartitionSpecs)
                             .requiredDataColumns(orderedRequiredDataColumns)
                             .withArrowOptions(
                                     ArrowOptions.newBuilder()
@@ -156,12 +197,13 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         } catch (java.io.IOException e) {
             throw new RuntimeException(e);
         }
-
+        return true;
     }
 
-    protected Predicate convertPredicate() {
+    @Override
+    protected void convertPredicate() {
         if (conjuncts.isEmpty()) {
-            return Predicate.NO_PREDICATE;
+            this.filterPredicate = Predicate.NO_PREDICATE;
         }
 
         List<Predicate> odpsPredicates = new ArrayList<>();
@@ -169,15 +211,15 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             try {
                 odpsPredicates.add(convertExprToOdpsPredicate(dorisPredicate));
             } catch (AnalysisException e) {
-                Log.info("Failed to convert predicate " + dorisPredicate);
-                Log.info("Reason: " + e.getMessage());
+                Log.warn("Failed to convert predicate " + dorisPredicate.toString() + "Reason: "
+                        + e.getMessage());
             }
         }
 
         if (odpsPredicates.isEmpty()) {
-            return Predicate.NO_PREDICATE;
+            this.filterPredicate = Predicate.NO_PREDICATE;
         } else if (odpsPredicates.size() == 1) {
-            return odpsPredicates.get(0);
+            this.filterPredicate = odpsPredicates.get(0);
         } else {
             com.aliyun.odps.table.optimizer.predicate.CompoundPredicate
                     filterPredicate = new com.aliyun.odps.table.optimizer.predicate.CompoundPredicate(
@@ -186,7 +228,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             for (Predicate odpsPredicate : odpsPredicates) {
                 filterPredicate.addPredicate(odpsPredicate);
             }
-            return filterPredicate;
+            this.filterPredicate = filterPredicate;
         }
     }
 
@@ -222,9 +264,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         } else if (expr instanceof InPredicate) {
 
             InPredicate inPredicate = (InPredicate) expr;
-            if (inPredicate.getChildren().size() > 2) {
-                throw new AnalysisException("InPredicate must contain at most 1 children");
-            }
             com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator odpsOp =
                     inPredicate.isNotIn()
                             ? com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.IN
@@ -366,7 +405,9 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             case DATETIME: {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
                 ScalarType dstType = ScalarType.createDatetimeV2Type(3);
-                return  " \"" + dateLiteral.getStringValue(dstType) + "\" ";
+
+                return  " \"" + convertDateTimezone(dateLiteral.getStringValue(dstType),
+                                    ((MaxComputeExternalCatalog) table.getCatalog()).getProjectDateTimeZone()) + "\" ";
             }
             case TIMESTAMP_NTZ: {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
@@ -379,6 +420,23 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
         throw new AnalysisException("Do not support convert odps type [" + odpsType + "] to odps values.");
     }
+
+
+    public static String convertDateTimezone(String dateTimeStr, ZoneId toZone) {
+        if (DateUtils.getTimeZone().equals(toZone)) {
+            return dateTimeStr;
+        }
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+        LocalDateTime localDateTime = LocalDateTime.parse(dateTimeStr, formatter);
+
+        ZonedDateTime sourceZonedDateTime = localDateTime.atZone(DateUtils.getTimeZone());
+        ZonedDateTime targetZonedDateTime = sourceZonedDateTime.withZoneSameInstant(toZone);
+
+        return targetZonedDateTime.format(formatter);
+    }
+
+
 
     @Override
     public TFileFormatType getFileFormatType() {
@@ -407,7 +465,10 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {
             return result;
         }
-        createTableBatchReadSession();
+
+        if (!createTableBatchReadSession()) {
+            return result;
+        }
 
         try {
             String scanSessionSerialize =  serializeSession(tableBatchReadSession);
@@ -420,7 +481,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
                 for (com.aliyun.odps.table.read.split.InputSplit split : assigner.getAllSplits()) {
                     MaxComputeSplit maxComputeSplit =
-                            new MaxComputeSplit(new LocationPath("/byte_size", Maps.newHashMap()),
+                            new MaxComputeSplit(BYTE_SIZE_PATH,
                                     ((IndexedInputSplit) split).getSplitIndex(), -1,
                                     mcCatalog.getSplitByteSize(),
                                     modificationTime, null,
@@ -443,7 +504,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                             assigner.getSplitByRowOffset(offset, recordsPerSplit);
 
                     MaxComputeSplit maxComputeSplit =
-                            new MaxComputeSplit(new LocationPath("/row_offset", Maps.newHashMap()),
+                            new MaxComputeSplit(ROW_OFFSET_PATH,
                             offset, recordsPerSplit, totalRowCount, modificationTime, null,
                             Collections.emptyList());
 

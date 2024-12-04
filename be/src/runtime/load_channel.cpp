@@ -45,8 +45,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
           _backend_id(backend_id),
           _enable_profile(enable_profile) {
     std::shared_ptr<QueryContext> query_context =
-            ExecEnv::GetInstance()->fragment_mgr()->get_or_erase_query_ctx_with_lock(
-                    _load_id.to_thrift());
+            ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(_load_id.to_thrift());
     std::shared_ptr<MemTrackerLimiter> mem_tracker = nullptr;
     WorkloadGroupPtr wg_ptr = nullptr;
 
@@ -64,7 +63,6 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
             if (workload_group_ptr) {
                 wg_ptr = workload_group_ptr;
                 wg_ptr->add_mem_tracker_limiter(mem_tracker);
-                _need_release_memtracker = true;
             }
         }
     }
@@ -85,12 +83,6 @@ LoadChannel::~LoadChannel() {
         rows_str << ", index id: " << entry.first << ", total_received_rows: " << entry.second.first
                  << ", num_rows_filtered: " << entry.second.second;
     }
-    if (_need_release_memtracker) {
-        WorkloadGroupPtr wg_ptr = _query_thread_context.get_workload_group_ptr();
-        if (wg_ptr) {
-            wg_ptr->remove_mem_tracker_limiter(_query_thread_context.get_memory_tracker());
-        }
-    }
     LOG(INFO) << "load channel removed"
               << " load_id=" << _load_id << ", is high priority=" << _is_high_priority
               << ", sender_ip=" << _sender_ip << rows_str.str();
@@ -105,7 +97,6 @@ void LoadChannel::_init_profile() {
                                                _load_id.to_string(), _sender_ip, _backend_id),
                                    true, true);
     _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
-    _peak_memory_usage_counter = ADD_COUNTER(_self_profile, "PeakMemoryUsage", TUnit::BYTES);
     _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTime");
     _handle_eos_timer = ADD_CHILD_TIMER(_self_profile, "HandleEosTime", "AddBatchTime");
     _add_batch_times = ADD_COUNTER(_self_profile, "AddBatchTimes", TUnit::UNIT);
@@ -142,7 +133,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
                                                            _is_high_priority, _self_profile);
             }
             {
-                std::lock_guard<SpinLock> l(_tablets_channels_lock);
+                std::lock_guard<std::mutex> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
             }
         }
@@ -244,7 +235,7 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     if (finished) {
         std::lock_guard<std::mutex> l(_lock);
         {
-            std::lock_guard<SpinLock> l(_tablets_channels_lock);
+            std::lock_guard<std::mutex> l(_tablets_channels_lock);
             _tablets_channels_rows.insert(std::make_pair(
                     index_id,
                     std::make_pair(channel->total_received_rows(), channel->num_rows_filtered())));
@@ -270,7 +261,7 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
     _self_profile->set_timestamp(_last_updated_time);
 
     {
-        std::lock_guard<SpinLock> l(_tablets_channels_lock);
+        std::lock_guard<std::mutex> l(_tablets_channels_lock);
         for (auto& it : _tablets_channels) {
             it.second->refresh_profile();
         }

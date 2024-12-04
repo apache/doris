@@ -76,6 +76,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * FileQueryScanNode for querying the file access type of catalog, now only support
@@ -144,7 +145,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
                                 table.getName()));
             }
         }
-        computeColumnsFilter();
         initBackendPolicy();
         initSchemaParams();
     }
@@ -213,11 +213,21 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeStartTime();
         }
+        convertPredicate();
         createScanRangeLocations();
         updateRequiredSlots();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeFinishTime();
         }
+    }
+
+    /**
+     * Used as a predicate to convert conjuncts into corresponding data sources.
+     * All predicate conversions from different data sources should override this method.
+     * and this method must be called in finalize,
+     * because in nereids planner, conjuncts are only generated in the finalize stage.
+     */
+    protected void convertPredicate() {
     }
 
     private void setColumnPositionMapping()
@@ -250,6 +260,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     // Set some parameters of scan to support different types of file data sources
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+    }
+
+    // Serialize the table to be scanned to BE's jni reader
+    protected Optional<String> getSerializedTable() {
+        return Optional.empty();
     }
 
     @Override
@@ -288,6 +303,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
                 scanRangeLocations.add(curLocations);
+                scanBackendIds.add(backendId);
                 return;
             }
         }
@@ -337,6 +353,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 // However, even one ScanNode instance can provide maximum scanning concurrency.
                 scanRangeLocations.add(curLocations);
                 setLocationPropertiesIfNecessary(backend, locationType, locationProperties);
+                scanBackendIds.add(backend.getId());
             }
         } else {
             List<Split> inputSplits = getSplits();
@@ -354,8 +371,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
                     totalFileSize += split.getLength();
                 }
+                scanBackendIds.add(backend.getId());
             }
         }
+
+        getSerializedTable().ifPresent(params::setSerializedTable);
 
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setCreateScanRangeFinishTime();
@@ -413,6 +433,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
         }
 
+        // set file format type, and the type might fall back to native format in setScanParams
+        rangeDesc.setFormatType(getFileFormatType());
         setScanParams(rangeDesc, fileSplit);
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
         TScanRangeLocation location = new TScanRangeLocation();

@@ -20,7 +20,6 @@
 #include <glog/logging.h>
 
 #include <ostream>
-#include <vector>
 
 #include "common/status.h"
 #include "runtime/runtime_state.h"
@@ -36,6 +35,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 VExplodeNumbersTableFunction::VExplodeNumbersTableFunction() {
     _fn_name = "vexplode_numbers";
@@ -52,19 +52,25 @@ Status VExplodeNumbersTableFunction::process_init(Block* block, RuntimeState* st
     _value_column = block->get_by_position(value_column_idx).column;
     if (is_column_const(*_value_column)) {
         _cur_size = 0;
-        auto& column_nested = assert_cast<const ColumnConst&>(*_value_column).get_data_column_ptr();
+
+        // the argument columns -> Int32
+        const auto& column_nested =
+                assert_cast<const ColumnConst&>(*_value_column).get_data_column_ptr();
         if (column_nested->is_nullable()) {
             if (!column_nested->is_null_at(0)) {
-                _cur_size = assert_cast<const ColumnNullable*>(column_nested.get())
-                                    ->get_nested_column()
-                                    .get_int(0);
+                _cur_size = assert_cast<const ColumnInt32*>(
+                                    assert_cast<const ColumnNullable*>(column_nested.get())
+                                            ->get_nested_column_ptr()
+                                            .get())
+                                    ->get_element(0);
             }
         } else {
-            _cur_size = column_nested->get_int(0);
+            _cur_size = assert_cast<const ColumnInt32*>(column_nested.get())->get_element(0);
         }
+
         ((ColumnInt32*)_elements_column.get())->clear();
         //_cur_size may be a negative number
-        _cur_size = std::max<int64_t>(0, _cur_size);
+        _cur_size = std::max(static_cast<int64_t>(0L), _cur_size);
         if (_cur_size &&
             _cur_size <= state->batch_size()) { // avoid elements_column too big or empty
             _is_const = true;                   // use const optimize
@@ -96,17 +102,20 @@ void VExplodeNumbersTableFunction::get_same_many_values(MutableColumnPtr& column
     if (current_empty()) {
         column->insert_many_defaults(length);
     } else {
+        // for explode numbers, the argument is int32. so cast is safe.
         if (_is_nullable) {
             assert_cast<ColumnInt32*>(
                     assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
-                    ->insert_many_vals(_cur_offset, length);
+                    ->insert_many_vals(static_cast<int32_t>(_cur_offset), length);
             assert_cast<ColumnUInt8*>(
                     assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
                     ->insert_many_defaults(length);
         } else {
-            assert_cast<ColumnInt32*>(column.get())->insert_many_vals(_cur_offset, length);
+            assert_cast<ColumnInt32*>(column.get())
+                    ->insert_many_vals(static_cast<int32_t>(_cur_offset), length);
         }
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

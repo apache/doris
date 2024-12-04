@@ -203,6 +203,8 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
                                          GetObjStoreInfoResponse* response,
                                          ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_obj_store_info);
+    TEST_SYNC_POINT_CALLBACK("obj-store-info_sk_response", &response);
+    TEST_SYNC_POINT_RETURN_WITH_VOID("obj-store-info_sk_response_return");
     // Prepare data
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
@@ -570,6 +572,15 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     }
     StorageVaultPB new_vault;
     new_vault.ParseFromString(val);
+
+    if (!new_vault.has_hdfs_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << name << " is not hdfs storage vault";
+        msg = ss.str();
+        return -1;
+    }
+
     auto origin_vault_info = new_vault.DebugString();
     if (vault.has_alter_name()) {
         if (!is_valid_storage_vault_name(vault.alter_name())) {
@@ -671,6 +682,14 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     }
     StorageVaultPB new_vault;
     new_vault.ParseFromString(val);
+    if (!new_vault.has_obj_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << name << " is not s3 storage vault";
+        msg = ss.str();
+        return -1;
+    }
+
     if (vault.has_alter_name()) {
         if (!is_valid_storage_vault_name(vault.alter_name())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -701,6 +720,9 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     new_vault.mutable_obj_info()->set_ak(cipher_ak_sk_pair.first);
     new_vault.mutable_obj_info()->set_sk(cipher_ak_sk_pair.second);
     new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
+    if (obj_info.has_use_path_style()) {
+        new_vault.mutable_obj_info()->set_use_path_style(obj_info.use_path_style());
+    }
 
     auto new_vault_info = new_vault.DebugString();
     val = new_vault.SerializeAsString();
@@ -989,6 +1011,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             instance.set_default_storage_vault_id(vault.id());
             instance.set_default_storage_vault_name(vault.name());
         }
+        response->set_storage_vault_id(vault.id());
         LOG_INFO("try to put storage vault_id={}, vault_name={}, vault_key={}", vault.id(),
                  vault.name(), hex(vault_key));
     } break;
@@ -1006,6 +1029,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             instance.set_default_storage_vault_id(*instance.resource_ids().rbegin());
             instance.set_default_storage_vault_name(*instance.storage_vault_names().rbegin());
         }
+        response->set_storage_vault_id(request->vault().id());
         break;
     }
     case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {
@@ -1921,6 +1945,16 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     instance_id = request->has_instance_id() ? request->instance_id() : "";
     if (!cloud_unique_id.empty() && instance_id.empty()) {
+        auto [is_degraded_format, id] =
+                ResourceManager::get_instance_id_by_cloud_unique_id(cloud_unique_id);
+        if (config::enable_check_instance_id && is_degraded_format &&
+            !resource_mgr_->is_instance_id_registered(id)) {
+            msg = "use degrade cloud_unique_id, but instance_id invalid, cloud_unique_id=" +
+                  cloud_unique_id;
+            LOG(WARNING) << msg;
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            return;
+        }
         instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
         if (instance_id.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1970,7 +2004,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::ADD_NODE: {
         resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
         if (msg != "") {
-            LOG(INFO) << msg;
+            LOG(WARNING) << msg;
             break;
         }
         std::vector<NodeInfo> to_add;
@@ -1994,7 +2028,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::DROP_NODE: {
         resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
         if (msg != "") {
-            LOG(INFO) << msg;
+            LOG(WARNING) << msg;
             break;
         }
         std::vector<NodeInfo> to_add;
@@ -2017,7 +2051,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::DECOMMISSION_NODE: {
         resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
         if (msg != "") {
-            LOG(INFO) << msg;
+            LOG(WARNING) << msg;
             break;
         }
 
@@ -2079,7 +2113,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::NOTIFY_DECOMMISSIONED: {
         resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
         if (msg != "") {
-            LOG(INFO) << msg;
+            LOG(WARNING) << msg;
             break;
         }
 
@@ -2568,6 +2602,8 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
                                 const GetStageRequest* request, GetStageResponse* response,
                                 ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_stage);
+    TEST_SYNC_POINT_CALLBACK("stage_sk_response", &response);
+    TEST_SYNC_POINT_RETURN_WITH_VOID("stage_sk_response_return");
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;

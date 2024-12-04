@@ -18,23 +18,27 @@
 package org.apache.doris.insertoverwrite;
 
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 
 import mockit.Expectations;
 import mockit.Mocked;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 public class InsertOverwriteManagerTest {
     @Mocked
     private DatabaseIf db;
 
     @Mocked
-    private TableIf table;
+    private OlapTable table;
+
+    @Mocked
+    private HMSExternalTable hmsExternalTable;
 
     @Before
     public void setUp()
@@ -57,6 +61,14 @@ public class InsertOverwriteManagerTest {
                 table.getName();
                 minTimes = 0;
                 result = "table1";
+
+                hmsExternalTable.getId();
+                minTimes = 0;
+                result = 3L;
+
+                hmsExternalTable.getName();
+                minTimes = 0;
+                result = "hmsTable";
             }
         };
     }
@@ -65,13 +77,17 @@ public class InsertOverwriteManagerTest {
     public void testParallel() {
         InsertOverwriteManager manager = new InsertOverwriteManager();
         manager.recordRunningTableOrException(db, table);
-        try {
-            manager.recordRunningTableOrException(db, table);
-        } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains("Not allowed"));
-        }
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> manager.recordRunningTableOrException(db, table));
         manager.dropRunningRecord(db.getId(), table.getId());
-        manager.recordRunningTableOrException(db, table);
+        Assertions.assertDoesNotThrow(() -> manager.recordRunningTableOrException(db, table));
     }
 
+    @Test
+    public void testHmsTableParallel() {
+        InsertOverwriteManager manager = new InsertOverwriteManager();
+        manager.recordRunningTableOrException(db, hmsExternalTable);
+        Assertions.assertDoesNotThrow(() -> manager.recordRunningTableOrException(db, hmsExternalTable));
+        manager.dropRunningRecord(db.getId(), hmsExternalTable.getId());
+    }
 }

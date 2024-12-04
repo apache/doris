@@ -57,8 +57,6 @@
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker.h"
-#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
@@ -83,26 +81,18 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTES, "",
-                                   mem_consumption, Labels({{"type", "tablet_meta"}}));
-
 bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_columns_count");
 
 TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size)
         : _engine(engine),
-          _tablet_meta_mem_tracker(std::make_shared<MemTracker>("TabletMeta(experimental)")),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);
-    REGISTER_HOOK_METRIC(tablet_meta_mem_consumption,
-                         [this]() { return _tablet_meta_mem_tracker->consumption(); });
 }
 
-TabletManager::~TabletManager() {
-    DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
-}
+TabletManager::~TabletManager() = default;
 
 Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                            bool update_meta, bool force, RuntimeProfile* profile) {
@@ -240,10 +230,6 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id] = tablet;
     _add_tablet_to_partition(tablet);
-    // TODO: remove multiply 2 of tablet meta mem size
-    // Because table schema will copy in tablet, there will be double mem cost
-    // so here multiply 2
-    _tablet_meta_mem_tracker->consume(tablet->tablet_meta()->mem_size() * 2);
     g_tablet_meta_schema_columns_count << tablet->tablet_meta()->tablet_columns_num();
     COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RegisterTabletInfo", "AddTablet"),
                    static_cast<int64_t>(watch.reset()));
@@ -597,7 +583,6 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
     }
 
     to_drop_tablet->deregister_tablet_from_dir();
-    _tablet_meta_mem_tracker->release(to_drop_tablet->tablet_meta()->mem_size() * 2);
     g_tablet_meta_schema_columns_count << -to_drop_tablet->tablet_meta()->tablet_columns_num();
     return Status::OK();
 }
@@ -797,8 +782,7 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
         }
         auto cumulative_compaction_policy = all_cumulative_compaction_policies.at(
                 tablet_ptr->tablet_meta()->compaction_policy());
-        uint32_t current_compaction_score =
-                tablet_ptr->calc_compaction_score(compaction_type, cumulative_compaction_policy);
+        uint32_t current_compaction_score = tablet_ptr->calc_compaction_score();
         if (current_compaction_score < 5) {
             tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());
         }
@@ -806,14 +790,22 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
         // tablet should do single compaction
         if (current_compaction_score > single_compact_highest_score &&
             tablet_ptr->should_fetch_from_peer()) {
-            single_compact_highest_score = current_compaction_score;
-            best_single_compact_tablet = tablet_ptr;
+            bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
+                                                           cumulative_compaction_policy);
+            if (ret) {
+                single_compact_highest_score = current_compaction_score;
+                best_single_compact_tablet = tablet_ptr;
+            }
         }
 
         // tablet should do cumu or base compaction
         if (current_compaction_score > highest_score && !tablet_ptr->should_fetch_from_peer()) {
-            highest_score = current_compaction_score;
-            best_tablet = tablet_ptr;
+            bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
+                                                           cumulative_compaction_policy);
+            if (ret) {
+                highest_score = current_compaction_score;
+                best_tablet = tablet_ptr;
+            }
         }
     };
 
@@ -946,8 +938,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     bool exists = false;
     RETURN_IF_ERROR(io::global_local_filesystem()->exists(header_path, &exists));
     if (!exists) {
-        return Status::Error<FILE_NOT_EXIST>("fail to find header file. [header_path={}]",
-                                             header_path);
+        return Status::Error<NOT_FOUND>("fail to find header file. [header_path={}]", header_path);
     }
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
@@ -1075,6 +1066,10 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
         t_tablet_stat.__set_total_version_count(tablet_info.total_version_count);
         t_tablet_stat.__set_visible_version_count(tablet_info.visible_version_count);
         t_tablet_stat.__set_visible_version(tablet_info.version);
+        t_tablet_stat.__set_local_index_size(tablet_info.local_index_size);
+        t_tablet_stat.__set_local_segment_size(tablet_info.local_segment_size);
+        t_tablet_stat.__set_remote_index_size(tablet_info.remote_index_size);
+        t_tablet_stat.__set_remote_segment_size(tablet_info.remote_segment_size);
     };
     for_each_tablet(handler, filter_all_tablets);
 

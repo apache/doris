@@ -87,6 +87,9 @@ suite("variant_mv") {
     sql """analyze table github_events1 with sync;"""
     sql """analyze table github_events2 with sync;"""
 
+    sql """alter table github_events1 modify column created_at set stats ('row_count'='3');"""
+    sql """alter table github_events2 modify column created_at set stats ('row_count'='3');"""
+
     // variant appear in where both slot and in expression
     def mv1_0 = """
     SELECT
@@ -415,8 +418,7 @@ suite("variant_mv") {
     where g2.actor['id'] > 34259289 and cast(g1.actor['id'] as int) + cast(g2.repo['id'] as int) > 80000000;
     """
     order_qt_query3_0_before "${query3_0}"
-    // condition in join other conjuects is not supported now, suppport later
-//    async_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
+    async_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
     order_qt_query3_0_after "${query3_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
 
@@ -554,8 +556,7 @@ suite("variant_mv") {
     where g2.actor['id'] > 34259300 and cast(g1.actor['id'] as int) + cast(g2.repo['id'] as int) > 80000000;
     """
     order_qt_query3_4_before "${query3_4}"
-    // condition in join other conjuects is not supported now, suppport later
-//    async_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
+    async_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
     order_qt_query3_4_after "${query3_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_4"""
 

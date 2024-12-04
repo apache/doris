@@ -41,6 +41,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -142,12 +143,12 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena*) const override {
         this->data(place).add(columns, _arguments.size(), row_num);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena*) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -156,7 +157,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
+                     Arena*) const override {
         this->data(place).deserialize(buf);
     }
 
@@ -204,3 +205,5 @@ AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& 
                                                     const SortDescription& sort_desc,
                                                     RuntimeState* state);
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

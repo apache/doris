@@ -212,9 +212,9 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
         //  the implementation of NULL values because the dictionary itself does not contain
         //  NULL value encoding. As a result, many NULL-related functions or expressions
         //  cannot work properly, such as is null, is not null, coalesce, etc.
-        //  Here we first disable dictionary filtering when predicate contains functions.
+        //  Here we first disable dictionary filtering when predicate is not slot.
         //  Implementation of NULL value dictionary filtering will be carried out later.
-        if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
+        if (expr->node_type() != TExprNodeType::SLOT_REF) {
             return false;
         }
         for (auto& child : expr->children()) {
@@ -654,6 +654,7 @@ Status RowGroupReader::_fill_partition_columns(
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
         int num_deserialized = 0;
+        // Be careful when reading empty rows from parquet row groups.
         if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
                                                             &num_deserialized,
                                                             _text_formatOptions) != Status::OK()) {

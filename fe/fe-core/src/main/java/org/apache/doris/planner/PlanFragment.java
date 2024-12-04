@@ -162,6 +162,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public Optional<NereidsSpecifyInstances<ScanSource>> specifyInstances = Optional.empty();
 
     public TQueryCacheParam queryCacheParam;
+    private int numBackends = 0;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -396,6 +397,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return fragmentId;
     }
 
+    public ExchangeNode getDestNode() {
+        return destNode;
+    }
+
     public PlanFragment getDestFragment() {
         if (destNode == null) {
             return null;
@@ -501,5 +506,22 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public boolean hasNullAwareLeftAntiJoin() {
         return planRoot.isNullAwareLeftAntiJoin();
+    }
+
+    public boolean useSerialSource(ConnectContext context) {
+        return context != null
+                && context.getSessionVariable().isIgnoreStorageDataDistribution()
+                && queryCacheParam == null
+                && !hasNullAwareLeftAntiJoin()
+                // If planRoot is not a serial operator and has serial children, we can use serial source and improve
+                // parallelism of non-serial operators.
+                // For bucket shuffle / colocate join fragment, always use serial source if the bucket scan nodes are
+                // serial.
+                && (hasSerialScanNode() || (sink instanceof DataStreamSink && !planRoot.isSerialOperator()
+                && planRoot.hasSerialChildren()));
+    }
+
+    public boolean hasSerialScanNode() {
+        return planRoot.hasSerialScanChildren();
     }
 }

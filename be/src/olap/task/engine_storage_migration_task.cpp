@@ -407,11 +407,8 @@ Status EngineStorageMigrationTask::_copy_index_and_data_files(
 
             if (tablet_schema.get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
-                for (const auto& index : tablet_schema.indexes()) {
-                    if (index.index_type() != IndexType::INVERTED) {
-                        continue;
-                    }
-                    auto index_id = index.index_id();
+                for (const auto& index : tablet_schema.inverted_indexes()) {
+                    auto index_id = index->index_id();
                     auto index_file =
                             _tablet->get_segment_index_filepath(rowset_id, segment_index, index_id);
                     auto snapshot_segment_index_file_path =

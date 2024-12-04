@@ -28,7 +28,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -96,7 +95,7 @@ public class MTMVUtil {
     public static boolean mtmvContainsExternalTable(MTMV mtmv) {
         Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
         for (BaseTableInfo baseTableInfo : baseTables) {
-            if (!baseTableInfo.getCtlName().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            if (!baseTableInfo.isInternalTable()) {
                 return true;
             }
         }

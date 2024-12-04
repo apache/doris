@@ -1354,27 +1354,9 @@ suite("nereids_scalar_fn_Array") {
     sql """ set enable_decimal256=true; """
     order_qt_sql_array_min_decimal256 "select array_min(c) from fn_test_array_with_large_decimal order by id"
     order_qt_sql_array_max_decimal256 "select array_max(c) from fn_test_array_with_large_decimal order by id"
-    test {
-        sql "select array_product(c) from fn_test_array_with_large_decimal order by id"
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
-    test {
-        sql "select array_avg(c) from fn_test_array_with_large_decimal order by id"
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
-    test {
-        sql "select array_sum(c) from fn_test_array_with_large_decimal order by id"
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
+    order_qt_sql_array_product_decimal256 "select array_product(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_avg_decimal256 "select array_avg(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_sum_decimal256 "select array_sum(c) from fn_test_array_with_large_decimal order by id"
     // array_overlap for type correctness
     order_qt_sql_array_overlaps_1 """select arrays_overlap(a, b) from fn_test_array_with_large_decimal order by id"""
     order_qt_sql_array_overlaps_2 """select arrays_overlap(b, a) from fn_test_array_with_large_decimal order by id"""

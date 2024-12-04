@@ -31,6 +31,7 @@ import com.google.common.collect.Sets;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -45,7 +46,7 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
             return;
         }
         MTMVRelatedTableIf relatedTable = mvPartitionInfo.getRelatedTable();
-        PartitionType partitionType = relatedTable.getPartitionType();
+        PartitionType partitionType = relatedTable.getPartitionType(Optional.empty());
         if (partitionType == PartitionType.RANGE) {
             lastResult.setDescs(rollUpRange(lastResult.getDescs(), mvPartitionInfo));
         } else if (partitionType == PartitionType.LIST) {
