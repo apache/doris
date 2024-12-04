@@ -703,10 +703,24 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
                                           rapidjson::Document::AllocatorType& allocator) {
     const auto& fs = _rowset_meta->fs();
     auto storage_format = _schema->get_inverted_index_storage_format();
-    auto format_str = storage_format == InvertedIndexStorageFormatPB::V1 ? "V1" : "V2";
+    std::string format_str;
+    switch (storage_format) {
+    case InvertedIndexStorageFormatPB::V1:
+        format_str = "V1";
+        break;
+    case InvertedIndexStorageFormatPB::V2:
+        format_str = "V2";
+        break;
+    case InvertedIndexStorageFormatPB::V3:
+        format_str = "V3";
+        break;
+    default:
+        return Status::InternalError("inverted index storage format error");
+        break;
+    }
     auto rs_id = rowset_id().to_string();
     rowset_value->AddMember("rowset_id", rapidjson::Value(rs_id.c_str(), allocator), allocator);
-    rowset_value->AddMember("index_storage_format", rapidjson::Value(format_str, allocator),
+    rowset_value->AddMember("index_storage_format", rapidjson::Value(format_str.c_str(), allocator),
                             allocator);
     rapidjson::Value segments(rapidjson::kArrayType);
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
