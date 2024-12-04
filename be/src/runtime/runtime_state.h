@@ -85,12 +85,7 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env, QueryContext* ctx);
 
-    // for only use in pipelineX
-    RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
-                 const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
-
-    // Used by pipelineX. This runtime state is only used for setup.
+    // Used by pipeline. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 

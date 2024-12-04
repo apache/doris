@@ -397,9 +397,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                         << print_id(_task_runtime_states[pip_idx][i]->fragment_instance_id()) << " "
                         << pipeline->debug_string();
                 _task_runtime_states[pip_idx][i] = RuntimeState::create_unique(
-                        this, local_params.fragment_instance_id, request.query_id,
-                        request.fragment_id, request.query_options, _query_ctx->query_globals,
-                        _exec_env, _query_ctx.get());
+                        local_params.fragment_instance_id, request.query_id, request.fragment_id,
+                        request.query_options, _query_ctx->query_globals, _exec_env,
+                        _query_ctx.get());
                 auto& task_runtime_state = _task_runtime_states[pip_idx][i];
                 _runtime_filter_states[i]->set_state(task_runtime_state.get());
                 {
