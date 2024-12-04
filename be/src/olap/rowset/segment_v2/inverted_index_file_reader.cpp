@@ -30,8 +30,8 @@ namespace doris::segment_v2 {
 Status InvertedIndexFileReader::init(int32_t read_buffer_size) {
     if (!_inited) {
         _read_buffer_size = read_buffer_size;
-        if (_storage_format == InvertedIndexStorageFormatPB::V2) {
-            auto st = _init_from_v2(read_buffer_size);
+        if (_storage_format >= InvertedIndexStorageFormatPB::V2) {
+            auto st = _init_from(read_buffer_size);
             if (!st.ok()) {
                 return st;
             }
@@ -41,7 +41,7 @@ Status InvertedIndexFileReader::init(int32_t read_buffer_size) {
     return Status::OK();
 }
 
-Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
+Status InvertedIndexFileReader::_init_from(int32_t read_buffer_size) {
     auto index_file_full_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
 
     std::unique_lock<std::shared_mutex> lock(_mutex); // Lock for writing
@@ -79,7 +79,7 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
 
         // 3. read file
         int32_t version = _stream->readInt(); // Read version number
-        if (version == InvertedIndexStorageFormatPB::V2) {
+        if (version >= InvertedIndexStorageFormatPB::V2) {
             DCHECK(version == _storage_format);
             int32_t numIndices = _stream->readInt(); // Read number of indices
             ReaderFileEntry* entry = nullptr;

@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
@@ -85,6 +87,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
@@ -205,6 +208,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAddConstraintCommand(AddConstraintCommand addConstraintCommand, C context) {
         return visitCommand(addConstraintCommand, context);
+    }
+
+    default R visitAdminCompactTableCommand(AdminCompactTableCommand adminCompactTableCommand, C context) {
+        return visitCommand(adminCompactTableCommand, context);
     }
 
     default R visitDropConstraintCommand(DropConstraintCommand dropConstraintCommand, C context) {
@@ -348,6 +355,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(refreshCatalogCommand, context);
     }
 
+    default R visitShowCreateRepositoryCommand(ShowCreateRepositoryCommand showCreateRepositoryCommand, C context) {
+        return visitCommand(showCreateRepositoryCommand, context);
+    }
+
     default R visitShowLastInsertCommand(ShowLastInsertCommand showLastInsertCommand, C context) {
         return visitCommand(showLastInsertCommand, context);
     }
@@ -398,6 +409,11 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTriggersCommand(ShowTriggersCommand showTriggersCommand, C context) {
         return visitCommand(showTriggersCommand, context);
+    }
+
+    default R visitAdminShowReplicaStatusCommand(AdminShowReplicaStatusCommand adminShowReplicaStatusCommand,
+                                                    C context) {
+        return visitCommand(adminShowReplicaStatusCommand, context);
     }
 
     default R visitShowRepositoriesCommand(ShowRepositoriesCommand showRepositoriesCommand, C context) {

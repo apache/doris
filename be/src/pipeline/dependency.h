@@ -34,6 +34,7 @@
 #include "pipeline/common/set_utils.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/join/process_hash_table_probe.h"
+#include "util/stack_util.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/core/block.h"
@@ -107,7 +108,7 @@ public:
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
     [[nodiscard]] virtual Dependency* is_blocked_by(PipelineTask* task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
-    void set_ready();
+    virtual void set_ready();
     void set_ready_to_read() {
         DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
@@ -172,11 +173,26 @@ struct FakeSharedState final : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(FakeSharedState)
 };
 
-class CountedFinishDependency final : public Dependency {
+class DependencyWithStack : public Dependency {
+public:
+    using SharedState = FakeSharedState;
+    DependencyWithStack(int id, int node_id, std::string name, bool ready = false)
+            : Dependency(id, node_id, name, ready) {}
+
+    void set_ready() override {
+        _stack_set_ready = get_stack_trace();
+        Dependency::set_ready();
+    }
+
+protected:
+    std::string _stack_set_ready;
+};
+
+class CountedFinishDependency final : public DependencyWithStack {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name)
-            : Dependency(id, node_id, name, true) {}
+            : DependencyWithStack(id, node_id, name, true) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
