@@ -2951,6 +2951,10 @@ show_routine_load_stmt ::=
     {:
         RESULT = new ShowRoutineLoadStmt(null, true, parser.wild);
     :}
+    | KW_SHOW  KW_ROUTINE KW_LOAD KW_IN KW_ALL
+    {:
+        RESULT = new ShowRoutineLoadStmt(null, true,true,null);
+    :}
     ;
 
 show_routine_load_task_stmt ::=

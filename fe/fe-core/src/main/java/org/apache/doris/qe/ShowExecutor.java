@@ -1679,8 +1679,10 @@ public class ShowExecutor {
                 matcher = PatternMatcherWrapper.createMysqlPattern(showRoutineLoadStmt.getPattern(),
                         CaseSensibility.ROUTINE_LOAD.getCaseSensibility());
             }
+            //when db is null, show all jobs
+            String dbFullName = showRoutineLoadStmt.isInAllDatabases() ? null : showRoutineLoadStmt.getDbFullName();
             routineLoadJobList = Env.getCurrentEnv().getRoutineLoadManager()
-                    .getJob(showRoutineLoadStmt.getDbFullName(), showRoutineLoadStmt.getName(),
+                    .getJob(dbFullName, showRoutineLoadStmt.getName(),
                             showRoutineLoadStmt.isIncludeHistory(), matcher);
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage(), e);
