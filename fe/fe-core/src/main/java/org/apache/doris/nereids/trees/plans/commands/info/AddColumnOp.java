@@ -77,17 +77,13 @@ public class AddColumnOp extends AlterTableOp {
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
-        validateColumnDef(tableName, columnDef);
+        if (!Strings.isNullOrEmpty(rollupName)) {
+            throw new AnalysisException("Cannot add column in rollup " + rollupName);
+        }
         if (colPos != null) {
             colPos.analyze();
         }
-        if (columnDef.getAggType() != null && colPos != null && colPos.isFirst()) {
-            throw new AnalysisException("Cannot add value column[" + columnDef.getName() + "] at first");
-        }
-        if (Strings.isNullOrEmpty(rollupName)) {
-            rollupName = null;
-        }
-
+        validateColumnDef(tableName, columnDef, colPos);
         column = columnDef.translateToCatalogStyle();
     }
 
@@ -132,42 +128,88 @@ public class AddColumnOp extends AlterTableOp {
     /**
      * validateColumnDef
      */
-    public static void validateColumnDef(TableNameInfo tableName, ColumnDefinition columnDef) throws UserException {
+    public static void validateColumnDef(TableNameInfo tableName, ColumnDefinition columnDef, ColumnPosition colPos)
+            throws UserException {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
         }
         boolean isOlap = false;
-        Table table = null;
+        OlapTable olapTable = null;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        if (tableName != null) {
-            table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
-                    .getTableOrDdlException(tableName.getTbl());
-            if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS
-                    && (columnDef.getAggType() == null || columnDef.getAggType() == AggregateType.NONE)) {
-                columnDef.setIsKey(true);
-                keysSet.add(columnDef.getName());
-            }
-            if (table instanceof OlapTable) {
-                columnDef.setKeysType(((OlapTable) table).getKeysType());
-                isOlap = true;
-            }
-        }
-
         boolean isEnableMergeOnWrite = false;
         KeysType keysType = KeysType.DUP_KEYS;
         Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        if (isOlap) {
-            OlapTable olapTable = (OlapTable) table;
-            isEnableMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
+        Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+                .getTableOrDdlException(tableName.getTbl());
+        if (table instanceof OlapTable) {
+            isOlap = true;
+            olapTable = (OlapTable) table;
             keysType = olapTable.getKeysType();
-            keysSet.addAll(
-                    olapTable.getBaseSchemaKeyColumns().stream().map(Column::getName).collect(Collectors.toList()));
-            clusterKeySet.addAll(olapTable.getBaseSchema().stream().filter(Column::isClusterKey).map(Column::getName)
-                    .collect(Collectors.toList()));
+            AggregateType aggregateType = columnDef.getAggType();
+            if (keysType == KeysType.AGG_KEYS) {
+                if (aggregateType == null) {
+                    columnDef.setIsKey(true);
+                } else {
+                    if (aggregateType == AggregateType.NONE) {
+                        throw new AnalysisException(
+                                String.format("can't set NONE as aggregation type on column %s",
+                                        columnDef.getName()));
+                    }
+                }
+            } else if (keysType == KeysType.UNIQUE_KEYS) {
+                if (aggregateType != null) {
+                    throw new AnalysisException(
+                            String.format("Can not assign aggregation method on column in Unique data model table: %s",
+                                    columnDef.getName()));
+                }
+            }
+            isEnableMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
+            clusterKeySet
+                    .addAll(olapTable.getBaseSchema().stream().filter(Column::isClusterKey).map(Column::getName)
+                            .collect(Collectors.toList()));
         }
         columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
         if (!columnDef.isNullable() && !columnDef.hasDefaultValue()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DEFAULT_FOR_FIELD, columnDef.getName());
+        }
+        if (olapTable != null && colPos != null) {
+            if (colPos.isFirst()) {
+                if (!columnDef.isKey()) {
+                    throw new AnalysisException(
+                            String.format("Can't add value column %s as First column", columnDef.getName()));
+                }
+            } else {
+                Column afterColumn = null;
+                Column beforeColumn = null;
+                for (Column col : olapTable.getFullSchema()) {
+                    if (beforeColumn == null && afterColumn != null) {
+                        beforeColumn = col;
+                    }
+                    if (col.getName().equalsIgnoreCase(colPos.getLastCol())) {
+                        afterColumn = col;
+                    }
+                    if (col.getName().equalsIgnoreCase(columnDef.getName())) {
+                        throw new AnalysisException(String.format("column %s already exists in table %s",
+                                columnDef.getName(), tableName.getTbl()));
+                    }
+                }
+                if (afterColumn != null) {
+                    if (afterColumn.isKey()) {
+                        if (!columnDef.isKey() && beforeColumn != null && beforeColumn.isKey()) {
+                            throw new AnalysisException(String.format("can't add value column %s before key column %s",
+                                    columnDef.getName(), beforeColumn.getName()));
+                        }
+                    } else {
+                        if (columnDef.isKey()) {
+                            throw new AnalysisException(String.format("can't add key column %s after value column %s",
+                                    columnDef.getName(), afterColumn.getName()));
+                        }
+                    }
+                } else {
+                    // throw new AnalysisException(
+                    //         String.format("Column[%s] does not exist", colPos.getLastCol()));
+                }
+            }
         }
     }
 }

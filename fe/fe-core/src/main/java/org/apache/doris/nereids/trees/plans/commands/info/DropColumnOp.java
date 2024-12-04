@@ -20,15 +20,24 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.DropColumnClause;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * DropColumnOp
@@ -63,8 +72,74 @@ public class DropColumnOp extends AlterTableOp {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     colName, FeNameFormat.getColumnNameRegex());
         }
-        if (Strings.isNullOrEmpty(rollupName)) {
-            rollupName = null;
+
+        Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+                .getTableOrDdlException(tableName.getTbl());
+        if (table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            if (!Strings.isNullOrEmpty(rollupName)) {
+                Long indexId = olapTable.getIndexIdByName(rollupName);
+                if (indexId != null) {
+                    MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
+                    if (indexMeta.getDefineStmt() == null) {
+                        Column column = indexMeta.getColumnByName(colName);
+                        if (column != null) {
+                            if (column.isKey()) {
+                                if (indexMeta.getSchema(false).stream()
+                                        .anyMatch(col -> col.getAggregationType() != null
+                                                && col.getAggregationType().isReplaceFamily())) {
+                                    throw new AnalysisException(String.format(
+                                            "Can not drop key column %s when rollup has value column "
+                                                    + "with REPLACE aggregation method",
+                                            colName));
+                                }
+                            }
+                        } else {
+                            // throw new AnalysisException(String.format("Column[%s] does not exist", colName));
+                        }
+                    } else {
+                        throw new AnalysisException("Can not modify column in mv " + rollupName);
+                    }
+                } else {
+                    // throw new AnalysisException(String.format("rollup[%s] does not exist", rollupName));
+                }
+            } else {
+                Column column = olapTable.getColumn(colName);
+                // if (column == null) {
+                //     throw new AnalysisException(String.format("Column[%s] does not exist", colName));
+                // }
+
+                if (olapTable.getPartitionColumnNames().contains(colName.toLowerCase())
+                        || olapTable.getDistributionColumnNames().contains(colName.toLowerCase())) {
+                    throw new AnalysisException("Can not drop partition or distribution column : " + colName);
+                }
+                if (column != null && column.isKey()) {
+                    KeysType keysType = olapTable.getKeysType();
+                    if (keysType == KeysType.UNIQUE_KEYS) {
+                        throw new AnalysisException("Can not drop key column " + colName
+                                + " in unique data model table");
+                    } else if (keysType == KeysType.AGG_KEYS) {
+                        if (olapTable.getFullSchema().stream().anyMatch(
+                                col -> col.getAggregationType() != null
+                                        && col.getAggregationType().isReplaceFamily())) {
+                            throw new AnalysisException("Can not drop key column " + colName
+                                    + " in aggregation key table having REPLACE or REPLACE_IF_NOT_NULL column");
+                        }
+                    }
+                }
+                long baseIndexId = olapTable.getBaseIndexId();
+                for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
+                    long indexId = entry.getKey();
+                    if (indexId != baseIndexId) {
+                        MaterializedIndexMeta meta = entry.getValue();
+                        Set<String> mvUsedColumns = RelationUtil.getMvUsedColumnNames(meta);
+                        if (mvUsedColumns.contains(colName)) {
+                            throw new AnalysisException(
+                                    "Can not drop column contained by mv, mv=" + olapTable.getIndexNameById(indexId));
+                        }
+                    }
+                }
+            }
         }
     }
 

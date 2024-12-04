@@ -69,7 +69,6 @@ public class ColumnDefinition {
     private int clusterKeyId = -1;
     private Optional<GeneratedColumnDesc> generatedColumnDesc = Optional.empty();
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
-    private KeysType keysType;
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<DefaultValue> defaultValue, String comment) {
@@ -177,12 +176,12 @@ public class ColumnDefinition {
         this.clusterKeyId = clusterKeyId;
     }
 
-    public void setKeysType(KeysType keysType) {
-        this.keysType = keysType;
-    }
-
     public boolean hasDefaultValue() {
         return defaultValue.isPresent();
+    }
+
+    public void setAggregationTypeImplicit(boolean aggTypeImplicit) {
+        this.aggTypeImplicit = aggTypeImplicit;
     }
 
     /**
@@ -330,11 +329,30 @@ public class ColumnDefinition {
                     throw new AnalysisException("agg state not enable, need set enable_agg_state=true");
                 }
             }
+        } else if (aggType == null && isOlap && !isKey) {
+            Preconditions.checkState(keysType != null, "keysType is null");
+            if (keysType.equals(KeysType.DUP_KEYS)) {
+                aggType = AggregateType.NONE;
+            } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+                aggType = AggregateType.NONE;
+            } else if (!keysType.equals(KeysType.AGG_KEYS)) {
+                aggType = AggregateType.REPLACE;
+            } else {
+                throw new AnalysisException("should set aggregation type to non-key column in aggregate key table");
+            }
         }
 
         if (isOlap) {
-            if (!isKey && (keysType.equals(KeysType.UNIQUE_KEYS) || keysType.equals(KeysType.DUP_KEYS))) {
-                aggTypeImplicit = true;
+            if (!isKey) {
+                if (keysType.equals(KeysType.UNIQUE_KEYS)) {
+                    if (isEnableMergeOnWrite) {
+                        aggTypeImplicit = false;
+                    } else {
+                        aggTypeImplicit = true;
+                    }
+                } else if (keysType.equals(KeysType.DUP_KEYS)) {
+                    aggTypeImplicit = true;
+                }
             }
 
             // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.

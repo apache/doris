@@ -20,9 +20,9 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
-import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StorageBackend;
@@ -4602,6 +4602,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         return new ShowPartitionIdCommand(partitionId);
     }
+
+    // @Override
+    // public Object visitAlterTable(AlterTableContext ctx) {
+    //     return UnsupportedCommand.INSTANCE;
+    // }
 
     @Override
     public AlterTableCommand visitAlterTable(AlterTableContext ctx) {

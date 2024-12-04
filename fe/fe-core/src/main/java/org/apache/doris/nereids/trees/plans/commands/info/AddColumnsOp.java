@@ -21,6 +21,9 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
@@ -62,12 +65,45 @@ public class AddColumnsOp extends AlterTableOp {
         if (columnDefs == null || columnDefs.isEmpty()) {
             throw new AnalysisException("Columns is empty in add columns clause.");
         }
+        if (!Strings.isNullOrEmpty(rollupName)) {
+            throw new AnalysisException("Cannot add column in rollup " + rollupName);
+        }
         for (ColumnDefinition colDef : columnDefs) {
-            AddColumnOp.validateColumnDef(tableName, colDef);
+            AddColumnOp.validateColumnDef(tableName, colDef, null);
         }
 
-        // Make sure return null if rollup name is empty.
-        rollupName = Strings.emptyToNull(rollupName);
+        Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+                .getTableOrDdlException(tableName.getTbl());
+        if (table instanceof OlapTable) {
+            boolean seeValueColumn = false;
+            for (ColumnDefinition colDef : columnDefs) {
+                if (seeValueColumn && colDef.isKey()) {
+                    throw new AnalysisException(
+                            String.format("Cannot add key column %s after value column", colDef.getName()));
+                }
+                seeValueColumn = seeValueColumn || !colDef.isKey();
+            }
+            // OlapTable olapTable = (OlapTable) table;
+            // boolean lastColumnIsKey = olapTable.getFullSchema().get(olapTable.getFullSchema().size() - 1).isKey();
+            // if (lastColumnIsKey) {
+            //     boolean seeValueColumn = false;
+            //     for (ColumnDefinition colDef : columnDefs) {
+            //         if (seeValueColumn && colDef.isKey()) {
+            //             throw new AnalysisException(String.format("Cannot add key column %s after value column",
+            //                  colDef.getName()));
+            //         }
+            //         seeValueColumn = seeValueColumn || !colDef.isKey();
+            //     }
+            // } else {
+            //     for (ColumnDefinition colDef : columnDefs) {
+            //         if (colDef.isKey()) {
+            //             throw new AnalysisException(
+            //                     String.format("Cannot add key column %s after %s's last column", colDef.getName(),
+            //                             tableName.getTbl()));
+            //         }
+            //     }
+            // }
+        }
 
         columns = Lists.newArrayList();
         for (ColumnDefinition columnDef : columnDefs) {

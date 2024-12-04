@@ -1104,6 +1104,37 @@ public class Column implements GsonPostProcessable {
         return ok;
     }
 
+    public String verifyCanChangeTo(Column other) {
+        if (!name.equalsIgnoreCase(other.name)) {
+            return String.format("column name is different, old is %s, new is %s", name, other.name);
+        }
+        if (defaultValue != null && !Objects.equals(defaultValue, other.defaultValue)) {
+            return String.format("Can not modify column[%s]'s default value", name);
+        }
+        if (realDefaultValue != null && !Objects.equals(realDefaultValue, other.realDefaultValue)) {
+            return String.format("Can not modify column[%s]'s realDefaultValue value", name);
+        }
+        if (!Objects.equals(aggregationType, other.aggregationType)) {
+            return String.format("Can not modify column[%s]'s aggregation type", name);
+        }
+        if (isAggregationTypeImplicit != other.isAggregationTypeImplicit) {
+            return String.format("Can not modify column[%s]'s isAggregationTypeImplicit attribute", name);
+        }
+        if (isKey != other.isKey) {
+            return String.format("Can not modify column[%s]'s key attribute", name);
+        }
+        if (isAutoInc != other.isAutoInc) {
+            return String.format("Can not modify column[%s]'s auto-increment attribute", name);
+        }
+        if (visible != other.visible) {
+            return String.format("Can not modify column[%s]'s visible attribute", name);
+        }
+        if (clusterKeyId != other.clusterKeyId) {
+            return String.format("Can not modify column[%s]'s clusterKeyId attribute", name);
+        }
+        return null;
+    }
+
     @Deprecated
     public static Column read(DataInput in) throws IOException {
         String json = Text.readString(in);

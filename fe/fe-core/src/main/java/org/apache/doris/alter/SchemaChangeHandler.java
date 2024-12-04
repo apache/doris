@@ -572,25 +572,37 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Aggregate method must be specified for value column: " + modColumn.getName());
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-            if (null != modColumn.getAggregationType()) {
+            if (null != modColumn.getAggregationType() && modColumn.isKey()) {
                 throw new DdlException("Can not assign aggregation method" + " on column in Unique data model table: "
                         + modColumn.getName());
             }
             if (!modColumn.isKey()) {
                 if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                    modColumn.setAggregationType(AggregateType.NONE, true);
+                    if (modColumn.getAggregationType() != AggregateType.NONE) {
+                        throw new DdlException(
+                                "Can not assign aggregation method" + " on column in Unique data model table: "
+                                        + modColumn.getName());
+                    }
                 } else {
-                    modColumn.setAggregationType(AggregateType.REPLACE, true);
+                    if (modColumn.getAggregationType() != AggregateType.REPLACE) {
+                        throw new DdlException(
+                                "Can not assign aggregation method" + " on column in Unique data model table: "
+                                        + modColumn.getName());
+                    }
                 }
             }
         } else {
-            if (null != modColumn.getAggregationType()) {
+            if (null != modColumn.getAggregationType() && modColumn.isKey()) {
                 throw new DdlException(
                         "Can not assign aggregation method" + " on column in Duplicate data model table: "
                                 + modColumn.getName());
             }
             if (!modColumn.isKey()) {
-                modColumn.setAggregationType(AggregateType.NONE, true);
+                if (modColumn.getAggregationType() != AggregateType.NONE) {
+                    throw new DdlException(
+                            "Can not assign aggregation method" + " on column in duplicate data model table: "
+                                    + modColumn.getName());
+                }
             }
         }
         ColumnPosition columnPos = alterClause.getColPos();
@@ -955,8 +967,8 @@ public class SchemaChangeHandler extends AlterHandler {
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (newColumn.isKey() && newColumn.getAggregationType() != null) {
                 throw new DdlException("Can not assign aggregation method on key column: " + newColName);
-            } else if (null == newColumn.getAggregationType()) {
-                newColumn.setIsKey(true);
+            } else if (null == newColumn.getAggregationType() && !newColumn.isKey()) {
+                throw new DdlException("column having no aggregation method must set as key column: " + newColName);
             } else if (newColumn.getAggregationType() == AggregateType.SUM && newColumn.getDefaultValue() != null
                     && !newColumn.getDefaultValue().equals("0")) {
                 throw new DdlException(
@@ -970,21 +982,30 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-            if (newColumn.getAggregationType() != null && newColumn.getAggregationType() != AggregateType.NONE) {
+            if (newColumn.getAggregationType() != null && newColumn.isKey()) {
                 throw new DdlException(
-                        "Can not assign aggregation method" + " on column in Unique data model table: " + newColName);
+                        "Can not assign aggregation method" + " on key column in Unique data model table: "
+                                + newColName);
             }
             if (!newColumn.isKey()) {
                 if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                    newColumn.setAggregationType(AggregateType.NONE, false);
+                    if (newColumn.getAggregationType() != AggregateType.NONE) {
+                        throw new DdlException(
+                                "Can not assign aggregation method" + " on column in Unique data model table: "
+                                        + newColumn.getName());
+                    }
                 } else {
-                    newColumn.setAggregationType(AggregateType.REPLACE, true);
+                    if (newColumn.getAggregationType() != AggregateType.REPLACE) {
+                        throw new DdlException(
+                                "Can not assign aggregation method" + " on column in Unique data model table: "
+                                        + newColumn.getName());
+                    }
                 }
             }
         } else {
-            if (newColumn.getAggregationType() != null) {
+            if (newColumn.getAggregationType() != null && newColumn.isKey()) {
                 throw new DdlException(
-                        "Can not assign aggregation method" + " on column in Duplicate data model table: "
+                        "Can not assign aggregation method" + " on key column in Duplicate data model table: "
                                 + newColName);
             }
             if (!newColumn.isKey()) {
@@ -992,7 +1013,11 @@ public class SchemaChangeHandler extends AlterHandler {
                         && olapTable.getIndexMetaByIndexId(targetIndexId).getKeysType() == KeysType.AGG_KEYS) {
                     throw new DdlException("Please add non-key column on base table directly");
                 }
-                newColumn.setAggregationType(AggregateType.NONE, true);
+                if (newColumn.getAggregationType() != AggregateType.NONE) {
+                    throw new DdlException(
+                            "Can not assign aggregation method" + " on column in duplicate data model table: "
+                                    + newColumn.getName());
+                }
             } else if (olapTable.isDuplicateWithoutKey()) {
                 throw new DdlException("Duplicate table without keys do not support add key column!");
             }

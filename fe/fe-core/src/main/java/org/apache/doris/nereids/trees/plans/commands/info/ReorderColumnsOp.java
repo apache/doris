@@ -20,6 +20,10 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
@@ -54,16 +58,33 @@ public class ReorderColumnsOp extends AlterTableOp {
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
+        if (!Strings.isNullOrEmpty(rollupName)) {
+            throw new AnalysisException("Cannot reorder columns in rollup " + rollupName);
+        }
         if (columnsByPos == null || columnsByPos.isEmpty()) {
             throw new AnalysisException("No column in reorder columns clause.");
         }
-        for (String col : columnsByPos) {
-            if (Strings.isNullOrEmpty(col)) {
-                throw new AnalysisException("Empty column in reorder columns.");
+
+        Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+                .getTableOrDdlException(tableName.getTbl());
+        if (table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            boolean seeValueColumn = false;
+            for (String col : columnsByPos) {
+                if (Strings.isNullOrEmpty(col)) {
+                    throw new AnalysisException("Empty column in reorder columns.");
+                }
+                Column column = olapTable.getColumn(col);
+                if (column != null) {
+                    if (seeValueColumn && column.isKey()) {
+                        throw new AnalysisException(String.format("Cannot add key column %s after value column", col));
+                    }
+                    seeValueColumn = seeValueColumn || !column.isKey();
+                } else {
+                    throw new AnalysisException(
+                            String.format("no column %s exists in table %s", col, tableName.getTbl()));
+                }
             }
-        }
-        if (Strings.isNullOrEmpty(rollupName)) {
-            rollupName = null;
         }
     }
 

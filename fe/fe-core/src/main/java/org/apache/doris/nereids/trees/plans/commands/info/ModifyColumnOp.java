@@ -24,18 +24,21 @@ import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * ModifyColumnOp
@@ -77,43 +80,122 @@ public class ModifyColumnOp extends AlterTableOp {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
         }
+        String colName = columnDef.getName();
         boolean isOlap = false;
-        Table table = null;
         Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        if (tableName != null) {
-            table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
-                    .getTableOrDdlException(tableName.getTbl());
-            if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS
-                    && columnDef.getAggType() == null) {
-                columnDef.setIsKey(true);
-                keysSet.add(columnDef.getName());
-            }
-            if (table instanceof OlapTable) {
-                columnDef.setKeysType(((OlapTable) table).getKeysType());
-                isOlap = true;
-            }
-        }
-
         boolean isEnableMergeOnWrite = false;
         KeysType keysType = KeysType.DUP_KEYS;
         Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        if (isOlap) {
-            OlapTable olapTable = (OlapTable) table;
-            isEnableMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
+        Column originalColumn = null;
+        Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+                .getTableOrDdlException(tableName.getTbl());
+        OlapTable olapTable = null;
+        List<Column> schemaColumns = null;
+        if (table instanceof OlapTable) {
+            isOlap = true;
+            olapTable = (OlapTable) table;
             keysType = olapTable.getKeysType();
-            keysSet.addAll(
-                    olapTable.getBaseSchemaKeyColumns().stream().map(Column::getName).collect(Collectors.toList()));
-            clusterKeySet.addAll(olapTable.getBaseSchema().stream().filter(Column::isClusterKey).map(Column::getName)
-                    .collect(Collectors.toList()));
+            isEnableMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
+            if (!Strings.isNullOrEmpty(rollupName)) {
+                throw new AnalysisException("Cannot modify column in rollup " + rollupName);
+                // Long indexId = olapTable.getIndexIdByName(rollupName);
+                // if (indexId != null) {
+                //     MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
+                //     schemaColumns = indexMeta.getSchema(false);
+                //     if (indexMeta.getDefineStmt() == null) {
+                //         originalColumn = indexMeta.getColumnByName(colName);
+                //         if (originalColumn != null) {
+                //             columnDef.setIsKey(originalColumn.isKey());
+                //             if (originalColumn.isKey()) {
+                //                 if (indexMeta.getSchema(false).stream()
+                //                         .anyMatch(col -> col.getAggregationType() != null
+                //                                 && col.getAggregationType().isReplaceFamily())) {
+                //                     throw new AnalysisException(String.format(
+                //                             "Can not modify key column %s when rollup has value column "
+                //                                     + "with REPLACE aggregation method",
+                //                             colName));
+                //                 }
+                //             }
+                //         } else {
+                //             throw new AnalysisException(String.format("Column[%s] does not exist", colName));
+                //         }
+                //     } else {
+                //         throw new AnalysisException("Can not modify column in mv " + rollupName);
+                //     }
+                // } else {
+                //     throw new AnalysisException(String.format("rollup[%s] does not exist", rollupName));
+                // }
+            } else {
+                originalColumn = olapTable.getColumn(colName);
+                if (originalColumn != null) {
+                    columnDef.setIsKey(originalColumn.isKey());
+                }
+                schemaColumns = olapTable.getFullSchema();
+                if (olapTable.getPartitionColumnNames().contains(colName.toLowerCase())
+                        || olapTable.getDistributionColumnNames().contains(colName.toLowerCase())) {
+                    throw new AnalysisException("Can not modify partition or distribution column : " + colName);
+                }
+                long baseIndexId = olapTable.getBaseIndexId();
+                for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
+                    long indexId = entry.getKey();
+                    if (indexId != baseIndexId) {
+                        MaterializedIndexMeta meta = entry.getValue();
+                        Set<String> mvUsedColumns = RelationUtil.getMvUsedColumnNames(meta);
+                        if (mvUsedColumns.contains(colName)) {
+                            throw new AnalysisException(
+                                    "Can not modify column contained by mv, mv=" + olapTable.getIndexNameById(indexId));
+                        }
+                    }
+                }
+            }
         }
         columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
         if (colPos != null) {
             colPos.analyze();
-        }
-        if (Strings.isNullOrEmpty(rollupName)) {
-            rollupName = null;
+            if (olapTable != null) {
+                if (colPos.isFirst()) {
+                    if (!columnDef.isKey()) {
+                        throw new AnalysisException(
+                                String.format("Can't add value column %s as First column", columnDef.getName()));
+                    }
+                } else {
+                    if (columnDef.getName().equalsIgnoreCase(colPos.getLastCol())) {
+                        throw new AnalysisException("Can not modify column position after itself");
+                    }
+                    List<Column> reorderedColumns = new ArrayList<>(schemaColumns.size());
+                    for (Column col : schemaColumns) {
+                        if (!col.getName().equalsIgnoreCase(columnDef.getName())) {
+                            reorderedColumns.add(col);
+                            if (originalColumn != null && col.getName().equalsIgnoreCase(colPos.getLastCol())) {
+                                reorderedColumns.add(originalColumn);
+                            }
+                        }
+                    }
+                    if (originalColumn != null && reorderedColumns.size() != olapTable.getFullSchema().size()) {
+                        throw new AnalysisException(String.format("Column[%s] does not exist", colPos.getLastCol()));
+                    }
+
+                    boolean seeValueColumn = false;
+                    for (Column col : reorderedColumns) {
+                        if (seeValueColumn && col.isKey()) {
+                            throw new AnalysisException(
+                                    String.format("Can not modify key column %s after value column", col.getName()));
+                        }
+                        seeValueColumn = seeValueColumn || !col.isKey();
+                    }
+                }
+            }
         }
         column = columnDef.translateToCatalogStyle();
+        if (originalColumn != null) {
+            String errorMsg = originalColumn.verifyCanChangeTo(column);
+            if (errorMsg != null) {
+                throw new AnalysisException(errorMsg);
+            }
+            if (originalColumn.isAllowNull() && !column.isAllowNull()) {
+                throw new AnalysisException("Can not modify column " + colName + " from NULL to NOT NULL");
+            }
+        }
     }
 
     @Override
