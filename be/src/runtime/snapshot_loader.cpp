@@ -128,16 +128,45 @@ static Status list_segment_inverted_index_file(io::RemoteFileSystem* cold_fs,
     return Status::OK();
 }
 
-static Status download_and_upload_one_file(io::RemoteFileSystem& dest_fs,
-                                           io::RemoteFileSystem* cold_fs,
-                                           const std::string& remote_seg_path,
-                                           const std::string& local_seg_path,
-                                           const std::string& dest_seg_path) {
+static Status check_need_upload(const std::string& src_path, const std::string& local_file,
+                                std::map<std::string, FileStat>& remote_files, std::string* md5sum,
+                                bool* need_upload) {
+    // calc md5sum of localfile
+    RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(src_path + "/" + local_file, md5sum));
+    VLOG_CRITICAL << "get file checksum: " << local_file << ": " << *md5sum;
+
+    // check if this local file need upload
+    auto find = remote_files.find(local_file);
+    if (find != remote_files.end()) {
+        if (*md5sum != find->second.md5) {
+            // remote storage file exist, but with different checksum
+            LOG(WARNING) << "remote file checksum is invalid. remote: " << find->first
+                         << ", local: " << *md5sum;
+            // TODO(cmy): save these files and delete them later
+            *need_upload = true;
+        }
+    } else {
+        *need_upload = true;
+    }
+
+    return Status::OK();
+}
+
+static Status download_and_upload_one_cold_file(
+        io::RemoteFileSystem& dest_fs, io::RemoteFileSystem* cold_fs,
+        const std::string& remote_seg_path, const std::string& local_seg_path,
+        const std::string& dest_seg_path, const std::string& local_path,
+        const std::string& local_file, std::map<std::string, FileStat>& remote_files) {
     RETURN_IF_ERROR(cold_fs->download(remote_seg_path, local_seg_path));
 
-    // calc md5sum of localfile
+    bool need_upload = false;
     std::string md5sum;
-    RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(local_seg_path, &md5sum));
+    RETURN_IF_ERROR(check_need_upload(local_path, local_file, remote_files, &md5sum, &need_upload));
+
+    if (!need_upload) {
+        VLOG_CRITICAL << "cold file exist in remote path, no need to upload: " << local_file;
+        return Status::OK();
+    }
 
     RETURN_IF_ERROR(dest_fs.upload_with_checksum(local_seg_path, dest_seg_path, md5sum));
 
@@ -147,20 +176,23 @@ static Status download_and_upload_one_file(io::RemoteFileSystem& dest_fs,
     return Status::OK();
 }
 
-static Status upload_remote_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet_id,
-                                   const std::string& local_path, const std::string& dest_path,
-                                   io::RemoteFileSystem* cold_fs, const std::string& rowset_id,
-                                   int segments, int have_inverted_index) {
+static Status upload_remote_cold_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet_id,
+                                        const std::string& local_path, const std::string& dest_path,
+                                        io::RemoteFileSystem* cold_fs, const std::string& rowset_id,
+                                        int segments, int have_inverted_index,
+                                        std::map<std::string, FileStat>& remote_files) {
     Status res = Status::OK();
 
     for (int i = 0; i < segments; i++) {
+        std::string local_file = fmt::format("{}_{}.dat", rowset_id, i);
         std::string remote_seg_path =
                 fmt::format("{}/{}_{}.dat", remote_tablet_path(tablet_id), rowset_id, i);
         std::string local_seg_path = fmt::format("{}/{}_{}.dat", local_path, rowset_id, i);
         std::string dest_seg_path = fmt::format("{}/{}_{}.dat", dest_path, rowset_id, i);
 
-        RETURN_IF_ERROR(download_and_upload_one_file(dest_fs, cold_fs, remote_seg_path,
-                                                     local_seg_path, dest_seg_path));
+        RETURN_IF_ERROR(download_and_upload_one_cold_file(dest_fs, cold_fs, remote_seg_path,
+                                                          local_seg_path, dest_seg_path, local_path,
+                                                          local_file, remote_files));
     }
 
     if (!have_inverted_index) {
@@ -177,8 +209,9 @@ static Status upload_remote_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet
         std::string local_seg_path = fmt::format("{}/{}", local_path, index_file);
         std::string dest_seg_path = fmt::format("{}/{}", dest_path, index_file);
 
-        RETURN_IF_ERROR(download_and_upload_one_file(dest_fs, cold_fs, remote_index_path,
-                                                     local_seg_path, dest_seg_path));
+        RETURN_IF_ERROR(download_and_upload_one_cold_file(dest_fs, cold_fs, remote_index_path,
+                                                          local_seg_path, dest_seg_path, local_path,
+                                                          index_file, remote_files));
     }
     return res;
 }
@@ -187,16 +220,17 @@ static Status upload_remote_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet
  * get the cooldown data info from the hdr file, download the cooldown data and
  * upload it to remote storage.
 */
-static Status upload_remote_file(io::RemoteFileSystem& dest_fs, int64_t tablet_id,
-                                 const std::string& local_path, const std::string& dest_path,
-                                 const std::string& hdr_file) {
+static Status upload_remote_cold_file(io::RemoteFileSystem& dest_fs, int64_t tablet_id,
+                                      const std::string& local_path, const std::string& dest_path,
+                                      std::map<std::string, FileStat>& remote_files) {
     Status res = Status::OK();
+    std::string hdr_file = local_path + "/" + std::to_string(tablet_id) + ".hdr";
 
     auto tablet_meta = std::make_shared<TabletMeta>();
-    res = tablet_meta->create_from_file(local_path + "/" + hdr_file);
+    res = tablet_meta->create_from_file(hdr_file);
     if (!res.ok()) {
         return Status::Error<ErrorCode::ENGINE_LOAD_INDEX_TABLE_ERROR>(
-                "fail to load tablet_meta. file_path={}", local_path + "/" + hdr_file);
+                "fail to load tablet_meta. file_path={}", hdr_file);
     }
 
     if (tablet_meta->tablet_id() != tablet_id) {
@@ -220,9 +254,9 @@ static Status upload_remote_file(io::RemoteFileSystem& dest_fs, int64_t tablet_i
         have_inverted_index = rowset_meta->tablet_schema()->has_inverted_index();
 
         if (segments > 0 && !rowset_meta->is_local()) {
-            RETURN_IF_ERROR(upload_remote_rowset(dest_fs, tablet_id, local_path, dest_path,
-                                                 colddata_fs.get(), rowset_id, segments,
-                                                 have_inverted_index));
+            RETURN_IF_ERROR(upload_remote_cold_rowset(dest_fs, tablet_id, local_path, dest_path,
+                                                      colddata_fs.get(), rowset_id, segments,
+                                                      have_inverted_index, remote_files));
         }
     }
 
@@ -279,33 +313,11 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
                                           TTaskType::type::UPLOAD));
 
             const std::string& local_file = *it;
-            if (_end_with(local_file, ".hdr")) {
-                RETURN_IF_ERROR(upload_remote_file(*_remote_fs, tablet_id, src_path, dest_path,
-                                                   local_file));
-            }
-
-            // calc md5sum of localfile
+            bool need_upload = false;
             std::string md5sum;
             RETURN_IF_ERROR(
-                    io::global_local_filesystem()->md5sum(src_path + "/" + local_file, &md5sum));
-            VLOG_CRITICAL << "get file checksum: " << local_file << ": " << md5sum;
+                    check_need_upload(src_path, local_file, remote_files, &md5sum, &need_upload));
             local_files_with_checksum.push_back(local_file + "." + md5sum);
-
-            // check if this local file need upload
-            bool need_upload = false;
-            auto find = remote_files.find(local_file);
-            if (find != remote_files.end()) {
-                if (md5sum != find->second.md5) {
-                    // remote storage file exist, but with different checksum
-                    LOG(WARNING) << "remote file checksum is invalid. remote: " << find->first
-                                 << ", local: " << md5sum;
-                    // TODO(cmy): save these files and delete them later
-                    need_upload = true;
-                }
-            } else {
-                need_upload = true;
-            }
-
             if (!need_upload) {
                 VLOG_CRITICAL << "file exist in remote path, no need to upload: " << local_file;
                 continue;
@@ -317,6 +329,10 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             RETURN_IF_ERROR(
                     _remote_fs->upload_with_checksum(full_local_file, full_remote_file, md5sum));
         } // end for each tablet's local files
+
+        // 2.4. upload cooldown data files
+        RETURN_IF_ERROR(
+                upload_remote_cold_file(*_remote_fs, tablet_id, src_path, dest_path, remote_files));
 
         tablet_files->emplace(tablet_id, local_files_with_checksum);
         finished_num++;

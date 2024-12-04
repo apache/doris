@@ -29,7 +29,6 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Snapshot;
 import org.apache.doris.catalog.Column;
@@ -280,15 +279,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return;
             }
 
-            List<AbstractJob> jobs = Env.getCurrentEnv().getBackupHandler()
-                    .getJobs(tabletMeta.getDbId(), label -> true);
-
-            List<BackupJob> runningBackupJobs = jobs.stream().filter(job -> job instanceof BackupJob)
-                    .filter(job -> !((BackupJob) job).isDone())
-                    .filter(job -> ((BackupJob) job).getBackupMeta().getTable((info.tablet_id)) != null)
-                    .map(job -> (BackupJob) job).collect(Collectors.toList());
-
-            if (runningBackupJobs.size() > 0) {
+            BackupJob backupJob = (BackupJob) Env.getCurrentEnv().getBackupHandler().getJob(tabletMeta.getDbId());
+            if (!backupJob.isDone() && backupJob.getBackupMeta().getTable((tabletMeta.getTableId())) != null) {
                 LOG.warn("Backup is running on this tablet {} ", info.tablet_id);
                 return;
             }

@@ -531,7 +531,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 if (!request.__isset.missing_version &&
                     ref_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
                     LOG(INFO) << "Backup tablet with cooldowned remote data. tablet="
-                                  << request.tablet_id;
+                              << request.tablet_id;
                 }
                 /// not all missing versions are found, fall back to full snapshot.
                 res = Status::OK();         // reset res
