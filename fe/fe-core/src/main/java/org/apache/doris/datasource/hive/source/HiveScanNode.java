@@ -364,14 +364,21 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     public TFileFormatType getFileFormatType() throws UserException {
         TFileFormatType type = null;
-        String inputFormatName = hmsTable.getRemoteTable().getSd().getInputFormat();
+        Table table = hmsTable.getRemoteTable();
+        String inputFormatName = table.getSd().getInputFormat();
         String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
         if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
             type = TFileFormatType.FORMAT_PARQUET;
         } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.ORC.getDesc())) {
             type = TFileFormatType.FORMAT_ORC;
         } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
-            type = TFileFormatType.FORMAT_CSV_PLAIN;
+            String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
+            if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_JSON_SERDE)
+                    || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
+                type = TFileFormatType.FORMAT_JSON;
+            } else {
+                type = TFileFormatType.FORMAT_CSV_PLAIN;
+            }
         }
         return type;
     }
@@ -383,11 +390,12 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     protected TFileAttributes getFileAttributes() throws UserException {
-        TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+        TFileAttributes fileAttributes = new TFileAttributes();
         Table table = hmsTable.getRemoteTable();
         // TODO: separate hive text table and OpenCsv table
         String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
         if (serDeLib.equals("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe")) {
+            TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             // set properties of LazySimpleSerDe
             // 1. set column separator
             textParams.setColumnSeparator(HiveProperties.getFieldDelimiter(table));
@@ -401,7 +409,10 @@ public class HiveScanNode extends FileQueryScanNode {
             HiveProperties.getEscapeDelimiter(table).ifPresent(d -> textParams.setEscape(d.getBytes()[0]));
             // 6. set null format
             textParams.setNullFormat(HiveProperties.getNullFormat(table));
+            fileAttributes.setTextParams(textParams);
+            fileAttributes.setHeaderType("");
         } else if (serDeLib.equals("org.apache.hadoop.hive.serde2.OpenCSVSerde")) {
+            TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             // set set properties of OpenCSVSerde
             // 1. set column separator
             textParams.setColumnSeparator(HiveProperties.getSeparatorChar(table));
@@ -411,17 +422,29 @@ public class HiveScanNode extends FileQueryScanNode {
             textParams.setEnclose(HiveProperties.getQuoteChar(table).getBytes()[0]);
             // 4. set escape char
             textParams.setEscape(HiveProperties.getEscapeChar(table).getBytes()[0]);
+            fileAttributes.setTextParams(textParams);
+            fileAttributes.setHeaderType("");
+            if (textParams.isSetEnclose()) {
+                fileAttributes.setTrimDoubleQuotes(true);
+            }
+        } else if (serDeLib.equals("org.apache.hive.hcatalog.data.JsonSerDe")) {
+            TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+            textParams.setColumnSeparator("\t");
+            textParams.setLineDelimiter("\n");
+            fileAttributes.setTextParams(textParams);
+
+            fileAttributes.setJsonpaths("");
+            fileAttributes.setJsonRoot("");
+            fileAttributes.setNumAsString(true);
+            fileAttributes.setFuzzyParse(false);
+            fileAttributes.setReadJsonByLine(true);
+            fileAttributes.setStripOuterArray(false);
+            fileAttributes.setHeaderType("");
         } else {
             throw new UserException(
                     "unsupported hive table serde: " + serDeLib);
         }
 
-        TFileAttributes fileAttributes = new TFileAttributes();
-        fileAttributes.setTextParams(textParams);
-        fileAttributes.setHeaderType("");
-        if (textParams.isSet(TFileTextScanRangeParams._Fields.ENCLOSE)) {
-            fileAttributes.setTrimDoubleQuotes(true);
-        }
         return fileAttributes;
     }
 
