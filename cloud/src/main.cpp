@@ -33,6 +33,7 @@
 
 #include "common/arg_parser.h"
 #include "common/config.h"
+#include "common/configbase.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "meta-service/mem_txn_kv.h"
@@ -193,9 +194,9 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    auto conf_file = args.get<std::string>(ARG_CONF);
-    if (!config::init(conf_file.c_str(), true)) {
-        std::cerr << "failed to init config file, conf=" << conf_file << std::endl;
+    config::g_conf_path = args.get<std::string>(ARG_CONF);
+    if (!config::init(config::g_conf_path.data(), true)) {
+        std::cerr << "failed to init config file, conf=" << config::g_conf_path << std::endl;
         return -1;
     }
 

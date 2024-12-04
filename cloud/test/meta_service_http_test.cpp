@@ -32,9 +32,13 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <cstddef>
+#include <cstdint>
+#include <filesystem>
 #include <optional>
+#include <string>
 
 #include "common/config.h"
+#include "common/configbase.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -1622,6 +1626,69 @@ TEST(MetaServiceHttpTest, QueryRateLimit) {
     {
         auto [status_code, content] = ctx.query<std::string>("list_rate_limit", "");
         ASSERT_EQ(status_code, 200);
+    }
+}
+
+TEST(MetaServiceHttpTest, UpdateConfig) {
+    HttpContext ctx;
+    {
+        auto [status_code, content] = ctx.query<std::string>("update_config", "");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "query param `config` should not be empty";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>("update_config", "configs=aaa");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "config aaa is invalid";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>("update_config", "configs=aaa=bbb");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "set aaa=bbb failed";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("update_config", "configs=recycle_interval_seconds=3599");
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(config::recycle_interval_seconds, 3599);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>(
+                "update_config", "configs=recycle_interval_seconds=3601,retention_seconds=259201");
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(config::retention_seconds, 259201);
+        ASSERT_EQ(config::recycle_interval_seconds, 3601);
+    }
+    {
+        config::g_conf_path = "./doris_cloud.conf";
+        auto [status_code, content] = ctx.query<std::string>(
+                "update_config",
+                "configs=recycle_interval_seconds=3659,retention_seconds=259219&persist=true");
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(config::recycle_interval_seconds, 3659);
+        ASSERT_EQ(config::retention_seconds, 259219);
+        config::Properties props;
+        ASSERT_TRUE(props.load(config::g_conf_path.data(), true));
+        {
+            bool new_val_set = false;
+            int64_t recycle_interval_s = 0;
+            ASSERT_TRUE(props.get_or_default("recycle_interval_seconds", nullptr,
+                                             recycle_interval_s, &new_val_set));
+            ASSERT_TRUE(new_val_set);
+            ASSERT_EQ(recycle_interval_s, 3659);
+        }
+        {
+            bool new_val_set = false;
+            int64_t retention_s = 0;
+            ASSERT_TRUE(
+                    props.get_or_default("retention_seconds", nullptr, retention_s, &new_val_set));
+            ASSERT_TRUE(new_val_set);
+            ASSERT_EQ(retention_s, 259219);
+        }
+        std::filesystem::remove(config::g_conf_path);
     }
 }
 

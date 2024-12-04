@@ -26,6 +26,8 @@
 
 namespace doris::cloud::config {
 
+extern std::string g_conf_path;
+
 class Register {
 public:
     struct Field {
@@ -170,4 +172,5 @@ extern std::map<std::string, std::string>* full_conf_map;
 bool init(const char* conf_file, bool fill_conf_map = false, bool must_exist = true,
           bool set_to_default = true);
 
+bool set_config(const std::string& field, const std::string& value, bool need_persist = false);
 } // namespace doris::cloud::config

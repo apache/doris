@@ -18,10 +18,12 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <list>
 #include <map>
+#include <mutex>
 #include <sstream>
 
 #define __IN_CONFIGBASE_CPP__
@@ -30,9 +32,13 @@
 
 namespace doris::cloud::config {
 
+std::string g_conf_path {};
+
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_validator = nullptr;
 std::map<std::string, std::string>* full_conf_map = nullptr;
+std::mutex mutable_string_config_lock;
+std::mutex conf_persist_lock;
 
 // trim string
 std::string& trim(std::string& s) {
@@ -224,6 +230,38 @@ bool Properties::load(const char* conf_file, bool must_exist) {
     return true;
 }
 
+// dump props to conf file
+bool Properties::dump(const std::string& conffile) {
+    std::string conffile_tmp = conffile + ".tmp";
+
+    if (std::filesystem::exists(conffile)) {
+        // copy for modify
+        std::ifstream in(conffile, std::ios::binary);
+        std::ofstream out(conffile_tmp, std::ios::binary);
+        out << in.rdbuf();
+        in.close();
+        out.close();
+    }
+
+    std::ofstream file_writer;
+
+    file_writer.open(conffile_tmp, std::ios::out | std::ios::app);
+
+    file_writer << std::endl;
+
+    for (auto const& iter : file_conf_map) {
+        file_writer << iter.first << " = " << iter.second << std::endl;
+    }
+
+    file_writer.close();
+    if (!file_writer.good()) {
+        return false;
+    }
+
+    std::filesystem::rename(conffile_tmp, conffile);
+    return std::filesystem::exists(conffile);
+}
+
 template <typename T>
 bool Properties::get_or_default(const char* key, const char* defstr, T& retval,
                                 bool* is_retval_set) const {
@@ -297,6 +335,37 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
         continue;                                                                              \
     }
 
+#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                           \
+    if (strcmp((FIELD).type, #TYPE) == 0) {                                                 \
+        TYPE new_value;                                                                     \
+        if (!convert((VALUE), new_value)) {                                                 \
+            std::cerr << "convert " << VALUE << "as" << #TYPE << "failed";                  \
+            return false;                                                                   \
+        }                                                                                   \
+        TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                   \
+        TYPE old_value = ref_conf_value;                                                    \
+        if (RegisterConfValidator::_s_field_validator != nullptr) {                         \
+            auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name); \
+            if (validator != RegisterConfValidator::_s_field_validator->end() &&            \
+                !(validator->second)()) {                                                   \
+                ref_conf_value = old_value;                                                 \
+                std::cerr << "validate " << (FIELD).name << "=" << new_value << " failed"   \
+                          << std::endl;                                                     \
+                return false;                                                               \
+            }                                                                               \
+        }                                                                                   \
+        ref_conf_value = new_value;                                                         \
+        if (full_conf_map != nullptr) {                                                     \
+            std::ostringstream oss;                                                         \
+            oss << new_value;                                                               \
+            (*full_conf_map)[(FIELD).name] = oss.str();                                     \
+        }                                                                                   \
+        if (PERSIST) {                                                                      \
+            props.set_force(std::string((FIELD).name), VALUE);                              \
+        }                                                                                   \
+        return true;                                                                        \
+    }
+
 // init conf fields
 bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_to_default) {
     Properties props;
@@ -325,6 +394,43 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
 
+    return true;
+}
+
+bool do_set_config(const Register::Field& feild, const std::string& value, bool need_persist,
+                   Properties& props) {
+    UPDATE_FIELD(feild, value, bool, need_persist);
+    UPDATE_FIELD(feild, value, int16_t, need_persist);
+    UPDATE_FIELD(feild, value, int32_t, need_persist);
+    UPDATE_FIELD(feild, value, int64_t, need_persist);
+    UPDATE_FIELD(feild, value, double, need_persist);
+    {
+        // add lock to ensure thread safe
+        std::lock_guard<std::mutex> lock(mutable_string_config_lock);
+        UPDATE_FIELD(feild, value, std::string, need_persist);
+    }
+    return false;
+}
+
+bool set_config(const std::string& field, const std::string& value, bool need_persist) {
+    auto it = Register::_s_field_map->find(field);
+    if (it == Register::_s_field_map->end()) {
+        return false;
+    }
+    if (!it->second.valmutable) {
+        return false;
+    }
+    Properties props;
+    if (!do_set_config(it->second, value, need_persist, props)) {
+        std::cerr << "not supported to modify: " << field << "=" << value << std::endl;
+        return false;
+    }
+
+    if (need_persist) {
+        // lock to make sure only one thread can modify the be_custom.conf
+        std::lock_guard<std::mutex> l(conf_persist_lock);
+        return props.dump(config::g_conf_path.data());
+    }
     return true;
 }
 
