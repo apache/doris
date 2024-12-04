@@ -128,7 +128,6 @@ public:
         _runtime_bloom_filter_min_size = params->runtime_bloom_filter_min_size;
         _runtime_bloom_filter_max_size = params->runtime_bloom_filter_max_size;
         _null_aware = params->null_aware;
-        _enable_fixed_len_to_uint32_v2 = params->enable_fixed_len_to_uint32_v2;
         _bloom_filter_size_calculated_by_ndv = params->bloom_filter_size_calculated_by_ndv;
         _limit_length();
     }
@@ -235,6 +234,8 @@ public:
 
     void set_contain_null_and_null_aware() { _bloom_filter->set_contain_null_and_null_aware(); }
 
+    void set_enable_fixed_len_to_uint32_v2() { _enable_fixed_len_to_uint32_v2 = true; }
+
     size_t get_size() const { return _bloom_filter ? _bloom_filter->size() : 0; }
 
     void light_copy(BloomFilterFuncBase* bloomfilter_func) {
@@ -242,6 +243,7 @@ public:
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;
         _bloom_filter = other_func->_bloom_filter;
         _inited = other_func->_inited;
+        _enable_fixed_len_to_uint32_v2 |= other_func->_enable_fixed_len_to_uint32_v2;
     }
 
     virtual void insert(const void* data) = 0;

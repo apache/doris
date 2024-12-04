@@ -134,8 +134,6 @@ struct RuntimeFilterParams {
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
 
-    bool enable_fixed_len_to_uint32_v2 = false;
-
     bool bloom_filter_size_calculated_by_ndv = false;
     bool null_aware = false;
 };
@@ -426,6 +424,8 @@ protected:
 
     int64_t _synced_size = -1;
     std::shared_ptr<pipeline::CountedFinishDependency> _dependency;
+
+    bool _enable_fixed_len_to_uint32_v2 = false;
 };
 
 // avoid expose RuntimePredicateWrapper
