@@ -1158,6 +1158,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         }
 
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
+        // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
         auto result = _new_tablet->create_rowset_writer(context, false);
         if (!result.has_value()) {
             res = Status::Error<ROWSET_BUILDER_INIT>("create_rowset_writer failed, reason={}",
