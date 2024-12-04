@@ -65,7 +65,6 @@ PURE To assert_cast(From&& from) {
     } catch (const std::exception& e) {
         throw doris::Exception(doris::Status::FatalError("assert cast err:{}", e.what()));
     }
-    __builtin_unreachable();
 #else
     if constexpr (check == TypeCheckOnRelease::ENABLE) {
         try {
@@ -73,7 +72,6 @@ PURE To assert_cast(From&& from) {
         } catch (const std::exception& e) {
             throw doris::Exception(doris::Status::FatalError("assert cast err:{}", e.what()));
         }
-        __builtin_unreachable();
     } else {
         return static_cast<To>(from);
     }
