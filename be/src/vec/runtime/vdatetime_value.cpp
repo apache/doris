@@ -3428,7 +3428,8 @@ void DateV2Value<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t da
 template <typename T>
 void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t second,
                                         uint32_t microsecond)
-    requires DateV2Value<T>::is_datetime {
+    requires DateV2Value<T>::is_datetime
+{
     date_v2_value_.hour_ = hour;
     date_v2_value_.minute_ = minute;
     date_v2_value_.second_ = second;
@@ -3437,7 +3438,8 @@ void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t s
 
 template <typename T>
 void DateV2Value<T>::set_microsecond(uint64_t microsecond)
-    requires DateV2Value<T>::is_datetime {
+    requires DateV2Value<T>::is_datetime
+{
     date_v2_value_.microsecond_ = microsecond;
 }
 

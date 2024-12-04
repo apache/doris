@@ -208,7 +208,8 @@ public:
     /// Optional: Allocates memory to parse JSON documents faster.
     void reserve(size_t max_size) {
         if (parser.allocate(max_size) != simdjson::error_code::SUCCESS) {
-            throw Exception(Status::FatalError("Couldn't allocate {} bytes when parsing JSON", std::to_string(max_size)));
+            throw Exception(Status::FatalError("Couldn't allocate {} bytes when parsing JSON",
+                                               std::to_string(max_size)));
         }
     }
 

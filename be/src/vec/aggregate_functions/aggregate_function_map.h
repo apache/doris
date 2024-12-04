@@ -40,9 +40,7 @@ struct AggregateFunctionMapAggData {
     using KeyType = std::conditional_t<std::is_same_v<K, String>, StringRef, K>;
     using Map = phmap::flat_hash_map<StringRef, int64_t>;
 
-    AggregateFunctionMapAggData() {
-        throw Exception(Status::FatalError("__builtin_unreachable"));
-    }
+    AggregateFunctionMapAggData() { throw Exception(Status::FatalError("__builtin_unreachable")); }
 
     AggregateFunctionMapAggData(const DataTypes& argument_types) {
         _key_type = remove_nullable(argument_types[0]);

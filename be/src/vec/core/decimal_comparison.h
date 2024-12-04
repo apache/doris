@@ -83,8 +83,8 @@ public:
                       const ColumnWithTypeAndName& col_right) {
         if (!apply(block, result, col_left, col_right)) {
             throw Exception(Status::FatalError("Wrong decimal comparison with {} and {}",
-                                              col_left.type->get_name(),
-                                              col_right.type->get_name()));
+                                               col_left.type->get_name(),
+                                               col_right.type->get_name()));
         }
     }
 

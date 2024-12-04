@@ -619,8 +619,8 @@ void ThreadPool::check_not_pool_thread_unlocked() {
     if (ContainsKey(_threads, current)) {
         throw Exception(
                 Status::FatalError("Thread belonging to thread pool {}} with "
-                                      "name {}} called pool function that would result in deadlock",
-                                      _name, current->name()));
+                                   "name {}} called pool function that would result in deadlock",
+                                   _name, current->name()));
     }
 }
 
