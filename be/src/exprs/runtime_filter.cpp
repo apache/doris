@@ -1532,7 +1532,7 @@ std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
             "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, ignored: {}, "
             "build_bf_cardinality: {}, dependency: {}, synced_size: {}, has_local_target: {}, "
-            "has_remote_target: {},error_msg: [{}]",
+            "has_remote_target: {}, error_msg: [{}]",
             _filter_id, to_string(_runtime_filter_type), _is_broadcast_join,
             _wrapper->_context->ignored, _wrapper->get_build_bf_cardinality(),
             _dependency ? _dependency->debug_string() : "none", _synced_size, _has_local_target,
