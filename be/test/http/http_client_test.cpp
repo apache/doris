@@ -340,5 +340,4 @@ TEST_F(HttpClientTest, escape_url) {
     std::string output_G = hostname + "/download_file?key=0x2E&key=%252E#section";
     ASSERT_TRUE(check_result(input_G, output_G));
 }
-
 } // namespace doris
