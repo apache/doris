@@ -381,7 +381,7 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
     _tablet_meta->modify_rs_metas({}, rs_metas, false);
 }
 
-int CloudTablet::delete_expired_stale_rowsets() {
+uint64_t CloudTablet::delete_expired_stale_rowsets() {
     std::vector<RowsetSharedPtr> expired_rowsets;
     int64_t expired_stale_sweep_endtime =
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
@@ -618,7 +618,8 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
         }
         rapidjson::Value value;
         std::string version_str = rowset->get_rowset_info_str();
-        value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
+        value.SetString(version_str.c_str(), static_cast<uint32_t>(version_str.length()),
+                        versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
         last_version = ver.second;
     }
@@ -631,7 +632,7 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     for (auto& rowset : stale_rowsets) {
         rapidjson::Value value;
         std::string version_str = rowset->get_rowset_info_str();
-        value.SetString(version_str.c_str(), version_str.length(),
+        value.SetString(version_str.c_str(), static_cast<uint32_t>(version_str.length()),
                         stale_versions_arr.GetAllocator());
         stale_versions_arr.PushBack(value, stale_versions_arr.GetAllocator());
     }

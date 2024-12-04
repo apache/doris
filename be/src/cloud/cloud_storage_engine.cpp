@@ -167,7 +167,8 @@ Status CloudStorageEngine::open() {
 
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
     // Use file cache disks number
-    _memtable_flush_executor->init(io::FileCacheFactory::instance()->get_cache_instance_size());
+    _memtable_flush_executor->init(
+            static_cast<int32_t>(io::FileCacheFactory::instance()->get_cache_instance_size()));
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
@@ -323,7 +324,8 @@ void CloudStorageEngine::_check_file_cache_ttl_block_valid() {
             int64_t ttl_seconds = tablet->tablet_meta()->ttl_seconds();
             if (rowset->newest_write_timestamp() + ttl_seconds <= UnixSeconds()) continue;
             for (int64_t seg_id = 0; seg_id < rowset->num_segments(); seg_id++) {
-                auto hash = Segment::file_cache_key(rowset->rowset_id().to_string(), seg_id);
+                auto hash = Segment::file_cache_key(rowset->rowset_id().to_string(),
+                                                    static_cast<uint32_t>(seg_id));
                 auto* file_cache = io::FileCacheFactory::instance()->get_by_path(hash);
                 file_cache->update_ttl_atime(hash);
             }
@@ -545,7 +547,8 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     int num_cumu =
             std::accumulate(submitted_cumu_compactions.begin(), submitted_cumu_compactions.end(), 0,
                             [](int a, auto& b) { return a + b.second.size(); });
-    int num_base = submitted_base_compactions.size() + submitted_full_compactions.size();
+    int num_base =
+            static_cast<int>(submitted_base_compactions.size() + submitted_full_compactions.size());
     int n = thread_per_disk - num_cumu - num_base;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         // We need to reserve at least one thread for cumulative compaction,
@@ -823,7 +826,7 @@ Status CloudStorageEngine::get_compaction_status_json(std::string* result) {
     // cumu
     std::string_view cumu = "CumulativeCompaction";
     rapidjson::Value cumu_key;
-    cumu_key.SetString(cumu.data(), cumu.length(), root.GetAllocator());
+    cumu_key.SetString(cumu.data(), static_cast<uint32_t>(cumu.length()), root.GetAllocator());
     rapidjson::Document cumu_arr;
     cumu_arr.SetArray();
     for (auto& [tablet_id, v] : _submitted_cumu_compactions) {
@@ -835,7 +838,7 @@ Status CloudStorageEngine::get_compaction_status_json(std::string* result) {
     // base
     std::string_view base = "BaseCompaction";
     rapidjson::Value base_key;
-    base_key.SetString(base.data(), base.length(), root.GetAllocator());
+    base_key.SetString(base.data(), static_cast<uint32_t>(base.length()), root.GetAllocator());
     rapidjson::Document base_arr;
     base_arr.SetArray();
     for (auto& [tablet_id, _] : _submitted_base_compactions) {

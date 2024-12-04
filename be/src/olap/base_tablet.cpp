@@ -1762,7 +1762,7 @@ std::vector<RowsetSharedPtr> BaseTablet::get_snapshot_rowset(bool include_stale_
 
 void BaseTablet::calc_consecutive_empty_rowsets(
         std::vector<RowsetSharedPtr>* empty_rowsets,
-        const std::vector<RowsetSharedPtr>& candidate_rowsets, int limit) {
+        const std::vector<RowsetSharedPtr>& candidate_rowsets, int64_t limit) {
     int len = cast_set<int>(candidate_rowsets.size());
     for (int i = 0; i < len - 1; ++i) {
         auto rowset = candidate_rowsets[i];
