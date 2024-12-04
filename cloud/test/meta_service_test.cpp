@@ -4516,7 +4516,6 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock1) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 }
 
-
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLock2) {
     auto meta_service = get_meta_service();
 
