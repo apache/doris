@@ -36,6 +36,7 @@ import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -47,8 +48,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.avro.Schema;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.Path;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.BaseFile;
@@ -61,6 +60,8 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.storage.StoragePath;
+import org.apache.hudi.storage.StoragePathInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -85,7 +86,7 @@ public class HudiScanNode extends HiveScanNode {
 
     private static final Logger LOG = LogManager.getLogger(HudiScanNode.class);
 
-    private boolean isCowOrRoTable;
+    private boolean isCowTable;
 
     private final AtomicLong noLogsSplitNum = new AtomicLong(0);
 
@@ -111,19 +112,23 @@ public class HudiScanNode extends HiveScanNode {
     private boolean incrementalRead = false;
     private TableScanParams scanParams;
     private IncrementalRelation incrementalRelation;
+    private SessionVariable sessionVariable;
 
     /**
      * External file scan node for Query Hudi table
-     * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
+     * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column
+     * priv
      * eg: s3 tvf
-     * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
+     * These scan nodes do not have corresponding catalog/database/table info, so no
+     * need to do priv check
      */
     public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
-            Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation) {
+            Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
+            SessionVariable sessionVariable) {
         super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv);
-        isCowOrRoTable = hmsTable.isHoodieCowTable();
+        isCowTable = hmsTable.isHoodieCowTable();
         if (LOG.isDebugEnabled()) {
-            if (isCowOrRoTable) {
+            if (isCowTable) {
                 LOG.debug("Hudi table {} can read as cow/read optimize table", hmsTable.getFullQualifiers());
             } else {
                 LOG.debug("Hudi table {} is a mor table, and will use JNI to read data in BE",
@@ -134,11 +139,12 @@ public class HudiScanNode extends HiveScanNode {
         this.scanParams = scanParams.orElse(null);
         this.incrementalRelation = incrementalRelation.orElse(null);
         this.incrementalRead = (this.scanParams != null && this.scanParams.incrementalRead());
+        this.sessionVariable = sessionVariable;
     }
 
     @Override
     public TFileFormatType getFileFormatType() throws UserException {
-        if (isCowOrRoTable) {
+        if (canUseNativeReader()) {
             return super.getFileFormatType();
         } else {
             // Use jni to read hudi table in BE
@@ -183,13 +189,13 @@ public class HudiScanNode extends HiveScanNode {
             throw new UserException("Not support function '" + scanParams.getParamType() + "' in hudi table");
         }
         if (incrementalRead) {
-            if (isCowOrRoTable) {
+            if (isCowTable) {
                 try {
                     Map<String, String> serd = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
                     if ("true".equals(serd.get("hoodie.query.as.ro.table"))
                             && hmsTable.getRemoteTable().getTableName().endsWith("_ro")) {
                         // Incremental read RO table as RT table, I don't know why?
-                        isCowOrRoTable = false;
+                        isCowTable = false;
                         LOG.warn("Execute incremental read on RO table: {}", hmsTable.getFullQualifiers());
                     }
                 } catch (Exception e) {
@@ -234,7 +240,15 @@ public class HudiScanNode extends HiveScanNode {
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
         if (split instanceof HudiSplit) {
-            setHudiParams(rangeDesc, (HudiSplit) split);
+            HudiSplit hudiSplit = (HudiSplit) split;
+            if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_JNI
+                    && !sessionVariable.isForceJniScanner()
+                    && hudiSplit.getHudiDeltaLogs().isEmpty()) {
+                // no logs, is read optimize table, fallback to use native reader
+                // TODO: support read orc hudi table in native reader
+                rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+            }
+            setHudiParams(rangeDesc, hudiSplit);
         }
     }
 
@@ -253,8 +267,13 @@ public class HudiScanNode extends HiveScanNode {
         fileDesc.setColumnTypes(hudiSplit.getHudiColumnTypes());
         // TODO(gaoxin): support complex types
         // fileDesc.setNestedFields(hudiSplit.getNestedFields());
+        fileDesc.setHudiJniScanner(hudiSplit.getHudiJniScanner());
         tableFormatFileDesc.setHudiParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
+    }
+  
+    private boolean canUseNativeReader() {
+        return !sessionVariable.isForceJniScanner() && isCowTable;
     }
 
     private List<HivePartition> getPrunedPartitions(HoodieTableMetaClient metaClient) {
@@ -281,7 +300,8 @@ public class HudiScanNode extends HiveScanNode {
             );
             return hivePartitions;
         }
-        // unpartitioned table, create a dummy partition to save location and inputformat,
+        // unpartitioned table, create a dummy partition to save location and
+        // inputformat,
         // so that we can unify the interface.
         HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
                 hmsTable.getRemoteTable().getSd().getInputFormat(),
@@ -292,7 +312,7 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     private List<Split> getIncrementalSplits() {
-        if (isCowOrRoTable) {
+        if (canUseNativeReader()) {
             List<Split> splits = incrementalRelation.collectSplits();
             noLogsSplitNum.addAndGet(splits.size());
             return splits;
@@ -313,15 +333,15 @@ public class HudiScanNode extends HiveScanNode {
             globPath = hudiClient.getBasePathV2().toString() + "/*";
         } else {
             partitionName = FSUtils.getRelativePartitionPath(hudiClient.getBasePathV2(),
-                    new Path(partition.getPath()));
+                    new StoragePath(partition.getPath()));
             globPath = String.format("%s/%s/*", hudiClient.getBasePathV2().toString(), partitionName);
         }
-        List<FileStatus> statuses = FSUtils.getGlobStatusExcludingMetaFolder(
-                hudiClient.getRawFs(), new Path(globPath));
+        List<StoragePathInfo> statuses = FSUtils.getGlobStatusExcludingMetaFolder(
+                hudiClient.getRawHoodieStorage(), new StoragePath(globPath));
         HoodieTableFileSystemView fileSystemView = new HoodieTableFileSystemView(hudiClient,
-                timeline, statuses.toArray(new FileStatus[0]));
+                timeline, statuses);
 
-        if (isCowOrRoTable) {
+        if (canUseNativeReader()) {
             fileSystemView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).forEach(baseFile -> {
                 noLogsSplitNum.incrementAndGet();
                 String filePath = baseFile.getPath();
@@ -450,7 +470,7 @@ public class HudiScanNode extends HiveScanNode {
         fileSlice.getPartitionPath();
 
         List<String> logs = fileSlice.getLogFiles().map(HoodieLogFile::getPath)
-                .map(Path::toString)
+                .map(StoragePath::toString)
                 .collect(Collectors.toList());
         if (logs.isEmpty()) {
             noLogsSplitNum.incrementAndGet();
@@ -469,6 +489,7 @@ public class HudiScanNode extends HiveScanNode {
         split.setHudiColumnNames(columnNames);
         split.setHudiColumnTypes(columnTypes);
         split.setInstantTime(queryInstant);
+        split.setHudiJniScanner(sessionVariable.getHudiJniScanner());
         return split;
     }
 

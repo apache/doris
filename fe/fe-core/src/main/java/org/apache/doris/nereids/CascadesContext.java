@@ -582,8 +582,9 @@ public class CascadesContext implements ScheduleContext {
         public Lock(LogicalPlan plan, CascadesContext cascadesContext) {
             this.cascadesContext = cascadesContext;
             // tables can also be load from dump file
-            if (cascadesContext.tables == null) {
+            if (cascadesContext.getTables() == null || cascadesContext.getTables().isEmpty()) {
                 cascadesContext.extractTables(plan);
+                cascadesContext.getStatementContext().setTables(cascadesContext.getTables());
             }
             for (TableIf table : cascadesContext.tables.values()) {
                 if (!table.needReadLockWhenPlan()) {

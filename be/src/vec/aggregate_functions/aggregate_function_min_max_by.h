@@ -30,6 +30,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /// For bitmap value
 struct BitmapValueData {
@@ -295,3 +296,5 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
 }
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

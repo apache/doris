@@ -4429,6 +4429,8 @@ TEST(MetaServiceTest, GetTabletStatsTest) {
     EXPECT_EQ(res.tablet_stats(0).num_rows(), 0);
     EXPECT_EQ(res.tablet_stats(0).num_rowsets(), 1);
     EXPECT_EQ(res.tablet_stats(0).num_segments(), 0);
+    EXPECT_EQ(res.tablet_stats(0).index_size(), 0);
+    EXPECT_EQ(res.tablet_stats(0).segment_size(), 0);
     // Insert rowset
     config::split_tablet_stats = false;
     ASSERT_NO_FATAL_FAILURE(
@@ -4448,6 +4450,16 @@ TEST(MetaServiceTest, GetTabletStatsTest) {
                                &data_size_key);
     ASSERT_EQ(txn->get(data_size_key, &data_size_val), TxnErrorCode::TXN_OK);
     EXPECT_EQ(*(int64_t*)data_size_val.data(), 22000);
+    std::string index_size_key, index_size_val;
+    stats_tablet_index_size_key({mock_instance, table_id, index_id, partition_id, tablet_id},
+                                &index_size_key);
+    ASSERT_EQ(txn->get(index_size_key, &index_size_val), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(*(int64_t*)index_size_val.data(), 2000);
+    std::string segment_size_key, segment_size_val;
+    stats_tablet_segment_size_key({mock_instance, table_id, index_id, partition_id, tablet_id},
+                                  &segment_size_key);
+    ASSERT_EQ(txn->get(segment_size_key, &segment_size_val), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(*(int64_t*)segment_size_val.data(), 20000);
     std::string num_rows_key, num_rows_val;
     stats_tablet_num_rows_key({mock_instance, table_id, index_id, partition_id, tablet_id},
                               &num_rows_key);
@@ -4472,6 +4484,8 @@ TEST(MetaServiceTest, GetTabletStatsTest) {
     EXPECT_EQ(res.tablet_stats(0).num_rows(), 400);
     EXPECT_EQ(res.tablet_stats(0).num_rowsets(), 5);
     EXPECT_EQ(res.tablet_stats(0).num_segments(), 4);
+    EXPECT_EQ(res.tablet_stats(0).index_size(), 4000);
+    EXPECT_EQ(res.tablet_stats(0).segment_size(), 40000);
 }
 
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
@@ -7771,6 +7785,8 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
         // simulate that there are new segments added to this rowset
         rowset.set_num_segments(rowset.num_segments() + 3);
         rowset.set_num_rows(rowset.num_rows() + 1000);
+        rowset.set_total_disk_size(rowset.total_disk_size() + 11000);
+        rowset.set_index_disk_size(rowset.index_disk_size() + 1000);
         rowset.set_data_disk_size(rowset.data_disk_size() + 10000);
 
         ASSERT_NO_FATAL_FAILURE(update_tmp_rowset(meta_service.get(), rowset, res));
@@ -7789,6 +7805,8 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
         ASSERT_EQ(doris::BEGIN_PARTIAL_UPDATE, fetchedRowsetMeta.rowset_state());
         ASSERT_EQ(rowset.num_segments(), fetchedRowsetMeta.num_segments());
         ASSERT_EQ(rowset.num_rows(), fetchedRowsetMeta.num_rows());
+        ASSERT_EQ(rowset.total_disk_size(), fetchedRowsetMeta.total_disk_size());
+        ASSERT_EQ(rowset.index_disk_size(), fetchedRowsetMeta.index_disk_size());
         ASSERT_EQ(rowset.data_disk_size(), fetchedRowsetMeta.data_disk_size());
 
         ASSERT_NO_FATAL_FAILURE(commit_txn(meta_service.get(), db_id, txn_id, label));
@@ -7819,6 +7837,8 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
         // simulate that there are new segments added to this rowset
         rowset.set_num_segments(rowset.num_segments() + 3);
         rowset.set_num_rows(rowset.num_rows() + 1000);
+        rowset.set_total_disk_size(rowset.total_disk_size() + 11000);
+        rowset.set_index_disk_size(rowset.index_disk_size() + 1000);
         rowset.set_data_disk_size(rowset.data_disk_size() + 10000);
 
         // repeated calls to update_tmp_rowset will all success
@@ -7844,6 +7864,8 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
         ASSERT_EQ(doris::BEGIN_PARTIAL_UPDATE, fetchedRowsetMeta.rowset_state());
         ASSERT_EQ(rowset.num_segments(), fetchedRowsetMeta.num_segments());
         ASSERT_EQ(rowset.num_rows(), fetchedRowsetMeta.num_rows());
+        ASSERT_EQ(rowset.total_disk_size(), fetchedRowsetMeta.total_disk_size());
+        ASSERT_EQ(rowset.index_disk_size(), fetchedRowsetMeta.index_disk_size());
         ASSERT_EQ(rowset.data_disk_size(), fetchedRowsetMeta.data_disk_size());
 
         ASSERT_NO_FATAL_FAILURE(commit_txn(meta_service.get(), db_id, txn_id, label));
@@ -7869,6 +7891,8 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
         // simulate that there are new segments added to this rowset
         rowset.set_num_segments(rowset.num_segments() + 3);
         rowset.set_num_rows(rowset.num_rows() + 1000);
+        rowset.set_total_disk_size(rowset.total_disk_size() + 11000);
+        rowset.set_index_disk_size(rowset.index_disk_size() + 1000);
         rowset.set_data_disk_size(rowset.data_disk_size() + 10000);
 
         ASSERT_NO_FATAL_FAILURE(update_tmp_rowset(meta_service.get(), rowset, res));

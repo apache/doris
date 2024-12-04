@@ -240,6 +240,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
+    public long getIndexLength() {
+        return 0;
+    }
+
+    @Override
     public long getCreateTime() {
         return 0;
     }

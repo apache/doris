@@ -354,8 +354,12 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (invertedIndexFileStorageFormat != null) {
             if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V1);
-            } else {
+            } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V2) {
                 schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V2);
+            } else if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V3) {
+                schemaBuilder.setInvertedIndexStorageFormat(OlapFile.InvertedIndexStorageFormatPB.V3);
+            } else {
+                throw new DdlException("invalid inverted index storage format");
             }
         }
         schemaBuilder.setRowStorePageSize(pageSize);

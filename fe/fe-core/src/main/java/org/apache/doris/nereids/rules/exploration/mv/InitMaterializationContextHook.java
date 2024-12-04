@@ -79,6 +79,11 @@ public class InitMaterializationContextHook implements PlannerHook {
      * @param cascadesContext current cascadesContext in the planner
      */
     protected void doInitMaterializationContext(CascadesContext cascadesContext) {
+        if (cascadesContext.getConnectContext().getSessionVariable().isInDebugMode()) {
+            LOG.info(String.format("MaterializationContext init return because is in debug mode, current queryId is %s",
+                    cascadesContext.getConnectContext().getQueryIdentifier()));
+            return;
+        }
         // Only collect the table or mv which query use directly, to avoid useless mv partition in rewrite
         TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), false);
         try {

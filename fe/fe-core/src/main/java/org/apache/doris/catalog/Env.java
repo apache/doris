@@ -6555,14 +6555,18 @@ public class Env {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTblName();
         String type = stmt.getCompactionType();
+        List<String> partitionNames = stmt.getPartitions();
+        compactTable(dbName, tableName, type, partitionNames);
+    }
 
+    public void compactTable(String dbName, String tableName, String type, List<String> partitionNames)
+            throws DdlException {
         Database db = getInternalCatalog().getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
 
         AgentBatchTask batchTask = new AgentBatchTask();
         olapTable.readLock();
         try {
-            List<String> partitionNames = stmt.getPartitions();
             LOG.info("Table compaction. database: {}, table: {}, partition: {}, type: {}", dbName, tableName,
                     Joiner.on(", ").join(partitionNames), type);
             for (String parName : partitionNames) {

@@ -1019,6 +1019,10 @@ public class Auth implements Writable {
         createRoleInternal(stmt.getRole(), stmt.isSetIfNotExists(), stmt.getComment(), false);
     }
 
+    public void createRole(String role, boolean ignoreIfExists, String comment) throws DdlException {
+        createRoleInternal(role, ignoreIfExists, comment, false);
+    }
+
     public void alterRole(AlterRoleStmt stmt) throws DdlException {
         alterRoleInternal(stmt.getRole(), stmt.getComment(), false);
     }

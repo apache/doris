@@ -213,8 +213,7 @@ public:
 
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                          const TQueryOptions* query_options, const RuntimeFilterRole role,
-                         int node_id, std::shared_ptr<IRuntimeFilter>* res,
-                         bool build_bf_exactly = false);
+                         int node_id, std::shared_ptr<IRuntimeFilter>* res);
 
     RuntimeFilterContextSPtr& get_shared_context_ref();
 
@@ -260,7 +259,7 @@ public:
 
     // init filter with desc
     Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                          int node_id = -1, bool build_bf_exactly = false);
+                          int node_id = -1);
 
     // serialize _wrapper to protobuf
     Status serialize(PMergeFilterRequest* request, void** data, int* len);
@@ -355,8 +354,9 @@ public:
             const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
 
     int64_t get_synced_size() const {
-        if (_synced_size == -1) {
-            throw Status::InternalError("sync filter size meet error, filter: {}", debug_string());
+        if (_synced_size == -1 || !_dependency) {
+            throw Exception(doris::ErrorCode::INTERNAL_ERROR,
+                            "sync filter size meet error, filter: {}", debug_string());
         }
         return _synced_size;
     }

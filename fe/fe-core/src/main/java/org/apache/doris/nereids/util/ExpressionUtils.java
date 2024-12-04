@@ -73,6 +73,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -744,15 +745,15 @@ public class ExpressionUtils {
     /**
      * extract uniform slot for the given predicate, such as a = 1 and b = 2
      */
-    public static ImmutableSet<Slot> extractUniformSlot(Expression expression) {
-        ImmutableSet.Builder<Slot> builder = new ImmutableSet.Builder<>();
+    public static ImmutableMap<Slot, Expression> extractUniformSlot(Expression expression) {
+        ImmutableMap.Builder<Slot, Expression> builder = new ImmutableMap.Builder<>();
         if (expression instanceof And) {
-            builder.addAll(extractUniformSlot(expression.child(0)));
-            builder.addAll(extractUniformSlot(expression.child(1)));
+            builder.putAll(extractUniformSlot(expression.child(0)));
+            builder.putAll(extractUniformSlot(expression.child(1)));
         }
         if (expression instanceof EqualTo) {
             if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
-                builder.add((Slot) expression.child(0));
+                builder.put((Slot) expression.child(0), expression.child(1));
             }
         }
         return builder.build();

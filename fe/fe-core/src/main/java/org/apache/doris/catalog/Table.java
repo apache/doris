@@ -446,6 +446,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return 0;
     }
 
+    public long getIndexLength() {
+        return 0;
+    }
 
     public TTableDescriptor toThrift() {
         return null;
