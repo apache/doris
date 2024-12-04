@@ -151,6 +151,91 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateTableWithCharBloomFilterIndex() throws Exception {
+        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.tbl_char_bf (\n"
+                + "k1 CHAR(20), \n"
+                + "v1 INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");"));
+    }
+
+    @Test
+    public void testCreateTableWithVarcharBloomFilterIndex() throws Exception {
+        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.tbl_varchar_bf (\n"
+                + "k1 VARCHAR(20), \n"
+                + "v1 INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");"));
+    }
+
+    @Test
+    public void testCreateTableWithTextBloomFilterIndex() throws Exception {
+        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.tbl_text_bf (\n"
+                + "k1 INT, \n"
+                + "k2 TEXT, \n"
+                + "v1 INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k2\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");"));
+    }
+
+    @Test
+    public void testCreateTableWithDecimalV3BloomFilterIndex() throws Exception {
+        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.tbl_decimalv3_bf (\n"
+                + "k1 DECIMALV3(10,2), \n"
+                + "v1 INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");"));
+    }
+
+    @Test
+    public void testCreateTableWithIPv4BloomFilterIndex() throws Exception {
+        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.tbl_ipv4_bf (\n"
+                + "k1 IPV4, \n"
+                + "v1 INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");"));
+    }
+
+    @Test
+    public void testCreateTableWithIPv6BloomFilterIndex() throws Exception {
+        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.tbl_ipv6_bf (\n"
+                + "k1 IPV6, \n"
+                + "v1 INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");"));
+    }
+
+    @Test
     public void testCreateTableWithDateBloomFilterIndex() throws Exception {
         ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.tbl_date_bf (\n"
                 + "k1 DATE, \n"
@@ -317,7 +402,21 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
                         + ");"));
     }
 
-    // 表类型测试
+    @Test
+    public void testCreateTableWithHllBloomFilterIndex() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                " HLL is not supported in bloom filter index. invalid column: k1",
+                () -> createTable("CREATE TABLE test.tbl_hll_bf (\n"
+                        + "v1 INT,\n"
+                        + "k1 HLL\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(v1)\n"
+                        + "DISTRIBUTED BY HASH(v1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \"k1\",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
 
     @Test
     public void testCreateMowTableWithBloomFilterIndex() throws Exception {
@@ -376,8 +475,6 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
                 + "\"replication_num\" = \"1\"\n"
                 + ");"));
     }
-
-    // 索引配置测试
 
     @Test
     public void testBloomFilterColumnsValidCharacters() throws Exception {
@@ -537,6 +634,122 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
                         + "DUPLICATE KEY(k1)\n"
                         + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n"
                         + "PROPERTIES (\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testBloomFilterColumnsDuplicated() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Reduplicated bloom filter column: k1",
+                () -> createTable("CREATE TABLE test.tbl_bf_duplicated_columns (\n"
+                        + "k1 INT, \n"
+                        + "v1 VARCHAR(20)\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \"k1,k1\",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testBloomFilterColumnDoesNotExist() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Bloom filter column does not exist in table. invalid column: k3",
+                () -> createTable("CREATE TABLE test.tbl_bf_column_not_exist (\n"
+                        + "k1 INT, \n"
+                        + "v1 VARCHAR(20)\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \"k3\",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testBloomFilterColumnInvalidType() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "BOOLEAN is not supported in bloom filter index. invalid column: k2",
+                () -> createTable("CREATE TABLE test.tbl_bf_invalid_type (\n"
+                        + "k1 INT, \n"
+                        + "k2 BOOLEAN,\n"
+                        + "v1 VARCHAR(20)\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \"k2\",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testBloomFilterColumnNonKeyInAggKeys() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                        "Bloom filter index should only be used in columns of UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table. invalid column: v1",
+                        () -> createTable("CREATE TABLE test.tbl_bf_nonkey_in_agg (\n"
+                + "k1 INT, \n"
+                + "v1 INT SUM\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"v1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");"));
+    }
+
+    @Test
+    public void testBloomFilterFppNotDouble() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Bloom filter fpp is not Double",
+                () -> createTable("CREATE TABLE test.tbl_bf_fpp_not_double (\n"
+                        + "k1 INT, \n"
+                        + "v1 VARCHAR(20)\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \"v1\",\n"
+                        + "\"bloom_filter_fpp\" = \"abc\",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testBloomFilterFppOutOfRange() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Bloom filter fpp should in [1.0E-4, 0.05]",
+                () -> createTable("CREATE TABLE test.tbl_bf_fpp_out_of_range (\n"
+                        + "k1 INT, \n"
+                        + "v1 VARCHAR(20)\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \"v1\",\n"
+                        + "\"bloom_filter_fpp\" = \"0.1\",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testBloomFilterFppBelowMin() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Bloom filter fpp should in [1.0E-4, 0.05]",
+                () -> createTable("CREATE TABLE test.tbl_bf_fpp_below_min (\n"
+                        + "k1 INT, \n"
+                        + "v1 VARCHAR(20)\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \"v1\",\n"
+                        + "\"bloom_filter_fpp\" = \"1e-5\",\n"
                         + "\"replication_num\" = \"1\"\n"
                         + ");"));
     }
