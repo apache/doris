@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.SessionVariable;
 
@@ -178,17 +179,6 @@ public class ColumnDef {
                         .format(DateTimeFormatter.ofPattern(format));
             }
             return value;
-        }
-
-        public String toSql() {
-            StringBuilder sb = new StringBuilder();
-            sb.append("DEFAULT ");
-            if (value != null) {
-                sb.append('"').append(value).append('"');
-            } else {
-                sb.append("NULL");
-            }
-            return sb.toString();
         }
     }
 
@@ -438,7 +428,7 @@ public class ColumnDef {
         }
 
         if (type.getPrimitiveType() == PrimitiveType.HLL) {
-            if (defaultValue.isSet) {
+            if (defaultValue != null && defaultValue.isSet) {
                 throw new AnalysisException("Hll type column can not set default value");
             }
             defaultValue = DefaultValue.HLL_EMPTY_DEFAULT_VALUE;
@@ -680,7 +670,21 @@ public class ColumnDef {
         }
 
         if (defaultValue.isSet) {
-            sb.append(defaultValue.toSql()).append(" ");
+            if (defaultValue.value != null) {
+                if (typeDef.getType().getPrimitiveType() != PrimitiveType.BITMAP
+                        && typeDef.getType().getPrimitiveType() != PrimitiveType.HLL) {
+                    if (defaultValue.defaultValueExprDef != null) {
+                        sb.append("DEFAULT ").append(defaultValue.value).append(" ");
+                    } else {
+                        sb.append("DEFAULT ").append("\"").append(SqlUtils.escapeQuota(defaultValue.value)).append("\"")
+                                .append(" ");
+                    }
+                } else if (typeDef.getType().getPrimitiveType() == PrimitiveType.BITMAP) {
+                    sb.append("DEFAULT ").append(defaultValue.defaultValueExprDef.getExprName()).append(" ");
+                }
+            } else {
+                sb.append("DEFAULT ").append("NULL").append(" ");
+            }
         }
         sb.append("COMMENT \"").append(comment).append("\"");
 
