@@ -45,7 +45,6 @@ namespace doris {
 
 class FlushToken;
 class MemTable;
-class MemTracker;
 class StorageEngine;
 class TupleDescriptor;
 class SlotDescriptor;

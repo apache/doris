@@ -781,12 +781,6 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             time_series_compaction_level_threshold());
 }
 
-int64_t TabletMeta::mem_size() const {
-    auto size = sizeof(TabletMeta);
-    size += _schema->mem_size();
-    return size;
-}
-
 void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) {
     TabletMetaPB tablet_meta_pb;
     to_meta_pb(&tablet_meta_pb);
