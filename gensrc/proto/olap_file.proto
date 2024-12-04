@@ -343,6 +343,7 @@ enum IndexType {
 enum InvertedIndexStorageFormatPB {
     V1 = 0;
     V2 = 1;
+    V3 = 2;
 }
 
 message TabletIndexPB {
