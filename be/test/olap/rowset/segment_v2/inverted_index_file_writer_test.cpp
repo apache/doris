@@ -514,7 +514,7 @@ TEST_F(InvertedIndexFileWriterTest, WriteV2ExceptionHandlingTest) {
     EXPECT_CALL(writer_mock, write_index_headers_and_metadata(::testing::_, ::testing::_))
             .WillOnce(::testing::Throw(CLuceneError(CL_ERR_IO, "Simulated exception", false)));
 
-    Status status = writer_mock.write_v2();
+    Status status = writer_mock.write();
     ASSERT_FALSE(status.ok());
     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 }
