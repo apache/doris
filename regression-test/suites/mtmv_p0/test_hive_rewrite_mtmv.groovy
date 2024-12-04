@@ -21,7 +21,7 @@ suite("test_hive_rewrite_mtmv", "p0,external,hive,external_docker,external_docke
         logger.info("diable Hive test.")
         return;
     }
-    String suiteName = "test_truncate_table_mtmv"
+    String suiteName = "test_hive_rewrite_mtmv"
     String catalogName = "${suiteName}_catalog"
     String mvName = "${suiteName}_mv"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -59,11 +59,11 @@ suite("test_hive_rewrite_mtmv", "p0,external,hive,external_docker,external_docke
         waitingMTMVTaskFinishedByMvName(mvName)
         order_qt_refresh_one_partition "SELECT * FROM ${mvName}"
 
-        def explainOnePartition = sql """ explain  SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1; """
+        def explainOnePartition = sql """ explain  SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1 group by part_col; """
         logger.info("explainOnePartition: " + explainOnePartition.toString())
         assertTrue(explainOnePartition.toString().contains("VUNION"))
         assertTrue(explainOnePartition.toString().contains("part_col[#4] = 20230102"))
-        order_qt_refresh_one_partition_rewrite "SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1;"
+        order_qt_refresh_one_partition_rewrite "SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1 group by part_col;"
 
         //refresh complete
         sql """
@@ -72,11 +72,11 @@ suite("test_hive_rewrite_mtmv", "p0,external,hive,external_docker,external_docke
         waitingMTMVTaskFinishedByMvName(mvName)
         order_qt_refresh_complete "SELECT * FROM ${mvName}"
 
-        def explainAllPartition = sql """ explain  SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1; """
+        def explainAllPartition = sql """ explain  SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1 group by part_col; """
         logger.info("explainAllPartition: " + explainAllPartition.toString())
         assertTrue(explainAllPartition.toString().contains("VOlapScanNode"))
         assertTrue(explainAllPartition.toString().contains("partitions=2/2"))
-        order_qt_refresh_all_partition_rewrite "SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1;"
+        order_qt_refresh_all_partition_rewrite "SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1 group by part_col;"
 
         sql """drop materialized view if exists ${mvName};"""
         sql """drop catalog if exists ${catalog_name}"""
