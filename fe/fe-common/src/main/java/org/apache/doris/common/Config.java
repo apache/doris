@@ -2464,6 +2464,12 @@ public class Config extends ConfigBase {
     })
     public static int http_load_submitter_max_worker_threads = 2;
 
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "缓存的最大Query数量，用于响应http请求/api/query_detail。",
+            "The max capacity of queries for query_detail api."
+    })
+    public static int http_query_detail_capacity = 10000;
+
     @ConfField(mutable = true, masterOnly = true, description = {
             "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，"
             + "其label会被删除，被删除的 label 可以被重用。 值为 -1 时，表示此阈值不生效。",
