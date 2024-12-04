@@ -24,6 +24,7 @@
 #include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 #include <re2/re2.h>
 #include <unistd.h>
 
@@ -758,6 +759,8 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
             last_failure_ms = tablet_ptr->last_base_compaction_failure_time();
         }
         if (now_ms - last_failure_ms <= 5000) {
+            DBUG_EXECUTE_IF("TabletManager::find_best_tablets_to_compaction.dcheck",
+                            { DCHECK(false) << "Too often to check compaction"; })
             VLOG_DEBUG << "Too often to check compaction, skip it. "
                        << "compaction_type=" << compaction_type_str
                        << ", last_failure_time_ms=" << last_failure_ms
