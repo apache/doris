@@ -121,10 +121,10 @@ supportedJobStatement
             (AT (atTime=STRING_LITERAL | CURRENT_TIMESTAMP)))
         commentSpec?
         DO supportedDmlStatement                                                               #createScheduledJob                                                                    
-   | PAUSE JOB WHERE (jobNameKey=STRING_LITERAL) EQ (jobNameValue=STRING_LITERAL)              #pauseJob
-   | DROP JOB (IF EXISTS)? WHERE (jobNameKey=STRING_LITERAL) EQ (jobNameValue=STRING_LITERAL)  #dropJob
-   | RESUME JOB WHERE (jobNameKey=STRING_LITERAL) EQ (jobNameValue=STRING_LITERAL)             #resumeJob
-   | CANCEL TASK WHERE (jobNameKey=STRING_LITERAL) EQ (jobNameValue=STRING_LITERAL) AND (taskIdKey=STRING_LITERAL) EQ (taskIdValue=INTEGER_VALUE)                   #cancelJobTask
+   | PAUSE JOB WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)              #pauseJob
+   | DROP JOB (IF EXISTS)? WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)  #dropJob
+   | RESUME JOB WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)             #resumeJob
+   | CANCEL TASK WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL) AND (taskIdKey=identifier) EQ (taskIdValue=INTEGER_VALUE)                   #cancelJobTask
    ;
 constraintStatement
     : ALTER TABLE table=multipartIdentifier
