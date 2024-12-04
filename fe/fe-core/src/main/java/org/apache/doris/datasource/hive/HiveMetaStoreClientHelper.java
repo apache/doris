@@ -838,7 +838,8 @@ public class HiveMetaStoreClientHelper {
         String hudiBasePath = table.getRemoteTable().getSd().getLocation();
         Configuration conf = getConfiguration(table);
         HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
-        return ugiDoAs(conf, () -> HoodieTableMetaClient.builder().setConf(hadoopStorageConfiguration).setBasePath(hudiBasePath).build());
+        return ugiDoAs(conf, () -> HoodieTableMetaClient.builder().setConf(hadoopStorageConfiguration)
+                .setBasePath(hudiBasePath).build());
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {
