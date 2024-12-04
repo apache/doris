@@ -1451,7 +1451,7 @@ suite("test_agg_schema_value_modify","p0") {
      expectException({
           sql initTable
           sql initTableData
-          sql """ alter  table ${tbName1} MODIFY  column fan_number BOOLEAN   """
+          sql """ alter  table ${tbName1} MODIFY  column fan_number BOOLEAN REPLACE_IF_NOT_NULL   """
           insertSql = "insert into ${tbName1} values(993456689, 'Alice', false, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
@@ -1465,7 +1465,7 @@ suite("test_agg_schema_value_modify","p0") {
      expectException({
           sql initTable
           sql initTableData
-          sql """ alter  table ${tbName1} MODIFY  column fan_number TINYINT  """
+          sql """ alter  table ${tbName1} MODIFY  column fan_number TINYINT REPLACE_IF_NOT_NULL """
           insertSql = "insert into ${tbName1} values(993456689, 'Alice', 2, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
@@ -1479,7 +1479,7 @@ suite("test_agg_schema_value_modify","p0") {
      expectException({
           sql initTable
           sql initTableData
-          sql """ alter  table ${tbName1} MODIFY  column fan_number SMALLINT  """
+          sql """ alter  table ${tbName1} MODIFY  column fan_number SMALLINT REPLACE_IF_NOT_NULL """
           insertSql = "insert into ${tbName1} values(993456689, 'Alice', 3, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
@@ -1493,7 +1493,7 @@ suite("test_agg_schema_value_modify","p0") {
      expectException({
           sql initTable
           sql initTableData
-          sql """ alter  table ${tbName1} MODIFY  column fan_number INT  """
+          sql """ alter  table ${tbName1} MODIFY  column fan_number INT REPLACE_IF_NOT_NULL """
           insertSql = "insert into ${tbName1} values(993456689, 'Alice', 4, 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
           waitForSchemaChangeDone({
                sql getTableStatusSql
