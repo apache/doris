@@ -262,15 +262,15 @@ public class IndexDef {
                     throw new AnalysisException("ngram_bf index should have gram_size and bf_size properties");
                 }
 
-                int ngramSize = parseAndValidateProperty(properties, NGRAM_SIZE_KEY, MIN_NGRAM_SIZE, MAX_NGRAM_SIZE);
-                int bfSize = parseAndValidateProperty(properties, NGRAM_BF_SIZE_KEY, MIN_BF_SIZE, MAX_BF_SIZE);
+                parseAndValidateProperty(properties, NGRAM_SIZE_KEY, MIN_NGRAM_SIZE, MAX_NGRAM_SIZE);
+                parseAndValidateProperty(properties, NGRAM_BF_SIZE_KEY, MIN_BF_SIZE, MAX_BF_SIZE);
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);
         }
     }
 
-    private int parseAndValidateProperty(Map<String, String> properties, String key, int minValue, int maxValue)
+    private void parseAndValidateProperty(Map<String, String> properties, String key, int minValue, int maxValue)
             throws AnalysisException {
         String valueStr = properties.get(key);
         if (valueStr == null) {
@@ -282,7 +282,6 @@ public class IndexDef {
                 throw new AnalysisException("'" + key + "' should be an integer between "
                                                 + minValue + " and " + maxValue + ".");
             }
-            return value;
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid value for '" + key + "': " + valueStr, e);
         }
