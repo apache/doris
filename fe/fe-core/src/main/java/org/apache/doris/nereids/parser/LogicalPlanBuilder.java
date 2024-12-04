@@ -118,6 +118,7 @@ import org.apache.doris.nereids.DorisParser.DropEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.DropFileContext;
 import org.apache.doris.nereids.DorisParser.DropMTMVContext;
 import org.apache.doris.nereids.DorisParser.DropProcedureContext;
+import org.apache.doris.nereids.DorisParser.DropRepositoryContext;
 import org.apache.doris.nereids.DorisParser.DropRoleContext;
 import org.apache.doris.nereids.DorisParser.DropSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.DropUserContext;
@@ -507,6 +508,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
@@ -4858,6 +4860,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, String> properties = ctx.propertyClause() != null
                                     ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
         return new DropFileCommand(stripQuotes(ctx.name.getText()), dbName, properties);
+    }
+
+    @Override
+    public LogicalPlan visitDropRepository(DropRepositoryContext ctx) {
+        return new DropRepositoryCommand(stripQuotes(ctx.name.getText()));
     }
 
     @Override

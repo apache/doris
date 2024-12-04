@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
@@ -501,12 +502,16 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showLoadProfileCommand, context);
     }
 
-    default R visitAlterSqlBlockRuleCommand(AlterSqlBlockRuleCommand dropRoleCommand, C context) {
-        return visitCommand(dropRoleCommand, context);
+    default R visitAlterSqlBlockRuleCommand(AlterSqlBlockRuleCommand cmd, C context) {
+        return visitCommand(cmd, context);
     }
 
-    default R visitCreateSqlBlockRuleCommand(CreateSqlBlockRuleCommand dropRoleCommand, C context) {
-        return visitCommand(dropRoleCommand, context);
+    default R visitCreateSqlBlockRuleCommand(CreateSqlBlockRuleCommand cmd, C context) {
+        return visitCommand(cmd, context);
+    }
+
+    default R visitDropRepositoryCommand(DropRepositoryCommand cmd, C context) {
+        return visitCommand(cmd, context);
     }
 
     default R visitCreateRoleCommand(CreateRoleCommand createRoleCommand, C context) {

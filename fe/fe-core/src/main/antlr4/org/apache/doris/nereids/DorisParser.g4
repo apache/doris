@@ -216,6 +216,8 @@ supportedDropStatement
     | DROP FILE name=STRING_LITERAL
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
+    | DROP REPOSITORY name=identifier                                           #dropRepository
+
     ;
 
 supportedShowStatement
@@ -684,7 +686,6 @@ unsupportedDropStatement
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
     | DROP TABLE (IF EXISTS)? name=multipartIdentifier FORCE?                   #dropTable
     | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
-    | DROP REPOSITORY name=identifier                                           #dropRepository
     | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
     | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
