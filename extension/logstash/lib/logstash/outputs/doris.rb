@@ -22,6 +22,7 @@ require "logstash/outputs/base"
 require "logstash/namespace"
 require "logstash/json"
 require 'logstash/util/formater'
+require 'logstash/util/retry_timer_task'
 require "uri"
 require "securerandom"
 require "json"
@@ -131,8 +132,23 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          end
       end
 
+      # Run named Timer as daemon thread
+      @timer = java.util.Timer.new("Doris Output #{self.params['id']}", true)
+
+      @retry_queue = Queue.new
+      retry_thread = Thread.new do
+         while popped = @retry_queue.pop
+            documents, http_headers, event_num, req_count = popped
+            handle_request(documents, http_headers, event_num, req_count)
+         end
+      end
+
       print_plugin_info()
    end # def register
+
+   def close
+      @timer.cancel
+   end
 
    def multi_receive(events)
       return if events.empty?
@@ -157,50 +173,55 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          http_headers["label"] = @label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d_%H%M%S_%L_' + SecureRandom.uuid)
       end
 
-      req_count = 0
-      sleep_for = 1
-      while true
-         response = make_request(documents, http_headers, @http_query, @http_hosts.sample)
+      handle_request(documents, http_headers, event_num, 1)
+   end
 
-         req_count += 1
-         response_json = {}
-         begin
-            response_json = JSON.parse(response.body)
-         rescue => e
-            @logger.warn("doris stream load response: #{response} is not a valid JSON")
-         end
+   def sleep_for_attempt(attempt)
+      sleep_for = attempt**2
+      sleep_for = sleep_for <= 60 ? sleep_for : 60
+      (sleep_for/2) + (rand(0..sleep_for)/2)
+   end
 
-         status = response_json["Status"]
-
-         if status == 'Label Already Exists'
-           @logger.warn("Label already exists: #{response_json['Label']}, skip #{event_num} records.")
-           break
-         end
-
-         if status == "Success" || status == "Publish Timeout"
-            @total_bytes.addAndGet(documents.size)
-            @total_rows.addAndGet(event_num)
-            break
-         else
-            @logger.warn("FAILED doris stream load response:\n#{response}")
-
-            if @max_retries >= 0 && req_count > @max_retries
-               @logger.warn("DROP this batch after failed #{req_count} times.")
-               if @save_on_failure
-                  @logger.warn("Try save to disk.Disk file path : #{@save_dir}/#{@table}_#{@save_file}")
-                  save_to_disk(documents)
-               end
-               break
-            end
-
-            # sleep and then retry
-            sleep_for = sleep_for * 2
-            sleep_for = sleep_for <= 60 ? sleep_for : 60
-            sleep_rand = (sleep_for / 2) + (rand(0..sleep_for) / 2)
-            @logger.warn("Will do retry #{req_count} after sleep #{sleep_rand} secs.")
-            sleep(sleep_rand)
-         end
+   private
+   def handle_request(documents, http_headers, event_num, req_count)
+      response = make_request(documents, http_headers, @http_query, @http_hosts.sample)
+      response_json = {}
+      begin
+         response_json = JSON.parse(response.body)
+      rescue => _
+         @logger.warn("doris stream load response: #{response} is not a valid JSON")
       end
+
+      status = response_json["Status"]
+
+      if status == 'Label Already Exists'
+         @logger.warn("Label already exists: #{response_json['Label']}, skip #{event_num} records.")
+         return
+      end
+
+      if status == "Success" || status == "Publish Timeout"
+         @total_bytes.addAndGet(documents.size)
+         @total_rows.addAndGet(event_num)
+         return
+      end
+
+      @logger.warn("FAILED doris stream load response:\n#{response}")
+      # if status is Fail, we do not retry
+      if status == 'Fail' || (@max_retries >= 0 && req_count > @max_retries)
+         @logger.warn("DROP this batch after failed #{req_count} times.")
+         if @save_on_failure
+            @logger.warn("Try save to disk.Disk file path : #{@save_dir}/#{@table}_#{@save_file}")
+            save_to_disk(documents)
+         end
+         return
+      end
+
+      # add to retry_queue
+      sleep_for = sleep_for_attempt(req_count)
+      req_count += 1
+      @logger.warn("Will do retry #{req_count} after #{sleep_for} secs.")
+      timer_task = RetryTimerTask.new(@retry_queue, [documents, http_headers, event_num, req_count])
+      @timer.schedule(timer_task, sleep_for*1000)
    end
 
    private
@@ -284,8 +305,8 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    end
 
     # This is split into a separate method mostly to help testing
-   def log_failure(message)
-      @logger.warn("[Doris Output Failure] #{message}")
+   def log_failure(message, data = {})
+      @logger.warn("[Doris Output Failure] #{message}", data)
    end
 
    def make_request_headers()
