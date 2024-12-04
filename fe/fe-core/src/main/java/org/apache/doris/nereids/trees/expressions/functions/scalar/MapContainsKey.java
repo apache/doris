@@ -44,6 +44,12 @@ public class MapContainsKey extends ScalarFunction
                             new FollowToAnyDataType(0))
     );
 
+    public static final List<FunctionSignature> SIGNATURES_ = ImmutableList.of(
+            FunctionSignature.ret(BooleanType.INSTANCE)
+                    .args(MapType.of(new AnyDataType(0), AnyDataType.INSTANCE_WITHOUT_INDEX),
+                            new AnyDataType(0))
+    );
+
     /**
      * constructor with 2 arguments.
      */
@@ -77,11 +83,7 @@ public class MapContainsKey extends ScalarFunction
                 ((MapType) getArgument(0).getDataType()).getKeyType()
                         .isSameTypeForComplexTypeParam(getArgument(1).getDataType())) {
             // return least common type
-            return ImmutableList.of(
-                    FunctionSignature.ret(BooleanType.INSTANCE)
-                            .args(MapType.of(new AnyDataType(0), AnyDataType.INSTANCE_WITHOUT_INDEX),
-                                    new AnyDataType(0))
-            );
+            return SIGNATURES_;
         }
         return SIGNATURES;
     }

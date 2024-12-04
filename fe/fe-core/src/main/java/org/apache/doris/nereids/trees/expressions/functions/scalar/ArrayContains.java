@@ -42,6 +42,10 @@ public class ArrayContains extends ScalarFunction
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(ArrayType.of(new AnyDataType(0)), new FollowToAnyDataType(0))
     );
+    public static final List<FunctionSignature> SIGNATURES_ = ImmutableList.of(
+            FunctionSignature.ret(BooleanType.INSTANCE)
+                    .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0))
+    );
 
     /**
      * constructor with 2 arguments.
@@ -76,9 +80,7 @@ public class ArrayContains extends ScalarFunction
                 ((ArrayType) getArgument(0).getDataType()).getItemType()
                         .isSameTypeForComplexTypeParam(getArgument(1).getDataType())) {
             // return least common type
-            return ImmutableList.of(
-                    FunctionSignature.ret(BooleanType.INSTANCE)
-                            .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0)));
+            return SIGNATURES_;
         }
         return SIGNATURES;
     }
