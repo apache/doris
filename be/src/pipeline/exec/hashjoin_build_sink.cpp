@@ -146,7 +146,6 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                 RETURN_IF_ERROR(
                         _runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
                 RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
-                _runtime_filter_slots->copy_to_shared_context(p._shared_hash_table_context);
             } else {
                 // do not publish filter coz local rf not inited and useless
                 return Base::close(state, exec_status);
@@ -167,6 +166,11 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                 SCOPED_TIMER(_runtime_filter_compute_timer);
                 _runtime_filter_slots->insert(block);
             }
+        } else if (p._shared_hash_table_context &&
+                   !p._shared_hash_table_context->complete_build_stage) {
+            // should_build_hash_table's instance close early and signal this instance
+            // but function make_all_runnable still running and not set this instance's wake_up_by_downstream to true
+            return Base::close(state, exec_status);
         } else if (p._shared_hashtable_controller && !p._shared_hash_table_context->signaled) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "build_sink::close meet error state, shared_hash_table_signaled: {}, "
@@ -180,9 +184,12 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     } catch (Exception& e) {
         return Status::InternalError(
                 "rf process meet error: {}, wake_up_by_downstream: {}, should_build_hash_table: "
-                "{}, _finish_dependency: {}",
+                "{}, _finish_dependency: {}, complete_build_stage: {}, shared_hash_table_signaled: "
+                "{}",
                 e.to_string(), state->get_task()->wake_up_by_downstream(), _should_build_hash_table,
-                _finish_dependency->debug_string());
+                _finish_dependency->debug_string(),
+                p._shared_hash_table_context && !p._shared_hash_table_context->complete_build_stage,
+                p._shared_hashtable_controller && !p._shared_hash_table_context->signaled);
     }
     return Base::close(state, exec_status);
 }
