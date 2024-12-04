@@ -23,6 +23,7 @@ import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -75,11 +76,12 @@ public class Utils {
     }
 
     public static HoodieTableMetaClient getMetaClient(Configuration conf, String basePath) {
+        HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
         AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(conf);
         HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
         try {
             return hadoopAuthenticator.doAs(() -> HoodieTableMetaClient.builder()
-                    .setConf(conf).setBasePath(basePath).build());
+                    .setConf(hadoopStorageConfiguration).setBasePath(basePath).build());
         } catch (IOException e) {
             throw new RuntimeException("Failed to get HoodieTableMetaClient", e);
         }

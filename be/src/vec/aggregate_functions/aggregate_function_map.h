@@ -33,6 +33,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename K>
 struct AggregateFunctionMapAggData {
@@ -345,3 +346,5 @@ protected:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

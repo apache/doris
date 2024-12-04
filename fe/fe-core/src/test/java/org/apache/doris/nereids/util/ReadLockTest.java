@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
@@ -48,10 +47,8 @@ public class ReadLockTest extends SSBTestBase {
                 parser.parseSingle(sql),
                 PhysicalProperties.ANY
         );
-        CascadesContext cascadesContext = planner.getCascadesContext();
-
-        Map<List<String>, TableIf> f = cascadesContext.getTables();
-        Assertions.assertEquals(2, f.size());
+        Map<List<String>, TableIf> f = statementContext.getTables();
+        Assertions.assertEquals(1, f.size());
         Set<String> tableNames = new HashSet<>();
         for (Map.Entry<List<String>, TableIf> entry : f.entrySet()) {
             TableIf table = entry.getValue();
@@ -75,8 +72,7 @@ public class ReadLockTest extends SSBTestBase {
                 parser.parseSingle(sql),
                 PhysicalProperties.ANY
         );
-        CascadesContext cascadesContext = planner.getCascadesContext();
-        Map<List<String>, TableIf> f = cascadesContext.getTables();
+        Map<List<String>, TableIf> f = statementContext.getTables();
         Assertions.assertEquals(1, f.size());
         for (Map.Entry<List<String>, TableIf> entry : f.entrySet()) {
             TableIf table = entry.getValue();
@@ -93,8 +89,7 @@ public class ReadLockTest extends SSBTestBase {
                 parser.parseSingle(sql),
                 PhysicalProperties.ANY
         );
-        CascadesContext cascadesContext = planner.getCascadesContext();
-        Map<List<String>, TableIf> f = cascadesContext.getTables();
+        Map<List<String>, TableIf> f = statementContext.getTables();
         Assertions.assertEquals(1, f.size());
         for (Map.Entry<List<String>, TableIf> entry : f.entrySet()) {
             TableIf table = entry.getValue();
@@ -111,8 +106,7 @@ public class ReadLockTest extends SSBTestBase {
                 parser.parseSingle(sql),
                 PhysicalProperties.ANY
         );
-        CascadesContext cascadesContext = planner.getCascadesContext();
-        Map<List<String>, TableIf> f = cascadesContext.getTables();
+        Map<List<String>, TableIf> f = statementContext.getTables();
         Assertions.assertEquals(2, f.size());
         Set<String> tableNames = new HashSet<>();
         for (Map.Entry<List<String>, TableIf> entry : f.entrySet()) {
@@ -134,15 +128,14 @@ public class ReadLockTest extends SSBTestBase {
                 (LogicalPlan) insertIntoTableCommand.getExplainPlan(connectContext),
                 PhysicalProperties.ANY
         );
-        CascadesContext cascadesContext = planner.getCascadesContext();
-        Map<List<String>, TableIf> f = cascadesContext.getTables();
-        Assertions.assertEquals(2, f.size());
+        Map<List<String>, TableIf> f = statementContext.getTables();
+        // when table in insert would not be added to statement context, but be lock when insert
+        Assertions.assertEquals(1, f.size());
         Set<String> tableNames = new HashSet<>();
         for (Map.Entry<List<String>, TableIf> entry : f.entrySet()) {
             TableIf table = entry.getValue();
             tableNames.add(table.getName());
         }
-        Assertions.assertTrue(tableNames.contains("supplier"));
         Assertions.assertTrue(tableNames.contains("lineorder"));
     }
 }

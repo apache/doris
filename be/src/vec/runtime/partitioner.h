@@ -23,7 +23,6 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-class MemTracker;
 
 namespace vectorized {
 

@@ -259,7 +259,7 @@ protected:
         for (U i = 0; i < s; ++i) res[i] = i;
 
         auto sort_end = res.end();
-        if (limit && limit < static_cast<double>(s) / 8.0L) {
+        if (limit && static_cast<double>(limit) < static_cast<double>(s) / 8.0) {
             sort_end = res.begin() + limit;
             if (reverse)
                 std::partial_sort(res.begin(), sort_end, res.end(),

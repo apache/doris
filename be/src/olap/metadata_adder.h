@@ -20,6 +20,8 @@
 #include <bvar/bvar.h>
 #include <stdint.h>
 
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -27,8 +29,8 @@ namespace doris {
 inline bvar::Adder<int64_t> g_rowset_meta_mem_bytes("doris_rowset_meta_mem_bytes");
 inline bvar::Adder<int64_t> g_rowset_meta_num("doris_rowset_meta_num");
 
-inline bvar::Adder<int64_t> g_all_rowsets_mem_bytes("doris_all_rowsets_mem_bytes");
-inline bvar::Adder<int64_t> g_all_rowsets_num("doris_all_rowsets_num");
+inline bvar::Adder<int64_t> g_rowset_mem_bytes("doris_rowset_mem_bytes");
+inline bvar::Adder<int64_t> g_rowset_num("doris_rowset_num");
 
 inline bvar::Adder<int64_t> g_tablet_meta_mem_bytes("doris_tablet_meta_mem_bytes");
 inline bvar::Adder<int64_t> g_tablet_meta_num("doris_tablet_meta_num");
@@ -42,8 +44,9 @@ inline bvar::Adder<int64_t> g_tablet_index_num("doris_tablet_index_num");
 inline bvar::Adder<int64_t> g_tablet_schema_mem_bytes("doris_tablet_schema_mem_bytes");
 inline bvar::Adder<int64_t> g_tablet_schema_num("doris_tablet_schema_num");
 
-inline bvar::Adder<int64_t> g_all_segments_mem_bytes("doris_all_segments_mem_bytes");
-inline bvar::Adder<int64_t> g_all_segments_num("doris_all_segments_num");
+inline bvar::Adder<int64_t> g_segment_mem_bytes("doris_segment_mem_bytes");
+inline bvar::Adder<int64_t> g_segment_num("doris_segment_num");
+inline bvar::Adder<int64_t> g_segment_estimate_mem_bytes("doris_segment_estimate_mem_bytes");
 
 inline bvar::Adder<int64_t> g_column_reader_mem_bytes("doris_column_reader_mem_bytes");
 inline bvar::Adder<int64_t> g_column_reader_num("doris_column_reader_num");
@@ -96,6 +99,10 @@ class ZoneMapIndexReader;
     When a derived Class extends MetadataAdder, then the Class's number and fixed length field's memory can be counted automatically.
     But if the Class has variable length field, then you should overwrite get_metadata_size and call update_metadata_size when the Class's memory changes.
 
+    get_metadata_size is only the memory of the metadata object itself, not include child objects,
+    for example, TabletMeta::get_metadata_size does not include the memory of TabletSchema.
+    Note, the memory allocated by Doris Allocator is not included.
+
     There are some special situations that need to be noted:
     1. when the derived Class override copy constructor, you'd better update memory size(call update_metadata_size) if derived class's 
     memory changed in its copy constructor or you not call MetadataAdder's copy constructor.
@@ -111,6 +118,31 @@ public:
 
     static void dump_metadata_object(RuntimeProfile* object_heap_dump_snapshot);
 
+    static int64_t get_all_tablets_size() {
+        return g_tablet_meta_mem_bytes.get_value() + g_tablet_column_mem_bytes.get_value() +
+               g_tablet_index_mem_bytes.get_value() + g_tablet_schema_mem_bytes.get_value();
+    }
+
+    static int64_t get_all_rowsets_size() {
+        return g_rowset_meta_mem_bytes.get_value() + g_rowset_mem_bytes.get_value();
+    }
+
+    static int64_t get_all_segments_size() {
+        return g_segment_mem_bytes.get_value() + g_column_reader_mem_bytes.get_value() +
+               g_bitmap_index_reader_mem_bytes.get_value() +
+               g_bloom_filter_index_reader_mem_bytes.get_value() +
+               g_index_page_reader_mem_bytes.get_value() +
+               g_indexed_column_reader_mem_bytes.get_value() +
+               g_inverted_index_reader_mem_bytes.get_value() +
+               g_ordinal_index_reader_mem_bytes.get_value() +
+               g_zone_map_index_reader_mem_bytes.get_value();
+    }
+
+    // Doris currently uses the estimated segments memory as the basis, maybe it is more realistic.
+    static int64_t get_all_segments_estimate_size() {
+        return g_segment_estimate_mem_bytes.get_value();
+    }
+
 protected:
     MetadataAdder(const MetadataAdder& other);
 
@@ -122,7 +154,6 @@ protected:
 
     MetadataAdder<T>& operator=(const MetadataAdder<T>& other) = default;
 
-private:
     int64_t _current_meta_size {0};
 
     void add_mem_size(int64_t val);
@@ -167,7 +198,7 @@ void MetadataAdder<T>::add_mem_size(int64_t val) {
     if constexpr (std::is_same_v<T, RowsetMeta>) {
         g_rowset_meta_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, Rowset>) {
-        g_all_rowsets_mem_bytes << val;
+        g_rowset_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, TabletMeta>) {
         g_tablet_meta_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, TabletColumn>) {
@@ -177,7 +208,7 @@ void MetadataAdder<T>::add_mem_size(int64_t val) {
     } else if constexpr (std::is_same_v<T, TabletSchema>) {
         g_tablet_schema_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, segment_v2::Segment>) {
-        g_all_segments_mem_bytes << val;
+        g_segment_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, segment_v2::ColumnReader>) {
         g_column_reader_mem_bytes << val;
     } else if constexpr (std::is_same_v<T, segment_v2::BitmapIndexReader>) {
@@ -208,7 +239,7 @@ void MetadataAdder<T>::add_num(int64_t val) {
     if constexpr (std::is_same_v<T, RowsetMeta>) {
         g_rowset_meta_num << val;
     } else if constexpr (std::is_same_v<T, Rowset>) {
-        g_all_rowsets_num << val;
+        g_rowset_num << val;
     } else if constexpr (std::is_same_v<T, TabletMeta>) {
         g_tablet_meta_num << val;
     } else if constexpr (std::is_same_v<T, TabletColumn>) {
@@ -218,7 +249,7 @@ void MetadataAdder<T>::add_num(int64_t val) {
     } else if constexpr (std::is_same_v<T, TabletSchema>) {
         g_tablet_schema_num << val;
     } else if constexpr (std::is_same_v<T, segment_v2::Segment>) {
-        g_all_segments_num << val;
+        g_segment_num << val;
     } else if constexpr (std::is_same_v<T, segment_v2::ColumnReader>) {
         g_column_reader_num << val;
     } else if constexpr (std::is_same_v<T, segment_v2::BitmapIndexReader>) {
@@ -250,12 +281,12 @@ void MetadataAdder<T>::dump_metadata_object(RuntimeProfile* object_heap_dump_sna
     COUNTER_SET(rowset_meta_mem_bytes_counter, g_rowset_meta_mem_bytes.get_value());
     COUNTER_SET(rowset_meta_num_counter, g_rowset_meta_num.get_value());
 
-    RuntimeProfile::Counter* all_rowsets_mem_bytes_counter =
-            ADD_COUNTER(object_heap_dump_snapshot, "AllRowsetsMemBytes", TUnit::BYTES);
-    RuntimeProfile::Counter* all_rowsets_num_counter =
-            ADD_COUNTER(object_heap_dump_snapshot, "AllRowsetsNum", TUnit::UNIT);
-    COUNTER_SET(all_rowsets_mem_bytes_counter, g_all_rowsets_mem_bytes.get_value());
-    COUNTER_SET(all_rowsets_num_counter, g_all_rowsets_num.get_value());
+    RuntimeProfile::Counter* rowset_mem_bytes_counter =
+            ADD_COUNTER(object_heap_dump_snapshot, "RowsetMemBytes", TUnit::BYTES);
+    RuntimeProfile::Counter* rowset_num_counter =
+            ADD_COUNTER(object_heap_dump_snapshot, "RowsetNum", TUnit::UNIT);
+    COUNTER_SET(rowset_mem_bytes_counter, g_rowset_mem_bytes.get_value());
+    COUNTER_SET(rowset_num_counter, g_rowset_num.get_value());
 
     RuntimeProfile::Counter* tablet_meta_mem_bytes_counter =
             ADD_COUNTER(object_heap_dump_snapshot, "TabletMetaMemBytes", TUnit::BYTES);
@@ -285,12 +316,12 @@ void MetadataAdder<T>::dump_metadata_object(RuntimeProfile* object_heap_dump_sna
     COUNTER_SET(tablet_schema_mem_bytes_counter, g_tablet_schema_mem_bytes.get_value());
     COUNTER_SET(tablet_schema_num_counter, g_tablet_schema_num.get_value());
 
-    RuntimeProfile::Counter* all_segments_mem_bytes_counter =
-            ADD_COUNTER(object_heap_dump_snapshot, "AllSegmentsMemBytes", TUnit::BYTES);
-    RuntimeProfile::Counter* all_segments_num_counter =
-            ADD_COUNTER(object_heap_dump_snapshot, "AllSegmentsNum", TUnit::UNIT);
-    COUNTER_SET(all_segments_mem_bytes_counter, g_all_segments_mem_bytes.get_value());
-    COUNTER_SET(all_segments_num_counter, g_all_segments_num.get_value());
+    RuntimeProfile::Counter* segment_mem_bytes_counter =
+            ADD_COUNTER(object_heap_dump_snapshot, "SegmentMemBytes", TUnit::BYTES);
+    RuntimeProfile::Counter* segment_num_counter =
+            ADD_COUNTER(object_heap_dump_snapshot, "SegmentNum", TUnit::UNIT);
+    COUNTER_SET(segment_mem_bytes_counter, g_segment_mem_bytes.get_value());
+    COUNTER_SET(segment_num_counter, g_segment_num.get_value());
 
     RuntimeProfile::Counter* column_reader_mem_bytes_counter =
             ADD_COUNTER(object_heap_dump_snapshot, "ColumnReaderMemBytes", TUnit::BYTES);
