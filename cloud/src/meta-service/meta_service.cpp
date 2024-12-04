@@ -67,7 +67,6 @@
 using namespace std::chrono;
 
 namespace doris::cloud {
-#include "common/compile_check_begin.h"
 
 MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
                                  std::shared_ptr<ResourceManager> resource_mgr,
@@ -2399,5 +2398,4 @@ std::size_t get_segments_key_bounds_bytes(const doris::RowsetMetaCloudPB& rowset
     return ret;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::cloud
