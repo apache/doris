@@ -750,6 +750,7 @@ install(DIRECTORY DESTINATION ${OUTPUT_DIR}/conf)
 install(FILES
     ${BASE_DIR}/../bin/start_be.sh
     ${BASE_DIR}/../bin/stop_be.sh
+    ${BASE_DIR}/../tools/jeprof
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
     GROUP_READ GROUP_WRITE GROUP_EXECUTE
     WORLD_READ WORLD_EXECUTE

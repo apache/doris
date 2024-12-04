@@ -64,6 +64,7 @@
 #include "runtime/load_path_mgr.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/memory/cache_manager.h"
+#include "runtime/memory/heap_profiler.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
@@ -389,6 +390,7 @@ Status ExecEnv::_init_mem_env() {
     bool is_percent = false;
     std::stringstream ss;
     // 1. init mem tracker
+    _heap_profiler = HeapProfiler::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
@@ -700,6 +702,8 @@ void ExecEnv::destroy() {
 
     // dns cache is a global instance and need to be released at last
     SAFE_DELETE(_dns_cache);
+
+    SAFE_DELETE(_heap_profiler);
 
     _s_tracking_memory = false;
     LOG(INFO) << "Doris exec envorinment is destoried.";

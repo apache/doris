@@ -54,7 +54,7 @@ const static std::string HEADER_JSON = "application/json";
 
 CompactionAction::CompactionAction(CompactionActionType ctype, ExecEnv* exec_env,
                                    TPrivilegeHier::type hier, TPrivilegeType::type ptype)
-        : HttpHandlerWithAuth(exec_env, hier, ptype), _type(ctype) {}
+        : HttpHandlerWithAuth(exec_env, hier, ptype), _compaction_type(ctype) {}
 Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id) {
     // req tablet id and table id, we have to set only one of them.
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
@@ -341,7 +341,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
 void CompactionAction::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
 
-    if (_type == CompactionActionType::SHOW_INFO) {
+    if (_compaction_type == CompactionActionType::SHOW_INFO) {
         std::string json_result;
         Status st = _handle_show_compaction(req, &json_result);
         if (!st.ok()) {
@@ -349,7 +349,7 @@ void CompactionAction::handle(HttpRequest* req) {
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
-    } else if (_type == CompactionActionType::RUN_COMPACTION) {
+    } else if (_compaction_type == CompactionActionType::RUN_COMPACTION) {
         std::string json_result;
         Status st = _handle_run_compaction(req, &json_result);
         if (!st.ok()) {
