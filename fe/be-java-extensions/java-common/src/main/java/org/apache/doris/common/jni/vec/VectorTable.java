@@ -68,7 +68,6 @@ public class VectorTable {
             columns[i] = VectorColumn.createReadableColumn(types[i], numRows, address);
             metaSize += types[i].metaSize();
             address += types[i].metaSize() * 8L;
-            address += 8L; // const flag
         }
         this.meta = VectorColumn.createReadableColumn(metaAddress, metaSize, new ColumnType("#meta", Type.BIGINT));
         this.onlyReadable = true;
