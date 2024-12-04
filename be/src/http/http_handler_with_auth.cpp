@@ -108,7 +108,7 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
         auth_result.status.status_code = TStatusCode::type::OK;
         auth_result.status.error_msgs.clear();
     } else {
-        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST);
+        HttpChannel::send_reply(req, HttpStatus::FORBIDDEN);
         return -1;
     }
 #endif
