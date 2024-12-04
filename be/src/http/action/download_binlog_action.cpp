@@ -144,8 +144,17 @@ void handle_get_segment_index_file(StorageEngine& engine, HttpRequest* req,
         const auto& rowset_id = get_http_param(req, kRowsetIdParameter);
         const auto& segment_index = get_http_param(req, kSegmentIndexParameter);
         const auto& segment_index_id = req->param(kSegmentIndexIdParameter);
-        segment_index_file_path =
-                tablet->get_segment_index_filepath(rowset_id, segment_index, segment_index_id);
+        auto segment_file_path = tablet->get_segment_filepath(rowset_id, segment_index);
+        if (tablet->tablet_schema()->get_inverted_index_storage_format() ==
+            InvertedIndexStorageFormatPB::V1) {
+            segment_index_file_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                    InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path),
+                    std::stoll(segment_index_id), "");
+        } else {
+            DCHECK(segment_index_id == "-1");
+            segment_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
+                    InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path));
+        }
         is_acquire_md5 = !req->param(kAcquireMD5Parameter).empty();
     } catch (const std::exception& e) {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
