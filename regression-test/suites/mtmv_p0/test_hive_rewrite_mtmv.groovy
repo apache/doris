@@ -79,7 +79,7 @@ suite("test_hive_rewrite_mtmv", "p0,external,hive,external_docker,external_docke
         order_qt_refresh_all_partition_rewrite "SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1 group by part_col;"
 
         sql """drop materialized view if exists ${mvName};"""
-        sql """drop catalog if exists ${catalog_name}"""
+        sql """drop catalog if exists ${catalogName}"""
     }
 }
 
