@@ -375,11 +375,9 @@ Status CloudCumulativeCompaction::modify_rowsets() {
 Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
     // agg previously rowset old version delete bitmap
     std::vector<RowsetSharedPtr> pre_rowsets {};
-    std::vector<std::string> pre_rowset_ids {};
     for (const auto& it : cloud_tablet()->rowset_map()) {
         if (it.first.second < _input_rowsets.front()->start_version()) {
             pre_rowsets.emplace_back(it.second);
-            pre_rowset_ids.emplace_back(it.second->rowset_id().to_string());
         }
     }
     std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
