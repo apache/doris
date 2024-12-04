@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -294,31 +295,37 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             RuleType.ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().isEmpty())
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.ONE))
                     .thenApplyMulti(ctx -> onePhaseAggregateWithoutDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.TWO_PHASE_AGGREGATE_WITHOUT_DISTINCT.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().isEmpty())
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.TWO))
                     .thenApplyMulti(ctx -> twoPhaseAggregateWithoutDistinct(ctx.root, ctx.connectContext))
             ),
             // RuleType.TWO_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI.build(
             //     basePattern
             //         .when(this::containsCountDistinctMultiExpr)
+            //         .when(agg -> agg.supportAggregatePhase(AggregatePhase.TWO))
             //         .thenApplyMulti(ctx -> twoPhaseAggregateWithCountDistinctMulti(ctx.root, ctx.cascadesContext))
             // ),
             RuleType.THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI.build(
                 basePattern
                     .when(this::containsCountDistinctMultiExpr)
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.THREE))
                     .thenApplyMulti(ctx -> threePhaseAggregateWithCountDistinctMulti(ctx.root, ctx.cascadesContext))
             ),
             RuleType.ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1 && couldConvertToMulti(agg))
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.ONE))
                     .thenApplyMulti(ctx -> onePhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1 && couldConvertToMulti(agg))
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.TWO))
                     .thenApplyMulti(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.TWO_PHASE_AGGREGATE_WITH_MULTI_DISTINCT.build(
@@ -326,17 +333,20 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .when(agg -> agg.getDistinctArguments().size() > 1
                             && !containsCountDistinctMultiExpr(agg)
                             && couldConvertToMulti(agg))
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.TWO))
                     .thenApplyMulti(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             // RuleType.TWO_PHASE_AGGREGATE_WITH_DISTINCT.build(
             //     basePattern
             //         .when(agg -> agg.getDistinctArguments().size() == 1)
+            //         .when(agg -> agg.supportAggregatePhase(AggregatePhase.TWO))
             //         .thenApplyMulti(ctx -> twoPhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             // ),
             RuleType.THREE_PHASE_AGGREGATE_WITH_DISTINCT.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1)
-                     .whenNot(agg -> agg.mustUseMultiDistinctAgg())
+                    .whenNot(agg -> agg.mustUseMultiDistinctAgg())
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.THREE))
                     .thenApplyMulti(ctx -> threePhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             ),
             /*
@@ -361,6 +371,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .when(agg -> agg.getDistinctArguments().size() == 1)
                     .when(agg -> agg.getGroupByExpressions().isEmpty())
                     .whenNot(agg -> agg.mustUseMultiDistinctAgg())
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.FOUR))
                     .thenApplyMulti(ctx -> {
                         Function<List<Expression>, RequireProperties> secondPhaseRequireDistinctHash =
                                 groupByAndDistinct -> RequireProperties.of(
@@ -408,6 +419,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         }
                         return couldConvertToMulti(agg);
                     })
+                    .when(agg -> agg.supportAggregatePhase(AggregatePhase.FOUR))
                     .thenApplyMulti(ctx -> {
                         Function<List<Expression>, RequireProperties> secondPhaseRequireGroupByAndDistinctHash =
                                 groupByAndDistinct -> RequireProperties.of(
