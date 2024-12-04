@@ -25,6 +25,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileSplit;
@@ -247,8 +248,15 @@ public class HudiScanNode extends HiveScanNode {
                     && !sessionVariable.isForceJniScanner()
                     && hudiSplit.getHudiDeltaLogs().isEmpty()) {
                 // no logs, is read optimize table, fallback to use native reader
-                // TODO: support read orc hudi table in native reader
-                rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+                String fileFormat = FileFormatUtils.getFileFormatBySuffix(hudiSplit.getDataFilePath())
+                        .orElse("Unknown");
+                if (fileFormat.equals("parquet")) {
+                    rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+                } else if (fileFormat.equals("orc")) {
+                    rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
+                } else {
+                    throw new RuntimeException("Unsupported file format: " + fileFormat);
+                }
             }
             setHudiParams(rangeDesc, hudiSplit);
         }
@@ -495,7 +503,7 @@ public class HudiScanNode extends HiveScanNode {
         List<String> logs = fileSlice.getLogFiles().map(HoodieLogFile::getPath)
                 .map(StoragePath::toString)
                 .collect(Collectors.toList());
-        if (logs.isEmpty()) {
+        if (logs.isEmpty() && !sessionVariable.isForceJniScanner()) {
             noLogsSplitNum.incrementAndGet();
         }
 
