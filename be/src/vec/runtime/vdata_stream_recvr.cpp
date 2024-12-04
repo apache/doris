@@ -199,8 +199,6 @@ Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, 
         *done = nullptr;
     }
     _recvr->_parent->memory_used_counter()->update(block_byte_size);
-    _recvr->_parent->peak_memory_usage_counter()->set(
-            _recvr->_parent->memory_used_counter()->value());
     add_blocks_memory_usage(block_byte_size);
     return Status::OK();
 }
@@ -240,8 +238,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         try_set_dep_ready_without_lock();
         COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
         _recvr->_parent->memory_used_counter()->update(block_mem_size);
-        _recvr->_parent->peak_memory_usage_counter()->set(
-                _recvr->_parent->memory_used_counter()->value());
         add_blocks_memory_usage(block_mem_size);
     }
 }

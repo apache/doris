@@ -42,7 +42,7 @@ import org.apache.doris.job.scheduler.JobScheduler;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -528,7 +528,8 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     /**
      * used for nereids planner
      */
-    public void cancelLoadJob(String dbName, String label, String state, BinaryOperator operator)
+    public void cancelLoadJob(String dbName, String label, String state,
+                              Expression operator)
             throws JobException, AnalysisException, DdlException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         // List of load jobs waiting to be cancelled
@@ -582,7 +583,8 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     }
 
     private static void addNeedCancelLoadJob(String label, String state,
-                                             BinaryOperator operator, List<InsertJob> loadJobs,
+                                             Expression operator,
+                                             List<InsertJob> loadJobs,
                                              List<InsertJob> matchLoadJobs)
             throws AnalysisException {
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,

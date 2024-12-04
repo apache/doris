@@ -506,7 +506,7 @@ TEST_F(InvertedIndexFileWriterTest, WriteV2ExceptionHandlingTest) {
     EXPECT_CALL(writer_mock, write_index_headers_and_metadata(::testing::_, ::testing::_))
             .WillOnce(::testing::Throw(CLuceneError(CL_ERR_IO, "Simulated exception", false)));
 
-    Status status = writer_mock.write_v2();
+    Status status = writer_mock.write();
     ASSERT_FALSE(status.ok());
     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 }
@@ -523,7 +523,7 @@ public:
 
     MOCK_METHOD((std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
                            std::unique_ptr<lucene::store::IndexOutput>>),
-                create_output_stream_v2, (), (override));
+                create_output_stream, (), (override));
 };
 
 class InvertedIndexFileWriterMockCreateOutputStreamV1 : public InvertedIndexFileWriter {
@@ -622,7 +622,7 @@ TEST_F(InvertedIndexFileWriterTest, WriteV2OutputTest) {
     auto compound_file_output = std::unique_ptr<DorisFSDirectory::FSIndexOutputV2>(mock_output_v2);
     compound_file_output->init(file_writer.get());
 
-    EXPECT_CALL(writer_mock, create_output_stream_v2())
+    EXPECT_CALL(writer_mock, create_output_stream())
             .WillOnce(::testing::Invoke(
                     [&]() -> std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
                                        std::unique_ptr<lucene::store::IndexOutput>> {
@@ -680,7 +680,7 @@ TEST_F(InvertedIndexFileWriterTest, WriteV2OutputCloseErrorTest) {
     auto compound_file_output = std::unique_ptr<DorisFSDirectory::FSIndexOutputV2>(mock_output_v2);
     compound_file_output->init(file_writer.get());
 
-    EXPECT_CALL(writer_mock, create_output_stream_v2())
+    EXPECT_CALL(writer_mock, create_output_stream())
             .WillOnce(::testing::Invoke(
                     [&]() -> std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
                                        std::unique_ptr<lucene::store::IndexOutput>> {

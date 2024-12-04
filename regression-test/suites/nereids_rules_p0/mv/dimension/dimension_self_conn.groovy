@@ -101,6 +101,9 @@ suite("partition_mv_rewrite_dimension_self_conn") {
     sql """analyze table orders_self_conn with sync;"""
     sql """analyze table lineitem_self_conn with sync;"""
 
+    sql """alter table orders_self_conn modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem_self_conn modify column l_comment set stats ('row_count'='7');"""
+
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt

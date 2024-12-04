@@ -401,15 +401,15 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                     // x and y
                     return and.withChildren(nonTrueLiteral);
             }
-        } else if (nullCount == 1) {
+        } else if (nullCount < and.children().size()) {
             if (nonTrueLiteral.size() == 1) {
-                // null and true
-                return new NullLiteral(BooleanType.INSTANCE);
+                return nonTrueLiteral.get(0);
+            } else {
+                // null and x
+                return and.withChildren(nonTrueLiteral);
             }
-            // null and x
-            return and.withChildren(nonTrueLiteral);
         } else {
-            // null and null
+            // null and null and null and ...
             return new NullLiteral(BooleanType.INSTANCE);
         }
     }
@@ -442,10 +442,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                     // x or y
                     return or.withChildren(nonFalseLiteral);
             }
-        } else if (nullCount == 1) {
+        } else if (nullCount < nonFalseLiteral.size()) {
             if (nonFalseLiteral.size() == 1) {
                 // null or false
-                return new NullLiteral(BooleanType.INSTANCE);
+                return nonFalseLiteral.get(0);
             }
             // null or x
             return or.withChildren(nonFalseLiteral);

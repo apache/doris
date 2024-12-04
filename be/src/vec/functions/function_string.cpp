@@ -894,7 +894,7 @@ struct StringSpace {
             if (data[i] > 0) {
                 buffer.resize(data[i]);
                 for (size_t j = 0; j < data[i]; ++j) {
-                    buffer[i] = ' ';
+                    buffer[j] = ' ';
                 }
                 StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
                                             res_data, res_offsets);

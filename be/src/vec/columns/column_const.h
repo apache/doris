@@ -118,8 +118,6 @@ public:
 
     bool is_variable_length() const override { return data->is_variable_length(); }
 
-    ColumnPtr remove_low_cardinality() const;
-
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
 
     void resize(size_t new_size) override { s = new_size; }
@@ -255,7 +253,6 @@ public:
     // ColumnConst is not nullable, but may be concrete nullable.
     bool is_concrete_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
-    bool is_numeric() const override { return data->is_numeric(); }
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 
     /// Not part of the common interface.

@@ -101,6 +101,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA > 5 + 1 and TA > 10", "cast(TA as smallint) > 6 and TA > 10");
         assertRewrite("(TA > 1 and TA > 10) or TA > 20", "TA > 10");
         assertRewrite("(TA > 1 or TA > 10) and TA > 20", "TA > 20");
+        assertRewrite("(TA < 1 and TA > 10) or TA = 20 and TB > 10", "(TA is null and null) or TA = 20 and TB > 10");
         assertRewrite("(TA + TB > 1 or TA + TB > 10) and TA + TB > 20", "TA + TB > 20");
         assertRewrite("TA > 10 or TA > 10", "TA > 10");
         assertRewrite("(TA > 10 or TA > 20) and (TB > 10 and TB < 20)", "TA > 10 and (TB > 10 and TB < 20) ");
@@ -131,7 +132,10 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA in (1) and TA in (3)", "TA is null and null");
         assertRewrite("TA in (1) and TA in (1)", "TA = 1");
         assertRewriteNotNull("(TA > 3 and TA < 1) and TB < 5", "FALSE");
+        assertRewrite("(TA > 3 and TA < 1) and (TA > 5 and TA = 4)", "TA is null and null");
+        assertRewrite("(TA > 3 and TA < 1) or (TA > 5 and TA = 4)", "TA is null and null");
         assertRewrite("(TA > 3 and TA < 1) and TB < 5", "TA is null and null and TB < 5");
+        assertRewrite("(TA > 3 and TA < 1) and (TB < 5 and TB = 6)", "TA is null and null and TB is null");
         assertRewrite("TA > 3 and TB < 5 and TA < 1", "TA is null and null and TB < 5");
         assertRewrite("(TA > 3 and TA < 1) or TB < 5", "(TA is null and null) or TB < 5");
         assertRewrite("((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1", "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");
@@ -185,7 +189,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA + TC = 1 and TA + TC = 3", "(TA + TC) is null and null");
         assertRewriteNotNull("TA + TC in (1) and TA + TC in (3)", "FALSE");
         assertRewrite("TA + TC in (1) and TA + TC in (3)", "(TA + TC) is null and null");
-        assertRewrite("TA + TC in (1) and TA + TC in (1)", "TA + TC = 1");
+        assertRewrite("TA + TC in (1) and TA + TC in (1)", "(TA + TC) IN (1)");
         assertRewriteNotNull("(TA + TC > 3 and TA + TC < 1) and TB < 5", "FALSE");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) and TB < 5", "(TA + TC) is null and null and TB < 5");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or TB < 5", "((TA + TC) is null and null) OR TB < 5");

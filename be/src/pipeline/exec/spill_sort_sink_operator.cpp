@@ -160,7 +160,6 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
     int64_t data_size = local_state._shared_state->in_mem_shared_state->sorter->data_size();
     COUNTER_SET(local_state._sort_blocks_memory_usage, data_size);
     COUNTER_SET(local_state._memory_used_counter, data_size);
-    COUNTER_SET(local_state._peak_memory_usage_counter, data_size);
 
     if (eos) {
         if (local_state._shared_state->is_spilled) {

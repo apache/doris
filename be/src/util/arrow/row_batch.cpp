@@ -24,6 +24,7 @@
 #include <arrow/result.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
+#include <arrow/type_fwd.h>
 #include <glog/logging.h>
 #include <stdint.h>
 
@@ -84,12 +85,10 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_LARGEINT:
     case TYPE_VARCHAR:
     case TYPE_CHAR:
-    case TYPE_HLL:
     case TYPE_DATE:
     case TYPE_DATETIME:
     case TYPE_STRING:
     case TYPE_JSONB:
-    case TYPE_OBJECT:
         *result = arrow::utf8();
         break;
     case TYPE_DATEV2:
@@ -148,6 +147,12 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     }
     case TYPE_VARIANT: {
         *result = arrow::utf8();
+        break;
+    }
+    case TYPE_QUANTILE_STATE:
+    case TYPE_OBJECT:
+    case TYPE_HLL: {
+        *result = arrow::binary();
         break;
     }
     default:

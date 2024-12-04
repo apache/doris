@@ -105,9 +105,6 @@ private:
 public:
     std::string get_name() const override { return TypeName<T>::get(); }
 
-    bool is_numeric() const override { return false; }
-    bool is_column_decimal() const override { return true; }
-
     size_t size() const override { return data.size(); }
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
@@ -262,7 +259,7 @@ protected:
         for (U i = 0; i < s; ++i) res[i] = i;
 
         auto sort_end = res.end();
-        if (limit && limit < static_cast<double>(s) / 8.0L) {
+        if (limit && static_cast<double>(limit) < static_cast<double>(s) / 8.0) {
             sort_end = res.begin() + limit;
             if (reverse)
                 std::partial_sort(res.begin(), sort_end, res.end(),

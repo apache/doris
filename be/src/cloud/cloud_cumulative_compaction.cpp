@@ -263,6 +263,10 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     compaction_job->add_output_versions(_output_rowset->end_version());
     compaction_job->add_txn_id(_output_rowset->txn_id());
     compaction_job->add_output_rowset_ids(_output_rowset->rowset_id().to_string());
+    compaction_job->set_index_size_input_rowsets(_input_rowsets_index_size);
+    compaction_job->set_segment_size_input_rowsets(_input_rowsets_data_size);
+    compaction_job->set_index_size_output_rowsets(_output_rowset->index_disk_size());
+    compaction_job->set_segment_size_output_rowsets(_output_rowset->data_disk_size());
 
     DBUG_EXECUTE_IF("CloudCumulativeCompaction::modify_rowsets.enable_spin_wait", {
         LOG(INFO) << "CloudCumulativeCompaction::modify_rowsets.enable_spin_wait, start";
@@ -371,11 +375,9 @@ Status CloudCumulativeCompaction::modify_rowsets() {
 Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
     // agg previously rowset old version delete bitmap
     std::vector<RowsetSharedPtr> pre_rowsets {};
-    std::vector<std::string> pre_rowset_ids {};
     for (const auto& it : cloud_tablet()->rowset_map()) {
         if (it.first.second < _input_rowsets.front()->start_version()) {
             pre_rowsets.emplace_back(it.second);
-            pre_rowset_ids.emplace_back(it.second->rowset_id().to_string());
         }
     }
     std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);

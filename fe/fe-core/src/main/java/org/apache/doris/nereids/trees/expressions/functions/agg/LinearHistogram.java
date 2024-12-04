@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -36,7 +36,7 @@ import java.util.List;
 /**
  * AggregateFunction 'linear_histogram'.
  */
-public class LinearHistogram extends AggregateFunction implements ExplicitlyCastableSignature, AlwaysNotNullable {
+public class LinearHistogram extends NotNullableAggregateFunction implements ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
@@ -85,5 +85,10 @@ public class LinearHistogram extends AggregateFunction implements ExplicitlyCast
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        return new VarcharLiteral("{\"num_buckets\":0,\"buckets\":[]}");
     }
 }

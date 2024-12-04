@@ -42,7 +42,6 @@
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
-
 // Arithmetic operations: +, -, *, |, &, ^, ~
 // need implement apply(a, b)
 
