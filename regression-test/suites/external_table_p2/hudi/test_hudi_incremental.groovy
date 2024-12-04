@@ -60,7 +60,6 @@ suite("test_hudi_incremental", "p2,external,hudi,external_remote,external_remote
         "20241114152009764",
         "20241114152011901",
     ]
-    test_hudi_incremental_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
 
     // spark-sql "select distinct _hoodie_commit_time from user_activity_log_cow_partition order by _hoodie_commit_time;"
     def timestamps_cow_partition = [
@@ -75,7 +74,6 @@ suite("test_hudi_incremental", "p2,external,hudi,external_remote,external_remote
         "20241114152147114",
         "20241114152156417",
     ]
-    test_hudi_incremental_querys("user_activity_log_cow_partition", timestamps_cow_partition)
 
     // spark-sql "select distinct _hoodie_commit_time from user_activity_log_mor_non_partition order by _hoodie_commit_time;"
     def timestamps_mor_non_partition = [
@@ -90,7 +88,6 @@ suite("test_hudi_incremental", "p2,external,hudi,external_remote,external_remote
         "20241114152028770",
         "20241114152030746",
     ]
-    test_hudi_incremental_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
 
     // spark-sql "select distinct _hoodie_commit_time from user_activity_log_mor_partition order by _hoodie_commit_time;"
     def timestamps_mor_partition = [
@@ -105,7 +102,18 @@ suite("test_hudi_incremental", "p2,external,hudi,external_remote,external_remote
         "20241114152323587",
         "20241114152334111",
     ]
+
+    test_hudi_incremental_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
+    test_hudi_incremental_querys("user_activity_log_cow_partition", timestamps_cow_partition)
+    test_hudi_incremental_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
     test_hudi_incremental_querys("user_activity_log_mor_partition", timestamps_mor_partition)
+    sql """set force_jni_scanner=true;"""
+    // don't support incremental query for cow table by jni reader
+    // test_hudi_incremental_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
+    // test_hudi_incremental_querys("user_activity_log_cow_partition", timestamps_cow_partition)
+    test_hudi_incremental_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
+    test_hudi_incremental_querys("user_activity_log_mor_partition", timestamps_mor_partition)
+    // sql """set force_jni_scanner=false;"""
 
     sql """drop catalog if exists ${catalog_name};"""
 }
