@@ -1166,6 +1166,9 @@ DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
+// When the size of primary keys in memory exceeds this value, finish current segment
+// and create a new segment, used in compaction. Default 50MB.
+DEFINE_mInt64(mow_primary_key_index_max_size_in_memory, "52428800");
 // When the version is not continuous for MOW table in publish phase and the gap between
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log

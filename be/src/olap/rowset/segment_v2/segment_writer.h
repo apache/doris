@@ -155,6 +155,8 @@ public:
         return Status::OK();
     }
 
+    uint64_t primary_keys_size() const { return _primary_keys_size; }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
@@ -260,6 +262,8 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
     // contains auto generated columns, should be nullptr if no variants's subcolumns
     TabletSchemaSPtr _flush_schema = nullptr;
+    std::vector<std::string> _primary_keys;
+    uint64_t _primary_keys_size = 0;
 };
 
 } // namespace segment_v2

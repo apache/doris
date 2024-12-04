@@ -1416,7 +1416,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     // we change it to tinyint nullable.
                     typeDef = TypeDef.create(PrimitiveType.TINYINT);
                 } else {
-                    typeDef = new TypeDef(resultExpr.getType());
+                    typeDef = new TypeDef(resultType);
                 }
                 if (i == 0) {
                     // If this is the first column, because olap table does not support the first column to be

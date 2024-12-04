@@ -56,7 +56,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class ObjectPool;
 class RuntimeState;
-class MemTracker;
 class RowDescriptor;
 class TDataSink;
 class TDataStreamSink;

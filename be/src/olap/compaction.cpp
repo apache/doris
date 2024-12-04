@@ -191,6 +191,9 @@ Status Compaction::merge_input_rowsets() {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
         // 1. Merge segment files and write bkd inverted index
         if (_is_vertical) {
+            if (!_tablet->tablet_schema()->cluster_key_idxes().empty()) {
+                RETURN_IF_ERROR(update_delete_bitmap());
+            }
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
                                                  input_rs_readers, _output_rs_writer.get(),
                                                  get_avg_segment_rows(), way_num, &_stats);
@@ -872,6 +875,60 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
     }
 }
 
+Status CompactionMixin::update_delete_bitmap() {
+    // for mow with cluster keys, compaction read data with delete bitmap
+    // if tablet is not ready(such as schema change), we need to update delete bitmap
+    {
+        std::shared_lock meta_rlock(_tablet->get_header_lock());
+        if (_tablet->tablet_state() != TABLET_NOTREADY) {
+            return Status::OK();
+        }
+    }
+    OlapStopWatch watch;
+    std::vector<RowsetSharedPtr> rowsets;
+    for (const auto& rowset : _input_rowsets) {
+        std::lock_guard rwlock(tablet()->get_rowset_update_lock());
+        std::shared_lock rlock(_tablet->get_header_lock());
+        Status st = _tablet->update_delete_bitmap_without_lock(_tablet, rowset, &rowsets);
+        if (!st.ok()) {
+            LOG(INFO) << "failed update_delete_bitmap_without_lock for tablet_id="
+                      << _tablet->tablet_id() << ", st=" << st.to_string();
+            return st;
+        }
+        rowsets.push_back(rowset);
+    }
+    LOG(INFO) << "finish update delete bitmap for tablet: " << _tablet->tablet_id()
+              << ", rowsets: " << _input_rowsets.size() << ", cost: " << watch.get_elapse_time_us()
+              << "(us)";
+    return Status::OK();
+}
+
+Status CloudCompactionMixin::update_delete_bitmap() {
+    // for mow with cluster keys, compaction read data with delete bitmap
+    // if tablet is not ready(such as schema change), we need to update delete bitmap
+    {
+        std::shared_lock meta_rlock(_tablet->get_header_lock());
+        if (_tablet->tablet_state() != TABLET_NOTREADY) {
+            return Status::OK();
+        }
+    }
+    OlapStopWatch watch;
+    std::vector<RowsetSharedPtr> rowsets;
+    for (const auto& rowset : _input_rowsets) {
+        Status st = _tablet->update_delete_bitmap_without_lock(_tablet, rowset, &rowsets);
+        if (!st.ok()) {
+            LOG(INFO) << "failed update_delete_bitmap_without_lock for tablet_id="
+                      << _tablet->tablet_id() << ", st=" << st.to_string();
+            return st;
+        }
+        rowsets.push_back(rowset);
+    }
+    LOG(INFO) << "finish update delete bitmap for tablet: " << _tablet->tablet_id()
+              << ", rowsets: " << _input_rowsets.size() << ", cost: " << watch.get_elapse_time_us()
+              << "(us)";
+    return Status::OK();
+}
+
 Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // only do index compaction for dup_keys and unique_keys with mow enabled
     if (config::inverted_index_compaction_enable &&
@@ -908,7 +965,8 @@ Status CompactionMixin::modify_rowsets() {
             LOG(INFO) << "RowLocation Set inited succ for tablet:" << _tablet->tablet_id();
         }
         std::unique_ptr<std::map<RowsetSharedPtr, RowLocationPairList>> location_map;
-        if (config::enable_rowid_conversion_correctness_check) {
+        if (config::enable_rowid_conversion_correctness_check &&
+            tablet()->tablet_schema()->cluster_key_idxes().empty()) {
             location_map = std::make_unique<std::map<RowsetSharedPtr, RowLocationPairList>>();
             LOG(INFO) << "Location Map inited succ for tablet:" << _tablet->tablet_id();
         }

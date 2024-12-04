@@ -35,6 +35,7 @@ HttpHandlerWithAuth::HttpHandlerWithAuth(ExecEnv* exec_env, TPrivilegeHier::type
         : _exec_env(exec_env), _hier(hier), _type(type) {}
 
 int HttpHandlerWithAuth::on_header(HttpRequest* req) {
+    //if u return value isn't 0,u should `send_reply`,Avoid requesting links that never return.
     TCheckAuthRequest auth_request;
     TCheckAuthResult auth_result;
     AuthInfo auth_info;
@@ -83,6 +84,11 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
 
 #ifndef BE_TEST
     TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
+    if (master_addr.hostname.empty() || master_addr.port == 0) {
+        LOG(WARNING) << "Not found master fe, Can't auth API request: " << req->debug_string();
+        HttpChannel::send_error(req, HttpStatus::SERVICE_UNAVAILABLE);
+        return -1;
+    }
     {
         auto status = ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
@@ -90,6 +96,10 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
                     client->checkAuth(auth_result, auth_request);
                 });
         if (!status) {
+            LOG(WARNING) << "CheckAuth Rpc Fail.Fe Ip:" << master_addr.hostname
+                         << ", Fe port:" << master_addr.port << ".Status:" << status.to_string()
+                         << ".Request: " << req->debug_string();
+            HttpChannel::send_error(req, HttpStatus::SERVICE_UNAVAILABLE);
             return -1;
         }
     }
@@ -98,6 +108,7 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
         auth_result.status.status_code = TStatusCode::type::OK;
         auth_result.status.error_msgs.clear();
     } else {
+        HttpChannel::send_reply(req, HttpStatus::FORBIDDEN);
         return -1;
     }
 #endif
