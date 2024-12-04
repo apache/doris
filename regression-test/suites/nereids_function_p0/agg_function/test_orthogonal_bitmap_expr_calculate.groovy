@@ -25,7 +25,7 @@ suite("test_orthogonal_bitmap_expr_calculate") {
                 user_id bitmap bitmap_union
             )
             aggregate key(id, tag)
-            distributed by hash(id) buckets 10
+            distributed by hash(id) buckets 1
             properties(
                 'replication_num'='1'
             );
@@ -37,12 +37,19 @@ suite("test_orthogonal_bitmap_expr_calculate") {
             set enable_fallback_to_original_planner=false;
             """
 
-
     test {
         sql """
             select bitmap_to_string(orthogonal_bitmap_expr_calculate(user_id, tag, '(100&200)'))
             from test_orthogonal_bitmap_expr_calculate
             """
         result([['3,4,5']])
+    }
+
+    test {
+        sql """
+            select orthogonal_bitmap_expr_calculate_count(user_id, tag, '(100&200)')
+            from test_orthogonal_bitmap_expr_calculate
+            """
+        result([[3L]])
     }
 }

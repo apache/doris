@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -35,12 +36,10 @@ import java.util.List;
 public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunction
         implements OrthogonalBitmapFunction, ExplicitlyCastableSignature {
 
-    static final List<FunctionSignature> FUNCTION_SIGNATURES = SUPPORTED_TYPES.stream()
-            .map(type ->
-                    FunctionSignature.ret(BitmapType.INSTANCE)
-                    .varArgs(BitmapType.INSTANCE, type, VarcharType.SYSTEM_DEFAULT)
-            )
-            .collect(ImmutableList.toImmutableList());
+    static final List<FunctionSignature> FUNCTION_SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BigIntType.INSTANCE)
+                    .varArgs(BitmapType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+    );
 
     /**
      * constructor with 3 arguments.

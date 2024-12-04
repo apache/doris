@@ -35,12 +35,10 @@ import java.util.List;
 public class OrthogonalBitmapExprCalculate extends NotNullableAggregateFunction
         implements OrthogonalBitmapFunction, ExplicitlyCastableSignature {
 
-    static final List<FunctionSignature> FUNCTION_SIGNATURES = SUPPORTED_TYPES.stream()
-            .map(type ->
-                    FunctionSignature.ret(BitmapType.INSTANCE)
-                    .varArgs(BitmapType.INSTANCE, type, VarcharType.SYSTEM_DEFAULT)
-            )
-            .collect(ImmutableList.toImmutableList());
+    static final List<FunctionSignature> FUNCTION_SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BitmapType.INSTANCE)
+                    .varArgs(BitmapType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+    );
 
     /**
      * constructor with 3 arguments.
