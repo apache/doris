@@ -927,6 +927,7 @@ Status CloudCompactionMixin::update_delete_bitmap() {
               << ", rowsets: " << _input_rowsets.size() << ", cost: " << watch.get_elapse_time_us()
               << "(us)";
     return Status::OK();
+}
 
 void Compaction::agg_and_remove_old_version_delete_bitmap(
         std::vector<RowsetSharedPtr>& pre_rowsets,
