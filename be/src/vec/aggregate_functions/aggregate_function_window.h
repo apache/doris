@@ -455,14 +455,14 @@ struct WindowFunctionLagImpl : Data {
     static const char* name() { return "lag"; }
 };
 
-// TODO: first_value && last_value in some corner case will be core,
-// if need to simply change it, should set them to always nullable insert into null value, and register in cpp maybe be change
-// But it's may be another better way to handle it
 template <typename Data, bool arg_ignore_null = false>
 struct WindowFunctionFirstImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
-        if (this->has_set_value()) {
+        // case 1: (has_set_value() = true && arg_ignore_null = false)
+        // case 2: (has_set_value() = true && arg_ignore_null = true && is_null() = false)
+        if ((this->has_set_value()) &&
+            (!arg_ignore_null || (arg_ignore_null && !this->is_null()))) {
             return;
         }
         if (frame_start <= frame_end &&
@@ -474,12 +474,14 @@ struct WindowFunctionFirstImpl : Data {
 
         if constexpr (arg_ignore_null) {
             frame_end = std::min<int64_t>(frame_end, partition_end);
-
-            auto& second_arg = assert_cast<const ColumnVector<UInt8>&>(*columns[1]);
+            if (this->has_set_value()) {
+                frame_start = this->offset_pos();
+            }
+            const auto& second_arg = assert_cast<const ColumnVector<UInt8>&>(*columns[1]);
             auto ignore_null_value = second_arg.get_data()[0];
 
             if (ignore_null_value && columns[0]->is_nullable()) {
-                auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+                const auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
                 while (frame_start < frame_end - 1 && arg_nullable.is_null_at(frame_start)) {
                     frame_start++;
                 }
@@ -496,6 +498,8 @@ struct WindowFunctionLastImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
         DCHECK_LE(frame_start, frame_end);
+        LOG(INFO) << "asd add_range_single_place " << partition_start << " " << partition_end << " "
+                  << frame_start << " " << frame_end;
         if ((frame_end <= partition_start) ||
             (frame_start >= partition_end)) { //beyond or under partition, set null
             this->set_is_null();
@@ -505,18 +509,20 @@ struct WindowFunctionLastImpl : Data {
 
         if constexpr (arg_ignore_null) {
             frame_start = std::max<int64_t>(frame_start, partition_start);
-
-            auto& second_arg = assert_cast<const ColumnVector<UInt8>&>(*columns[1]);
+            if (this->has_set_value()) {
+                frame_start = this->offset_pos();
+            }
+            const auto& second_arg = assert_cast<const ColumnVector<UInt8>&>(*columns[1]);
             auto ignore_null_value = second_arg.get_data()[0];
 
             if (ignore_null_value && columns[0]->is_nullable()) {
-                auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+                const auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
                 while (frame_start < (frame_end - 1) && arg_nullable.is_null_at(frame_end - 1)) {
                     frame_end--;
                 }
             }
         }
-
+        LOG(INFO) << "asd frame_end arg_ignore_null: " << arg_ignore_null << " " << frame_end;
         this->set_value(columns, frame_end - 1);
     }
 

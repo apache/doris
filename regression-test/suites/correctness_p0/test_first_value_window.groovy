@@ -159,4 +159,44 @@ suite("test_first_value_window") {
             ,first_value(`state`, 1) over(partition by `myday` order by `time_col` rows between 1 preceding and 1 following) v3
         from ${tableName3} order by `id`, `myday`, `time_col`;
     """
+
+    qt_select_default4 """
+        SELECT uid
+            ,amt
+            ,LAST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) amt1
+            ,LAST_VALUE(amt, false) OVER(PARTITION BY uid ORDER BY time_s ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) amt2
+            ,time_s
+        FROM (
+            SELECT 'a' AS uid, 1    AS amt, 0 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 1 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+            SELECT 'a' AS uid, null    AS amt, 3 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+            SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+            SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+            ) t
+        ORDER BY uid, time_s
+        ;
+    """
+
+    qt_select_default5 """
+        SELECT uid
+            ,amt
+            ,FIRST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) amt1
+            ,FIRST_VALUE(amt, false) OVER(PARTITION BY uid ORDER BY time_s ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) amt2
+            ,time_s
+        FROM (
+            SELECT 'a' AS uid, NULL    AS amt, 0 AS time_s UNION ALL
+            SELECT 'a' AS uid, 1 AS amt, 1 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+            SELECT 'a' AS uid, null    AS amt, 3 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+            SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+            SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+            ) t
+        ORDER BY uid, time_s
+        ;
+    """
 }
