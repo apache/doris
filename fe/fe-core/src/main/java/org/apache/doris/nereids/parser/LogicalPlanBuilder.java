@@ -241,6 +241,7 @@ import org.apache.doris.nereids.DorisParser.ShowCreateDatabaseContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMaterializedViewContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
+import org.apache.doris.nereids.DorisParser.ShowCreateRepositoryContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateTableContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateViewContext;
 import org.apache.doris.nereids.DorisParser.ShowDeleteContext;
@@ -539,6 +540,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
@@ -4428,6 +4430,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new RefreshDatabaseCommand(parts.get(0), dbName, properties);
         }
         throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
+    }
+
+    @Override
+    public LogicalPlan visitShowCreateRepository(ShowCreateRepositoryContext ctx) {
+        return new ShowCreateRepositoryCommand(ctx.identifier().getText());
     }
 
     public LogicalPlan visitShowLastInsert(ShowLastInsertContext ctx) {
