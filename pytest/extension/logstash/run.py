@@ -76,15 +76,15 @@ def run(args, first_run=False):
     cursor.execute(sql)
     result = cursor.fetchall()
     
-    if first_run:  # only for debug
-        with open(output, 'w') as f:
-            for row in result:
-                f.write(f'{tuple_to_str(row)}\n')
-    
     result_list = []
     for row in result:
         result_list.append(tuple_to_str(row))
     result_list.sort()
+
+    if first_run:  # only for debug
+        with open(output, 'w') as f:
+            for row in result_list:
+                f.write(f'{row}\n')
     
     correct_list = []
     with open(output, 'r') as f:

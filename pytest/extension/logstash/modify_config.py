@@ -1,6 +1,7 @@
 import env
 import os
 
+WORKERS = 1
 BATCH_SIZE = 100
 BATCH_DELAY = 3000
 
@@ -17,6 +18,7 @@ if status != 0:
     raise Exception(f'Failed to restore logstash config file: {logstash_config}')
 
 with open(logstash_config, 'a') as f:
+    f.write(f'pipeline.workers: {WORKERS}\n')
     f.write(f'pipeline.batch.size: {BATCH_SIZE}\n')
     f.write(f'pipeline.batch.delay: {BATCH_DELAY}\n')
     f.write('config.support_escapes: true\n')
