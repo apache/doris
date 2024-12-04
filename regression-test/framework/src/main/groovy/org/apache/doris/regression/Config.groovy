@@ -1064,19 +1064,23 @@ class Config {
         return buildUrlWithDb(jdbcUrl, dbName)
     }
 
-    Connection getConnectionByArrowFlightSql(String dbName) {
+    Connection getConnectionByArrowFlightSqlDbName(String dbName) {
         Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver")
         String arrowFlightSqlHost = otherConfigs.get("extArrowFlightSqlHost")
         String arrowFlightSqlPort = otherConfigs.get("extArrowFlightSqlPort")
         String arrowFlightSqlUrl = "jdbc:arrow-flight-sql://${arrowFlightSqlHost}:${arrowFlightSqlPort}" +
                 "/?useServerPrepStmts=false&useSSL=false&useEncryption=false"
-        // TODO jdbc:arrow-flight-sql not support connect db
-        String dbUrl = buildUrlWithDbImpl(arrowFlightSqlUrl, dbName)
+        // Arrow 17.0.0-rc03 support jdbc:arrow-flight-sql connect db
+        // https://github.com/apache/arrow/issues/41947
+        if (dbName?.trim()) {
+            arrowFlightSqlUrl = "jdbc:arrow-flight-sql://${arrowFlightSqlHost}:${arrowFlightSqlPort}" +
+                "/catalog=" + dbName + "?useServerPrepStmts=false&useSSL=false&useEncryption=false"
+        }
         tryCreateDbIfNotExist(dbName)
-        log.info("connect to ${dbUrl}".toString())
+        log.info("connect to ${arrowFlightSqlUrl}".toString())
         String arrowFlightSqlJdbcUser = otherConfigs.get("extArrowFlightSqlUser")
         String arrowFlightSqlJdbcPassword = otherConfigs.get("extArrowFlightSqlPassword")
-        return DriverManager.getConnection(dbUrl, arrowFlightSqlJdbcUser, arrowFlightSqlJdbcPassword)
+        return DriverManager.getConnection(arrowFlightSqlUrl, arrowFlightSqlJdbcUser, arrowFlightSqlJdbcPassword)
     }
 
     Connection getDownstreamConnection() {
