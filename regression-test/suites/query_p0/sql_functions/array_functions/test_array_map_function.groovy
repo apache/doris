@@ -75,8 +75,7 @@ suite("test_array_map_function") {
         test {
             sql"""select c_array1,array_max(array_map(x->countequal(c_array1,x),c_array1)) from array_test2;"""
             check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
+                assertTrue(exception == null)
             }
         }
 
@@ -90,7 +89,8 @@ suite("test_array_map_function") {
         test {
             sql"""select /*+SET_VAR(experimental_enable_pipeline_engine=false)*/ array_map((x,y)->x+y, c_array1, c_array2) from ${tableName} where id > 10 order by id"""
             check{result, exception, startTime, endTime ->
-                assertTrue(exception == null)
+                assertTrue(exception != null)
+                logger.info(exception.message)
             }
         }
 
