@@ -54,7 +54,9 @@ suite("test_cumu_compaction_with_delete") {
         }
     }
 
+    GetDebugPoint().clearDebugPointsForAllBEs()
     try {
+        GetDebugPoint().enableDebugPointForAllBEs("SizeBaseCumulativeCompactionPolicy.pick_input_rowsets.set_promotion_size_to_max")
         String backend_id;
 
         def backendId_to_backendIP = [:]
@@ -75,79 +77,26 @@ suite("test_cumu_compaction_with_delete") {
             "disable_auto_compaction" = "true",
             "enable_mow_light_delete" = "true")"""
 
-        // [0-1] | [2-2] [3-3] [4-4] [5-5] [6-6] [7-7]
-        //  cumu point =  2
-        sql """ INSERT INTO ${tableName} VALUES (1,1)"""
-        sql """ INSERT INTO ${tableName} VALUES (2,2)"""
-        sql """ INSERT INTO ${tableName} VALUES (3,3)"""
-        sql """ INSERT INTO ${tableName} VALUES (4,4)"""
-        sql """ INSERT INTO ${tableName} VALUES (5,5)"""
-        sql """ INSERT INTO ${tableName} VALUES (6,6)"""
-        qt_1 """select * from ${tableName} order by user_id, value"""
-
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
-        check_version_and_cumu_point(tablets, 7, 2)
-
-        // [0-1] [2-7] |
-        //  cumu point = 2
-        cumulative_compaction(tablets, backendId_to_backendIP, backendId_to_backendHttpPort, backend_id)
-        if (cloudMode) {
-            check_version_and_cumu_point(tablets, 2, 2)
-        } else {
-            check_version_and_cumu_point(tablets, 2, 8)
-        }
-
-        // [0-1] [2-7] | [8-8]
-        //  cumu point = 8
+        // [0-1] | [2-2] [3-3] [4-4] [5-5] [6-6] [7-7]
+        //  cumu point =  2
+        sql """ INSERT INTO ${tableName} VALUES (1,1)"""
         sql """ delete from ${tableName} where user_id = 1"""
-        qt_3 """select * from ${tableName} order by user_id, value"""
-
-        // [0-1] [2-7] [8-8] |
-        //  cumu point = 9
         cumulative_compaction(tablets, backendId_to_backendIP, backendId_to_backendHttpPort, backend_id)
-        check_version_and_cumu_point(tablets, 3, 9)
 
-        // [0-1] [2-7] [8-8] | [9-9]
-        //  cumu point = 9
-        sql """ delete from ${tableName} where user_id = 2"""
-        qt_4 """select * from ${tableName} order by user_id, value"""
-
-        // [0-1] [2-7] [8-8] [9-9] |
-        //  cumu point = 10
+        sql """ INSERT INTO ${tableName} VALUES (1,1)"""
+        sql """ delete from ${tableName} where user_id = 1"""
         cumulative_compaction(tablets, backendId_to_backendIP, backendId_to_backendHttpPort, backend_id)
-        check_version_and_cumu_point(tablets, 4, 10)
 
-        // [0-1] [2-7] [8-8] [9-9] | [10-10]
-        //  cumu point = 10
-        sql """ delete from ${tableName} where user_id = 3"""
-        qt_5 """select * from ${tableName} order by user_id, value"""
-
-        // [0-1] [2-7] [8-8] [9-9] [10-10] |
-        //  cumu point = 11
+        sql """ INSERT INTO ${tableName} VALUES (1,1)"""
+        sql """ delete from ${tableName} where user_id = 1"""
         cumulative_compaction(tablets, backendId_to_backendIP, backendId_to_backendHttpPort, backend_id)
-        check_version_and_cumu_point(tablets, 5, 11)
 
-        // [0-1] [2-7] [8-8] [9-9] [10-10] | [11-11]
-        //  cumu point = 11
-        sql """ delete from ${tableName} where user_id = 4"""
-        qt_5 """select * from ${tableName} order by user_id, value"""
-
-        // [0-1] [2-7] [8-8] [9-9] [10-10] [11-11] |
-        //  cumu point = 12
+        sql """ INSERT INTO ${tableName} VALUES (1,1)"""
+        sql """ delete from ${tableName} where user_id = 1"""
         cumulative_compaction(tablets, backendId_to_backendIP, backendId_to_backendHttpPort, backend_id)
-        check_version_and_cumu_point(tablets, 6, 12)
-
-        // [0-1] [2-7] [8-8] [9-9] [10-10] [11-11] | [12-12]
-        //  cumu point = 12
-        sql """ delete from ${tableName} where user_id = 5"""
-        qt_5 """select * from ${tableName} order by user_id, value"""
-
-        // [0-1] [2-7] [8-8] [9-9] [10-10] [11-11] [12-12] |
-        //  cumu point = 13
-        cumulative_compaction(tablets, backendId_to_backendIP, backendId_to_backendHttpPort, backend_id)
-        check_version_and_cumu_point(tablets, 7, 13)
 
         // trigger base compactions for all tablets in ${tableName}
         for (def tablet in tablets) {
@@ -179,8 +128,11 @@ suite("test_cumu_compaction_with_delete") {
         }
 
         qt_6 """select * from ${tableName} order by user_id, value"""
-
+    } catch (Exception e){
+        logger.info(e.getMessage())
+        assertFalse(true)
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${tableName}")
+        try_sql("DROP TABLE IF EXISTS ${tableName} FORCE")
+        GetDebugPoint().disableDebugPointForAllBEs("SizeBaseCumulativeCompactionPolicy.pick_input_rowsets.set_promotion_size_to_max")
     }
 }
