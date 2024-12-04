@@ -131,7 +131,8 @@ public class FileLoadScanNode extends FileScanNode {
             // FIXME(cmy): we should support set different expr for different file group.
             initAndSetPrecedingFilter(context.fileGroup.getPrecedingFilterExpr(), context.srcTupleDescriptor, analyzer);
             initAndSetWhereExpr(context.fileGroup.getWhereExpr(), context.destTupleDescriptor, analyzer);
-            setDefaultValueExprs(scanProvider.getTargetTable(), context.srcSlotDescByName, context.params, true);
+            setDefaultValueExprs(scanProvider.getTargetTable(), context.srcSlotDescByName,
+                    context.exprMap, context.params, true);
             this.contexts.add(context);
         }
     }
