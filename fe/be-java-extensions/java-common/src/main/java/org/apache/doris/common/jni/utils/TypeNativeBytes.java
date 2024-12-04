@@ -71,7 +71,7 @@ public class TypeNativeBytes {
     }
 
     public static byte[] getInetAddressBytes(InetAddress v) {
-        return convertByteOrder(v.getAddress()).clone();
+        return convertByteOrder(v.getAddress());
     }
 
     public static byte[] getDecimalBytes(BigDecimal v, int scale, int size) {
