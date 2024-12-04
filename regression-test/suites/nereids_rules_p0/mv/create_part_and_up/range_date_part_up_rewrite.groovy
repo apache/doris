@@ -113,6 +113,14 @@ suite("mtmv_range_date_part_up_rewrite") {
     (4, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-31'); 
     """
 
+    sql """alter table lineitem_range_datetime_union modify column l_shipdate set stats 
+            ('row_count'='7.0', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='56.0', 'min_value'='2023-10-29 00:00:00', 'max_value'='2023-10-29 02:00:00');"""
+    sql """alter table lineitem_range_datetime_union modify column l_orderkey set stats 
+            ('row_count'='7.0', 'ndv'='3.0', 'num_nulls'='1.0', 'data_size'='56.0', 'min_value'='1', 'max_value'='3');"""
+    sql """alter table orders_range_datetime_union modify column o_orderkey set stats 
+            ('row_count'='7.0', 'ndv'='3.0', 'num_nulls'='1.0', 'data_size'='56.0', 'min_value'='1', 'max_value'='3');"""
+
+
     sql """DROP MATERIALIZED VIEW if exists ${mv_prefix}_mv1;"""
     sql """CREATE MATERIALIZED VIEW ${mv_prefix}_mv1 BUILD IMMEDIATE REFRESH AUTO ON MANUAL partition by(date_trunc(`col1`, 'month')) DISTRIBUTED BY RANDOM BUCKETS 2 PROPERTIES ('replication_num' = '1') AS  
         select date_trunc(`l_shipdate`, 'day') as col1, l_shipdate, l_orderkey from lineitem_range_date_union as t1 left join orders_range_date_union as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey;"""
@@ -174,6 +182,8 @@ suite("mtmv_range_date_part_up_rewrite") {
     sql """alter table lineitem_range_date_union add partition p4 values [("2023-11-01"), ("2023-11-02"));"""
     sql """insert into lineitem_range_date_union values 
         (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-11-01')"""
+    sql """analyze table ${mv_prefix}_mv1 with sync"""
+    sql """analyze table ${mv_prefix}_mv2 with sync"""
     for (int i = 0; i < mv_name_list.size(); i++) {
         mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
         compare_res(query_stmt_list[i] + " order by 1,2,3")
@@ -187,6 +197,8 @@ suite("mtmv_range_date_part_up_rewrite") {
 
     sql """insert into lineitem_range_date_union values 
         (2, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-11-01');"""
+    sql """analyze table ${mv_prefix}_mv1 with sync"""
+    sql """analyze table ${mv_prefix}_mv2 with sync"""
     for (int i = 0; i < mv_name_list.size(); i++) {
         mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
         compare_res(query_stmt_list[i] + " order by 1,2,3")
@@ -199,6 +211,8 @@ suite("mtmv_range_date_part_up_rewrite") {
     }
 
     sql """ALTER TABLE lineitem_range_date_union DROP PARTITION IF EXISTS p4 FORCE"""
+    sql """analyze table ${mv_prefix}_mv1 with sync"""
+    sql """analyze table ${mv_prefix}_mv2 with sync"""
     for (int i = 0; i < mv_name_list.size(); i++) {
         mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
         compare_res(query_stmt_list[i] + " order by 1,2,3")
