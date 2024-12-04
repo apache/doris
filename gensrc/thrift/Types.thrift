@@ -124,7 +124,8 @@ enum TStorageBackendType {
 enum TInvertedIndexFileStorageFormat {
     DEFAULT = 0, // Default format, unspecified storage method.
     V1 = 1,      // Index per idx: Each index is stored separately based on its identifier.
-    V2 = 2      // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+    V2 = 2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+    V3 = 3       // Position and dictionary compression
 }
 
 struct TScalarType {
