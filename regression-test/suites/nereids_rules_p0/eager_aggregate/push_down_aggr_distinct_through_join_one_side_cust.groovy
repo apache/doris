@@ -22,12 +22,12 @@ suite("push_down_aggr_distinct_through_join_one_side_cust") {
     sql "set DISABLE_NEREIDS_RULES='PRUNE_EMPTY_PARTITION, ELIMINATE_GROUP_BY_KEY_BY_UNIFORM'"
 
     sql """
-        DROP TABLE IF EXISTS dwd_com_abtest_result_inc_ymd;
-	    DROP TABLE IF EXISTS dwd_tracking_sensor_init_tmp_ymd;
+        DROP TABLE IF EXISTS dwd_com_abtest_result_inc_ymds;
+	DROP TABLE IF EXISTS dwd_tracking_sensor_init_tmp_ymds;
     """
 
     sql """
-    CREATE TABLE `dwd_com_abtest_result_inc_ymd` (
+    CREATE TABLE `dwd_com_abtest_result_inc_ymds` (
       `app_name` varchar(255) NULL,
       `user_key` text NULL,
       `group_name` text NULL,
@@ -57,7 +57,7 @@ suite("push_down_aggr_distinct_through_join_one_side_cust") {
     "group_commit_data_bytes" = "134217728"
     );
 
-    CREATE TABLE `dwd_tracking_sensor_init_tmp_ymd` (
+    CREATE TABLE `dwd_tracking_sensor_init_tmp_ymds` (
       `ip` varchar(20) NULL,
       `gz_user_id` text NULL,
       `dt` date NOT NULL
@@ -89,15 +89,15 @@ suite("push_down_aggr_distinct_through_join_one_side_cust") {
 
     explain {
         sql("physical PLAN SELECT /*+use_cbo_rule(PUSH_DOWN_AGG_WITH_DISTINCT_THROUGH_JOIN_ONE_SIDE)*/" +
-                "COUNT(DISTINCT dwd_tracking_sensor_init_tmp_ymd.gz_user_id) AS a2c1a830_1," +
-                "dwd_com_abtest_result_inc_ymd.group_name AS ab1011d6," +
-                "dwd_tracking_sensor_init_tmp_ymd.dt AS ad466123 " +
-                "FROM dwd_tracking_sensor_init_tmp_ymd " +
-                "LEFT JOIN dwd_com_abtest_result_inc_ymd " +
-                "ON dwd_tracking_sensor_init_tmp_ymd.gz_user_id = dwd_com_abtest_result_inc_ymd.user_key " +
-                "AND dwd_tracking_sensor_init_tmp_ymd.dt = dwd_com_abtest_result_inc_ymd.dt " +
-                "WHERE dwd_tracking_sensor_init_tmp_ymd.dt BETWEEN '2024-08-15' AND '2024-08-15' " +
-                "AND dwd_com_abtest_result_inc_ymd.dt BETWEEN '2024-08-15' AND '2024-08-15' " +
+                "COUNT(DISTINCT dwd_tracking_sensor_init_tmp_ymds.gz_user_id) AS a2c1a830_1," +
+                "dwd_com_abtest_result_inc_ymds.group_name AS ab1011d6," +
+                "dwd_tracking_sensor_init_tmp_ymds.dt AS ad466123 " +
+                "FROM dwd_tracking_sensor_init_tmp_ymds " +
+                "LEFT JOIN dwd_com_abtest_result_inc_ymds " +
+                "ON dwd_tracking_sensor_init_tmp_ymds.gz_user_id = dwd_com_abtest_result_inc_ymds.user_key " +
+                "AND dwd_tracking_sensor_init_tmp_ymds.dt = dwd_com_abtest_result_inc_ymds.dt " +
+                "WHERE dwd_tracking_sensor_init_tmp_ymds.dt BETWEEN '2024-08-15' AND '2024-08-15' " +
+                "AND dwd_com_abtest_result_inc_ymds.dt BETWEEN '2024-08-15' AND '2024-08-15' " +
                 "GROUP BY 2, 3 ORDER BY 3 asc limit 10000;");
         contains"groupByExpr=[gz_user_id#1, dt#2]"
         contains"groupByExpr=[gz_user_id#1, dt#2, group_name#5], outputExpr=[gz_user_id#1, dt#2, group_name#5]"
@@ -107,15 +107,15 @@ suite("push_down_aggr_distinct_through_join_one_side_cust") {
 
     explain {
         sql("physical PLAN SELECT /*+use_cbo_rule(PUSH_DOWN_AGG_WITH_DISTINCT_THROUGH_JOIN_ONE_SIDE)*/" +
-                "COUNT(DISTINCT dwd_tracking_sensor_init_tmp_ymd.ip) AS a2c1a830_1," +
-                "dwd_com_abtest_result_inc_ymd.group_name AS ab1011d6," +
-                "dwd_tracking_sensor_init_tmp_ymd.dt AS ad466123 " +
-                "FROM dwd_tracking_sensor_init_tmp_ymd " +
-                "LEFT JOIN dwd_com_abtest_result_inc_ymd " +
-                "ON dwd_tracking_sensor_init_tmp_ymd.gz_user_id = dwd_com_abtest_result_inc_ymd.user_key " +
-                "AND dwd_tracking_sensor_init_tmp_ymd.dt = dwd_com_abtest_result_inc_ymd.dt " +
-                "WHERE dwd_tracking_sensor_init_tmp_ymd.dt BETWEEN '2024-08-15' AND '2024-08-15' " +
-                "AND dwd_com_abtest_result_inc_ymd.dt BETWEEN '2024-08-15' AND '2024-08-15' " +
+                "COUNT(DISTINCT dwd_tracking_sensor_init_tmp_ymds.ip) AS a2c1a830_1," +
+                "dwd_com_abtest_result_inc_ymds.group_name AS ab1011d6," +
+                "dwd_tracking_sensor_init_tmp_ymds.dt AS ad466123 " +
+                "FROM dwd_tracking_sensor_init_tmp_ymds " +
+                "LEFT JOIN dwd_com_abtest_result_inc_ymds " +
+                "ON dwd_tracking_sensor_init_tmp_ymds.gz_user_id = dwd_com_abtest_result_inc_ymds.user_key " +
+                "AND dwd_tracking_sensor_init_tmp_ymds.dt = dwd_com_abtest_result_inc_ymds.dt " +
+                "WHERE dwd_tracking_sensor_init_tmp_ymds.dt BETWEEN '2024-08-15' AND '2024-08-15' " +
+                "AND dwd_com_abtest_result_inc_ymds.dt BETWEEN '2024-08-15' AND '2024-08-15' " +
                 "GROUP BY 2, 3 ORDER BY 3 asc limit 10000;");
         contains"groupByExpr=[ip#0, gz_user_id#1, dt#2], outputExpr=[ip#0, gz_user_id#1, dt#2]"
         contains"groupByExpr=[ip#0, dt#2, group_name#5], outputExpr=[ip#0, dt#2, group_name#5]"
