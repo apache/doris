@@ -38,13 +38,13 @@ import java.util.List;
 public class MapContainsValue extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+    public static final List<FunctionSignature> FOLLOW_DATATYPE_SIGNATURE = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(MapType.of(AnyDataType.INSTANCE_WITHOUT_INDEX, new AnyDataType(0)),
                             new FollowToAnyDataType(0))
     );
 
-    public static final List<FunctionSignature> SIGNATURES_ = ImmutableList.of(
+    public static final List<FunctionSignature> MIN_COMMON_TYPE_SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(MapType.of(AnyDataType.INSTANCE_WITHOUT_INDEX, new AnyDataType(0)),
                             new AnyDataType(0))
@@ -83,8 +83,8 @@ public class MapContainsValue extends ScalarFunction
                 ((MapType) getArgument(0).getDataType()).getValueType()
                         .isSameTypeForComplexTypeParam(getArgument(1).getDataType())) {
             // return least common type
-            return SIGNATURES_;
+            return MIN_COMMON_TYPE_SIGNATURES;
         }
-        return SIGNATURES;
+        return FOLLOW_DATATYPE_SIGNATURE;
     }
 }

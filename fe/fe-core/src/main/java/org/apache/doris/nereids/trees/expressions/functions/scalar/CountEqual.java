@@ -38,12 +38,12 @@ import java.util.List;
 public class CountEqual extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+    public static final List<FunctionSignature> FOLLOW_DATATYPE_SIGNATURE = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(ArrayType.of(new AnyDataType(0)), new FollowToAnyDataType(0))
     );
 
-    public static final List<FunctionSignature> SIGNATURES_ = ImmutableList.of(
+    public static final List<FunctionSignature> MIN_COMMON_TYPE_SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0))
     );
@@ -84,8 +84,8 @@ public class CountEqual extends ScalarFunction
                 ((ArrayType) getArgument(0).getDataType()).getItemType()
                         .isSameTypeForComplexTypeParam(getArgument(1).getDataType())) {
             // return least common type
-            return SIGNATURES_;
+            return MIN_COMMON_TYPE_SIGNATURES;
         }
-        return SIGNATURES;
+        return FOLLOW_DATATYPE_SIGNATURE;
     }
 }
