@@ -146,6 +146,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                 RETURN_IF_ERROR(
                         _runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
                 RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
+                _runtime_filter_slots->copy_to_shared_context(p._shared_hash_table_context);
             } else {
                 // do not publish filter coz local rf not inited and useless
                 return Base::close(state, exec_status);
