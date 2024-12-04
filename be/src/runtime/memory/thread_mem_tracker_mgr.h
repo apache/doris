@@ -76,6 +76,16 @@ public:
 
     void reset_wg_wptr() { _wg_wptr.reset(); }
 
+    void start_count_scope_mem() {
+        CHECK(init());
+        _count_scope_mem = true;
+    }
+
+    int64_t stop_count_scope_mem() {
+        _count_scope_mem = false;
+        return _scope_mem;
+    }
+
     // Note that, If call the memory allocation operation in Memory Hook,
     // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
     // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
@@ -130,6 +140,9 @@ private:
     // so `attach_limiter_tracker` may be nested.
     std::vector<int64_t> _reserved_mem_stack;
 
+    bool _count_scope_mem = false;
+    int64_t _scope_mem = 0;
+
     std::string _failed_consume_msg = std::string();
     // If true, the Allocator will wait for the GC to free memory if it finds that the memory exceed limit.
     // A thread of query/load will only wait once during execution.
@@ -177,6 +190,9 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
     // because `consumer_tracker` will not be bound by many threads, so there is no performance problem.
     for (auto* tracker : _consumer_tracker_stack) {
         tracker->consume(size);
+    }
+    if (_count_scope_mem) {
+        _scope_mem += size;
     }
 
     if (_reserved_mem != 0) {

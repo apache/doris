@@ -408,6 +408,25 @@ public:
     std::weak_ptr<WorkloadGroup> wg_wptr;
 };
 
+class ScopeMemCountByHook {
+public:
+    explicit ScopeMemCountByHook(int64_t* scope_mem) {
+        ThreadLocalHandle::create_thread_local_if_not_exits();
+        _scope_mem = scope_mem;
+        thread_context()->thread_mem_tracker_mgr->start_count_scope_mem();
+        use_mem_hook = true;
+    }
+
+    ~ScopeMemCountByHook() {
+        use_mem_hook = false;
+        *_scope_mem += thread_context()->thread_mem_tracker_mgr->stop_count_scope_mem();
+        ThreadLocalHandle::del_thread_local_if_count_is_zero();
+    }
+
+private:
+    int64_t* _scope_mem = nullptr;
+};
+
 class ScopedPeakMem {
 public:
     explicit ScopedPeakMem(int64* peak_mem) : _peak_mem(peak_mem), _mem_tracker("ScopedPeakMem") {
