@@ -82,7 +82,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
     // will only be set in Nereids, for lagency planner, it should be null
     @Setter
-    private SelectedPartitions selectedPartitions = null;
+    protected SelectedPartitions selectedPartitions = null;
 
     private boolean partitionInit = false;
     private final AtomicReference<UserException> batchException = new AtomicReference<>(null);

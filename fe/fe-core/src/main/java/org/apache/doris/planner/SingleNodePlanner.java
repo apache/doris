@@ -74,7 +74,6 @@ import org.apache.doris.datasource.odbc.source.OdbcScanNode;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Preconditions;
@@ -1991,9 +1990,7 @@ public class SingleNodePlanner {
                     ConnectContext.get().getSessionVariable());
                 break;
             case MAX_COMPUTE_EXTERNAL_TABLE:
-                // TODO: support max compute scan node
-                scanNode = new MaxComputeScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "MCScanNode",
-                        StatisticalType.MAX_COMPUTE_SCAN_NODE, true);
+                scanNode = new MaxComputeScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case ES_EXTERNAL_TABLE:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
