@@ -50,9 +50,6 @@ public class SelectHintSetVar extends SelectHint {
      * @param context statement context
      */
     public void setVarOnceInSql(StatementContext context) {
-        if (context == null) {
-            return;
-        }
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         // set temporary session value, and then revert value in the 'finally block' of StmtExecutor#execute
         sessionVariable.setIsSingleSetVar(true);
