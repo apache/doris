@@ -130,19 +130,6 @@ suite("mtmv_range_datetime_part_up_rewrite") {
     def sql1 = """select date_trunc(`l_shipdate`, 'day') as col1, l_shipdate, l_orderkey from lineitem_range_datetime_union as t1 left join orders_range_datetime_union as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey"""
     def sql2 = """select date_trunc(`l_shipdate`, 'hour') as col1, l_shipdate, l_orderkey from lineitem_range_datetime_union as t1 left join orders_range_datetime_union as t2 on t1.l_orderkey = t2.o_orderkey group by col1, l_shipdate, l_orderkey"""
 
-//    sql """alter table ${mv_prefix}_mv1 modify column col1 set stats
-//            ('row_count'='4.0', 'ndv'='1.0', 'num_nulls'='0.0', 'data_size'='32.0', 'min_value'='2023-10-29 00:00:00', 'max_value'='2023-10-29 00:00:00');"""
-//    sql """alter table ${mv_prefix}_mv1 modify column l_orderkey set stats
-//            ('row_count'='4.0', 'ndv'='4.0', 'num_nulls'='1.0', 'data_size'='32.0', 'min_value'='1', 'max_value'='3');"""
-//    sql """alter table ${mv_prefix}_mv1 modify column l_shipdate set stats
-//            ('row_count'='4.0', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='32.0', 'min_value'='2023-10-29 00:00:00', 'max_value'='2023-10-29 02:00:00');"""
-//    sql """alter table ${mv_prefix}_mv2 modify column col1 set stats
-//            ('row_count'='4.0', 'ndv'='1.0', 'num_nulls'='0.0', 'data_size'='32.0', 'min_value'='2023-10-29 00:00:00', 'max_value'='2023-10-29 00:00:00');"""
-//    sql """alter table ${mv_prefix}_mv2 modify column l_orderkey set stats
-//            ('row_count'='4.0', 'ndv'='4.0', 'num_nulls'='1.0', 'data_size'='32.0', 'min_value'='1', 'max_value'='3');"""
-//    sql """alter table ${mv_prefix}_mv2 modify column l_shipdate set stats
-//            ('row_count'='4.0', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='32.0', 'min_value'='2023-10-29 00:00:00', 'max_value'='2023-10-29 02:00:00');"""
-
     def localWaitingMTMVTaskFinished = { def jobName ->
         Thread.sleep(2000);
         String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime ASC"
