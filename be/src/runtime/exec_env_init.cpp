@@ -599,15 +599,20 @@ void ExecEnv::init_mem_tracker() {
     _s_tracking_memory = true;
     _orphan_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "Orphan");
-    _page_no_cache_mem_tracker = std::make_shared<MemTracker>("PageNoCache");
     _brpc_iobuf_block_memory_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "IOBufBlockMemory");
     _segcompaction_mem_tracker =
-            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SegCompaction");
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, "SegCompaction");
+    _tablets_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::METADATA, "Tablets(not in SchemaCache, TabletSchemaCache)");
+    _segments_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::METADATA, "Segments(not in SegmentCache)");
+    _rowsets_no_cache_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::METADATA, "Rowsets");
     _point_query_executor_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "PointQueryExecutor");
     _query_cache_mem_tracker =
-            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "QueryCache");
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::CACHE, "QueryCache");
     _block_compression_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "BlockCompression");
     _rowid_storage_reader_tracker =
@@ -716,7 +721,7 @@ void ExecEnv::destroy() {
     _file_cache_open_fd_cache.reset();
     SAFE_STOP(_write_cooldown_meta_executors);
 
-    // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
+    // StorageEngine must be destoried before _cache_manager destory
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
 

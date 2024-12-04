@@ -41,8 +41,6 @@
 #include "olap/tablet_column_object_pool.h"
 #include "olap/types.h"
 #include "olap/utils.h"
-#include "runtime/memory/lru_cache_policy.h"
-#include "runtime/thread_context.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_state_union.h"
