@@ -935,11 +935,20 @@ void FragmentMgr::cancel_worker() {
             running_queries_on_all_fes.clear();
         }
 
+        std::vector<std::shared_ptr<pipeline::PipelineFragmentContext>> ctx;
         {
             std::lock_guard<std::mutex> lock(_lock);
+            ctx.reserve(_pipeline_map.size());
             for (auto& pipeline_itr : _pipeline_map) {
-                pipeline_itr.second->clear_finished_tasks();
+                ctx.push_back(pipeline_itr.second);
             }
+        }
+        for (auto& c : ctx) {
+            c->clear_finished_tasks();
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(_lock);
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
                 if (auto q_ctx = it->second.lock()) {
                     if (q_ctx->is_timeout(now)) {

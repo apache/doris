@@ -276,7 +276,8 @@ unsupportedShowStatement
         ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showAlterTable
     | SHOW DATA SKEW FROM baseTableRef                                              #showDataSkew
-    | SHOW DATA (FROM tableName=multipartIdentifier)? sortClause? propertyClause?   #showData
+    | SHOW DATA (ALL)? (FROM tableName=multipartIdentifier)?
+        sortClause? propertyClause?                                                 #showData
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
     | SHOW PARTITION partitionId=INTEGER_VALUE                                      #showPartitionId

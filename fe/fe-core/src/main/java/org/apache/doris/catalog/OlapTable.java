@@ -50,6 +50,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
@@ -953,6 +954,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
+    public Set<String> getPartitionColumnNames(Optional<MvccSnapshot> snapshot) throws DdlException {
+        return getPartitionColumnNames();
+    }
+
     public Set<String> getPartitionColumnNames() throws DdlException {
         Set<String> partitionColumnNames = Sets.newHashSet();
         if (partitionInfo instanceof SinglePartitionInfo) {
@@ -1554,9 +1559,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public long getDataLength() {
         long dataSize = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            dataSize += entry.getValue().getBaseIndex().getDataSize(false);
+            dataSize += entry.getValue().getBaseIndex().getLocalSegmentSize();
+            dataSize += entry.getValue().getBaseIndex().getRemoteSegmentSize();
         }
         return dataSize;
+    }
+
+    @Override
+    public long getIndexLength() {
+        long indexSize = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            indexSize += entry.getValue().getBaseIndex().getLocalIndexSize();
+            indexSize += entry.getValue().getBaseIndex().getRemoteIndexSize();
+        }
+        return indexSize;
     }
 
     // Get the signature string of this table with specified partitions.
@@ -2697,6 +2713,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (tableProperty == null) {
             return false;
         }
+        if (getKeysType() != KeysType.UNIQUE_KEYS) {
+            return false;
+        }
         return tableProperty.getEnableUniqueKeyMergeOnWrite();
     }
 
@@ -3117,11 +3136,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
+    public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
+        return getPartitionType();
+    }
+
     public PartitionType getPartitionType() {
         return partitionInfo.getType();
     }
 
     @Override
+    public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot)
+            throws AnalysisException {
+        return getAndCopyPartitionItems();
+    }
+
     public Map<String, PartitionItem> getAndCopyPartitionItems() throws AnalysisException {
         if (!tryReadLock(1, TimeUnit.MINUTES)) {
             throw new AnalysisException("get table read lock timeout, database=" + getDBName() + ",table=" + getName());
@@ -3141,12 +3169,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
+    public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
+        return getPartitionColumns();
+    }
+
     public List<Column> getPartitionColumns() {
         return getPartitionInfo().getPartitionColumns();
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
+            Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
         Map<String, Long> partitionVersions = context.getBaseVersions().getPartitionVersions();
         long partitionId = getPartitionOrAnalysisException(partitionName).getId();
@@ -3156,7 +3189,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) {
+    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) {
         Map<Long, Long> tableVersions = context.getBaseVersions().getTableVersions();
         long visibleVersion = tableVersions.containsKey(id) ? tableVersions.get(id) : getVisibleVersion();
         return new MTMVVersionSnapshot(visibleVersion, id);
@@ -3197,6 +3230,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         @Getter
         private Long segmentCount;
 
+        @Getter
+        private Long localInvertedIndexSize;   // multi replicas
+
+        @Getter
+        private Long localSegmentSize;         // multi replicas
+
+        @Getter
+        private Long remoteInvertedIndexSize;  // single replica
+
+        @Getter
+        private Long remoteSegmentSize;        // single replica
+
         public Statistics() {
             this.dbName = null;
             this.tableName = null;
@@ -3211,13 +3256,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             this.rowCount = 0L;
             this.rowsetCount = 0L;
             this.segmentCount = 0L;
-
+            this.localInvertedIndexSize = 0L;
+            this.localSegmentSize = 0L;
+            this.remoteInvertedIndexSize = 0L;
+            this.remoteSegmentSize = 0L;
         }
 
         public Statistics(String dbName, String tableName,
                 Long dataSize, Long totalReplicaDataSize,
                 Long remoteDataSize, Long replicaCount, Long rowCount,
-                Long rowsetCount, Long segmentCount) {
+                Long rowsetCount, Long segmentCount,
+                Long localInvertedIndexSize, Long localSegmentSize,
+                Long remoteInvertedIndexSize, Long remoteSegmentSize) {
 
             this.dbName = dbName;
             this.tableName = tableName;
@@ -3232,6 +3282,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             this.rowCount = rowCount;
             this.rowsetCount = rowsetCount;
             this.segmentCount = segmentCount;
+
+            this.localInvertedIndexSize = localInvertedIndexSize;
+            this.localSegmentSize = localSegmentSize;
+            this.remoteInvertedIndexSize = remoteInvertedIndexSize;
+            this.remoteSegmentSize = remoteSegmentSize;
         }
     }
 
@@ -3253,6 +3308,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public long getReplicaCount() {
         return statistics.getReplicaCount();
+    }
+
+    public long getLocalIndexFileSize() {
+        return statistics.getLocalInvertedIndexSize();
+    }
+
+    public long getLocalSegmentSize() {
+        return statistics.getLocalSegmentSize();
+    }
+
+    public long getRemoteIndexFileSize() {
+        return statistics.getRemoteInvertedIndexSize();
+    }
+
+    public long getRemoteSegmentSize() {
+        return statistics.getRemoteSegmentSize();
     }
 
     public boolean isShadowIndex(long indexId) {
