@@ -72,6 +72,11 @@ CONF_Bool(enable_checker, "false");
 CONF_Int32(recycle_pool_parallelism, "40");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
+// Currently only used for recycler test
+CONF_Bool(enable_delete_bitmap_inverted_check, "false");
+// checks if https://github.com/apache/doris/pull/40204 works as expected
+CONF_Bool(enable_delete_bitmap_storage_optimize_check, "false");
+CONF_mInt64(delete_bitmap_storage_optimize_check_version_gap, "1000");
 // interval for scanning instances to do checks and inspections
 CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
