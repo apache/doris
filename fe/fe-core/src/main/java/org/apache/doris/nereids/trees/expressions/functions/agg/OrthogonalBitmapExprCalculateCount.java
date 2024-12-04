@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
@@ -72,6 +73,7 @@ public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunc
     @Override
     public OrthogonalBitmapExprCalculateCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3
+                && children.get(2).getDataType() instanceof CharacterType
                 && children.get(2).getDataType() instanceof VarcharType);
         return new OrthogonalBitmapExprCalculateCount(
                 distinct, children.get(0), children.get(1), (VarcharLiteral) children.get(2));
