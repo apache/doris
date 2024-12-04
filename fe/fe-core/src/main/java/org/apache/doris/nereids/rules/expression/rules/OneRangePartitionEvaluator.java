@@ -845,6 +845,9 @@ public class OneRangePartitionEvaluator<K>
             if (upperValue instanceof Literal) {
                 newRange = newRange.withUpperBound((Literal) upperValue);
             }
+            if (!newRange.span().hasLowerBound() && !newRange.span().hasUpperBound()) {
+                return result;
+            }
             context.rangeMap.put((Expression) func, newRange);
             newRanges.put((Expression) func, newRange);
             return new EvaluateRangeResult((Expression) func, newRanges, result.childrenResult);
