@@ -186,11 +186,11 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     public void close() throws Exception {
         ctx.setCommand(MysqlCommand.COM_SLEEP);
         ctx.clear();
-        // TODO support query profile
         for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
             asynExecutor.finalizeQuery();
         }
         returnResultFromRemoteExecutor.clear();
+        executor.finalizeQuery();
         ConnectContext.remove();
     }
 }
