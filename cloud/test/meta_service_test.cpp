@@ -4474,7 +4474,7 @@ TEST(MetaServiceTest, GetTabletStatsTest) {
     EXPECT_EQ(res.tablet_stats(0).num_segments(), 4);
 }
 
-TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
+TEST(MetaServiceTest, GetDeleteBitmapUpdateLock1) {
     auto meta_service = get_meta_service();
 
     brpc::Controller cntl;
@@ -4514,6 +4514,91 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+}
+
+
+TEST(MetaServiceTest, GetDeleteBitmapUpdateLock2) {
+    auto meta_service = get_meta_service();
+
+    SyncPoint::get_instance()->enable_processing();
+    size_t index = 0;
+    SyncPoint::get_instance()->set_call_back("get_tablet_stats_code", [&](auto&& args) {
+        auto* count = try_any_cast<int64_t*>(args[0]);
+        LOG(INFO) << "GET_DELETE_BITMAP_UPDATE_LOCK_CODE,index=" << index << ",count=" << *count;
+        if (*count > 1 && ++index < 4) {
+            *doris::try_any_cast<MetaServiceCode*>(args[1]) = MetaServiceCode::KV_TXN_TOO_OLD;
+        }
+    });
+
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+
+    int64_t table_id = 1;
+    int64_t index_id_1 = 1;
+    int64_t partition_id_1 = 1;
+    int64_t tablet_id_1 = 100;
+
+    int64_t index_id_2 = 2;
+    int64_t partition_id_2 = 2;
+    int64_t tablet_id_2 = 101;
+
+    //store tablet stats
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    std::string stats_key_1 =
+            stats_tablet_key({instance_id, table_id, index_id_1, partition_id_1, tablet_id_1});
+    TabletStatsPB stats_1;
+    stats_1.set_base_compaction_cnt(9);
+    stats_1.set_cumulative_compaction_cnt(19);
+    stats_1.set_cumulative_point(20);
+    txn->put(stats_key_1, stats_1.SerializeAsString());
+
+    std::string stats_key_2 =
+            stats_tablet_key({instance_id, table_id, index_id_2, partition_id_2, tablet_id_2});
+    TabletStatsPB stats_2;
+    stats_2.set_base_compaction_cnt(9);
+    stats_2.set_cumulative_compaction_cnt(19);
+    stats_2.set_cumulative_point(20);
+    txn->put(stats_key_2, stats_2.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    brpc::Controller cntl;
+    GetDeleteBitmapUpdateLockRequest req;
+    GetDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(1);
+    req.add_partition_ids(1);
+    req.add_partition_ids(2);
+    req.set_expiration(5);
+    req.set_lock_id(888);
+    req.set_initiator(-1);
+
+    req.set_require_compaction_stats(true);
+
+    auto tablet_index_1 = req.add_tablet_indexes();
+    tablet_index_1->set_table_id(table_id);
+    tablet_index_1->set_index_id(index_id_1);
+    tablet_index_1->set_partition_id(partition_id_1);
+    tablet_index_1->set_tablet_id(tablet_id_1);
+
+    auto tablet_index_2 = req.add_tablet_indexes();
+    tablet_index_2->set_table_id(table_id);
+    tablet_index_2->set_index_id(index_id_2);
+    tablet_index_2->set_partition_id(partition_id_2);
+    tablet_index_2->set_tablet_id(tablet_id_2);
+
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(res.base_compaction_cnts().size(), 2);
+    for (const auto& base_compaction_cnt : res.base_compaction_cnts()) {
+        ASSERT_EQ(base_compaction_cnt, 9);
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
 }
 
 static std::string generate_random_string(int length) {
@@ -5223,7 +5308,7 @@ TEST(MetaServiceTest, GetDeleteBitmapWithRetryTest2) {
     SyncPoint::get_instance()->set_call_back("get_delete_bitmap_err", [&](auto&& args) {
         auto* round = try_any_cast<int64_t*>(args[0]);
         LOG(INFO) << "GET_DELETE_BITMAP_CODE,index=" << index << ",round=" << *round;
-        if (*round > 2 && ++index < 2) {
+        if (*round > 2 && ++index < 4) {
             *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_TOO_OLD;
         }
     });
@@ -5303,7 +5388,7 @@ TEST(MetaServiceTest, GetDeleteBitmapWithRetryTest3) {
     SyncPoint::get_instance()->set_call_back("get_delete_bitmap_err", [&](auto&& args) {
         auto* round = try_any_cast<int64_t*>(args[0]);
         LOG(INFO) << "GET_DELETE_BITMAP_CODE,index=" << index << ",round=" << *round;
-        if (*round > 2 && ++index < 2) {
+        if (*round > 2 && ++index < 4) {
             *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_TOO_OLD;
         }
     });

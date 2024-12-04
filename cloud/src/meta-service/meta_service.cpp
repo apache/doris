@@ -2124,10 +2124,30 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         // this request is from fe when it commits txn for MOW table, we send the compaction stats
         // along with the GetDeleteBitmapUpdateLockResponse which will be sent to BE later to let
         // BE eliminate unnecessary sync_rowsets() calls if possible
+        int64_t count = 0;
         for (const auto& tablet_index : request->tablet_indexes()) {
             TabletIndexPB idx(tablet_index);
             TabletStatsPB tablet_stat;
+            int64_t retry = 0;
             internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, false);
+            count++;
+            TEST_SYNC_POINT_CALLBACK("get_tablet_stats_code", &count, &code);
+            while (retry < 3 && code == MetaServiceCode::KV_TXN_TOO_OLD) {
+                code = MetaServiceCode::OK;
+                txn = nullptr;
+                retry++;
+                err = txn_kv_->create_txn(&txn);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::CREATE>(err);
+                    ss << "failed to init txn, retry=" << retry;
+                    msg = ss.str();
+                    return;
+                }
+                internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat,
+                                          false);
+                LOG(INFO) << "retry get tablet stats, tablet=" << idx.tablet_id()
+                          << ", retry=" << retry;
+            }
             if (code != MetaServiceCode::OK) {
                 response->clear_base_compaction_cnts();
                 response->clear_cumulative_compaction_cnts();
@@ -2141,6 +2161,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
             response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
             response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
             response->add_cumulative_points(tablet_stat.cumulative_point());
+            LOG(INFO) << "finish get tablet stats for tablet=" << idx.tablet_id()
+                      << ",count=" << count;
         }
     }
 
