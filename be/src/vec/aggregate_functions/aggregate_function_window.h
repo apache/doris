@@ -498,8 +498,6 @@ struct WindowFunctionLastImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
         DCHECK_LE(frame_start, frame_end);
-        LOG(INFO) << "asd add_range_single_place " << partition_start << " " << partition_end << " "
-                  << frame_start << " " << frame_end;
         if ((frame_end <= partition_start) ||
             (frame_start >= partition_end)) { //beyond or under partition, set null
             this->set_is_null();
@@ -522,7 +520,7 @@ struct WindowFunctionLastImpl : Data {
                 }
             }
         }
-        LOG(INFO) << "asd frame_end arg_ignore_null: " << arg_ignore_null << " " << frame_end;
+
         this->set_value(columns, frame_end - 1);
     }
 
