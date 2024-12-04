@@ -28,6 +28,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -301,15 +302,16 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     MTMVRelatedTableIf targetTable = (MTMVRelatedTableIf) table;
                     for (String partitionName : filterTableEntry.getValue()) {
                         Partition partition = targetTable.getPartition(partitionName);
-                        if (!(targetTable instanceof OlapTable)) {
-                            // check partition is have data or not, only support olap table
-                            break;
-                        }
-                        if (!((OlapTable) targetTable).selectNonEmptyPartitionIds(
+                        if (targetTable instanceof OlapTable && !((OlapTable) targetTable).selectNonEmptyPartitionIds(
                                 Lists.newArrayList(partition.getId())).isEmpty()) {
-                            // Add filter only when partition has data
+                            // Add filter only when partition has data when olap table
                             partitionHasDataItems.add(
                                     ((OlapTable) targetTable).getPartitionInfo().getItem(partition.getId()));
+                        }
+                        if (targetTable instanceof HMSExternalTable) {
+                            // Add filter only when partition has data when hms external table
+                            partitionHasDataItems.add(
+                                    ((HMSExternalTable) targetTable).getAndCopyPartitionItems().get(partitionName));
                         }
                     }
                     if (partitionHasDataItems.isEmpty()) {

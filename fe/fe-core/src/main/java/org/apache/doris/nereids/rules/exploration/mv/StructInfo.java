@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
-import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -51,6 +55,8 @@ import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.PredicateAdder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -63,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.BiMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -73,6 +80,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -731,25 +739,38 @@ public class StructInfo {
      * Collect partitions on base table
      */
     public static class QueryScanPartitionsCollector extends DefaultPlanVisitor<Plan,
-            Map<BaseTableInfo, Set<Partition>>> {
+            Map<BaseTableInfo, Set<String>>> {
         @Override
         public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
-                Map<BaseTableInfo, Set<Partition>> targetTablePartitionMap) {
+                Map<BaseTableInfo, Set<String>> targetTablePartitionMap) {
             TableIf table = catalogRelation.getTable();
             BaseTableInfo relatedPartitionTable = new BaseTableInfo(table);
             if (!targetTablePartitionMap.containsKey(relatedPartitionTable)) {
                 return catalogRelation;
             }
+            Set<String> tablePartitions = targetTablePartitionMap.get(relatedPartitionTable);
             if (catalogRelation instanceof LogicalOlapScan) {
                 // Handle olap table
                 LogicalOlapScan logicalOlapScan = (LogicalOlapScan) catalogRelation;
-                Set<Partition> tablePartitions = targetTablePartitionMap.get(relatedPartitionTable);
                 for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
-                    tablePartitions.add(logicalOlapScan.getTable().getPartition(partitionId));
+                    tablePartitions.add(logicalOlapScan.getTable().getPartition(partitionId).getName());
+                }
+            } else if (catalogRelation instanceof LogicalFileScan
+                    && catalogRelation.getTable() instanceof HMSExternalTable) {
+                LogicalFileScan logicalFileScan = (LogicalFileScan) catalogRelation;
+                HMSExternalTable externalTable = (HMSExternalTable) logicalFileScan.getTable();
+                SelectedPartitions selectedPartitions = logicalFileScan.getSelectedPartitions();
+                // For partition id to name
+                HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .getMetaStoreCache((HMSExternalCatalog) externalTable.getCatalog());
+                HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                        externalTable.getDbName(), externalTable.getName(), externalTable.getPartitionColumnTypes());
+                BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
+                for (Entry<Long, PartitionItem> partitionEntry : selectedPartitions.selectedPartitions.entrySet()) {
+                    tablePartitions.add(idToName.get(partitionEntry.getKey()));
                 }
             } else {
-                // todo Support other type partition table
-                // Not support to partition check now when query external catalog table, support later.
+                // Not support to partition check now, doesn't try to compensate when part partition become invalid
                 targetTablePartitionMap.clear();
             }
             return catalogRelation;
