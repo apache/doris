@@ -503,7 +503,7 @@ public class HudiScanNode extends HiveScanNode {
         List<String> logs = fileSlice.getLogFiles().map(HoodieLogFile::getPath)
                 .map(StoragePath::toString)
                 .collect(Collectors.toList());
-        if (logs.isEmpty()) {
+        if (logs.isEmpty() && !sessionVariable.isForceJniScanner()) {
             noLogsSplitNum.incrementAndGet();
         }
 
