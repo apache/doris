@@ -286,9 +286,6 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     }
     DBUG_EXECUTE_IF("SizeBaseCumulativeCompactionPolicy.pick_input_rowsets.return_input_rowsets",
                     { return transient_size; })
-    DBUG_EXECUTE_IF(
-            "SizeBaseCumulativeCompactionPolicy.pick_input_rowsets.set_promotion_size_to_max",
-            { promotion_size = INT64_MAX; })
 
     if (total_size >= promotion_size) {
         return transient_size;
