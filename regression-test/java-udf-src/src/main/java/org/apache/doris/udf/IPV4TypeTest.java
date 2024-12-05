@@ -33,9 +33,9 @@ public class IPV4TypeTest {
     public InetAddress evaluate(String s) {
         try {
             InetAddress ipv4Address = InetAddress.getByName(s);
-            if(ipv4Address.getAddress().length == 4){
+            if (ipv4Address.getAddress().length == 4) {
                 return ipv4Address;
-            }else {
+            } else {
                 return null;
             }
         } catch (UnknownHostException e) {
