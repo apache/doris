@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.PercentRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -315,6 +316,9 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
      */
     @Override
     public FirstOrLastValue visitFirstValue(FirstValue firstValue, Void ctx) {
+        if (firstValue.arity() == 2 && firstValue.child(1).equals(BooleanLiteral.TRUE)) {
+            return firstValue;
+        }
         Optional<WindowFrame> windowFrame = windowExpression.getWindowFrame();
         if (windowFrame.isPresent()) {
             WindowFrame wf = windowFrame.get();
