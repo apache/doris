@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -381,5 +383,15 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     @Override
     public void computeFd(DataTrait.Builder builder) {
         builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
+    }
+
+    /** supportAggregatePhase */
+    public boolean supportAggregatePhase(AggregatePhase aggregatePhase) {
+        for (AggregateFunction aggregateFunction : getAggregateFunctions()) {
+            if (!aggregateFunction.supportAggregatePhase(aggregatePhase)) {
+                return false;
+            }
+        }
+        return true;
     }
 }

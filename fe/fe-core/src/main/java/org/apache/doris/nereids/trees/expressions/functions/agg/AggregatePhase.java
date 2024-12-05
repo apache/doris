@@ -15,16 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.trees.expressions.functions.agg;
 
-/**
- * nullable is always false.
- *
- * e.g. `count(*)`, the output column is always not nullable
- */
-public interface AlwaysNotNullable extends ComputeNullable {
-    @Override
-    default boolean nullable() {
-        return false;
-    }
+/** AggregatePhase */
+public enum AggregatePhase {
+    ONE, TWO, THREE, FOUR
 }
