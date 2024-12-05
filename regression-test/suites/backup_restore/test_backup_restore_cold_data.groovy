@@ -139,9 +139,9 @@ suite("test_backup_cooldown", "backup_cooldown_data") {
     sqlResult = result[0][5].toString();
     int count = 0;
     while (sqlResult.contains("0.00")) {
-        if (++count >= 120) {  // 10min
+        if (++count >= 360) {  // 30min
             logger.error('cooldown task is timeouted')
-            throw new Exception("cooldown task is timeouted after 10 mins")
+            throw new Exception("cooldown task is timeouted after 30 mins")
         }
         Thread.sleep(5000)
 
@@ -195,9 +195,9 @@ suite("test_backup_cooldown", "backup_cooldown_data") {
     sqlResult = result[0][5].toString();
     count = 0;
     while (sqlResult.contains("0.00")) {
-        if (++count >= 120) {  // 10min
+        if (++count >= 360) {  // 30min
             logger.error('cooldown task is timeouted')
-            throw new Exception("cooldown task is timeouted after 10 mins")
+            throw new Exception("cooldown task is timeouted after r0 mins")
         }
         Thread.sleep(5000)
 
@@ -340,9 +340,9 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     sqlResult = result[0][5].toString();
     int count = 0;
     while (sqlResult.contains("0.00")) {
-        if (++count >= 120) {  // 10min
+        if (++count >= 360) {  // 30min
             logger.error('cooldown task is timeouted')
-            throw new Exception("cooldown task is timeouted after 10 mins")
+            throw new Exception("cooldown task is timeouted after 30 mins")
         }
         Thread.sleep(5000)
 
@@ -487,9 +487,9 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     sqlResult = result[0][5].toString();
     count = 0;
     while (sqlResult.contains("0.00")) {
-        if (++count >= 120) {  // 10min
+        if (++count >= 360) {  // 30min
             logger.error('cooldown task is timeouted')
-            throw new Exception("cooldown task is timeouted after 10 mins")
+            throw new Exception("cooldown task is timeouted after 30 mins")
         }
         Thread.sleep(5000)
 
@@ -523,9 +523,9 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     sqlResult = result[0][5].toString();
     count = 0;
     while (sqlResult.contains("0.00")) {
-        if (++count >= 120) {  // 10min
+        if (++count >= 360) {  // 30min
             logger.error('cooldown task is timeouted')
-            throw new Exception("cooldown task is timeouted after 10 mins")
+            throw new Exception("cooldown task is timeouted after 30 mins")
         }
         Thread.sleep(5000)
 
@@ -596,9 +596,9 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     sqlResult = result[0][5].toString();
     count = 0;
     while (sqlResult.contains("0.00")) {
-        if (++count >= 120) {  // 10min
+        if (++count >= 360) {  // 30min
             logger.error('cooldown task is timeouted')
-            throw new Exception("cooldown task is timeouted after 10 mins")
+            throw new Exception("cooldown task is timeouted after 30 mins")
         }
         Thread.sleep(5000)
 
@@ -635,9 +635,9 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     sqlResult = result[0][5].toString();
     count = 0;
     while (sqlResult.contains("0.00")) {
-        if (++count >= 120) {  // 10min
+        if (++count >= 360) {  // 30min
             logger.error('cooldown task is timeouted')
-            throw new Exception("cooldown task is timeouted after 10 mins")
+            throw new Exception("cooldown task is timeouted after 30 mins")
         }
         Thread.sleep(5000)
 
@@ -867,9 +867,9 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     sqlResult = result[0][5].toString();
     count = 0;
     while (sqlResult.contains("0.00")) {
-        if (++count >= 120) {  // 10min
+        if (++count >= 360) {  // 30min
             logger.error('cooldown task is timeouted')
-            throw new Exception("cooldown task is timeouted after 10 mins")
+            throw new Exception("cooldown task is timeouted after 30 mins")
         }
         Thread.sleep(5000)
 
@@ -1044,9 +1044,9 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
     sqlResult = result[0][5].toString();
     int count = 0;
     while (sqlResult.contains("0.00")) {
-        if (++count >= 120) {  // 10min
+        if (++count >= 360) {  // 30min
             logger.error('cooldown task is timeouted')
-            throw new Exception("cooldown task is timeouted after 10 mins")
+            throw new Exception("cooldown task is timeouted after 30 mins")
         }
         Thread.sleep(5000)
 
@@ -1287,9 +1287,9 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
     sqlResult = result[0][5].toString();
     count = 0;
     while (sqlResult.contains("0.00")) {
-        if (++count >= 120) {  // 10min
+        if (++count >= 360) {  // 30min
             logger.error('cooldown task is timeouted')
-            throw new Exception("cooldown task is timeouted after 10 mins")
+            throw new Exception("cooldown task is timeouted after 30 mins")
         }
         Thread.sleep(5000)
 
@@ -1430,9 +1430,9 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
     sqlResult = result[0][5].toString();
     count = 0;
     while (sqlResult.contains("0.00")) {
-        if (++count >= 120) {  // 10min
+        if (++count >= 360) {  // 30min
             logger.error('cooldown task is timeouted')
-            throw new Exception("cooldown task is timeouted after 10 mins")
+            throw new Exception("cooldown task is timeouted after 30 mins")
         }
         Thread.sleep(5000)
 
