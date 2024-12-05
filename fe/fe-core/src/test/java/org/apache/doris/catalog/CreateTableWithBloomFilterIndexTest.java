@@ -887,19 +887,19 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
                         + ");"));
     }
 
-@Test
-public void testBloomFilterColumnsWithNullOrWhitespace() {
-    ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-            "Bloom filter column does not exist in table. invalid column: ",
-            () -> createTable("CREATE TABLE test.tbl_bf_null_or_whitespace (\n"
-                    + "k1 INT, \n"
-                    + "v1 VARCHAR(20)\n"
-                    + ") ENGINE=OLAP\n"
-                    + "DUPLICATE KEY(k1)\n"
-                    + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                    + "PROPERTIES (\n"
-                    + "\"bloom_filter_columns\" = \" , \",\n"
-                    + "\"replication_num\" = \"1\"\n"
-                    + ");"));
+    @Test
+    public void testBloomFilterColumnsWithNullOrWhitespace() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Bloom filter column does not exist in table. invalid column: ",
+                () -> createTable("CREATE TABLE test.tbl_bf_null_or_whitespace (\n"
+                        + "k1 INT, \n"
+                        + "v1 VARCHAR(20)\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \" , \",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
     }
 }
