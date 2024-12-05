@@ -2713,6 +2713,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (tableProperty == null) {
             return false;
         }
+        if (getKeysType() != KeysType.UNIQUE_KEYS) {
+            return false;
+        }
         return tableProperty.getEnableUniqueKeyMergeOnWrite();
     }
 

@@ -931,8 +931,8 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader =
                     NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                  _file_slot_descs, &_scanner_eof, _io_ctx.get());
-            init_status =
-                    ((NewJsonReader*)(_cur_reader.get()))->init_reader(_col_default_value_ctx);
+            init_status = ((NewJsonReader*)(_cur_reader.get()))
+                                  ->init_reader(_col_default_value_ctx, _is_load);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
