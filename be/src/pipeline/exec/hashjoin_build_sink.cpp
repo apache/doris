@@ -166,9 +166,9 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                 SCOPED_TIMER(_runtime_filter_compute_timer);
                 _runtime_filter_slots->insert(block);
             }
-        } else if (p._shared_hashtable_controller && !p._shared_hash_table_context->signaled ||
-                   p._shared_hash_table_context &&
-                           !p._shared_hash_table_context->complete_build_stage) {
+        } else if ((p._shared_hashtable_controller && !p._shared_hash_table_context->signaled) ||
+                   (p._shared_hash_table_context &&
+                    !p._shared_hash_table_context->complete_build_stage)) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "build_sink::close meet error state");
         }
 
