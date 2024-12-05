@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 /** monotonicity of XX_CEIL and XX_FLOOR */
 public interface DateCeilFloorMonotonic extends Monotonic {
     @Override
-    default boolean isMonotonic() {
+    default boolean isMonotonic(Literal lower, Literal upper) {
         switch (arity()) {
             case 1:
                 return true;

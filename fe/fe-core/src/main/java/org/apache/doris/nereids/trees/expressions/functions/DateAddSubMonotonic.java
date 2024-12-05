@@ -22,7 +22,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 /** monotonicity for XX_ADD XX_SUB */
 public interface DateAddSubMonotonic extends Monotonic {
     @Override
-    default boolean isMonotonic() {
+    default boolean isMonotonic(Literal lower, Literal upper) {
         return child(1) instanceof Literal;
     }
 
