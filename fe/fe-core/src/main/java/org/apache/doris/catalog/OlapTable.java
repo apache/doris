@@ -3029,17 +3029,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                     "get table read lock timeout, database=" + getQualifiedDbName() + ",table=" + getName());
         }
         try {
-            Map<String, PartitionItem> res = Maps.newHashMap();
-            for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
-                Partition partition = idToPartition.get(entry.getKey());
-                if (partition != null) {
-                    res.put(partition.getName(), entry.getValue());
-                }
-            }
-            return res;
+            return getAndCopyPartitionItemsWithoutLock();
         } finally {
             readUnlock();
         }
+    }
+
+    public Map<String, PartitionItem> getAndCopyPartitionItemsWithoutLock() throws AnalysisException {
+        Map<String, PartitionItem> res = Maps.newHashMap();
+        for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
+            Partition partition = idToPartition.get(entry.getKey());
+            if (partition != null) {
+                res.put(partition.getName(), entry.getValue());
+            }
+        }
+        return res;
     }
 
     @Override
