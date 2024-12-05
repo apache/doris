@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -33,8 +33,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** OrthogonalBitmapExprCalculate */
-public class OrthogonalBitmapExprCalculate extends AggregateFunction
-        implements AlwaysNotNullable, OrthogonalBitmapFunction, ExplicitlyCastableSignature {
+public class OrthogonalBitmapExprCalculate extends NotNullableAggregateFunction
+        implements OrthogonalBitmapFunction, ExplicitlyCastableSignature {
 
     static final List<FunctionSignature> FUNCTION_SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BitmapType.INSTANCE)
@@ -75,5 +75,10 @@ public class OrthogonalBitmapExprCalculate extends AggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return FUNCTION_SIGNATURES;
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        return new BitmapEmpty();
     }
 }
