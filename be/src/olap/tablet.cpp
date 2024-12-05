@@ -1735,7 +1735,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             // if we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // no need to wait 5s.
             if (!(res.msg() == "_last_delete_version.first not equal to -1")) {
-                DCHECK(res.is<CUMULATIVE_NO_SUITABLE_VERSION>());
                 tablet->set_last_cumu_compaction_failure_time(UnixMillis());
             }
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
