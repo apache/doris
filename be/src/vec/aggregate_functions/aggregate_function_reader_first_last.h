@@ -103,7 +103,10 @@ public:
         }
     }
 
-    size_t offset_pos() { return 0; }
+    size_t offset_pos() {
+        DCHECK(false) << " should call this in CopiedValue";
+        return 0;
+    }
 
 private:
     Field _copied_value;
