@@ -166,17 +166,10 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                 SCOPED_TIMER(_runtime_filter_compute_timer);
                 _runtime_filter_slots->insert(block);
             }
-        } else if (p._shared_hash_table_context &&
-                   !p._shared_hash_table_context->complete_build_stage) {
-            // should_build_hash_table's instance close early and signal this instance
-            // but function make_all_runnable still running and not set this instance's wake_up_by_downstream to true
-            return Base::close(state, exec_status);
-        } else if (p._shared_hashtable_controller && !p._shared_hash_table_context->signaled) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "build_sink::close meet error state, shared_hash_table_signaled: {}, "
-                            "complete_build_stage: {}",
-                            p._shared_hash_table_context->signaled,
-                            p._shared_hash_table_context->complete_build_stage);
+        } else if (p._shared_hashtable_controller && !p._shared_hash_table_context->signaled ||
+                   p._shared_hash_table_context &&
+                           !p._shared_hash_table_context->complete_build_stage) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "build_sink::close meet error state");
         }
 
         SCOPED_TIMER(_publish_runtime_filter_timer);
