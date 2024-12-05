@@ -19,7 +19,9 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -28,6 +30,7 @@ import java.io.IOException;
 public class RoutineLoadOperation implements Writable {
     private long id;
     private JobState jobState;
+    private ErrorReason reason;
 
     private RoutineLoadOperation() {
     }
@@ -37,12 +40,22 @@ public class RoutineLoadOperation implements Writable {
         this.jobState = jobState;
     }
 
+    public RoutineLoadOperation(long id, JobState jobState, ErrorReason reason) {
+        this.id = id;
+        this.jobState = jobState;
+        this.reason = reason;
+    }
+
     public long getId() {
         return id;
     }
 
     public JobState getJobState() {
         return jobState;
+    }
+
+    public ErrorReason getErrorReason() {
+        return reason;
     }
 
     public static RoutineLoadOperation read(DataInput in) throws IOException {
@@ -54,11 +67,16 @@ public class RoutineLoadOperation implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(id);
-        Text.writeString(out, jobState.name());
+        // format: jobState|StateReason
+        Text.writeString(out, jobState.name() + "|" + GsonUtils.GSON.toJson(reason));
     }
 
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
-        jobState = JobState.valueOf(Text.readString(in));
+        String[] stateWithReason = Text.readString(in).split("\\|", 2);
+        jobState = JobState.valueOf(stateWithReason[0]);
+        if (stateWithReason.length == 2) {
+            reason = GsonUtils.GSON.fromJson(stateWithReason[1], ErrorReason.class);
+        }
     }
 }
