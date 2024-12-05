@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -76,7 +77,7 @@ import java.util.Set;
  * prune sub path of variant type slot.
  * for example, variant slot v in table t has two sub path: 'c1' and 'c2'
  * after this rule, select v['c1'] from t will only scan one sub path 'c1' of v to reduce scan time
- *
+ * <p>
  * This rule accomplishes all the work using two components. The Collector traverses from the top down,
  * collecting all the element_at functions on the variant types, and recording the required path from
  * the original variant slot to the current element_at. The Replacer traverses from the bottom up,
@@ -198,6 +199,25 @@ public class VariantSubPathPruning extends DefaultPlanRewriter<PruneContext> imp
                 }
             }
             LogicalOlapScan newScan = olapScan.withColToSubPathsMap(colToSubPaths);
+            Map<Slot, Map<List<String>, SlotReference>> oriSlotToSubPathToSlot = newScan.getSubPathToSlotMap();
+            generateElementAtMaps(context, oriSlotToSubPathToSlot);
+            return newScan;
+        }
+
+        @Override
+        public Plan visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, Context context) {
+            List<Slot> outputs = jdbcScan.getOutput();
+            Map<String, Set<List<String>>> colToSubPaths = Maps.newHashMap();
+            for (Slot slot : outputs) {
+                if (slot.getDataType() instanceof VariantType
+                        && context.slotToSubPathsMap.containsKey((SlotReference) slot)) {
+                    Set<List<String>> subPaths = context.slotToSubPathsMap.get(slot);
+                    if (((SlotReference) slot).getColumn().isPresent()) {
+                        colToSubPaths.put(((SlotReference) slot).getColumn().get().getName(), subPaths);
+                    }
+                }
+            }
+            LogicalJdbcScan newScan = jdbcScan.withColToSubPathsMap(colToSubPaths);
             Map<Slot, Map<List<String>, SlotReference>> oriSlotToSubPathToSlot = newScan.getSubPathToSlotMap();
             generateElementAtMaps(context, oriSlotToSubPathToSlot);
             return newScan;
