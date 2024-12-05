@@ -956,7 +956,7 @@ public:
             inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
                             path);
         } //for
-    } //function
+    }     //function
     static void vector_scalar(FunctionContext* context, const ColumnString::Chars& ldata,
                               const ColumnString::Offsets& loffsets, const StringRef& rdata,
                               ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
@@ -984,7 +984,7 @@ public:
             inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
                             path);
         } //for
-    } //function
+    }     //function
     static void scalar_vector(FunctionContext* context, const StringRef& ldata,
                               const ColumnString::Chars& rdata,
                               const ColumnString::Offsets& roffsets, ColumnString::Chars& res_data,
@@ -1014,7 +1014,7 @@ public:
             inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, ldata.data,
                             ldata.size, path);
         } //for
-    } //function
+    }     //function
 };
 
 template <typename ValueType>
@@ -1142,7 +1142,7 @@ public:
 
             inner_loop_impl(i, res, null_map, l_raw_str, l_str_size, path);
         } //for
-    } //function
+    }     //function
     static void scalar_vector(FunctionContext* context, const StringRef& ldata,
                               const ColumnString::Chars& rdata,
                               const ColumnString::Offsets& roffsets, Container& res,
@@ -1167,7 +1167,7 @@ public:
 
             inner_loop_impl(i, res, null_map, ldata.data, ldata.size, path);
         } //for
-    } //function
+    }     //function
     static void vector_scalar(FunctionContext* context, const ColumnString::Chars& ldata,
                               const ColumnString::Offsets& loffsets, const StringRef& rdata,
                               Container& res, NullMap& null_map, bool& is_invalid_json_path) {
@@ -1190,7 +1190,7 @@ public:
 
             inner_loop_impl(i, res, null_map, l_raw_str, l_str_size, path);
         } //for
-    } //function
+    }     //function
 };
 
 struct JsonbTypeExists {

@@ -191,8 +191,8 @@ public:
                                                  ->get_family_name()
                                        : arg.type->get_family_name());
             }
-            key_str.append(remove_nullable(return_type)->get_family_name());
         }
+        key_str.append(remove_nullable(return_type)->get_family_name());
 
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
