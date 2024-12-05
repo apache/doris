@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hudi_catalog", "p2,external,hudi,external_remote,external_remote_hudi") {
+suite("test_hudi_orc_tables", "p2,external,hudi,external_remote,external_remote_hudi") {
     String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
     }
 
-    String catalog_name = "test_hudi_catalog"
+    String catalog_name = "test_hudi_orc_tables"
     String props = context.config.otherConfigs.get("hudiEmrCatalog")
     sql """drop catalog if exists ${catalog_name};"""
     sql """
@@ -33,7 +33,9 @@ suite("test_hudi_catalog", "p2,external,hudi,external_remote,external_remote_hud
     sql """ switch ${catalog_name};"""
     sql """ use regression_hudi;""" 
     sql """ set enable_fallback_to_original_planner=false """
-    def tables = sql """ show tables; """
-    assertTrue(tables.size() > 0)
+    
+    qt_cow """ select * from  orc_hudi_table_cow; """
+    qt_mor """ select * from  orc_hudi_table_mor; """
+
     sql """drop catalog if exists ${catalog_name};"""
 }
