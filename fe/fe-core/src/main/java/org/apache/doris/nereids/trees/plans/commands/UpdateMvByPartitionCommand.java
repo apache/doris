@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -87,13 +86,6 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
 
     private UpdateMvByPartitionCommand(LogicalPlan logicalQuery) {
         super(logicalQuery, Optional.empty(), Optional.empty());
-    }
-
-    @Override
-    public boolean isForceDropPartition() {
-        // After refreshing the data in MTMV, it will be synchronized with the base table
-        // and there is no need to put it in the recycle bin
-        return true;
     }
 
     /**
@@ -315,20 +307,18 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     MTMVRelatedTableIf targetTable = (MTMVRelatedTableIf) table;
                     for (String partitionName : filterTableEntry.getValue()) {
                         Partition partition = targetTable.getPartition(partitionName);
-                        if (!(targetTable instanceof OlapTable)) {
-                            // check partition is have data or not, only support olap table
-                            break;
-                        }
-                        if (!((OlapTable) targetTable).selectNonEmptyPartitionIds(
+                        if (targetTable instanceof OlapTable && !((OlapTable) targetTable).selectNonEmptyPartitionIds(
                                 Lists.newArrayList(partition.getId())).isEmpty()) {
-                            // Add filter only when partition has data
+                            // Add filter only when partition has data when olap table
                             partitionHasDataItems.add(
                                     ((OlapTable) targetTable).getPartitionInfo().getItem(partition.getId()));
                         }
                         if (targetTable instanceof ExternalTable) {
                             // Add filter only when partition has data when external table
-                            partitionHasDataItems.add(((ExternalTable) targetTable).getNameToPartitionItems(
-                                    MvccUtil.getSnapshotFromContext(targetTable)).get(partitionName));
+                            // TODO: 2024/12/4 real snapshot
+                            partitionHasDataItems.add(
+                                    ((ExternalTable) targetTable).getNameToPartitionItems(Optional.empty())
+                                            .get(partitionName));
                         }
                     }
                     if (partitionHasDataItems.isEmpty()) {
