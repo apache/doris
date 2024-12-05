@@ -292,6 +292,9 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<vectorized::Block>* r
         _arrow_data_arrival.wait_for(l, std::chrono::milliseconds(20));
     }
 
+    if (!_status.ok()) {
+        return _status;
+    }
     if (_is_cancelled) {
         return Status::Cancelled(fmt::format("Cancelled ()", print_id(_fragment_id)));
     }
@@ -311,9 +314,12 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<vectorized::Block>* r
 
     // normal path end
     if (_is_close) {
+        if (!_status.ok()) {
+            return _status;
+        }
         std::stringstream ss;
         _profile.pretty_print(&ss);
-        VLOG_NOTICE << fmt::format(
+        LOG(INFO) << fmt::format(
                 "BufferControlBlock finished, fragment_id={}, is_close={}, is_cancelled={}, "
                 "packet_num={}, peak_memory_usage={}, profile={}",
                 print_id(_fragment_id), _is_close, _is_cancelled, _packet_num,
@@ -321,7 +327,7 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<vectorized::Block>* r
         return Status::OK();
     }
     return Status::InternalError(
-            fmt::format("Get Arrow Batch Abnormal Ending ()", print_id(_fragment_id)));
+            fmt::format("Get Arrow Batch Abnormal Ending (), ()", print_id(_fragment_id), _status));
 }
 
 void BufferControlBlock::get_arrow_batch(GetArrowResultBatchCtx* ctx) {
@@ -354,10 +360,14 @@ void BufferControlBlock::get_arrow_batch(GetArrowResultBatchCtx* ctx) {
 
     // normal path end
     if (_is_close) {
+        if (!_status.ok()) {
+            ctx->on_failure(_status);
+            return;
+        }
         ctx->on_close(_packet_num);
         std::stringstream ss;
         _profile.pretty_print(&ss);
-        VLOG_NOTICE << fmt::format(
+        LOG(INFO) << fmt::format(
                 "BufferControlBlock finished, fragment_id={}, is_close={}, is_cancelled={}, "
                 "packet_num={}, peak_memory_usage={}, profile={}",
                 print_id(_fragment_id), _is_close, _is_cancelled, _packet_num,
@@ -391,8 +401,8 @@ Status BufferControlBlock::find_arrow_schema(std::shared_ptr<arrow::Schema>* arr
     if (_is_close) {
         return Status::RuntimeError(fmt::format("Closed ()", print_id(_fragment_id)));
     }
-    return Status::InternalError(
-            fmt::format("Get Arrow Schema Abnormal Ending ()", print_id(_fragment_id)));
+    return Status::InternalError(fmt::format("Get Arrow Schema Abnormal Ending (), ()",
+                                             print_id(_fragment_id), _status));
 }
 
 Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
