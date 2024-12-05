@@ -753,4 +753,153 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
                         + "\"replication_num\" = \"1\"\n"
                         + ");"));
     }
+
+    @Test
+    public void testBloomFilterColumnsEmptyString() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                        "Unknown properties: {bloom_filter_columns=}",
+                        () -> createTable("CREATE TABLE test.tbl_bf_empty_columns (\n"
+                + "k1 INT, \n"
+                + "v1 VARCHAR(20)\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");"));
+    }
+
+    @Test
+    public void testBloomFilterColumnsOnlyCommas() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Unknown properties: {bloom_filter_columns=,,,}",
+                () -> createTable("CREATE TABLE test.tbl_bf_only_commas (\n"
+                        + "k1 INT, \n"
+                        + "v1 VARCHAR(20)\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \",,,\",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testBloomFilterColumnsNonExistingColumns() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Bloom filter column does not exist in table. invalid column: k3",
+                () -> createTable("CREATE TABLE test.tbl_bf_non_existing_columns (\n"
+                        + "k1 INT, \n"
+                        + "v1 VARCHAR(20),\n"
+                        + "k2 INT\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \"k2,k3\",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testBloomFilterColumnsWithSpecialCharacters() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Bloom filter column does not exist in table. invalid column: k1@",
+                () -> createTable("CREATE TABLE test.tbl_bf_special_chars (\n"
+                        + "k1 INT, \n"
+                        + "v1 VARCHAR(20),\n"
+                        + "k2 INT\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \"k1@,v1#\",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testBloomFilterColumnsWithDifferentCase() throws Exception {
+        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.tbl_bf_different_case (\n"
+                + "k1 INT, \n"
+                + "V1 VARCHAR(20)\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(K1)\n"
+                + "DISTRIBUTED BY HASH(K1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"k1,v1\",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");"));
+    }
+
+    @Test
+    public void testBloomFilterColumnsWithSpaces() throws Exception {
+        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.tbl_bf_columns_with_spaces (\n"
+                + "k1 INT, \n"
+                + "v1 VARCHAR(20)\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"bloom_filter_columns\" = \"  k1  ,  v1  \",\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");"));
+    }
+
+    @Test
+    public void testBloomFilterColumnsWithLongColumnName() throws Exception {
+        StringBuilder sb = new StringBuilder("k");
+        for (int i = 0; i < 1000; i++) {
+            sb.append('1');
+        }
+        String longColumnName = sb.toString();
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Bloom filter column does not exist in table. invalid column: " + longColumnName,
+                () -> createTable("CREATE TABLE test.tbl_bf_long_column_name (\n"
+                        + "k1 INT, \n"
+                        + "v1 VARCHAR(20),\n"
+                        + "k2 INT\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \"" + longColumnName + "\",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testBloomFilterColumnsWithUnicodeCharacters() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Bloom filter column does not exist in table. invalid column: 名字",
+                () -> createTable("CREATE TABLE test.tbl_bf_unicode_columns (\n"
+                        + "k1 INT, \n"
+                        + "name VARCHAR(20)\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"bloom_filter_columns\" = \"名字\",\n"
+                        + "\"replication_num\" = \"1\"\n"
+                        + ");"));
+    }
+
+@Test
+public void testBloomFilterColumnsWithNullOrWhitespace() {
+    ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+            "Bloom filter column does not exist in table. invalid column: ",
+            () -> createTable("CREATE TABLE test.tbl_bf_null_or_whitespace (\n"
+                    + "k1 INT, \n"
+                    + "v1 VARCHAR(20)\n"
+                    + ") ENGINE=OLAP\n"
+                    + "DUPLICATE KEY(k1)\n"
+                    + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                    + "PROPERTIES (\n"
+                    + "\"bloom_filter_columns\" = \" , \",\n"
+                    + "\"replication_num\" = \"1\"\n"
+                    + ");"));
+    }
 }
