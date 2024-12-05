@@ -63,7 +63,10 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
            _output_row_descriptor->tuple_descriptors().size() == 1);
     _query_id = _state->get_query_ctx()->query_id();
     ctx_id = UniqueId::gen_uid().to_string();
-    _scanners.enqueue_bulk(scanners.begin(), scanners.size());
+    if (!_scanners.enqueue_bulk(scanners.begin(), scanners.size())) [[unlikely]] {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Exception occurs during scanners initialization.");
+    };
     if (limit < 0) {
         limit = -1;
     }
