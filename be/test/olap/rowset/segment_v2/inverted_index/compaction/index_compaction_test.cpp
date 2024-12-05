@@ -23,7 +23,7 @@ namespace doris {
 
 using namespace doris::vectorized;
 
-constexpr static std::string_view dest_dir = "./ut_dir/inverted_index_test";
+constexpr static std::string_view dest_dir = "/ut_dir/inverted_index_test";
 constexpr static std::string_view tmp_dir = "./ut_dir/tmp";
 
 class IndexCompactionTest : public ::testing::Test {
