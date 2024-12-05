@@ -198,9 +198,9 @@ public:
                         pushed_row_refs.push_back(row_refs[i]);
                     }
                 }
-                if (!_tablet->tablet_schema()->cluster_key_idxes().empty()) {
+                if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
                     std::vector<uint32_t> ids;
-                    for (const auto& cid : _tablet->tablet_schema()->cluster_key_idxes()) {
+                    for (const auto& cid : _tablet->tablet_schema()->cluster_key_uids()) {
                         auto index = _tablet->tablet_schema()->field_index(cid);
                         if (index == -1) {
                             return Status::InternalError(

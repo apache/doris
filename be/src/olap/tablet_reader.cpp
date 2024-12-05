@@ -464,9 +464,16 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
     // UNIQUE_KEYS will compare all keys as before
     if (_tablet_schema->keys_type() == DUP_KEYS || (_tablet_schema->keys_type() == UNIQUE_KEYS &&
                                                     _tablet->enable_unique_key_merge_on_write())) {
-        if (!_tablet_schema->cluster_key_idxes().empty()) {
+        if (!_tablet_schema->cluster_key_uids().empty()) {
+            if (read_params.read_orderby_key_num_prefix_columns >
+                _tablet_schema->cluster_key_uids().size()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "read_orderby_key_num_prefix_columns={} > cluster_keys.size()={}",
+                        read_params.read_orderby_key_num_prefix_columns,
+                        _tablet_schema->cluster_key_uids().size());
+            }
             for (uint32_t i = 0; i < read_params.read_orderby_key_num_prefix_columns; i++) {
-                auto cid = _tablet_schema->cluster_key_idxes()[i];
+                auto cid = _tablet_schema->cluster_key_uids()[i];
                 auto index = _tablet_schema->field_index(cid);
                 if (index < 0) {
                     return Status::Error<ErrorCode::INTERNAL_ERROR>(
