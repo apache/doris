@@ -139,7 +139,6 @@ void EncloseCsvLineReaderContext::_on_normal(const uint8_t* start, size_t& len) 
         _state.forward_to(ReaderState::START);
         return;
     }
-    // TODO(tsy): maybe potential bug when a multi-char is not read completely
     _idx = len;
 }
 
@@ -325,13 +324,13 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
         *eof = true;
         return Status::OK();
     }
-    _line_reader_ctx->refresh();
     int found_line_delimiter = 0;
     size_t offset = 0;
     bool stream_end = true;
     while (!done()) {
         // find line delimiter in current decompressed data
         uint8_t* cur_ptr = _output_buf + _output_buf_pos;
+        _line_reader_ctx->refresh();
         const uint8_t* pos = _line_reader_ctx->read_line(cur_ptr, output_buf_read_remaining());
 
         if (pos == nullptr) {
