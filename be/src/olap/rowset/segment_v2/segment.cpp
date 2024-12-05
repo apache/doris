@@ -966,7 +966,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
                                std::string* encoded_seq_value, OlapReaderStatistics* stats) {
     RETURN_IF_ERROR(load_pk_index_and_bf());
     bool has_seq_col = latest_schema->has_sequence_col();
-    bool has_rowid = !latest_schema->cluster_key_idxes().empty();
+    bool has_rowid = !latest_schema->cluster_key_uids().empty();
     size_t seq_col_length = 0;
     if (has_seq_col) {
         seq_col_length = latest_schema->column(latest_schema->sequence_col_idx()).length() + 1;
@@ -1076,7 +1076,7 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
     RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
     CHECK(num_read == 1);
     // trim row id
-    if (_tablet_schema->cluster_key_idxes().empty()) {
+    if (_tablet_schema->cluster_key_uids().empty()) {
         *key = index_column->get_data_at(0).to_string();
     } else {
         Slice sought_key =

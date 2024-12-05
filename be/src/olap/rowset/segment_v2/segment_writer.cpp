@@ -103,7 +103,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                 << ", table_id=" << _tablet_schema->table_id()
                 << ", num_key_columns=" << _num_sort_key_columns
                 << ", num_short_key_columns=" << _num_short_key_columns
-                << ", cluster_key_columns=" << _tablet_schema->cluster_key_idxes().size();
+                << ", cluster_key_columns=" << _tablet_schema->cluster_key_uids().size();
     }
     for (size_t cid = 0; cid < _num_sort_key_columns; ++cid) {
         const auto& column = _tablet_schema->column(cid);
@@ -125,8 +125,8 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
             // cluster keys
             _key_coders.clear();
             _key_index_size.clear();
-            _num_sort_key_columns = _tablet_schema->cluster_key_idxes().size();
-            for (auto cid : _tablet_schema->cluster_key_idxes()) {
+            _num_sort_key_columns = _tablet_schema->cluster_key_uids().size();
+            for (auto cid : _tablet_schema->cluster_key_uids()) {
                 const auto& column = _tablet_schema->column_by_uid(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
                 _key_index_size.push_back(column.index_length());
@@ -788,7 +788,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                                                         seq_column, num_rows, true));
             // 2. generate short key index (use cluster key)
             key_columns.clear();
-            for (const auto& cid : _tablet_schema->cluster_key_idxes()) {
+            for (const auto& cid : _tablet_schema->cluster_key_uids()) {
                 // find cluster key index in tablet schema
                 auto cluster_key_index = _tablet_schema->field_index(cid);
                 if (cluster_key_index == -1) {
@@ -1290,7 +1290,7 @@ inline bool SegmentWriter::_is_mow() {
 }
 
 inline bool SegmentWriter::_is_mow_with_cluster_key() {
-    return _is_mow() && !_tablet_schema->cluster_key_idxes().empty();
+    return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
 } // namespace segment_v2
 } // namespace doris
