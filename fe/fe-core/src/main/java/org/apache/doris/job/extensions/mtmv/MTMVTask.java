@@ -148,6 +148,16 @@ public class MTMVTask extends AbstractTask {
         this.dbId = Objects.requireNonNull(dbId);
         this.mtmvId = Objects.requireNonNull(mtmvId);
         this.taskContext = Objects.requireNonNull(taskContext);
+        try {
+            // Initialize mtmv here first to avoid the inability to persist failed tasks
+            // when the outer layer calls the fail method without calling the before method
+            mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
+        } catch (Throwable e) {
+            // Failed to obtain mtmv, but we ignored this error in order to create the task normally.
+            // When the task runs, we will retrieve mtmv again,
+            // which will follow the logic of task failure and be able to persist the task
+            LOG.info("get MTMV failed dbId:{}, mtmvId:{}", dbId, mtmvId, e);
+        }
     }
 
     // only for test
@@ -285,7 +295,9 @@ public class MTMVTask extends AbstractTask {
         }
         super.before();
         try {
-            mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
+            if (mtmv != null) {
+                mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
+            }
         } catch (UserException e) {
             LOG.warn("before task failed:", e);
             throw new JobException(e);
