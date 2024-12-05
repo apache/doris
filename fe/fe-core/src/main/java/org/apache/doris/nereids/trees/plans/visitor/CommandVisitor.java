@@ -91,6 +91,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
@@ -452,6 +453,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterRoleCommand(AlterRoleCommand alterRoleCommand, C context) {
         return visitCommand(alterRoleCommand, context);
+    }
+
+    default R visitShowDatabaseIdCommand(ShowDatabaseIdCommand showDatabaseIdCommand, C context) {
+        return visitCommand(showDatabaseIdCommand, context);
     }
 
     default R visitAlterWorkloadGroupCommand(AlterWorkloadGroupCommand alterWorkloadGroupCommand, C context) {

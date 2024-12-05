@@ -392,7 +392,7 @@ public class MTMV extends OlapTable {
         Map<String, String> baseToMv = Maps.newHashMap();
         Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
-        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
+        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItemsWithoutLock();
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             Set<String> basePartitionNames = relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(),
                     Sets.newHashSet());
