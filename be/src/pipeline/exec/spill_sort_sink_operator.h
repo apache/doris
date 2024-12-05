@@ -38,7 +38,6 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    Dependency* finishdependency() override { return _finish_dependency.get(); }
 
     Status setup_in_memory_sort_op(RuntimeState* state);
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
@@ -59,7 +58,6 @@ private:
     RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
 
     vectorized::SpillStreamSPtr _spilling_stream;
-    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 class SpillSortSinkOperatorX final : public DataSinkOperatorX<SpillSortSinkLocalState> {

@@ -34,11 +34,7 @@
 namespace doris::pipeline {
 PartitionedAggSinkLocalState::PartitionedAggSinkLocalState(DataSinkOperatorXBase* parent,
                                                            RuntimeState* state)
-        : Base(parent, state) {
-    _finish_dependency =
-            std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                         parent->get_name() + "_FINISH_DEPENDENCY", true);
-}
+        : Base(parent, state) {}
 
 Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
                                           doris::pipeline::LocalSinkStateInfo& info) {
@@ -69,7 +65,6 @@ Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
                                                   "AggSinkSpillDependency", true);
     state->get_task()->add_spill_dependency(_spill_dependency.get());
 
-    _finish_dependency->block();
     return Status::OK();
 }
 
@@ -196,11 +191,9 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
                     RETURN_IF_ERROR(partition->finish_current_spilling(eos));
                 }
                 local_state._dependency->set_ready_to_read();
-                local_state._finish_dependency->set_ready();
             }
         } else {
             local_state._dependency->set_ready_to_read();
-            local_state._finish_dependency->set_ready();
         }
     } else if (local_state._shared_state->is_spilled) {
         if (revocable_mem_size(state) >= vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
@@ -331,7 +324,6 @@ Status PartitionedAggSinkLocalState::revoke_memory(
 
                     if (_eos) {
                         Base::_dependency->set_ready_to_read();
-                        _finish_dependency->set_ready();
                     }
                     state->get_query_ctx()->decrease_revoking_tasks_count();
                 }};

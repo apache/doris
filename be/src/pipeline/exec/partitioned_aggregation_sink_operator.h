@@ -44,7 +44,6 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    Dependency* finishdependency() override { return _finish_dependency.get(); }
 
     Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
 
@@ -270,8 +269,6 @@ public:
     void _init_counters();
 
     std::unique_ptr<RuntimeState> _runtime_state;
-
-    std::shared_ptr<Dependency> _finish_dependency;
 
     // temp structures during spilling
     vectorized::MutableColumns key_columns_;

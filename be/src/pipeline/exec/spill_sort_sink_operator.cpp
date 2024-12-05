@@ -26,10 +26,7 @@
 namespace doris::pipeline {
 
 SpillSortSinkLocalState::SpillSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-        : Base(parent, state) {
-    _finish_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                                      parent->get_name() + "_SPILL_DEPENDENCY");
-}
+        : Base(parent, state) {}
 
 Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
                                      doris::pipeline::LocalSinkStateInfo& info) {
@@ -46,7 +43,6 @@ Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
     RETURN_IF_ERROR(setup_in_memory_sort_op(state));
 
     Base::_shared_state->in_mem_shared_state->sorter->set_enable_spill();
-    _finish_dependency->block();
     return Status::OK();
 }
 
@@ -181,13 +177,11 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
                 RETURN_IF_ERROR(revoke_memory(state, nullptr));
             } else {
                 local_state._dependency->set_ready_to_read();
-                local_state._finish_dependency->set_ready();
             }
         } else {
             RETURN_IF_ERROR(
                     local_state._shared_state->in_mem_shared_state->sorter->prepare_for_read());
             local_state._dependency->set_ready_to_read();
-            local_state._finish_dependency->set_ready();
         }
     }
     return Status::OK();
@@ -251,7 +245,6 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
             state->get_query_ctx()->decrease_revoking_tasks_count();
             if (_eos) {
                 _dependency->set_ready_to_read();
-                _finish_dependency->set_ready();
             }
         }};
 
