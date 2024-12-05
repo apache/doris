@@ -1315,7 +1315,7 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
             TEST_SYNC_POINT_CALLBACK("get_rowset:meta_exceed_limit", &byte_size);
             if (byte_size + v.size() > std::numeric_limits<int32_t>::max()) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                msg = std::format(
+                msg = fmt::format(
                         "rowset meta exceeded 2G, unable to serialize, key={}. byte_size={}",
                         hex(k), byte_size);
                 LOG(WARNING) << msg;
