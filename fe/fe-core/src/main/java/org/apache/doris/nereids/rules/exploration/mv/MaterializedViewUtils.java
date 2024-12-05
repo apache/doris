@@ -343,7 +343,7 @@ public class MaterializedViewUtils {
                     ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
             return childContext.getRewritePlan();
         }, mvPlan, originPlan);
-        return new MTMVCache(mvPlan, originPlan,
+        return new MTMVCache(mvPlan, originPlan, planner.getAnalyzedPlan(),
                 planner.getCascadesContext().getMemo().getRoot().getStatistics(), null);
     }
 
