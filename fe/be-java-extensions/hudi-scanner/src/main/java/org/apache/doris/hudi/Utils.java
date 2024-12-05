@@ -23,8 +23,8 @@ import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import sun.management.VMManagement;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
+import sun.management.VMManagement;
 
 import java.io.BufferedReader;
 import java.io.File;
