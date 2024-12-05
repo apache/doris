@@ -246,11 +246,16 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             if (predicates.isEmpty()) {
                 return cte;
             }
+            List<LogicalSubQueryAlias<Plan>> rewrittenSubQueryAlias = new ArrayList<>();
             for (LogicalSubQueryAlias<Plan> subQueryAlias : cte.getAliasQueries()) {
+                List<Plan> subQueryAliasChildren = new ArrayList<>();
                 this.virtualRelationNamePartSet.add(subQueryAlias.getQualifier());
-                subQueryAlias.children().forEach(subQuery -> subQuery.accept(this, predicates));
+                subQueryAlias.children().forEach(subQuery ->
+                        subQueryAliasChildren.add(subQuery.accept(this, predicates))
+                );
+                rewrittenSubQueryAlias.add(subQueryAlias.withChildren(subQueryAliasChildren));
             }
-            return super.visitLogicalCTE(cte, predicates);
+            return super.visitLogicalCTE(new LogicalCTE<>(rewrittenSubQueryAlias, cte.child()), predicates);
         }
 
         @Override
