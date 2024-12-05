@@ -1896,7 +1896,7 @@ TEST(TxnLazyCommitTest, RowsetMetaSizeExceedTest) {
         GetRowsetResponse res;
         meta_service->get_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::PROTOBUF_SERIALIZE_ERR);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::PROTOBUF_PARSE_ERR);
     }
 }
 
