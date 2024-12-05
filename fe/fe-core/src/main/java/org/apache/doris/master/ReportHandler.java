@@ -981,13 +981,13 @@ public class ReportHandler extends Daemon {
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());
                                     if (indexId == olapTable.getBaseIndexId() || olapTable.isShadowIndex(indexId)) {
-                                        List<Integer> clusterKeyIndexes = OlapTable.getClusterKeyIndexes(
+                                        List<Integer> clusterKeyUids = OlapTable.getClusterKeyUids(
                                                 indexMeta.getSchema());
-                                        if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
-                                            createReplicaTask.setClusterKeyIndexes(clusterKeyIndexes);
+                                        if (!CollectionUtils.isEmpty(clusterKeyUids)) {
+                                            createReplicaTask.setClusterKeyUids(clusterKeyUids);
                                             LOG.info("table: {}, partition: {}, index: {}, tablet: {}, "
-                                                            + "cluster key indexes: {}", tableId, partitionId, indexId,
-                                                    tabletId, clusterKeyIndexes);
+                                                            + "cluster key uids: {}", tableId, partitionId, indexId,
+                                                    tabletId, clusterKeyUids);
                                         }
                                     }
                                     createReplicaBatchTask.addTask(createReplicaTask);
