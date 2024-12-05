@@ -172,7 +172,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
             params.addToRequiredSlots(slotInfo);
         }
-        setDefaultValueExprs(getTargetTable(), destSlotDescByName, params, false);
+        setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
         setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);

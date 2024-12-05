@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_query_json_insert", "query,arrow_flight_sql") {
+suite("test_query_json_insert", "query") {
     qt_sql "select json_insert('{\"a\": 1, \"b\": [2, 3]}', '\$', null);"
     qt_sql "select json_insert('{\"k\": [1, 2]}', '\$.k[0]', null, '\$.[1]', null);"
     def tableName = "test_query_json_insert"
