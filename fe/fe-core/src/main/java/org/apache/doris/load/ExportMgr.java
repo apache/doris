@@ -108,6 +108,7 @@ public class ExportMgr {
                 }
             }
             unprotectAddJob(job);
+            Env.getCurrentEnv().getEditLog().logExportCreate(job);
         } finally {
             writeUnlock();
         }
@@ -120,7 +121,6 @@ public class ExportMgr {
             BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
                     job.getBrokerDesc());
         }
-        Env.getCurrentEnv().getEditLog().logExportCreate(job);
         // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
         for (int i = 0; i < job.getCopiedTaskExecutors().size(); i++) {
             Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(job.getCopiedTaskExecutors().get(i));

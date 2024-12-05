@@ -125,6 +125,8 @@ public class TaskDisruptor implements Closeable {
             log.info("tryPublish failed, disruptor is closed, taskId: {}", taskId);
             return;
         }
+        // We reserve two slots in the ring buffer
+        // to prevent it from becoming stuck due to competition between producers and consumers.
         if (disruptor.getRingBuffer().hasAvailableCapacity(2)) {
             disruptor.publishEvent(TRANSLATOR, taskId, 0L, TaskType.TRANSIENT_TASK);
         } else {
