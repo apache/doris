@@ -282,7 +282,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         selectedPartitionNum = partitionPathSet.size();
-
+        splits.forEach(s -> s.setTargetSplitSize(fileSplitSize));
         return splits;
     }
 
@@ -315,10 +315,11 @@ public class IcebergScanNode extends FileQueryScanNode {
                         .map(m -> m.get(MetadataColumns.DELETE_FILE_POS.fieldId()))
                         .map(bytes -> Conversions.fromByteBuffer(MetadataColumns.DELETE_FILE_POS.type(), bytes));
                 filters.add(IcebergDeleteFileFilter.createPositionDelete(delete.path().toString(),
-                        positionLowerBound.orElse(-1L), positionUpperBound.orElse(-1L)));
+                        positionLowerBound.orElse(-1L), positionUpperBound.orElse(-1L),
+                        delete.fileSizeInBytes()));
             } else if (delete.content() == FileContent.EQUALITY_DELETES) {
                 filters.add(IcebergDeleteFileFilter.createEqualityDelete(
-                        delete.path().toString(), delete.equalityFieldIds()));
+                        delete.path().toString(), delete.equalityFieldIds(), delete.fileSizeInBytes()));
             } else {
                 throw new IllegalStateException("Unknown delete content: " + delete.content());
             }
@@ -383,13 +384,15 @@ public class IcebergScanNode extends FileQueryScanNode {
             return 0;
         }
 
+        // `TOTAL_POSITION_DELETES` is need to 0,
+        // because prevent 'dangling delete' problem after `rewrite_data_files`
+        // ref: https://iceberg.apache.org/docs/nightly/spark-procedures/#rewrite_position_delete_files
         Map<String, String> summary = snapshot.summary();
-        if (summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")) {
-            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS))
-                - Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
-        } else {
+        if (!summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")
+                || !summary.get(IcebergUtils.TOTAL_POSITION_DELETES).equals("0")) {
             return -1;
         }
+        return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
     }
 
     @Override

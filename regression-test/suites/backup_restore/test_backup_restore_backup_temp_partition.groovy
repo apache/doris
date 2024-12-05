@@ -68,7 +68,7 @@ suite("test_backup_restore_backup_temp_partition", "backup_restore") {
             TO `${repoName}`
             ON (${tableName})
         """
-        exception "Do not support backup table with temp partitions"
+        exception "Do not support backup table ${tableName} with temp partitions"
     }
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"

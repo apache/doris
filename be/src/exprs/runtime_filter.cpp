@@ -22,7 +22,6 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <stddef.h>
 
 #include <algorithm>
 // IWYU pragma: no_include <bits/chrono.h>
@@ -363,8 +362,11 @@ public:
     }
 
     Status init_bloom_filter(const size_t build_bf_cardinality) {
-        DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER ||
-               _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
+        if (_filter_type != RuntimeFilterType::BLOOM_FILTER &&
+            _filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "init_bloom_filter meet invalid input type {}", int(_filter_type));
+        }
         return _context->bloom_filter_func->init_with_cardinality(build_bf_cardinality);
     }
 
@@ -392,7 +394,9 @@ public:
     BloomFilterFuncBase* get_bloomfilter() const { return _context->bloom_filter_func.get(); }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) {
-        DCHECK(!is_ignored());
+        if (is_ignored()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "insert_fixed_len meet ignored rf");
+        }
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
             _context->hybrid_set->insert_fixed_len(column, start);
@@ -736,6 +740,12 @@ public:
         return Status::OK();
     }
 
+    void set_enable_fixed_len_to_uint32_v2() {
+        if (is_bloomfilter()) {
+            _context->bloom_filter_func->set_enable_fixed_len_to_uint32_v2();
+        }
+    }
+
     // used by shuffle runtime filter
     // assign this filter by protobuf
     Status assign(const PBloomFilter* bloom_filter, butil::IOBufAsZeroCopyInputStream* data,
@@ -899,15 +909,8 @@ public:
         return Status::InternalError("not support!");
     }
 
-    HybridSetBase::IteratorBase* get_in_filter_iterator() { return _context->hybrid_set->begin(); }
-
     void get_bloom_filter_desc(char** data, int* filter_length) {
         _context->bloom_filter_func->get_data(data, filter_length);
-    }
-
-    void get_minmax_filter_desc(void** min_data, void** max_data) {
-        *min_data = _context->minmax_func->get_min();
-        *max_data = _context->minmax_func->get_max();
     }
 
     PrimitiveType column_type() { return _column_return_type; }
@@ -919,7 +922,10 @@ public:
             return _context->bloom_filter_func->contain_null();
         }
         if (_context->hybrid_set) {
-            DCHECK(get_real_type() == RuntimeFilterType::IN_FILTER);
+            if (get_real_type() != RuntimeFilterType::IN_FILTER) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "rf has hybrid_set but real type is {}",
+                                int(get_real_type()));
+            }
             return _context->hybrid_set->contain_null();
         }
         if (_context->minmax_func) {
@@ -975,11 +981,10 @@ private:
 
 Status IRuntimeFilter::create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                               const TQueryOptions* query_options, const RuntimeFilterRole role,
-                              int node_id, std::shared_ptr<IRuntimeFilter>* res,
-                              bool build_bf_exactly, bool need_local_merge) {
-    *res = std::make_shared<IRuntimeFilter>(state, desc, need_local_merge);
+                              int node_id, std::shared_ptr<IRuntimeFilter>* res) {
+    *res = std::make_shared<IRuntimeFilter>(state, desc);
     (*res)->set_role(role);
-    return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
+    return (*res)->init_with_desc(desc, query_options, node_id);
 }
 
 RuntimeFilterContextSPtr& IRuntimeFilter::get_shared_context_ref() {
@@ -991,53 +996,62 @@ void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column, size_t sta
     _wrapper->insert_batch(column, start);
 }
 
-Status IRuntimeFilter::publish(bool publish_local) {
+Status IRuntimeFilter::publish(RuntimeState* state, bool publish_local) {
     DCHECK(is_producer());
 
-    auto send_to_remote = [&](IRuntimeFilter* filter) {
+    auto send_to_remote_targets = [&](IRuntimeFilter* filter, uint64_t local_merge_time) {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
-        return filter->push_to_remote(&addr);
+        RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
+        return filter->push_to_remote(state, &addr, local_merge_time);
     };
-    auto send_to_local = [&](std::shared_ptr<RuntimePredicateWrapper> wrapper) {
-        std::vector<std::shared_ptr<IRuntimeFilter>> filters;
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_consume_filters(_filter_id, filters));
-        DCHECK(!filters.empty());
-        // push down
+    auto send_to_local_targets = [&](std::shared_ptr<RuntimePredicateWrapper> wrapper, bool global,
+                                     uint64_t local_merge_time = 0) {
+        std::vector<std::shared_ptr<IRuntimeFilter>> filters =
+                global ? _state->global_runtime_filter_mgr()->get_consume_filters(_filter_id)
+                       : _state->local_runtime_filter_mgr()->get_consume_filters(_filter_id);
         for (auto filter : filters) {
             filter->_wrapper = wrapper;
-            filter->update_runtime_filter_type_to_profile();
+            filter->update_runtime_filter_type_to_profile(local_merge_time);
             filter->signal();
         }
         return Status::OK();
     };
-    auto do_local_merge = [&]() {
-        LocalMergeFilters* local_merge_filters = nullptr;
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_local_merge_producer_filters(
-                _filter_id, &local_merge_filters));
-        std::lock_guard l(*local_merge_filters->lock);
-        RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper.get()));
-        local_merge_filters->merge_time--;
-        if (local_merge_filters->merge_time == 0) {
-            if (_has_local_target) {
-                RETURN_IF_ERROR(send_to_local(local_merge_filters->filters[0]->_wrapper));
-            } else {
-                RETURN_IF_ERROR(send_to_remote(local_merge_filters->filters[0].get()));
+    auto do_merge = [&]() {
+        if (!_state->global_runtime_filter_mgr()->get_consume_filters(_filter_id).empty()) {
+            LocalMergeFilters* local_merge_filters = nullptr;
+            RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
+                    _filter_id, &local_merge_filters));
+            local_merge_filters->merge_watcher.start();
+            std::lock_guard l(*local_merge_filters->lock);
+            RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper.get()));
+            local_merge_filters->merge_time--;
+            local_merge_filters->merge_watcher.stop();
+            if (local_merge_filters->merge_time == 0) {
+                if (_has_local_target) {
+                    RETURN_IF_ERROR(send_to_local_targets(
+                            local_merge_filters->filters[0]->_wrapper, true,
+                            local_merge_filters->merge_watcher.elapsed_time()));
+                } else {
+                    RETURN_IF_ERROR(send_to_remote_targets(
+                            local_merge_filters->filters[0].get(),
+                            local_merge_filters->merge_watcher.elapsed_time()));
+                }
             }
         }
         return Status::OK();
     };
 
-    if (_need_local_merge && _has_local_target) {
-        RETURN_IF_ERROR(do_local_merge());
-    } else if (_has_local_target) {
-        RETURN_IF_ERROR(send_to_local(_wrapper));
+    if (_has_local_target) {
+        // A runtime filter may have multiple targets and some of those are local-merge RF and others are not.
+        // So for all runtime filters' producers, `publish` should notify all consumers in global RF mgr which manages local-merge RF and local RF mgr which manages others.
+        RETURN_IF_ERROR(do_merge());
+        RETURN_IF_ERROR(send_to_local_targets(_wrapper, false));
     } else if (!publish_local) {
-        if (_is_broadcast_join || _state->be_exec_version < USE_NEW_SERDE) {
-            RETURN_IF_ERROR(send_to_remote(this));
+        if (_is_broadcast_join || _state->get_query_ctx()->be_exec_version() < USE_NEW_SERDE) {
+            RETURN_IF_ERROR(send_to_remote_targets(this, 0));
         } else {
-            RETURN_IF_ERROR(do_local_merge());
+            RETURN_IF_ERROR(do_merge());
         }
     } else {
         // remote broadcast join only push onetime in build shared hash table
@@ -1054,30 +1068,33 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
     // context, it not the memory is not released. And rpc is in another thread, it will hold rf context
     // after query context because the rpc is not returned.
     std::weak_ptr<RuntimeFilterContext> _rf_context;
-    std::string _rf_debug_info;
     using Base =
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
     ENABLE_FACTORY_CREATOR(SyncSizeClosure);
 
     void _process_if_rpc_failed() override {
-        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
-        LOG(WARNING) << "sync filter size meet rpc error, filter=" << _rf_debug_info;
+        Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
+        auto ctx = _rf_context.lock();
+        if (!ctx) {
+            return;
+        }
+
+        ctx->err_msg = cntl_->ErrorText();
         Base::_process_if_rpc_failed();
     }
 
     void _process_if_meet_error_status(const Status& status) override {
-        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+        Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
+        auto ctx = _rf_context.lock();
+        if (!ctx) {
+            return;
+        }
+
         if (status.is<ErrorCode::END_OF_FILE>()) {
             // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            auto ctx = _rf_context.lock();
-            if (ctx) {
-                ctx->ignored = true;
-            } else {
-                LOG(WARNING) << "sync filter size returned but context is released, filter="
-                             << _rf_debug_info;
-            }
+            ctx->ignored = true;
         } else {
-            LOG(WARNING) << "sync filter size meet error status, filter=" << _rf_debug_info;
+            ctx->err_msg = status.to_string();
             Base::_process_if_meet_error_status(status);
         }
     }
@@ -1086,19 +1103,18 @@ public:
     SyncSizeClosure(std::shared_ptr<PSendFilterSizeRequest> req,
                     std::shared_ptr<DummyBrpcCallback<PSendFilterSizeResponse>> callback,
                     std::shared_ptr<pipeline::Dependency> dependency,
-                    RuntimeFilterContextSPtr rf_context, std::string_view rf_debug_info)
-            : Base(req, callback),
+                    RuntimeFilterContextSPtr rf_context, std::weak_ptr<QueryContext> context)
+            : Base(req, callback, context),
               _dependency(std::move(dependency)),
-              _rf_context(rf_context),
-              _rf_debug_info(rf_debug_info) {}
+              _rf_context(rf_context) {}
 };
 
 Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
     DCHECK(is_producer());
 
-    if (_need_local_merge) {
+    if (!_state->global_runtime_filter_mgr()->get_consume_filters(_filter_id).empty()) {
         LocalMergeFilters* local_merge_filters = nullptr;
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_local_merge_producer_filters(
+        RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
                 _filter_id, &local_merge_filters));
         std::lock_guard l(*local_merge_filters->lock);
         local_merge_filters->merge_size_times--;
@@ -1122,9 +1138,9 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
 
     TNetworkAddress addr;
     DCHECK(_state != nullptr);
-    RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
+    RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
     std::shared_ptr<PBackendService_Stub> stub(
-            _state->exec_env->brpc_internal_client_cache()->get_client(addr));
+            _state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(addr));
     if (!stub) {
         return Status::InternalError("Get rpc stub failed, host={}, port={}", addr.hostname,
                                      addr.port);
@@ -1134,11 +1150,13 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
     auto callback = DummyBrpcCallback<PSendFilterSizeResponse>::create_shared();
     // IRuntimeFilter maybe deconstructed before the rpc finished, so that could not use
     // a raw pointer in closure. Has to use the context's shared ptr.
-    auto closure = SyncSizeClosure::create_unique(request, callback, _dependency,
-                                                  _wrapper->_context, this->debug_string());
+    auto closure = SyncSizeClosure::create_unique(
+            request, callback, _dependency, _wrapper->_context,
+            state->query_options().ignore_runtime_filter_error ? std::weak_ptr<QueryContext> {}
+                                                               : state->get_query_ctx_weak());
     auto* pquery_id = request->mutable_query_id();
-    pquery_id->set_hi(_state->query_id.hi());
-    pquery_id->set_lo(_state->query_id.lo());
+    pquery_id->set_hi(_state->get_query_ctx()->query_id().hi);
+    pquery_id->set_lo(_state->get_query_ctx()->query_id().lo);
 
     auto* source_addr = request->mutable_source_addr();
     source_addr->set_hostname(BackendOptions::get_local_backend().host);
@@ -1146,8 +1164,11 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
 
     request->set_filter_size(local_filter_size);
     request->set_filter_id(_filter_id);
-    callback->cntl_->set_timeout_ms(std::min(3600, state->execution_timeout()) * 1000);
-    callback->cntl_->ignore_eovercrowded();
+
+    callback->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(state->execution_timeout()));
+    if (config::execution_ignore_eovercrowded) {
+        callback->cntl_->ignore_eovercrowded();
+    }
 
     stub->send_filter_size(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
                            closure.get());
@@ -1155,10 +1176,11 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
     return Status::OK();
 }
 
-Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr) {
+Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress* addr,
+                                      uint64_t local_merge_time) {
     DCHECK(is_producer());
     std::shared_ptr<PBackendService_Stub> stub(
-            _state->exec_env->brpc_internal_client_cache()->get_client(*addr));
+            _state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(*addr));
     if (!stub) {
         return Status::InternalError(
                 fmt::format("Get rpc stub failed, host={}, port={}", addr->hostname, addr->port));
@@ -1168,24 +1190,31 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr) {
     auto merge_filter_callback = DummyBrpcCallback<PMergeFilterResponse>::create_shared();
     auto merge_filter_closure =
             AutoReleaseClosure<PMergeFilterRequest, DummyBrpcCallback<PMergeFilterResponse>>::
-                    create_unique(merge_filter_request, merge_filter_callback);
+                    create_unique(merge_filter_request, merge_filter_callback,
+                                  state->query_options().ignore_runtime_filter_error
+                                          ? std::weak_ptr<QueryContext> {}
+                                          : state->get_query_ctx_weak());
     void* data = nullptr;
     int len = 0;
 
     auto* pquery_id = merge_filter_request->mutable_query_id();
-    pquery_id->set_hi(_state->query_id.hi());
-    pquery_id->set_lo(_state->query_id.lo());
+    pquery_id->set_hi(_state->get_query_ctx()->query_id().hi);
+    pquery_id->set_lo(_state->get_query_ctx()->query_id().lo);
 
     auto* pfragment_instance_id = merge_filter_request->mutable_fragment_instance_id();
     pfragment_instance_id->set_hi(BackendOptions::get_local_backend().id);
     pfragment_instance_id->set_lo((int64_t)this);
 
     merge_filter_request->set_filter_id(_filter_id);
-    merge_filter_request->set_is_pipeline(true);
+    merge_filter_request->set_local_merge_time(local_merge_time);
     auto column_type = _wrapper->column_type();
     RETURN_IF_CATCH_EXCEPTION(merge_filter_request->set_column_type(to_proto(column_type)));
-    merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
-    merge_filter_callback->cntl_->ignore_eovercrowded();
+
+    merge_filter_callback->cntl_->set_timeout_ms(
+            get_execution_rpc_timeout_ms(_state->get_query_ctx()->execution_timeout()));
+    if (config::execution_ignore_eovercrowded) {
+        merge_filter_callback->cntl_->ignore_eovercrowded();
+    }
 
     if (get_ignored()) {
         merge_filter_request->set_filter_type(PFilterType::UNKNOW_FILTER);
@@ -1217,9 +1246,9 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
     }
     _profile->add_info_string("Info", formatted_state());
     // The runtime filter is pushed down, adding filtering information.
-    auto* expr_filtered_rows_counter = ADD_COUNTER(_profile, "expr_filtered_rows", TUnit::UNIT);
-    auto* expr_input_rows_counter = ADD_COUNTER(_profile, "expr_input_rows", TUnit::UNIT);
-    auto* always_true_counter = ADD_COUNTER(_profile, "always_true_pass_rows", TUnit::UNIT);
+    auto* expr_filtered_rows_counter = ADD_COUNTER(_profile, "ExprFilteredRows", TUnit::UNIT);
+    auto* expr_input_rows_counter = ADD_COUNTER(_profile, "ExprInputRows", TUnit::UNIT);
+    auto* always_true_counter = ADD_COUNTER(_profile, "AlwaysTruePassRows", TUnit::UNIT);
     for (auto i = origin_size; i < push_exprs.size(); i++) {
         push_exprs[i]->attach_profile_counter(expr_filtered_rows_counter, expr_input_rows_counter,
                                               always_true_counter);
@@ -1229,8 +1258,8 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
 
 void IRuntimeFilter::update_state() {
     DCHECK(is_consumer());
-    auto execution_timeout = _state->execution_timeout * 1000;
-    auto runtime_filter_wait_time_ms = _state->runtime_filter_wait_time_ms;
+    auto execution_timeout = _state->get_query_ctx()->execution_timeout() * 1000;
+    auto runtime_filter_wait_time_ms = _state->get_query_ctx()->runtime_filter_wait_time_ms();
     // bitmap filter is precise filter and only filter once, so it must be applied.
     int64_t wait_times_ms = _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER
                                     ? execution_timeout
@@ -1239,6 +1268,8 @@ void IRuntimeFilter::update_state() {
     // In pipelineX, runtime filters will be ready or timeout before open phase.
     if (expected == RuntimeFilterState::NOT_READY) {
         DCHECK(MonotonicMillis() - registration_time_ >= wait_times_ms);
+        COUNTER_SET(_wait_timer,
+                    int64_t((MonotonicMillis() - registration_time_) * NANOS_PER_MILLIS));
         _rf_state_atomic = RuntimeFilterState::TIME_OUT;
     }
 }
@@ -1257,6 +1288,14 @@ PrimitiveType IRuntimeFilter::column_type() const {
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
+
+    if (!_wrapper->is_ignored() && _wrapper->is_bloomfilter() &&
+        !_wrapper->get_bloomfilter()->inited()) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "bf not inited and not ignored, rf: {}",
+                        debug_string());
+    }
+
+    COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - registration_time_) * NANOS_PER_MILLIS));
     _rf_state_atomic.store(RuntimeFilterState::READY);
     if (!_filter_timer.empty()) {
         for (auto& timer : _filter_timer) {
@@ -1307,14 +1346,14 @@ bool IRuntimeFilter::get_ignored() {
 
 std::string IRuntimeFilter::formatted_state() const {
     return fmt::format(
-            "[IsPushDown = {}, RuntimeFilterState = {}, HasRemoteTarget = {}, "
+            "[Id = {}, IsPushDown = {}, RuntimeFilterState = {}, HasRemoteTarget = {}, "
             "HasLocalTarget = {}, Ignored = {}]",
-            _is_push_down, _get_explain_state_string(), _has_remote_target, _has_local_target,
-            _wrapper->_context->ignored);
+            _filter_id, _is_push_down, _get_explain_state_string(), _has_remote_target,
+            _has_local_target, _wrapper->_context->ignored);
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                                      int node_id, bool build_bf_exactly) {
+                                      int node_id) {
     // if node_id == -1 , it shouldn't be a consumer
     DCHECK(node_id >= 0 || (node_id == -1 && !is_consumer()));
 
@@ -1324,6 +1363,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     _expr_order = desc->expr_order;
     vectorized::VExprContextSPtr build_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
+    _enable_fixed_len_to_uint32_v2 = options->__isset.enable_fixed_len_to_uint32_v2 &&
+                                     options->enable_fixed_len_to_uint32_v2;
 
     RuntimeFilterParams params;
     params.filter_id = _filter_id;
@@ -1336,19 +1377,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.runtime_bloom_filter_max_size = options->__isset.runtime_bloom_filter_max_size
                                                    ? options->runtime_bloom_filter_max_size
                                                    : 0;
-    // We build runtime filter by exact distinct count iff three conditions are met:
-    // 1. Only 1 join key
-    // 2. Do not have remote target (e.g. do not need to merge), or broadcast join
-    // 3. Bloom filter
-    params.build_bf_exactly =
-            build_bf_exactly && (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER ||
-                                 _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
 
+    params.build_bf_exactly = desc->__isset.build_bf_exactly && desc->build_bf_exactly;
     params.bloom_filter_size_calculated_by_ndv = desc->bloom_filter_size_calculated_by_ndv;
-
-    if (!desc->__isset.sync_filter_size || !desc->sync_filter_size) {
-        params.build_bf_exactly &= (!_has_remote_target || _is_broadcast_join);
-    }
 
     if (desc->__isset.bloom_filter_size_bytes) {
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
@@ -1384,7 +1415,11 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     }
 
     _wrapper = std::make_shared<RuntimePredicateWrapper>(&params);
-    return _wrapper->init(&params);
+    RETURN_IF_ERROR(_wrapper->init(&params));
+    if (_enable_fixed_len_to_uint32_v2) {
+        _wrapper->set_enable_fixed_len_to_uint32_v2();
+    }
+    return Status::OK();
 }
 
 Status IRuntimeFilter::serialize(PMergeFilterRequest* request, void** data, int* len) {
@@ -1495,19 +1530,25 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
         _profile_init = true;
         parent_profile->add_child(_profile.get(), true, nullptr);
         _profile->add_info_string("Info", formatted_state());
+        _wait_timer = ADD_TIMER(_profile, "WaitTime");
     }
 }
 
-void IRuntimeFilter::update_runtime_filter_type_to_profile() {
+void IRuntimeFilter::update_runtime_filter_type_to_profile(uint64_t local_merge_time) {
     _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
+    _profile->add_info_string("LocalMergeTime",
+                              std::to_string((double)local_merge_time / NANOS_PER_SEC) + " s");
 }
 
 std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
-            "RuntimeFilter: (id = {}, type = {}, need_local_merge: {}, is_broadcast: {}, "
-            "build_bf_cardinality: {}",
-            _filter_id, to_string(_runtime_filter_type), _need_local_merge, _is_broadcast_join,
-            _wrapper->get_build_bf_cardinality());
+            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, ignored: {}, "
+            "build_bf_cardinality: {}, dependency: {}, synced_size: {}, has_local_target: {}, "
+            "has_remote_target: {}, error_msg: [{}]",
+            _filter_id, to_string(_runtime_filter_type), _is_broadcast_join,
+            _wrapper->_context->ignored, _wrapper->get_build_bf_cardinality(),
+            _dependency ? _dependency->debug_string() : "none", _synced_size, _has_local_target,
+            _has_remote_target, _wrapper->_context->err_msg);
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
@@ -1517,17 +1558,6 @@ Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
                                      debug_string(), status.msg());
     }
     return Status::OK();
-}
-
-template <typename T>
-void batch_copy(PInFilter* filter, HybridSetBase::IteratorBase* it,
-                void (*set_func)(PColumnValue*, const T*)) {
-    while (it->has_next()) {
-        const void* void_value = it->get_value();
-        auto origin_value = reinterpret_cast<const T*>(void_value);
-        set_func(filter->add_values(), origin_value);
-        it->next();
-    }
 }
 
 template <class T>
@@ -1557,273 +1587,13 @@ Status IRuntimeFilter::serialize_impl(T* request, void** data, int* len) {
 }
 
 void IRuntimeFilter::to_protobuf(PInFilter* filter) {
-    auto column_type = _wrapper->column_type();
-    filter->set_column_type(to_proto(column_type));
-
-    auto* it = _wrapper->get_in_filter_iterator();
-    DCHECK(it != nullptr);
-
-    switch (column_type) {
-    case TYPE_BOOLEAN: {
-        batch_copy<bool>(filter, it, [](PColumnValue* column, const bool* value) {
-            column->set_boolval(*value);
-        });
-        return;
-    }
-    case TYPE_TINYINT: {
-        batch_copy<int8_t>(filter, it, [](PColumnValue* column, const int8_t* value) {
-            column->set_intval(*value);
-        });
-        return;
-    }
-    case TYPE_SMALLINT: {
-        batch_copy<int16_t>(filter, it, [](PColumnValue* column, const int16_t* value) {
-            column->set_intval(*value);
-        });
-        return;
-    }
-    case TYPE_INT: {
-        batch_copy<int32_t>(filter, it, [](PColumnValue* column, const int32_t* value) {
-            column->set_intval(*value);
-        });
-        return;
-    }
-    case TYPE_BIGINT: {
-        batch_copy<int64_t>(filter, it, [](PColumnValue* column, const int64_t* value) {
-            column->set_longval(*value);
-        });
-        return;
-    }
-    case TYPE_LARGEINT: {
-        batch_copy<int128_t>(filter, it, [](PColumnValue* column, const int128_t* value) {
-            column->set_stringval(LargeIntValue::to_string(*value));
-        });
-        return;
-    }
-    case TYPE_FLOAT: {
-        batch_copy<float>(filter, it, [](PColumnValue* column, const float* value) {
-            column->set_doubleval(*value);
-        });
-        return;
-    }
-    case TYPE_DOUBLE: {
-        batch_copy<double>(filter, it, [](PColumnValue* column, const double* value) {
-            column->set_doubleval(*value);
-        });
-        return;
-    }
-    case TYPE_DATEV2: {
-        batch_copy<DateV2Value<DateV2ValueType>>(
-                filter, it, [](PColumnValue* column, const DateV2Value<DateV2ValueType>* value) {
-                    column->set_intval(*reinterpret_cast<const int32_t*>(value));
-                });
-        return;
-    }
-    case TYPE_DATETIMEV2: {
-        batch_copy<DateV2Value<DateTimeV2ValueType>>(
-                filter, it,
-                [](PColumnValue* column, const DateV2Value<DateTimeV2ValueType>* value) {
-                    column->set_longval(*reinterpret_cast<const int64_t*>(value));
-                });
-        return;
-    }
-    case TYPE_DATE:
-    case TYPE_DATETIME: {
-        batch_copy<VecDateTimeValue>(filter, it,
-                                     [](PColumnValue* column, const VecDateTimeValue* value) {
-                                         char convert_buffer[30];
-                                         value->to_string(convert_buffer);
-                                         column->set_stringval(convert_buffer);
-                                     });
-        return;
-    }
-    case TYPE_DECIMALV2: {
-        batch_copy<DecimalV2Value>(filter, it,
-                                   [](PColumnValue* column, const DecimalV2Value* value) {
-                                       column->set_stringval(value->to_string());
-                                   });
-        return;
-    }
-    case TYPE_DECIMAL32: {
-        batch_copy<int32_t>(filter, it, [](PColumnValue* column, const int32_t* value) {
-            column->set_intval(*value);
-        });
-        return;
-    }
-    case TYPE_DECIMAL64: {
-        batch_copy<int64_t>(filter, it, [](PColumnValue* column, const int64_t* value) {
-            column->set_longval(*value);
-        });
-        return;
-    }
-    case TYPE_DECIMAL128I: {
-        batch_copy<int128_t>(filter, it, [](PColumnValue* column, const int128_t* value) {
-            column->set_stringval(LargeIntValue::to_string(*value));
-        });
-        return;
-    }
-    case TYPE_DECIMAL256: {
-        batch_copy<wide::Int256>(filter, it, [](PColumnValue* column, const wide::Int256* value) {
-            column->set_stringval(wide::to_string(*value));
-        });
-        return;
-    }
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING: {
-        //const void* void_value = it->get_value();
-        //Now the get_value return void* is StringRef
-        batch_copy<StringRef>(filter, it, [](PColumnValue* column, const StringRef* value) {
-            column->set_stringval(value->to_string());
-        });
-        return;
-    }
-    case TYPE_IPV4: {
-        batch_copy<IPv4>(filter, it, [](PColumnValue* column, const IPv4* value) {
-            column->set_intval(*reinterpret_cast<const int32_t*>(value));
-        });
-        return;
-    }
-    case TYPE_IPV6: {
-        batch_copy<IPv6>(filter, it, [](PColumnValue* column, const IPv6* value) {
-            column->set_stringval(LargeIntValue::to_string(*value));
-        });
-        return;
-    }
-    default: {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "runtime filter meet invalid PrimitiveType type {}", int(column_type));
-    }
-    }
+    filter->set_column_type(to_proto(_wrapper->column_type()));
+    _wrapper->_context->hybrid_set->to_pb(filter);
 }
 
 void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
-    void* min_data = nullptr;
-    void* max_data = nullptr;
-    _wrapper->get_minmax_filter_desc(&min_data, &max_data);
-    DCHECK(min_data != nullptr && max_data != nullptr);
     filter->set_column_type(to_proto(_wrapper->column_type()));
-
-    switch (_wrapper->column_type()) {
-    case TYPE_BOOLEAN: {
-        filter->mutable_min_val()->set_boolval(*reinterpret_cast<const bool*>(min_data));
-        filter->mutable_max_val()->set_boolval(*reinterpret_cast<const bool*>(max_data));
-        return;
-    }
-    case TYPE_TINYINT: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int8_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int8_t*>(max_data));
-        return;
-    }
-    case TYPE_SMALLINT: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int16_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int16_t*>(max_data));
-        return;
-    }
-    case TYPE_INT: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int32_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
-        return;
-    }
-    case TYPE_BIGINT: {
-        filter->mutable_min_val()->set_longval(*reinterpret_cast<const int64_t*>(min_data));
-        filter->mutable_max_val()->set_longval(*reinterpret_cast<const int64_t*>(max_data));
-        return;
-    }
-    case TYPE_LARGEINT: {
-        filter->mutable_min_val()->set_stringval(
-                LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(min_data)));
-        filter->mutable_max_val()->set_stringval(
-                LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(max_data)));
-        return;
-    }
-    case TYPE_FLOAT: {
-        filter->mutable_min_val()->set_doubleval(*reinterpret_cast<const float*>(min_data));
-        filter->mutable_max_val()->set_doubleval(*reinterpret_cast<const float*>(max_data));
-        return;
-    }
-    case TYPE_DOUBLE: {
-        filter->mutable_min_val()->set_doubleval(*reinterpret_cast<const double*>(min_data));
-        filter->mutable_max_val()->set_doubleval(*reinterpret_cast<const double*>(max_data));
-        return;
-    }
-    case TYPE_DATEV2: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int32_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
-        return;
-    }
-    case TYPE_DATETIMEV2: {
-        filter->mutable_min_val()->set_longval(*reinterpret_cast<const int64_t*>(min_data));
-        filter->mutable_max_val()->set_longval(*reinterpret_cast<const int64_t*>(max_data));
-        return;
-    }
-    case TYPE_DATE:
-    case TYPE_DATETIME: {
-        char convert_buffer[30];
-        reinterpret_cast<const VecDateTimeValue*>(min_data)->to_string(convert_buffer);
-        filter->mutable_min_val()->set_stringval(convert_buffer);
-        reinterpret_cast<const VecDateTimeValue*>(max_data)->to_string(convert_buffer);
-        filter->mutable_max_val()->set_stringval(convert_buffer);
-        return;
-    }
-    case TYPE_DECIMALV2: {
-        filter->mutable_min_val()->set_stringval(
-                reinterpret_cast<const DecimalV2Value*>(min_data)->to_string());
-        filter->mutable_max_val()->set_stringval(
-                reinterpret_cast<const DecimalV2Value*>(max_data)->to_string());
-        return;
-    }
-    case TYPE_DECIMAL32: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int32_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
-        return;
-    }
-    case TYPE_DECIMAL64: {
-        filter->mutable_min_val()->set_longval(*reinterpret_cast<const int64_t*>(min_data));
-        filter->mutable_max_val()->set_longval(*reinterpret_cast<const int64_t*>(max_data));
-        return;
-    }
-    case TYPE_DECIMAL128I: {
-        filter->mutable_min_val()->set_stringval(
-                LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(min_data)));
-        filter->mutable_max_val()->set_stringval(
-                LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(max_data)));
-        return;
-    }
-    case TYPE_DECIMAL256: {
-        filter->mutable_min_val()->set_stringval(
-                wide::to_string(*reinterpret_cast<const wide::Int256*>(min_data)));
-        filter->mutable_max_val()->set_stringval(
-                wide::to_string(*reinterpret_cast<const wide::Int256*>(max_data)));
-        return;
-    }
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING: {
-        const auto* min_string_value = reinterpret_cast<const std::string*>(min_data);
-        filter->mutable_min_val()->set_stringval(*min_string_value);
-        const auto* max_string_value = reinterpret_cast<const std::string*>(max_data);
-        filter->mutable_max_val()->set_stringval(*max_string_value);
-        break;
-    }
-    case TYPE_IPV4: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int32_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
-        return;
-    }
-    case TYPE_IPV6: {
-        filter->mutable_min_val()->set_stringval(
-                LargeIntValue::to_string(*reinterpret_cast<const uint128_t*>(min_data)));
-        filter->mutable_max_val()->set_stringval(
-                LargeIntValue::to_string(*reinterpret_cast<const uint128_t*>(max_data)));
-        return;
-    }
-    default: {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "runtime filter meet invalid PrimitiveType type {}",
-                        int(_wrapper->column_type()));
-    }
-    }
+    _wrapper->_context->minmax_func->to_pb(filter);
 }
 
 RuntimeFilterType IRuntimeFilter::get_real_type() {
@@ -1831,29 +1601,12 @@ RuntimeFilterType IRuntimeFilter::get_real_type() {
 }
 
 bool IRuntimeFilter::need_sync_filter_size() {
-    return (type() == RuntimeFilterType::IN_OR_BLOOM_FILTER ||
-            type() == RuntimeFilterType::BLOOM_FILTER) &&
-           _wrapper->get_build_bf_cardinality() && !_is_broadcast_join;
-}
-
-Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
-    _profile->add_info_string("MergeTime", std::to_string(param->request->merge_time()) + " ms");
-
-    if (param->request->has_ignored() && param->request->ignored()) {
-        set_ignored();
-    } else {
-        std::unique_ptr<RuntimePredicateWrapper> wrapper;
-        RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(param, &wrapper));
-        RETURN_IF_ERROR(_wrapper->merge(wrapper.get()));
-        update_runtime_filter_type_to_profile();
-    }
-    this->signal();
-
-    return Status::OK();
+    return _wrapper->get_build_bf_cardinality() && !_is_broadcast_join;
 }
 
 void IRuntimeFilter::update_filter(std::shared_ptr<RuntimePredicateWrapper> wrapper,
-                                   int64_t merge_time, int64_t start_apply) {
+                                   int64_t merge_time, int64_t start_apply,
+                                   uint64_t local_merge_time) {
     _profile->add_info_string("UpdateTime",
                               std::to_string(MonotonicMillis() - start_apply) + " ms");
     _profile->add_info_string("MergeTime", std::to_string(merge_time) + " ms");
@@ -1863,7 +1616,10 @@ void IRuntimeFilter::update_filter(std::shared_ptr<RuntimePredicateWrapper> wrap
         wrapper->_column_return_type = _wrapper->_column_return_type;
     }
     _wrapper = wrapper;
-    update_runtime_filter_type_to_profile();
+    if (_enable_fixed_len_to_uint32_v2) {
+        _wrapper->set_enable_fixed_len_to_uint32_v2();
+    }
+    update_runtime_filter_type_to_profile(local_merge_time);
     signal();
 }
 

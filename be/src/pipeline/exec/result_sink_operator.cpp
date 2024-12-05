@@ -17,13 +17,12 @@
 
 #include "result_sink_operator.h"
 
+#include <fmt/format.h>
 #include <sys/select.h>
 
 #include <memory>
-#include <utility>
 
 #include "common/config.h"
-#include "common/object_pool.h"
 #include "exec/rowid_fetcher.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/buffer_control_block.h"
@@ -41,22 +40,31 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+    _fetch_row_id_timer = ADD_TIMER(profile(), "FetchRowIdTime");
+    _write_data_timer = ADD_TIMER(profile(), "WriteDataTime");
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
     auto fragment_instance_id = state->fragment_instance_id();
 
-    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
-    _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
-
+    auto& p = _parent->cast<ResultSinkOperatorX>();
     if (state->query_options().enable_parallel_result_sink) {
         _sender = _parent->cast<ResultSinkOperatorX>()._sender;
     } else {
-        auto& p = _parent->cast<ResultSinkOperatorX>();
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                fragment_instance_id, p._result_sink_buffer_size_rows, &_sender,
-                state->execution_timeout(), state->batch_size()));
+                fragment_instance_id, p._result_sink_buffer_size_rows, &_sender, state));
     }
     _sender->set_dependency(fragment_instance_id, _dependency->shared_from_this());
+
+    _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
+    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
+    }
+    if (p._sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL) {
+        std::shared_ptr<arrow::Schema> arrow_schema;
+        RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
+                                                        state->timezone()));
+        _sender->register_arrow_schema(arrow_schema);
+    }
     return Status::OK();
 }
 
@@ -65,10 +73,6 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ResultSinkOperatorX>();
-    _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
-    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
-    }
     // create writer based on sink type
     switch (p._sink_type) {
     case TResultSinkType::MYSQL_PROTOCAL: {
@@ -82,17 +86,8 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
         break;
     }
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
-        std::shared_ptr<arrow::Schema> arrow_schema;
-        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema,
-                                                       state->timezone()));
-        if (state->query_options().enable_parallel_result_sink) {
-            state->exec_env()->result_mgr()->register_arrow_schema(state->query_id(), arrow_schema);
-        } else {
-            state->exec_env()->result_mgr()->register_arrow_schema(state->fragment_instance_id(),
-                                                                   arrow_schema);
-        }
         _writer.reset(new (std::nothrow) vectorized::VArrowFlightResultWriter(
-                _sender.get(), _output_vexpr_ctxs, _profile, arrow_schema));
+                _sender.get(), _output_vexpr_ctxs, _profile));
         break;
     }
     default:
@@ -137,8 +132,7 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
 
     if (state->query_options().enable_parallel_result_sink) {
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->query_id(), _result_sink_buffer_size_rows, &_sender,
-                state->execution_timeout(), state->batch_size()));
+                state->query_id(), _result_sink_buffer_size_rows, &_sender, state));
     }
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
@@ -146,12 +140,15 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
 Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    COUNTER_UPDATE(local_state.rows_sent_counter(), (int64_t)block->rows());
-    COUNTER_UPDATE(local_state.blocks_sent_counter(), 1);
+    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
+        SCOPED_TIMER(local_state._fetch_row_id_timer);
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
     }
-    RETURN_IF_ERROR(local_state._writer->write(state, *block));
+    {
+        SCOPED_TIMER(local_state._write_data_timer);
+        RETURN_IF_ERROR(local_state._writer->write(state, *block));
+    }
     if (_fetch_option.use_two_phase_fetch) {
         // Block structure may be changed by calling _second_phase_fetch_data().
         // So we should clear block in case of unmatched columns
@@ -191,9 +188,10 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
             final_status = st;
         }
 
-        LOG_INFO("Query {} result sink closed with status {} and has written {} rows",
-                 print_id(state->query_id()), final_status.to_string_no_stack(),
-                 _writer->get_written_rows());
+        VLOG_NOTICE << fmt::format(
+                "Query {} result sink closed with status {} and has written {} rows",
+                print_id(state->query_id()), final_status.to_string_no_stack(),
+                _writer->get_written_rows());
     }
 
     // close sender, this is normal path end

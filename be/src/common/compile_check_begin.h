@@ -15,10 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#ifdef COMPILE_CHECK
+#error The handling of compile_check_begin.h and compile_check_end.h is not done correctly.
+#endif
+
+#define COMPILE_CHECK
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic error "-Wconversion"
 #pragma clang diagnostic ignored "-Wsign-conversion"
 #pragma clang diagnostic ignored "-Wfloat-conversion"
 #endif
+
 //#include "common/compile_check_begin.h"

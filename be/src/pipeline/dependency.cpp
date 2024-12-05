@@ -32,15 +32,16 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
-                                                       std::string name) {
+                                                       const std::string& name) {
     source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
     source_deps.back()->set_shared_state(this);
     return source_deps.back().get();
 }
 
-Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id, std::string name) {
+Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
+                                                     const std::string& name) {
     sink_deps.push_back(std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true));
     sink_deps.back()->set_shared_state(this);
     return sink_deps.back().get();
@@ -91,10 +92,11 @@ std::string Dependency::debug_string(int indentation_level) {
 
 std::string CountedFinishDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer,
-                   "{}{}: id={}, block_task={}, ready={}, _always_ready={}, count={}",
-                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
-                   _ready, _always_ready, _counter);
+    fmt::format_to(
+            debug_string_buffer,
+            "{}{}: id={}, block_task={}, ready={}, _always_ready={}, count={}, _stack_set_ready={}",
+            std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(), _ready,
+            _always_ready, _counter, _stack_set_ready);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -103,16 +105,6 @@ std::string RuntimeFilterDependency::debug_string(int indentation_level) {
     fmt::format_to(debug_string_buffer, "{}, runtime filter: {}",
                    Dependency::debug_string(indentation_level), _runtime_filter->formatted_state());
     return fmt::to_string(debug_string_buffer);
-}
-
-Dependency* RuntimeFilterDependency::is_blocked_by(PipelineTask* task) {
-    std::unique_lock<std::mutex> lc(_task_lock);
-    auto ready = _ready.load();
-    if (!ready && task) {
-        _add_block_task(task);
-        task->_blocked_dep = this;
-    }
-    return ready ? nullptr : this;
 }
 
 void RuntimeFilterTimer::call_timeout() {
@@ -267,8 +259,8 @@ bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows,
                                               need_computes.data());
         }
 
-        auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, int rows) {
-            for (int i = 0; i < rows; ++i) {
+        auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, size_t rows) {
+            for (size_t i = 0; i < rows; ++i) {
                 computes[i] = computes[i] == res[i];
             }
         };

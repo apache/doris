@@ -83,6 +83,7 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
@@ -171,20 +172,20 @@ import java.util.stream.Collectors;
 public class Coordinator implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
 
-    private static final String localIP = FrontendOptions.getLocalHostAddress();
+    public static final String localIP = FrontendOptions.getLocalHostAddress();
 
     // Random is used to shuffle instances of partitioned
     private static final Random instanceRandom = new SecureRandom();
 
-    private static ExecutorService backendRpcCallbackExecutor = ThreadPoolManager.newDaemonProfileThreadPool(32, 100,
-            "backend-rpc-callback", true);
+    public static ExecutorService backendRpcCallbackExecutor = ThreadPoolManager.newDaemonProfileThreadPool(
+            32, 100, "backend-rpc-callback", true);
 
     // Overall status of the entire query; set to the first reported fragment error
     // status or to CANCELLED, if Cancel() is called.
-    Status queryStatus = new Status();
+    private Status queryStatus = new Status();
 
     // save of related backends of this query
-    Map<TNetworkAddress, Long> addressToBackendID = Maps.newHashMap();
+    private Map<TNetworkAddress, Long> addressToBackendID = Maps.newHashMap();
 
     protected ImmutableMap<Long, Backend> idToBackend = ImmutableMap.of();
 
@@ -193,7 +194,7 @@ public class Coordinator implements CoordInterface {
     private FragmentIdMapping<DistributedPlan> distributedPlans;
 
     // scan node id -> TFileScanRangeParams
-    protected Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap = Maps.newHashMap();
+    private Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap = Maps.newHashMap();
 
     // Why do we use query global?
     // When `NOW()` function is in sql, we need only one now(),
@@ -217,7 +218,7 @@ public class Coordinator implements CoordInterface {
     private boolean returnedAllResults = false;
 
     // populated in computeFragmentExecParams()
-    protected final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
+    private final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
 
     private final List<PlanFragment> fragments;
 
@@ -226,7 +227,7 @@ public class Coordinator implements CoordInterface {
     private final Map<Pair<Integer, Long>, PipelineExecContext> pipelineExecContexts = new HashMap<>();
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
     private List<ResultReceiver> receivers = Lists.newArrayList();
-    protected final List<ScanNode> scanNodes;
+    private final List<ScanNode> scanNodes;
     private int scanRangeNum = 0;
     // number of instances of this query, equals to
     // number of backends executing plan fragments on behalf of this query;
@@ -266,16 +267,16 @@ public class Coordinator implements CoordInterface {
     private Backend groupCommitBackend;
 
     // Runtime filter merge instance address and ID
-    public TNetworkAddress runtimeFilterMergeAddr;
-    public TUniqueId runtimeFilterMergeInstanceId;
+    private TNetworkAddress runtimeFilterMergeAddr;
+    private TUniqueId runtimeFilterMergeInstanceId;
     // Runtime filter ID to the target instance address of the fragment,
     // that is expected to use this runtime filter, the instance address is not repeated
-    public Map<RuntimeFilterId, List<FRuntimeFilterTargetParam>> ridToTargetParam = Maps.newHashMap();
+    private Map<RuntimeFilterId, List<FRuntimeFilterTargetParam>> ridToTargetParam = Maps.newHashMap();
     // The runtime filter that expects the instance to be used
-    public List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
-    public List<TopnFilter> topnFilters = new ArrayList<>();
+    private List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
+    private List<TopnFilter> topnFilters = new ArrayList<>();
     // Runtime filter ID to the builder instance number
-    public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
+    private Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
     private ConnectContext context;
 
     private StatsErrorEstimator statsErrorEstimator;
@@ -303,7 +304,7 @@ public class Coordinator implements CoordInterface {
         return numReceivedRows;
     }
 
-    public List<TPipelineWorkloadGroup> gettWorkloadGroups() {
+    public List<TPipelineWorkloadGroup> getTWorkloadGroups() {
         return tWorkloadGroups;
     }
 
@@ -703,7 +704,7 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    private void execInternal() throws Exception {
+    protected void execInternal() throws Exception {
         if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
                     DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());
@@ -733,29 +734,27 @@ public class Coordinator implements CoordInterface {
                 enableParallelResultSink = queryOptions.isEnableParallelOutfile();
             }
 
-            TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             Set<TNetworkAddress> addrs = new HashSet<>();
             for (FInstanceExecParam param : topParams.instanceExecParams) {
                 if (addrs.contains(param.host)) {
                     continue;
                 }
                 addrs.add(param.host);
-                receivers.add(new ResultReceiver(queryId, param.instanceId, addressToBackendID.get(param.host),
-                        toBrpcHost(param.host), this.timeoutDeadline,
-                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver(), enableParallelResultSink));
-            }
-
-            if (!context.isReturnResultFromLocal()) {
-                Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
-                if (enableParallelResultSink) {
-                    context.setFinstId(queryId);
+                if (context.isReturnResultFromLocal()) {
+                    receivers.add(new ResultReceiver(queryId, param.instanceId, addressToBackendID.get(param.host),
+                            toBrpcHost(param.host), this.timeoutDeadline,
+                            context.getSessionVariable().getMaxMsgSizeOfResultReceiver(), enableParallelResultSink));
                 } else {
-                    context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
+                    Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
+                    TUniqueId finstId;
+                    if (enableParallelResultSink) {
+                        finstId = queryId;
+                    } else {
+                        finstId = topParams.instanceExecParams.get(0).instanceId;
+                    }
+                    context.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(finstId,
+                            toArrowFlightHost(param.host), toBrpcHost(param.host), fragments.get(0).getOutputExprs()));
                 }
-                context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
-                context.setResultFlightServerAddr(toArrowFlightHost(execBeAddr));
-                context.setResultInternalServiceAddr(toBrpcHost(execBeAddr));
-                context.setResultOutputExprs(fragments.get(0).getOutputExprs());
             }
 
             LOG.info("dispatch result sink of query {} to {}", DebugUtil.printId(queryId),
@@ -766,7 +765,8 @@ public class Coordinator implements CoordInterface {
                 // set the broker address for OUTFILE sink
                 ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
                 FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
-                        .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
+                        .getBroker(topResultFileSink.getBrokerName(),
+                                topParams.instanceExecParams.get(0).host.getHostname());
                 topResultFileSink.setBrokerAddr(broker.host, broker.port);
             }
         } else {
@@ -775,8 +775,7 @@ public class Coordinator implements CoordInterface {
             deltaUrls = Lists.newArrayList();
             loadCounters = Maps.newHashMap();
             List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
-            Env.getCurrentEnv().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
-                    relatedBackendIds);
+            Env.getCurrentEnv().getLoadManager().initJobProgress(jobId, queryId, instanceIds, relatedBackendIds);
             Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
@@ -785,7 +784,7 @@ public class Coordinator implements CoordInterface {
         sendPipelineCtx();
     }
 
-    private void sendPipelineCtx() throws TException, RpcException, UserException {
+    protected void sendPipelineCtx() throws TException, RpcException, UserException {
         lock();
         try {
             Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
@@ -831,7 +830,7 @@ public class Coordinator implements CoordInterface {
                     Long backendId = this.addressToBackendID.get(entry.getKey());
                     backendFragments.add(Pair.of(fragment.getFragmentId(), backendId));
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
-                            entry.getValue(), backendId, executionProfile);
+                            entry.getValue(), idToBackend.get(backendId), executionProfile, jobId);
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
@@ -851,7 +850,7 @@ public class Coordinator implements CoordInterface {
 
                     PipelineExecContexts ctxs = beToPipelineExecCtxs.get(pipelineExecContext.backend.getId());
                     if (ctxs == null) {
-                        ctxs = new PipelineExecContexts(pipelineExecContext.backend.getId(),
+                        ctxs = new PipelineExecContexts(queryId, pipelineExecContext.backend,
                                 pipelineExecContext.brpcAddress, twoPhaseExecution,
                                 entry.getValue().getFragmentNumOnHost());
                         beToPipelineExecCtxs.putIfAbsent(pipelineExecContext.backend.getId(), ctxs);
@@ -946,7 +945,7 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    private Map<TNetworkAddress, List<Long>>  waitPipelineRpc(List<Pair<Long, Triple<PipelineExecContexts,
+    protected Map<TNetworkAddress, List<Long>>  waitPipelineRpc(List<Pair<Long, Triple<PipelineExecContexts,
             BackendServiceProxy, Future<InternalService.PExecPlanFragmentResult>>>> futures, long leftTimeMs,
             String operation) throws RpcException, UserException {
         if (leftTimeMs <= 0) {
@@ -1326,7 +1325,7 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    private void cancelInternal(Status cancelReason) {
+    protected void cancelInternal(Status cancelReason) {
         for (ResultReceiver receiver : receivers) {
             receiver.cancel(cancelReason);
         }
@@ -1434,31 +1433,8 @@ public class Coordinator implements CoordInterface {
                     destParams.instanceExecParams.get(0).bucketSeqSet.add(0);
                 }
                 // process bucket shuffle join on fragment without scan node
-                TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
                 while (bucketSeq < bucketNum) {
-                    TPlanFragmentDestination dest = new TPlanFragmentDestination();
-
-                    dest.fragment_instance_id = new TUniqueId(-1, -1);
-                    dest.server = dummyServer;
-                    dest.setBrpcServer(dummyServer);
-
-                    Set<TNetworkAddress> hostSet = new HashSet<>();
-                    for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
-                        FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
-                        if (destParams.ignoreDataDistribution
-                                && hostSet.contains(instanceExecParams.host)) {
-                            continue;
-                        }
-                        hostSet.add(instanceExecParams.host);
-                        if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
-                            dest.fragment_instance_id = instanceExecParams.instanceId;
-                            dest.server = toRpcHost(instanceExecParams.host);
-                            dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
-                            instanceExecParams.recvrId = params.destinations.size();
-                            break;
-                        }
-                    }
-
+                    TPlanFragmentDestination dest = setDestination(destParams, params.destinations.size(), bucketSeq);
                     bucketSeq++;
                     params.destinations.add(dest);
                 }
@@ -1503,6 +1479,50 @@ public class Coordinator implements CoordInterface {
                 }
             }
         }
+    }
+
+    private TPlanFragmentDestination setDestination(FragmentExecParams destParams, int recvrId, int bucketSeq)
+            throws Exception {
+        TPlanFragmentDestination dest = new TPlanFragmentDestination();
+        TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
+        dest.fragment_instance_id = new TUniqueId(-1, -1);
+        dest.server = dummyServer;
+        dest.setBrpcServer(dummyServer);
+
+        if (destParams.ignoreDataDistribution) {
+            Map<TNetworkAddress, Pair<TUniqueId, Set<Integer>>> hostToInstanceIdAndBucketSeq
+                    = new HashMap<>();
+            for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
+                FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
+                hostToInstanceIdAndBucketSeq.putIfAbsent(instanceExecParams.host,
+                        Pair.of(instanceExecParams.instanceId, new HashSet<>()));
+                hostToInstanceIdAndBucketSeq.get(instanceExecParams.host).second.addAll(
+                        instanceExecParams.bucketSeqSet);
+            }
+            for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
+                FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
+                if (hostToInstanceIdAndBucketSeq.get(instanceExecParams.host).second.contains(bucketSeq)) {
+                    dest.fragment_instance_id = hostToInstanceIdAndBucketSeq.get(instanceExecParams.host)
+                            .first;
+                    dest.server = toRpcHost(instanceExecParams.host);
+                    dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
+                    instanceExecParams.recvrId = recvrId;
+                    break;
+                }
+            }
+        } else {
+            for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
+                FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
+                if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
+                    dest.fragment_instance_id = instanceExecParams.instanceId;
+                    dest.server = toRpcHost(instanceExecParams.host);
+                    dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
+                    instanceExecParams.recvrId = recvrId;
+                    break;
+                }
+            }
+        }
+        return dest;
     }
 
     private void computeMultiCastFragmentParams() throws Exception {
@@ -1557,31 +1577,9 @@ public class Coordinator implements CoordInterface {
                         destParams.instanceExecParams.get(0).bucketSeqSet.add(0);
                     }
                     // process bucket shuffle join on fragment without scan node
-                    TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
                     while (bucketSeq < bucketNum) {
-                        TPlanFragmentDestination dest = new TPlanFragmentDestination();
-
-                        dest.fragment_instance_id = new TUniqueId(-1, -1);
-                        dest.server = dummyServer;
-                        dest.setBrpcServer(dummyServer);
-
-                        Set<TNetworkAddress> hostSet = new HashSet<>();
-                        for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
-                            FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
-                            if (destParams.ignoreDataDistribution
-                                    && hostSet.contains(instanceExecParams.host)) {
-                                continue;
-                            }
-                            hostSet.add(instanceExecParams.host);
-                            if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
-                                dest.fragment_instance_id = instanceExecParams.instanceId;
-                                dest.server = toRpcHost(instanceExecParams.host);
-                                dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
-                                instanceExecParams.recvrId = params.destinations.size();
-                                break;
-                            }
-                        }
-
+                        TPlanFragmentDestination dest = setDestination(destParams, params.destinations.size(),
+                                bucketSeq);
                         bucketSeq++;
                         destinations.add(dest);
                     }
@@ -1781,7 +1779,7 @@ public class Coordinator implements CoordInterface {
                 params.instanceExecParams.add(instanceParam);
 
                 // Using serial source means a serial source operator will be used in this fragment (e.g. data will be
-                // shuffled to only 1 exchange operator) and then splitted by followed local exchanger
+                // shuffled to only 1 exchange operator) and then split by followed local exchanger
                 int expectedInstanceNum = fragment.getParallelExecNum();
                 boolean useSerialSource = fragment.useSerialSource(context);
                 if (useSerialSource) {
@@ -1888,17 +1886,11 @@ public class Coordinator implements CoordInterface {
                             return scanNode.getId().asInt() == planNodeId;
                         }).findFirst();
 
-                        /**
-                         * Ignore storage data distribution iff:
-                         * 1. `parallelExecInstanceNum * numBackends` is larger than scan ranges.
-                         * 2. Use Nereids planner.
-                         */
                         boolean sharedScan = true;
                         int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                 leftMostNode.getNumInstances());
-                        boolean ignoreStorageDataDistribution = node.isPresent()
-                                && fragment.useSerialSource(context);
-                        if (node.isPresent() && ignoreStorageDataDistribution) {
+                        boolean ignoreStorageDataDistribution = fragment.useSerialSource(context);
+                        if (ignoreStorageDataDistribution) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
@@ -1936,7 +1928,6 @@ public class Coordinator implements CoordInterface {
 
                             FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, 0, params);
                             instanceParam.perNodeScanRanges.put(planNodeId, scanRangeParams);
-                            instanceParam.perNodeSharedScans.put(planNodeId, sharedScan);
                             params.instanceExecParams.add(instanceParam);
                         }
                         params.ignoreDataDistribution = sharedScan;
@@ -2758,24 +2749,29 @@ public class Coordinator implements CoordInterface {
                         null, addressScanRange.getKey(), 0, params);
 
                 for (Pair<Integer, Map<Integer, List<TScanRangeParams>>> nodeScanRangeMap : scanRange) {
-                    instanceParam.addBucketSeq(nodeScanRangeMap.first);
                     for (Map.Entry<Integer, List<TScanRangeParams>> nodeScanRange
                             : nodeScanRangeMap.second.entrySet()) {
                         if (!instanceParam.perNodeScanRanges.containsKey(nodeScanRange.getKey())) {
                             range.put(nodeScanRange.getKey(), Lists.newArrayList());
                             instanceParam.perNodeScanRanges.put(nodeScanRange.getKey(), Lists.newArrayList());
-                            instanceParam.perNodeSharedScans.put(nodeScanRange.getKey(), true);
                         }
                         range.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
                         instanceParam.perNodeScanRanges.get(nodeScanRange.getKey())
                                 .addAll(nodeScanRange.getValue());
                     }
                 }
-                params.instanceExecParams.add(instanceParam);
+                List<FInstanceExecParam> instanceExecParams = new ArrayList<>();
+                instanceExecParams.add(instanceParam);
                 for (int i = 1; i < parallelExecInstanceNum; i++) {
-                    params.instanceExecParams.add(new FInstanceExecParam(
+                    instanceExecParams.add(new FInstanceExecParam(
                             null, addressScanRange.getKey(), 0, params));
                 }
+                int index = 0;
+                for (Pair<Integer, Map<Integer, List<TScanRangeParams>>> nodeScanRangeMap : scanRange) {
+                    instanceExecParams.get(index % instanceExecParams.size()).addBucketSeq(nodeScanRangeMap.first);
+                    index++;
+                }
+                params.instanceExecParams.addAll(instanceExecParams);
             } else {
                 int expectedInstanceNum = 1;
                 if (parallelExecInstanceNum > 1) {
@@ -2821,7 +2817,7 @@ public class Coordinator implements CoordInterface {
     protected final BucketShuffleJoinController bucketShuffleJoinController
             = new BucketShuffleJoinController(fragmentIdToScanNodeIds);
 
-    public class PipelineExecContext {
+    public static class PipelineExecContext {
         TPipelineFragmentParams rpcParams;
         PlanFragmentId fragmentId;
         boolean initiated;
@@ -2832,23 +2828,25 @@ public class Coordinator implements CoordInterface {
         Backend backend;
         long lastMissingHeartbeatTime = -1;
         long beProcessEpoch = 0;
+        private long jobId;
 
         public PipelineExecContext(PlanFragmentId fragmentId,
-                TPipelineFragmentParams rpcParams, Long backendId,
-                ExecutionProfile executionProfile) {
+                TPipelineFragmentParams rpcParams, Backend backend,
+                ExecutionProfile executionProfile, long jobId) {
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
 
             this.initiated = false;
             this.done = false;
 
-            this.backend = idToBackend.get(backendId);
+            this.backend = backend;
             this.address = new TNetworkAddress(backend.getHost(), backend.getBePort());
             this.brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
             this.beProcessEpoch = backend.getProcessEpoch();
+            this.jobId = jobId;
 
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
-            executionProfile.addFragmentBackend(fragmentId, backendId);
+            executionProfile.addFragmentBackend(fragmentId, backend.getId());
         }
 
         /**
@@ -2900,8 +2898,10 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    public class PipelineExecContexts {
+    public static class PipelineExecContexts {
+        TUniqueId queryId;
         long beId;
+        Backend backend;
         TNetworkAddress brpcAddr;
         List<PipelineExecContext> ctxs = Lists.newArrayList();
         boolean twoPhaseExecution = false;
@@ -2910,9 +2910,12 @@ public class Coordinator implements CoordInterface {
         boolean hasCancelled = false;
         boolean cancelInProcess = false;
 
-        public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution,
+        public PipelineExecContexts(TUniqueId queryId,
+                Backend backend, TNetworkAddress brpcAddr, boolean twoPhaseExecution,
                 int instanceNumber) {
-            this.beId = beId;
+            this.queryId = queryId;
+            this.backend = backend;
+            this.beId = backend.getId();
             this.brpcAddr = brpcAddr;
             this.twoPhaseExecution = twoPhaseExecution;
             this.instanceNumber = instanceNumber;
@@ -2924,6 +2927,14 @@ public class Coordinator implements CoordInterface {
 
         public int getInstanceNumber() {
             return instanceNumber;
+        }
+
+        public List<PipelineExecContext> getCtxs() {
+            return ctxs;
+        }
+
+        public Backend getBackend() {
+            return backend;
         }
 
         /**
@@ -3001,6 +3012,14 @@ public class Coordinator implements CoordInterface {
             };
         }
 
+        public void setSerializeFragments(ByteString serializedFragments) {
+            this.serializedFragments = serializedFragments;
+        }
+
+        public ByteString getSerializedFragments() {
+            return serializedFragments;
+        }
+
         public long serializeFragments() throws TException {
             TPipelineFragmentParamsList paramsList = new TPipelineFragmentParamsList();
             for (PipelineExecContext cts : ctxs) {
@@ -3026,7 +3045,7 @@ public class Coordinator implements CoordInterface {
         private synchronized void cancelQuery(Status cancelReason) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("cancelRemoteFragments backend: {}, query={}, reason: {}",
-                         idToBackend.get(beId), DebugUtil.printId(queryId), cancelReason.toString());
+                        backend, DebugUtil.printId(queryId), cancelReason.toString());
             }
 
             if (this.hasCancelled || this.cancelInProcess) {
@@ -3047,7 +3066,7 @@ public class Coordinator implements CoordInterface {
                                     hasCancelled = true;
                                 } else {
                                     LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
-                                            DebugUtil.printId(queryId), idToBackend.get(beId), status.toString());
+                                            DebugUtil.printId(queryId), backend, status.toString());
                                 }
                             }
                         }
@@ -3055,7 +3074,7 @@ public class Coordinator implements CoordInterface {
                         public void onFailure(Throwable t) {
                             cancelInProcess = false;
                             LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
-                                    DebugUtil.printId(queryId), idToBackend.get(beId),  cancelReason.toString(), t);
+                                    DebugUtil.printId(queryId), backend,  cancelReason.toString(), t);
                         }
                     }, backendRpcCallbackExecutor);
                     cancelInProcess = true;
@@ -3109,10 +3128,8 @@ public class Coordinator implements CoordInterface {
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
-                Map<Integer, Boolean> perNodeSharedScans = instanceExecParam.perNodeSharedScans;
                 if (scanRanges == null) {
                     scanRanges = Maps.newHashMap();
-                    perNodeSharedScans = Maps.newHashMap();
                 }
                 if (!res.containsKey(instanceExecParam.host)) {
                     TPipelineFragmentParams params = new TPipelineFragmentParams();
@@ -3140,7 +3157,6 @@ public class Coordinator implements CoordInterface {
 
                     params.setFileScanParams(fileScanRangeParamsMap);
                     params.setNumBuckets(fragment.getBucketNum());
-                    params.setPerNodeSharedScans(perNodeSharedScans);
                     params.setTotalInstances(instanceExecParams.size());
                     if (ignoreDataDistribution) {
                         params.setParallelInstances(parallelTasksNum);
@@ -3165,7 +3181,6 @@ public class Coordinator implements CoordInterface {
 
                 localParams.setFragmentInstanceId(instanceExecParam.instanceId);
                 localParams.setPerNodeScanRanges(scanRanges);
-                localParams.setPerNodeSharedScans(perNodeSharedScans);
                 localParams.setSenderId(i);
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
@@ -3313,7 +3328,6 @@ public class Coordinator implements CoordInterface {
         TUniqueId instanceId;
         TNetworkAddress host;
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newHashMap();
-        Map<Integer, Boolean> perNodeSharedScans = Maps.newHashMap();
 
         int perFragmentInstanceIdx;
 
@@ -3373,15 +3387,11 @@ public class Coordinator implements CoordInterface {
         return backendAddresses;
     }
 
-    public Map<PlanFragmentId, FragmentExecParams> getFragmentExecParamsMap() {
-        return fragmentExecParamsMap;
-    }
-
     public List<PlanFragment> getFragments() {
         return fragments;
     }
 
-    private void updateProfileIfPresent(Consumer<SummaryProfile> profileAction) {
+    protected void updateProfileIfPresent(Consumer<SummaryProfile> profileAction) {
         Optional.ofNullable(context).map(ConnectContext::getExecutor).map(StmtExecutor::getSummaryProfile)
                 .ifPresent(profileAction);
     }

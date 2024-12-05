@@ -80,23 +80,19 @@ using AggregatedMethodVariants = std::variant<
                 vectorized::UInt256, AggDataNullable<vectorized::UInt256>>>,
         vectorized::MethodSingleNullableColumn<
                 vectorized::MethodStringNoCache<AggregatedDataWithNullableShortStringKey>>,
-        vectorized::MethodKeysFixed<AggData<vectorized::UInt64>, false>,
-        vectorized::MethodKeysFixed<AggData<vectorized::UInt64>, true>,
-        vectorized::MethodKeysFixed<AggData<vectorized::UInt128>, false>,
-        vectorized::MethodKeysFixed<AggData<vectorized::UInt128>, true>,
-        vectorized::MethodKeysFixed<AggData<vectorized::UInt256>, false>,
-        vectorized::MethodKeysFixed<AggData<vectorized::UInt256>, true>,
-        vectorized::MethodKeysFixed<AggData<vectorized::UInt136>, false>,
-        vectorized::MethodKeysFixed<AggData<vectorized::UInt136>, true>>;
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt64>>,
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt128>>,
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt256>>,
+        vectorized::MethodKeysFixed<AggData<vectorized::UInt136>>>;
 
 struct AggregatedDataVariants
         : public DataVariants<AggregatedMethodVariants, vectorized::MethodSingleNullableColumn,
-                              vectorized::MethodOneNumber, vectorized::MethodKeysFixed,
-                              vectorized::DataWithNullKey> {
+                              vectorized::MethodOneNumber, vectorized::DataWithNullKey> {
     AggregatedDataWithoutKey without_key = nullptr;
 
-    template <bool nullable>
     void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
+        bool nullable = data_types.size() == 1 && data_types[0]->is_nullable();
+
         switch (type) {
         case HashKeyType::without_key:
             break;
@@ -104,28 +100,28 @@ struct AggregatedDataVariants
             method_variant.emplace<vectorized::MethodSerialized<AggregatedDataWithStringKey>>();
             break;
         case HashKeyType::int8_key:
-            emplace_single<vectorized::UInt8, AggData<vectorized::UInt8>, nullable>();
+            emplace_single<vectorized::UInt8, AggData<vectorized::UInt8>>(nullable);
             break;
         case HashKeyType::int16_key:
-            emplace_single<vectorized::UInt16, AggData<vectorized::UInt16>, nullable>();
+            emplace_single<vectorized::UInt16, AggData<vectorized::UInt16>>(nullable);
             break;
         case HashKeyType::int32_key:
-            emplace_single<vectorized::UInt32, AggData<vectorized::UInt32>, nullable>();
+            emplace_single<vectorized::UInt32, AggData<vectorized::UInt32>>(nullable);
             break;
         case HashKeyType::int32_key_phase2:
-            emplace_single<vectorized::UInt32, AggregatedDataWithUInt32KeyPhase2, nullable>();
+            emplace_single<vectorized::UInt32, AggregatedDataWithUInt32KeyPhase2>(nullable);
             break;
         case HashKeyType::int64_key:
-            emplace_single<vectorized::UInt64, AggData<vectorized::UInt64>, nullable>();
+            emplace_single<vectorized::UInt64, AggData<vectorized::UInt64>>(nullable);
             break;
         case HashKeyType::int64_key_phase2:
-            emplace_single<vectorized::UInt64, AggregatedDataWithUInt64KeyPhase2, nullable>();
+            emplace_single<vectorized::UInt64, AggregatedDataWithUInt64KeyPhase2>(nullable);
             break;
         case HashKeyType::int128_key:
-            emplace_single<vectorized::UInt128, AggData<vectorized::UInt128>, nullable>();
+            emplace_single<vectorized::UInt128, AggData<vectorized::UInt128>>(nullable);
             break;
         case HashKeyType::int256_key:
-            emplace_single<vectorized::UInt256, AggData<vectorized::UInt256>, nullable>();
+            emplace_single<vectorized::UInt256, AggData<vectorized::UInt256>>(nullable);
             break;
         case HashKeyType::string_key:
             if (nullable) {
@@ -138,24 +134,20 @@ struct AggregatedDataVariants
             }
             break;
         case HashKeyType::fixed64:
-            method_variant
-                    .emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt64>, nullable>>(
-                            get_key_sizes(data_types));
+            method_variant.emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt64>>>(
+                    get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:
-            method_variant
-                    .emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt128>, nullable>>(
-                            get_key_sizes(data_types));
+            method_variant.emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt128>>>(
+                    get_key_sizes(data_types));
             break;
         case HashKeyType::fixed136:
-            method_variant
-                    .emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt136>, nullable>>(
-                            get_key_sizes(data_types));
+            method_variant.emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt136>>>(
+                    get_key_sizes(data_types));
             break;
         case HashKeyType::fixed256:
-            method_variant
-                    .emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt256>, nullable>>(
-                            get_key_sizes(data_types));
+            method_variant.emplace<vectorized::MethodKeysFixed<AggData<vectorized::UInt256>>>(
+                    get_key_sizes(data_types));
             break;
         default:
             throw Exception(ErrorCode::INTERNAL_ERROR,

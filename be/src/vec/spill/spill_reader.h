@@ -28,6 +28,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Block;
 class SpillReader {
 public:
@@ -79,3 +80,4 @@ private:
 using SpillReaderUPtr = std::unique_ptr<SpillReader>;
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

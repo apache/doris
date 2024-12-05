@@ -488,7 +488,7 @@ Status process_single_column(const rapidjson::Value& col, PrimitiveType sub_type
                              bool pure_doc_value, vectorized::Array& array) {
     T val;
     RETURN_IF_ERROR(handle_value<T>(col, sub_type, pure_doc_value, val));
-    array.push_back(val);
+    array.push_back(vectorized::Field(val));
     return Status::OK();
 }
 

@@ -44,12 +44,10 @@ static std::string get_host_and_port(const std::vector<doris::TNetworkAddress>& 
 
 Status EsScanLocalState::_init_profile() {
     RETURN_IF_ERROR(Base::_init_profile());
-    _es_profile.reset(new RuntimeProfile("EsIterator"));
-    Base::_scanner_profile->add_child(_es_profile.get(), true, nullptr);
 
-    _rows_read_counter = ADD_COUNTER(_es_profile, "RowsRead", TUnit::UNIT);
-    _read_timer = ADD_TIMER(_es_profile, "TotalRawReadTime(*)");
-    _materialize_timer = ADD_TIMER(_es_profile, "MaterializeTupleTime(*)");
+    _blocks_read_counter = ADD_COUNTER(_runtime_profile, "BlocksRead", TUnit::UNIT);
+    _read_timer = ADD_TIMER(_runtime_profile, "TotalRawReadTime(*)");
+    _materialize_timer = ADD_TIMER(_runtime_profile, "MaterializeTupleTime(*)");
     return Status::OK();
 }
 

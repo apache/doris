@@ -39,6 +39,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -149,6 +150,7 @@ public abstract class ExternalCatalog
 
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
+    protected PreExecutionAuthenticator preExecutionAuthenticator;
 
     public ExternalCatalog() {
     }
@@ -418,6 +420,7 @@ public abstract class ExternalCatalog
             if (useMetaCache.get() && metaCache != null) {
                 metaCache.invalidateAll();
             } else if (!useMetaCache.get()) {
+                this.initialized = false;
                 for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
                     db.setUnInitialized(invalidCache);
                 }
@@ -933,5 +936,9 @@ public abstract class ExternalCatalog
         } else {
             tableAutoAnalyzePolicy.put(key, policy);
         }
+    }
+
+    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
+        return preExecutionAuthenticator;
     }
 }

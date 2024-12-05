@@ -219,9 +219,11 @@ suite("test_base_insert_job") {
         RESUME JOB where jobname =  '${jobName}'
     """
     println(tasks.size())
+    // test resume job success
     Awaitility.await("resume-job-test").atMost(60, SECONDS).until({
         def afterResumeTasks = sql """ select status from tasks("type"="insert") where JobName= '${jobName}'   """
         println "resume tasks :" + afterResumeTasks
+        //resume tasks size should be greater than before pause
         afterResumeTasks.size() > tasks.size()
     })
 
@@ -247,7 +249,6 @@ suite("test_base_insert_job") {
             CREATE JOB ${jobName}  ON SCHEDULE at '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
-        println e.getMessage()
         assert e.getMessage().contains("startTimeMs must be greater than current time")
     }
     // assert end time less than start time
@@ -280,6 +281,14 @@ suite("test_base_insert_job") {
         """
     } catch (Exception e) {
         assert e.getMessage().contains("Invalid interval time unit: years")
+    }
+    // assert interval time unit is -1
+    try {
+        sql """
+            CREATE JOB test_error_starts  ON SCHEDULE every -1 second    comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
+        """
+    } catch (Exception e) {
+        assert e.getMessage().contains("expecting INTEGER_VALUE")
     }
 
     // test keyword as job name

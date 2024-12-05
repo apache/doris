@@ -151,6 +151,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             executor.execute();
             if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
                 stmtStr = executeStmt.toSql();
+                stmtStr = stmtStr + " /*originalSql = " + prepareCommand.getOriginalStmt().originStmt + "*/";
             }
         } catch (Throwable e) {
             // Catch all throwable.
@@ -262,6 +263,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 break;
             case COM_SET_OPTION:
                 handleSetOption();
+                break;
+            case COM_RESET_CONNECTION:
+                handleResetConnection();
                 break;
             default:
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");

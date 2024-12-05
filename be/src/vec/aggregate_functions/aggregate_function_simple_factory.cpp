@@ -25,6 +25,7 @@
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory);
@@ -72,6 +73,8 @@ void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& facto
 void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_skewness(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_kurtosis(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_approx_top_k(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_approx_top_sum(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -114,20 +117,18 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_linear_histogram(instance);
         register_aggregate_function_map_agg(instance);
         register_aggregate_function_bitmap_agg(instance);
-
         register_aggregate_function_stddev_variance_samp(instance);
         register_aggregate_function_replace_reader_load(instance);
         register_aggregate_function_window_lead_lag_first_last(instance);
         register_aggregate_function_HLL_union_agg(instance);
-
         register_aggregate_functions_corr(instance);
         register_aggregate_function_covar_pop(instance);
         register_aggregate_function_covar_samp(instance);
-
         register_aggregate_function_combinator_foreach(instance);
-
         register_aggregate_function_skewness(instance);
         register_aggregate_function_kurtosis(instance);
+        register_aggregate_function_approx_top_k(instance);
+        register_aggregate_function_approx_top_sum(instance);
     });
     return instance;
 }

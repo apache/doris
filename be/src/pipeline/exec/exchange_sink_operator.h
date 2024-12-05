@@ -77,27 +77,13 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     Dependency* finishdependency() override { return _finish_dependency.get(); }
-    Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer* buffer);
 
-    RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
     RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
-    RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
     RuntimeProfile::Counter* local_send_timer() { return _local_send_timer; }
     RuntimeProfile::Counter* local_bytes_send_counter() { return _local_bytes_send_counter; }
     RuntimeProfile::Counter* local_sent_rows() { return _local_sent_rows; }
-    RuntimeProfile::Counter* brpc_send_timer() { return _brpc_send_timer; }
-    RuntimeProfile::Counter* serialize_batch_timer() { return _serialize_batch_timer; }
-    RuntimeProfile::Counter* split_block_distribute_by_channel_timer() {
-        return _split_block_distribute_by_channel_timer;
-    }
-    RuntimeProfile::Counter* bytes_sent_counter() { return _bytes_sent_counter; }
-    RuntimeProfile::Counter* split_block_hash_compute_timer() {
-        return _split_block_hash_compute_timer;
-    }
     RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
-    RuntimeProfile::Counter* compress_timer() { return _compress_timer; }
-    RuntimeProfile::Counter* uncompressed_bytes_counter() { return _uncompressed_bytes_counter; }
     [[nodiscard]] bool transfer_large_data_by_brpc() const;
     bool is_finished() const override { return _reach_limit.load(); }
     void set_reach_limit() { _reach_limit = true; };
@@ -110,7 +96,7 @@ public:
     static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
         return Status::OK();
     }
-    Status _send_new_partition_batch();
+    Status _send_new_partition_batch(vectorized::Block* input_block);
     std::vector<std::shared_ptr<vectorized::Channel>> channels;
     int current_channel_idx {0}; // index of current channel to send to if _random == true
     bool only_local_exchange {false};
@@ -129,21 +115,19 @@ private:
     std::unique_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
     RuntimeProfile::Counter* _compress_timer = nullptr;
-    RuntimeProfile::Counter* _brpc_send_timer = nullptr;
-    RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
     RuntimeProfile::Counter* _bytes_sent_counter = nullptr;
     RuntimeProfile::Counter* _uncompressed_bytes_counter = nullptr;
     RuntimeProfile::Counter* _local_sent_rows = nullptr;
     RuntimeProfile::Counter* _local_send_timer = nullptr;
     RuntimeProfile::Counter* _split_block_hash_compute_timer = nullptr;
-    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer = nullptr;
+    RuntimeProfile::Counter* _distribute_rows_into_channels_timer = nullptr;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
-    RuntimeProfile::Counter* _rows_sent_counter = nullptr;
     // Throughput per total time spent in sender
     RuntimeProfile::Counter* _overall_throughput = nullptr;
     // Used to counter send bytes under local data exchange
     RuntimeProfile::Counter* _local_bytes_send_counter = nullptr;
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _send_new_partition_timer = nullptr;
 
     RuntimeProfile::Counter* _wait_queue_timer = nullptr;
     RuntimeProfile::Counter* _wait_broadcast_buffer_timer = nullptr;
@@ -153,6 +137,7 @@ private:
     int _sender_id;
     std::shared_ptr<vectorized::BroadcastPBlockHolderMemLimiter> _broadcast_pb_mem_limiter;
 
+    size_t _rpc_channels_num = 0;
     vectorized::BlockSerializer _serializer;
 
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
@@ -178,7 +163,7 @@ private:
      */
     std::vector<std::shared_ptr<Dependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
-    int _partition_count;
+    size_t _partition_count;
 
     std::shared_ptr<Dependency> _finish_dependency;
 
@@ -221,8 +206,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
-    Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
-                           int num_receivers = 1);
     DataDistribution required_data_distribution() const override;
     bool is_serial_operator() const override { return true; }
 
@@ -234,12 +217,12 @@ private:
 
     Status channel_add_rows(RuntimeState* state,
                             std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-                            int num_channels, const uint32_t* channel_ids, int rows,
-                            vectorized::Block* block, bool eos);
+                            size_t num_channels, const uint32_t* __restrict channel_ids,
+                            size_t rows, vectorized::Block* block, bool eos);
 
     Status channel_add_rows_with_idx(RuntimeState* state,
                                      std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-                                     int num_channels,
+                                     size_t num_channels,
                                      std::vector<std::vector<uint32_t>>& channel2rows,
                                      vectorized::Block* block, bool eos);
     RuntimeState* _state = nullptr;

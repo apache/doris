@@ -55,6 +55,8 @@ import java.util.stream.Collectors;
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
 
+    long UNKNOWN_ROW_COUNT = -1;
+
     default void readLock() {
     }
 
@@ -171,6 +173,8 @@ public interface TableIf {
     long getDataLength();
 
     long getAvgRowLength();
+
+    long getIndexLength();
 
     long getLastCheckTime();
 

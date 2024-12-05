@@ -20,6 +20,7 @@
 #include "util/debug_points.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TExpr;
 
 LoadStreamMap::LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, int num_use,

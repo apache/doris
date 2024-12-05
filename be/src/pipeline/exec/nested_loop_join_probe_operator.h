@@ -68,42 +68,48 @@ private:
                                                      size_t build_block_idx,
                                                      size_t processed_blocks_num, bool materialize,
                                                      Filter& filter) {
-        if constexpr (SetBuildSideFlag) {
-            for (size_t i = 0; i < processed_blocks_num; i++) {
-                auto& build_side_flag =
-                        assert_cast<vectorized::ColumnUInt8*>(
-                                _shared_state->build_side_visited_flags[build_block_idx].get())
-                                ->get_data();
-                auto* __restrict build_side_flag_data = build_side_flag.data();
-                auto cur_sz = build_side_flag.size();
-                const size_t offset = _build_offset_stack.top();
-                _build_offset_stack.pop();
-                for (size_t j = 0; j < cur_sz; j++) {
-                    build_side_flag_data[j] |= filter[offset + j];
+        {
+            SCOPED_TIMER(_update_visited_flags_timer);
+            if constexpr (SetBuildSideFlag) {
+                for (size_t i = 0; i < processed_blocks_num; i++) {
+                    auto& build_side_flag =
+                            assert_cast<vectorized::ColumnUInt8*>(
+                                    _shared_state->build_side_visited_flags[build_block_idx].get())
+                                    ->get_data();
+                    auto* __restrict build_side_flag_data = build_side_flag.data();
+                    auto cur_sz = build_side_flag.size();
+                    const size_t offset = _build_offset_stack.top();
+                    _build_offset_stack.pop();
+                    for (size_t j = 0; j < cur_sz; j++) {
+                        build_side_flag_data[j] |= filter[offset + j];
+                    }
+                    build_block_idx = build_block_idx == 0 ? _shared_state->build_blocks.size() - 1
+                                                           : build_block_idx - 1;
                 }
-                build_block_idx = build_block_idx == 0 ? _shared_state->build_blocks.size() - 1
-                                                       : build_block_idx - 1;
+            }
+            if constexpr (SetProbeSideFlag) {
+                int64_t end = filter.size();
+                for (int i = _left_block_pos == _child_block->rows() ? _left_block_pos - 1
+                                                                     : _left_block_pos;
+                     i >= _left_block_start_pos; i--) {
+                    int64_t offset = 0;
+                    if (!_probe_offset_stack.empty()) {
+                        offset = _probe_offset_stack.top();
+                        _probe_offset_stack.pop();
+                    }
+                    if (!_cur_probe_row_visited_flags[i]) {
+                        _cur_probe_row_visited_flags[i] =
+                                simd::contain_byte<uint8>(filter.data() + offset, end - offset, 1)
+                                        ? 1
+                                        : 0;
+                    }
+                    end = offset;
+                }
             }
         }
-        if constexpr (SetProbeSideFlag) {
-            int64_t end = filter.size();
-            for (int i = _left_block_pos == _child_block->rows() ? _left_block_pos - 1
-                                                                 : _left_block_pos;
-                 i >= _left_block_start_pos; i--) {
-                int64_t offset = 0;
-                if (!_probe_offset_stack.empty()) {
-                    offset = _probe_offset_stack.top();
-                    _probe_offset_stack.pop();
-                }
-                if (!_cur_probe_row_visited_flags[i]) {
-                    _cur_probe_row_visited_flags[i] =
-                            simd::contain_byte<uint8>(filter.data() + offset, end - offset, 1) ? 1
-                                                                                               : 0;
-                }
-                end = offset;
-            }
-        }
+
         if (materialize) {
+            SCOPED_TIMER(_filtered_by_join_conjuncts_timer);
             vectorized::Block::filter_block_internal(block, filter, column_to_keep);
         } else {
             CLEAR_BLOCK
@@ -125,8 +131,11 @@ private:
         if (LIKELY(!_join_conjuncts.empty() && block->rows() > 0)) {
             vectorized::IColumn::Filter filter(block->rows(), 1);
             bool can_filter_all = false;
-            RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts(
-                    _join_conjuncts, nullptr, IgnoreNull, block, &filter, &can_filter_all));
+            {
+                SCOPED_TIMER(_join_conjuncts_evaluation_timer);
+                RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts(
+                        _join_conjuncts, nullptr, IgnoreNull, block, &filter, &can_filter_all));
+            }
 
             if (can_filter_all) {
                 CLEAR_BLOCK
@@ -185,6 +194,10 @@ private:
     vectorized::VExprContextSPtrs _join_conjuncts;
 
     RuntimeProfile::Counter* _loop_join_timer = nullptr;
+    RuntimeProfile::Counter* _output_temp_blocks_timer = nullptr;
+    RuntimeProfile::Counter* _update_visited_flags_timer = nullptr;
+    RuntimeProfile::Counter* _join_conjuncts_evaluation_timer = nullptr;
+    RuntimeProfile::Counter* _filtered_by_join_conjuncts_timer = nullptr;
 };
 
 class NestedLoopJoinProbeOperatorX final

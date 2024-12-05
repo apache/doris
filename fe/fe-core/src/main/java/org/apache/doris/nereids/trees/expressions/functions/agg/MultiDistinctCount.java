@@ -21,7 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -36,8 +35,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** MultiDistinctCount */
-public class MultiDistinctCount extends AggregateFunction
-        implements AlwaysNotNullable, ExplicitlyCastableSignature, MultiDistinction {
+public class MultiDistinctCount extends NotNullableAggregateFunction
+        implements ExplicitlyCastableSignature, MultiDistinction {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE_WITHOUT_INDEX)
     );

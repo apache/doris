@@ -60,7 +60,7 @@ public:
         return doris::FieldType::OLAP_FIELD_TYPE_NONE;
     }
 
-    Field get_default() const override { return String(); }
+    Field get_default() const override { return Field(String()); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -78,7 +78,6 @@ public:
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
 
-    bool get_is_parametric() const override { return false; }
     bool have_subtypes() const override { return false; }
 
     bool can_be_inside_low_cardinality() const override { return false; }

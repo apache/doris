@@ -34,6 +34,7 @@ protected:
     virtual void SetUp() {}
 
 private:
+    RuntimeState _state;
 };
 
 TEST_F(ResultBufferMgrTest, create_normal) {
@@ -43,7 +44,7 @@ TEST_F(ResultBufferMgrTest, create_normal) {
     query_id.hi = 100;
 
     std::shared_ptr<BufferControlBlock> control_block1;
-    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, false).ok());
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, &_state).ok());
 }
 
 TEST_F(ResultBufferMgrTest, create_same_buffer) {
@@ -53,9 +54,9 @@ TEST_F(ResultBufferMgrTest, create_same_buffer) {
     query_id.hi = 100;
 
     std::shared_ptr<BufferControlBlock> control_block1;
-    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, false).ok());
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, &_state).ok());
     std::shared_ptr<BufferControlBlock> control_block2;
-    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block2, false).ok());
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block2, &_state).ok());
 
     EXPECT_EQ(control_block1.get(), control_block1.get());
 }
@@ -67,7 +68,7 @@ TEST_F(ResultBufferMgrTest, fetch_data_normal) {
     query_id.hi = 100;
 
     std::shared_ptr<BufferControlBlock> control_block1;
-    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, false).ok());
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, &_state).ok());
 
     TFetchDataResult* result = new TFetchDataResult();
     result->result_batch.rows.push_back("hello test");
@@ -85,7 +86,7 @@ TEST_F(ResultBufferMgrTest, fetch_data_no_block) {
     query_id.hi = 100;
 
     std::shared_ptr<BufferControlBlock> control_block1;
-    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, false).ok());
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, &_state).ok());
 
     TFetchDataResult* result = new TFetchDataResult();
     query_id.lo = 11;
@@ -101,7 +102,7 @@ TEST_F(ResultBufferMgrTest, normal_cancel) {
     query_id.hi = 100;
 
     std::shared_ptr<BufferControlBlock> control_block1;
-    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, false).ok());
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, &_state).ok());
 
     EXPECT_TRUE(buffer_mgr.cancel(query_id).ok());
 }

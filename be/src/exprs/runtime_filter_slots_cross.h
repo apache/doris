@@ -72,9 +72,9 @@ public:
         return Status::OK();
     }
 
-    Status publish() {
+    Status publish(RuntimeState* state) {
         for (auto filter : _runtime_filters) {
-            RETURN_IF_ERROR(filter->publish());
+            RETURN_IF_ERROR(filter->publish(state));
         }
         return Status::OK();
     }

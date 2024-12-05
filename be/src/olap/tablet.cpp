@@ -26,6 +26,7 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
@@ -35,6 +36,7 @@
 #include <algorithm>
 #include <atomic>
 #include <boost/container/detail/std_fwd.hpp>
+#include <cstdint>
 #include <roaring/roaring.hh>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -86,6 +88,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/rowset_writer.h"
@@ -329,6 +332,7 @@ Status Tablet::init() {
 // should save tablet meta to remote meta store
 // if it's a primary replica
 void Tablet::save_meta() {
+    check_table_size_correctness();
     auto res = _tablet_meta->save_meta(_data_dir);
     CHECK_EQ(res, Status::OK()) << "fail to save tablet_meta. res=" << res
                                 << ", root=" << _data_dir->path();
@@ -1201,10 +1205,6 @@ Status Tablet::_contains_version(const Version& version) {
     return Status::OK();
 }
 
-TabletInfo Tablet::get_tablet_info() const {
-    return TabletInfo(tablet_id(), tablet_uid());
-}
-
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
@@ -1272,7 +1272,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
         std::shared_lock rlock(_meta_lock);
         auto has_alter_inverted_index = [&](RowsetSharedPtr rowset) -> bool {
             for (const auto& index_id : alter_index_uids) {
-                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id, "")) {
+                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id)) {
                     return true;
                 }
             }
@@ -1692,6 +1692,23 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // tablet may not have cooldowned data, but the storage policy is set
         tablet_info->__set_cooldown_term(_cooldown_conf.term);
     }
+    tablet_info->__set_local_index_size(_tablet_meta->tablet_local_index_size());
+    tablet_info->__set_local_segment_size(_tablet_meta->tablet_local_segment_size());
+    tablet_info->__set_remote_index_size(_tablet_meta->tablet_remote_index_size());
+    tablet_info->__set_remote_segment_size(_tablet_meta->tablet_remote_segment_size());
+}
+
+void Tablet::report_error(const Status& st) {
+    if (st.is<ErrorCode::IO_ERROR>()) {
+        ++_io_error_times;
+    } else if (st.is<ErrorCode::CORRUPTION>()) {
+        _io_error_times = config::max_tablet_io_errors + 1;
+    } else if (st.is<ErrorCode::NOT_FOUND>()) {
+        check_tablet_path_exists();
+        if (!_is_tablet_path_exists.load(std::memory_order_relaxed)) {
+            _io_error_times = config::max_tablet_io_errors + 1;
+        }
+    }
 }
 
 Status Tablet::prepare_compaction_and_calculate_permits(
@@ -2034,8 +2051,8 @@ Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
     LOG(INFO) << "Upload rowset " << old_rowset->version() << " " << new_rowset_id.to_string()
               << " to " << storage_resource.fs->root_path().native()
               << ", tablet_id=" << tablet_id() << ", duration=" << duration.count()
-              << ", capacity=" << old_rowset->data_disk_size()
-              << ", tp=" << old_rowset->data_disk_size() / duration.count()
+              << ", capacity=" << old_rowset->total_disk_size()
+              << ", tp=" << old_rowset->total_disk_size() / duration.count()
               << ", old rowset_id=" << old_rowset->rowset_id().to_string();
 
     // gen a new rowset
@@ -2414,7 +2431,7 @@ RowsetSharedPtr Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_
     // current time or it's datatime is less than current time
     if (newest_cooldown_time != 0 && newest_cooldown_time < UnixSeconds()) {
         *cooldown_timestamp = newest_cooldown_time;
-        *file_size = rowset->data_disk_size();
+        *file_size = rowset->total_disk_size();
         VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
                    << " file_size: " << *file_size;
         return rowset;
@@ -2477,7 +2494,7 @@ CalcDeleteBitmapExecutor* Tablet::calc_delete_bitmap_executor() {
 
 Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                                  const RowsetIdUnorderedSet& cur_rowset_ids) {
+                                  const RowsetIdUnorderedSet& cur_rowset_ids, int64_t lock_id) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
 
@@ -2529,10 +2546,10 @@ void Tablet::set_skip_compaction(bool skip, CompactionType compaction_type, int6
 
 bool Tablet::should_skip_compaction(CompactionType compaction_type, int64_t now) {
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION && _skip_cumu_compaction &&
-        now < _skip_cumu_compaction_ts + 120) {
+        now < _skip_cumu_compaction_ts + config::skip_tablet_compaction_second) {
         return true;
     } else if (compaction_type == CompactionType::BASE_COMPACTION && _skip_base_compaction &&
-               now < _skip_base_compaction_ts + 120) {
+               now < _skip_base_compaction_ts + config::skip_tablet_compaction_second) {
         return true;
     }
     return false;
@@ -2637,12 +2654,9 @@ void Tablet::gc_binlogs(int64_t version) {
         // add binlog segment files and index files
         for (int64_t i = 0; i < num_segments; ++i) {
             wait_for_deleted_binlog_files.emplace_back(get_segment_filepath(rowset_id, i));
-            for (const auto& index : this->tablet_schema()->indexes()) {
-                if (index.index_type() != IndexType::INVERTED) {
-                    continue;
-                }
+            for (const auto& index : this->tablet_schema()->inverted_indexes()) {
                 wait_for_deleted_binlog_files.emplace_back(
-                        get_segment_index_filepath(rowset_id, i, index.index_id()));
+                        get_segment_index_filepath(rowset_id, i, index->index_id()));
             }
         }
     };
@@ -2722,6 +2736,126 @@ void Tablet::clear_cache() {
     for (auto& rowset : rowsets) {
         rowset->clear_cache();
     }
+}
+
+void Tablet::check_table_size_correctness() {
+    if (!config::enable_table_size_correctness_check) {
+        return;
+    }
+    const std::vector<RowsetMetaSharedPtr>& all_rs_metas = _tablet_meta->all_rs_metas();
+    for (const auto& rs_meta : all_rs_metas) {
+        int64_t total_segment_size = get_segment_file_size(rs_meta);
+        int64_t total_inverted_index_size = get_inverted_index_file_szie(rs_meta);
+        if (rs_meta->data_disk_size() != total_segment_size ||
+            rs_meta->index_disk_size() != total_inverted_index_size ||
+            rs_meta->data_disk_size() + rs_meta->index_disk_size() != rs_meta->total_disk_size()) {
+            LOG(WARNING) << "[Local table table size check failed]:"
+                         << " tablet id: " << rs_meta->tablet_id()
+                         << ", rowset id:" << rs_meta->rowset_id()
+                         << ", rowset data disk size:" << rs_meta->data_disk_size()
+                         << ", rowset real data disk size:" << total_segment_size
+                         << ", rowset index disk size:" << rs_meta->index_disk_size()
+                         << ", rowset real index disk size:" << total_inverted_index_size
+                         << ", rowset total disk size:" << rs_meta->total_disk_size()
+                         << ", rowset segment path:"
+                         << StorageResource().remote_segment_path(
+                                    rs_meta->tablet_id(), rs_meta->rowset_id().to_string(), 0);
+            DCHECK(false);
+        }
+    }
+}
+
+std::string Tablet::get_segment_path(const RowsetMetaSharedPtr& rs_meta, int64_t seg_id) {
+    std::string segment_path;
+    if (rs_meta->is_local()) {
+        segment_path = local_segment_path(_tablet_path, rs_meta->rowset_id().to_string(), seg_id);
+    } else {
+        segment_path = rs_meta->remote_storage_resource().value()->remote_segment_path(
+                rs_meta->tablet_id(), rs_meta->rowset_id().to_string(), seg_id);
+    }
+    return segment_path;
+}
+
+int64_t Tablet::get_segment_file_size(const RowsetMetaSharedPtr& rs_meta) {
+    const auto& fs = rs_meta->fs();
+    if (!fs) {
+        LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta->resource_id();
+    }
+    int64_t total_segment_size = 0;
+    for (int64_t seg_id = 0; seg_id < rs_meta->num_segments(); seg_id++) {
+        std::string segment_path = get_segment_path(rs_meta, seg_id);
+        int64_t segment_file_size = 0;
+        auto st = fs->file_size(segment_path, &segment_file_size);
+        if (!st.ok()) {
+            segment_file_size = 0;
+            LOG(WARNING) << "table size correctness check get segment size failed! msg:"
+                         << st.to_string() << ", segment path:" << segment_path;
+        }
+        total_segment_size += segment_file_size;
+    }
+    return total_segment_size;
+}
+
+int64_t Tablet::get_inverted_index_file_szie(const RowsetMetaSharedPtr& rs_meta) {
+    const auto& fs = rs_meta->fs();
+    if (!fs) {
+        LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta->resource_id();
+    }
+    int64_t total_inverted_index_size = 0;
+
+    if (rs_meta->tablet_schema()->get_inverted_index_storage_format() ==
+        InvertedIndexStorageFormatPB::V1) {
+        const auto& indices = rs_meta->tablet_schema()->inverted_indexes();
+        for (auto& index : indices) {
+            for (int seg_id = 0; seg_id < rs_meta->num_segments(); ++seg_id) {
+                std::string segment_path = get_segment_path(rs_meta, seg_id);
+                int64_t file_size = 0;
+
+                std::string inverted_index_file_path =
+                        InvertedIndexDescriptor::get_index_file_path_v1(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(segment_path),
+                                index->index_id(), index->get_index_suffix());
+                auto st = fs->file_size(inverted_index_file_path, &file_size);
+                if (!st.ok()) {
+                    file_size = 0;
+                    LOG(WARNING) << " tablet id: " << get_tablet_info().tablet_id
+                                 << ", rowset id:" << rs_meta->rowset_id()
+                                 << ", table size correctness check get inverted index v1 "
+                                    "size failed! msg:"
+                                 << st.to_string()
+                                 << ", inverted index path:" << inverted_index_file_path;
+                }
+                total_inverted_index_size += file_size;
+            }
+        }
+    } else {
+        for (int seg_id = 0; seg_id < rs_meta->num_segments(); ++seg_id) {
+            int64_t file_size = 0;
+            std::string segment_path = get_segment_path(rs_meta, seg_id);
+            std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
+                    InvertedIndexDescriptor::get_index_file_path_prefix(segment_path));
+            auto st = fs->file_size(inverted_index_file_path, &file_size);
+            if (!st.ok()) {
+                file_size = 0;
+                if (st.is<NOT_FOUND>()) {
+                    LOG(INFO) << " tablet id: " << get_tablet_info().tablet_id
+                              << ", rowset id:" << rs_meta->rowset_id()
+                              << ", table size correctness check get inverted index v2 failed "
+                                 "because file not exist:"
+                              << inverted_index_file_path;
+                } else {
+                    LOG(WARNING) << " tablet id: " << get_tablet_info().tablet_id
+                                 << ", rowset id:" << rs_meta->rowset_id()
+                                 << ", table size correctness check get inverted index v2 "
+                                    "size failed! msg:"
+                                 << st.to_string()
+                                 << ", inverted index path:" << inverted_index_file_path;
+                }
+            }
+            total_inverted_index_size += file_size;
+        }
+    }
+    return total_inverted_index_size;
 }
 
 } // namespace doris

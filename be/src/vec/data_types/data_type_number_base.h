@@ -30,6 +30,7 @@
 #include <string>
 #include <type_traits>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "serde/data_type_number_serde.h"
@@ -51,7 +52,7 @@ struct TypeId;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 /** Implements part of the IDataType interface, common to all numbers and for Date and DateTime.
   */
 template <typename T>
@@ -139,14 +140,11 @@ public:
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
 
-    bool get_is_parametric() const override { return false; }
     bool have_subtypes() const override { return false; }
     bool should_align_right_in_pretty_formats() const override { return true; }
     bool text_can_contain_only_valid_utf8() const override { return true; }
     bool is_comparable() const override { return true; }
     bool is_value_represented_by_number() const override { return true; }
-    bool is_value_represented_by_integer() const override;
-    bool is_value_represented_by_unsigned_integer() const override;
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }
@@ -188,12 +186,13 @@ protected:
         for (int row_num = 0; row_num < size; row_num++) {
             auto num = is_const ? col_vec.get_element(0) : col_vec.get_element(row_num);
             static_cast<const Derived*>(this)->push_number(chars, num);
-            offsets[row_num] = chars.size();
+            // push_number can check the chars is over uint32 so use static_cast here.
+            offsets[row_num] = static_cast<UInt32>(chars.size());
         }
     }
 
 private:
     bool _is_null_literal = false;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

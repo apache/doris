@@ -67,6 +67,7 @@ public:
 protected:
     Status merge_input_rowsets();
 
+    // merge inverted index files
     Status do_inverted_index_compaction();
 
     void construct_index_compaction_columns(RowsetWriterContext& ctx);
@@ -83,16 +84,19 @@ protected:
 
     int64_t merge_way_num();
 
+    virtual Status update_delete_bitmap() = 0;
+
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     BaseTabletSPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
-    int64_t _input_rowsets_size {0};
+    int64_t _input_rowsets_data_size {0};
+    int64_t _input_rowsets_index_size {0};
+    int64_t _input_rowsets_total_size {0};
     int64_t _input_row_num {0};
     int64_t _input_num_segments {0};
-    int64_t _input_index_size {0};
 
     Merger::Statistics _stats;
 
@@ -144,6 +148,8 @@ protected:
 
     virtual Status modify_rowsets();
 
+    Status update_delete_bitmap() override;
+
     StorageEngine& _engine;
 
 private:
@@ -172,6 +178,8 @@ public:
 
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
+
+    Status update_delete_bitmap() override;
 
     virtual void garbage_collection();
 

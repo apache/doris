@@ -116,9 +116,6 @@ public:
     }
 
     bool require_data_distribution() const override { return _is_colocate; }
-    bool require_shuffled_data_distribution() const override {
-        return _needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg);
-    }
 
 private:
     friend class DistinctStreamingAggLocalState;

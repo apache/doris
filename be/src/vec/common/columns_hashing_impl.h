@@ -149,64 +149,6 @@ protected:
     }
 };
 
-template <typename T>
-struct MappedCache : public PaddedPODArray<T> {};
-
-template <>
-struct MappedCache<void> {};
-
-/// This class is designed to provide the functionality that is required for
-/// supporting nullable keys in HashMethodKeysFixed. If there are
-/// no nullable keys, this class is merely implemented as an empty shell.
-template <typename Key, bool has_nullable_keys>
-class BaseStateKeysFixed;
-
-/// Case where nullable keys are supported.
-template <typename Key>
-class BaseStateKeysFixed<Key, true> {
-protected:
-    BaseStateKeysFixed(const ColumnRawPtrs& key_columns) {
-        null_maps.reserve(key_columns.size());
-        actual_columns.reserve(key_columns.size());
-
-        for (const auto& col : key_columns) {
-            if (auto* nullable_col = check_and_get_column<ColumnNullable>(col)) {
-                actual_columns.push_back(&nullable_col->get_nested_column());
-                null_maps.push_back(&nullable_col->get_null_map_column());
-            } else {
-                actual_columns.push_back(col);
-                null_maps.push_back(nullptr);
-            }
-        }
-    }
-
-    /// Return the columns which actually contain the values of the keys.
-    /// For a given key column, if it is nullable, we return its nested
-    /// column. Otherwise we return the key column itself.
-    const ColumnRawPtrs& get_actual_columns() const { return actual_columns; }
-
-    const ColumnRawPtrs& get_nullmap_columns() const { return null_maps; }
-
-private:
-    ColumnRawPtrs actual_columns;
-    ColumnRawPtrs null_maps;
-};
-
-/// Case where nullable keys are not supported.
-template <typename Key>
-class BaseStateKeysFixed<Key, false> {
-protected:
-    BaseStateKeysFixed(const ColumnRawPtrs& columns) : actual_columns(columns) {}
-
-    const ColumnRawPtrs& get_actual_columns() const { return actual_columns; }
-
-    const ColumnRawPtrs& get_nullmap_columns() const { return null_maps; }
-
-private:
-    ColumnRawPtrs actual_columns;
-    ColumnRawPtrs null_maps;
-};
-
 } // namespace columns_hashing_impl
 
 } // namespace ColumnsHashing

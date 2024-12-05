@@ -38,15 +38,7 @@ namespace doris {
 // Utility class to compute hash values.
 class HashUtil {
 public:
-    template <typename T>
-    static uint32_t fixed_len_to_uint32(T value) {
-        if constexpr (sizeof(T) <= sizeof(uint32_t)) {
-            return (uint32_t)value;
-        }
-        return std::hash<T>()(value);
-    }
-
-    static uint32_t zlib_crc_hash(const void* data, int32_t bytes, uint32_t hash) {
+    static uint32_t zlib_crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
         return crc32(hash, (const unsigned char*)data, bytes);
     }
 
@@ -66,7 +58,7 @@ public:
     // NOTE: Any changes made to this function need to be reflected in Codegen::GetHashFn.
     // TODO: crc32 hashes with different seeds do not result in different hash functions.
     // The resulting hashes are correlated.
-    static uint32_t crc_hash(const void* data, int32_t bytes, uint32_t hash) {
+    static uint32_t crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
         if (!CpuInfo::is_supported(CpuInfo::SSE4_2)) {
             return zlib_crc_hash(data, bytes, hash);
         }
@@ -93,7 +85,7 @@ public:
         return hash;
     }
 
-    static uint64_t crc_hash64(const void* data, int32_t bytes, uint64_t hash) {
+    static uint64_t crc_hash64(const void* data, uint32_t bytes, uint64_t hash) {
         uint32_t words = bytes / sizeof(uint32_t);
         bytes = bytes % sizeof(uint32_t);
 
@@ -125,7 +117,7 @@ public:
         return converter.u64;
     }
 #else
-    static uint32_t crc_hash(const void* data, int32_t bytes, uint32_t hash) {
+    static uint32_t crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
         return zlib_crc_hash(data, bytes, hash);
     }
 #endif
@@ -134,7 +126,7 @@ public:
     static const uint32_t MURMUR3_32_SEED = 104729;
 
     // modify from https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
-    static uint32_t murmur_hash3_32(const void* key, int32_t len, uint32_t seed) {
+    static uint32_t murmur_hash3_32(const void* key, int64_t len, uint32_t seed) {
         uint32_t out = 0;
         murmur_hash3_x86_32(key, len, seed, &out);
         return out;
@@ -202,7 +194,7 @@ public:
     // For example, if the data is <1000, 2000, 3000, 4000, ..> and then the mod of 1000
     // is taken on the hash, all values will collide to the same bucket.
     // For string values, Fnv is slightly faster than boost.
-    static uint32_t fnv_hash(const void* data, int32_t bytes, uint32_t hash) {
+    static uint32_t fnv_hash(const void* data, uint32_t bytes, uint32_t hash) {
         const uint8_t* ptr = reinterpret_cast<const uint8_t*>(data);
 
         while (bytes--) {
@@ -213,7 +205,7 @@ public:
         return hash;
     }
 
-    static uint64_t fnv_hash64(const void* data, int32_t bytes, uint64_t hash) {
+    static uint64_t fnv_hash64(const void* data, uint32_t bytes, uint64_t hash) {
         const uint8_t* ptr = reinterpret_cast<const uint8_t*>(data);
 
         while (bytes--) {
@@ -227,7 +219,7 @@ public:
     // Our hash function is MurmurHash2, 64 bit version.
     // It was modified in order to provide the same result in
     // big and little endian archs (endian neutral).
-    static uint64_t murmur_hash64A(const void* key, int32_t len, unsigned int seed) {
+    static uint64_t murmur_hash64A(const void* key, int64_t len, unsigned int seed) {
         const uint64_t m = MURMUR_PRIME;
         const int r = 47;
         uint64_t h = seed ^ (len * m);
@@ -291,7 +283,7 @@ public:
     // depending on hardware capabilities.
     // Seed values for different steps of the query execution should use different seeds
     // to prevent accidental key collisions. (See IMPALA-219 for more details).
-    static uint32_t hash(const void* data, int32_t bytes, uint32_t seed) {
+    static uint32_t hash(const void* data, uint32_t bytes, uint32_t seed) {
 #ifdef __SSE4_2__
 
         if (LIKELY(CpuInfo::is_supported(CpuInfo::SSE4_2))) {
@@ -305,7 +297,7 @@ public:
 #endif
     }
 
-    static uint64_t hash64(const void* data, int32_t bytes, uint64_t seed) {
+    static uint64_t hash64(const void* data, uint32_t bytes, uint64_t seed) {
 #ifdef _SSE4_2_
         if (LIKELY(CpuInfo::is_supported(CpuInfo::SSE4_2))) {
             return crc_hash64(data, bytes, seed);

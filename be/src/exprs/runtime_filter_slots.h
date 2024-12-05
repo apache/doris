@@ -62,9 +62,8 @@ public:
     }
 
     // use synced size when this rf has global merged
-    static uint64_t get_real_size(IRuntimeFilter* runtime_filter, uint64_t hash_table_size) {
-        return runtime_filter->isset_synced_size() ? runtime_filter->get_synced_size()
-                                                   : hash_table_size;
+    static uint64_t get_real_size(IRuntimeFilter* filter, uint64_t hash_table_size) {
+        return filter->need_sync_filter_size() ? filter->get_synced_size() : hash_table_size;
     }
 
     Status ignore_filters(RuntimeState* state) {
@@ -77,6 +76,10 @@ public:
             if (filter->get_real_type() != RuntimeFilterType::IN_FILTER) {
                 continue;
             }
+            if (!filter->need_sync_filter_size() &&
+                filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+                continue;
+            }
             if (has_in_filter.contains(filter->expr_order())) {
                 filter->set_ignored();
                 continue;
@@ -84,7 +87,7 @@ public:
             has_in_filter.insert(filter->expr_order());
         }
 
-        // process ignore filter when it has IN_FILTER on same expr, and init bloom filter size
+        // process ignore filter when it has IN_FILTER on same expr
         for (auto filter : _runtime_filters) {
             if (filter->get_ignored()) {
                 continue;
@@ -115,10 +118,6 @@ public:
             }
 
             if (filter->get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
-                if (filter->need_sync_filter_size() != filter->isset_synced_size()) {
-                    return Status::InternalError("sync filter size meet error, filter: {}",
-                                                 filter->debug_string());
-                }
                 RETURN_IF_ERROR(filter->init_bloom_filter(
                         get_real_size(filter.get(), local_hash_table_size)));
             }
@@ -145,10 +144,10 @@ public:
     }
 
     // publish runtime filter
-    Status publish(bool publish_local) {
+    Status publish(RuntimeState* state, bool publish_local) {
         for (auto& pair : _runtime_filters_map) {
             for (auto& filter : pair.second) {
-                RETURN_IF_ERROR(filter->publish(publish_local));
+                RETURN_IF_ERROR(filter->publish(state, publish_local));
             }
         }
         return Status::OK();

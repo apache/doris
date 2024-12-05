@@ -21,6 +21,7 @@
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
@@ -53,6 +54,7 @@
 #include "vec/sink/writer/vtablet_writer_v2.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 Status Channel::init(RuntimeState* state) {
     if (_brpc_dest_addr.hostname.empty()) {
@@ -68,9 +70,11 @@ Status Channel::init(RuntimeState* state) {
         return Status::OK();
     }
 
+    auto network_address = _brpc_dest_addr;
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
                 "127.0.0.1", _brpc_dest_addr.port);
+        network_address.hostname = "127.0.0.1";
     } else {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
     }
@@ -80,6 +84,10 @@ Status Channel::init(RuntimeState* state) {
                                       _brpc_dest_addr.hostname, _brpc_dest_addr.port);
         LOG(WARNING) << msg;
         return Status::InternalError(msg);
+    }
+
+    if (config::enable_brpc_connection_check) {
+        state->get_query_ctx()->add_using_brpc_stub(_brpc_dest_addr, _brpc_stub);
     }
     return Status::OK();
 }
@@ -95,7 +103,7 @@ Status Channel::open(RuntimeState* state) {
     }
     _be_number = state->be_number();
 
-    _brpc_timeout_ms = std::min(3600, state->execution_timeout()) * 1000;
+    _brpc_timeout_ms = get_execution_rpc_timeout_ms(state->execution_timeout());
 
     _serializer.set_is_local(_is_local);
 
@@ -230,7 +238,7 @@ Status Channel::close(RuntimeState* state) {
 BlockSerializer::BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool is_local)
         : _parent(parent), _is_local(is_local), _batch_size(parent->state()->batch_size()) {}
 
-Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int num_receivers,
+Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t num_receivers,
                                               bool* serialized, bool eos,
                                               const std::vector<uint32_t>* rows) {
     if (_mutable_block == nullptr) {
@@ -238,14 +246,13 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int nu
     }
 
     {
+        SCOPED_TIMER(_parent->merge_block_timer());
         if (rows) {
             if (!rows->empty()) {
-                SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
                 const auto* begin = rows->data();
                 RETURN_IF_ERROR(_mutable_block->add_rows(block, begin, begin + rows->size()));
             }
         } else if (!block->empty()) {
-            SCOPED_TIMER(_parent->merge_block_timer());
             RETURN_IF_ERROR(_mutable_block->merge(*block));
         }
     }
@@ -261,7 +268,7 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int nu
     return Status::OK();
 }
 
-Status BlockSerializer::serialize_block(PBlock* dest, int num_receivers) {
+Status BlockSerializer::serialize_block(PBlock* dest, size_t num_receivers) {
     if (_mutable_block && _mutable_block->rows() > 0) {
         auto block = _mutable_block->to_block();
         RETURN_IF_ERROR(serialize_block(&block, dest, num_receivers));
@@ -272,7 +279,7 @@ Status BlockSerializer::serialize_block(PBlock* dest, int num_receivers) {
     return Status::OK();
 }
 
-Status BlockSerializer::serialize_block(const Block* src, PBlock* dest, int num_receivers) {
+Status BlockSerializer::serialize_block(const Block* src, PBlock* dest, size_t num_receivers) {
     SCOPED_TIMER(_parent->_serialize_batch_timer);
     dest->Clear();
     size_t uncompressed_bytes = 0, compressed_bytes = 0;

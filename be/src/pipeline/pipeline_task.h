@@ -41,7 +41,7 @@ class PipelineFragmentContext;
 
 namespace doris::pipeline {
 
-class TaskQueue;
+class MultiCoreTaskQueue;
 class PriorityTaskQueue;
 class Dependency;
 
@@ -135,11 +135,12 @@ public:
     int task_id() const { return _index; };
     bool is_finalized() const { return _finalized; }
 
-    void clear_blocking_state(bool wake_up_by_downstream = false) {
+    void set_wake_up_by_downstream() { _wake_up_by_downstream = true; }
+
+    void clear_blocking_state() {
         _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
-        _wake_up_by_downstream = _wake_up_by_downstream || wake_up_by_downstream;
         if (!_finalized) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {
@@ -159,8 +160,8 @@ public:
         }
     }
 
-    void set_task_queue(TaskQueue* task_queue);
-    TaskQueue* get_task_queue() { return _task_queue; }
+    void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
+    MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
 
@@ -257,7 +258,7 @@ private:
     uint32_t _schedule_time = 0;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context = nullptr;
-    TaskQueue* _task_queue = nullptr;
+    MultiCoreTaskQueue* _task_queue = nullptr;
 
     // used for priority queue
     // it may be visited by different thread but there is no race condition

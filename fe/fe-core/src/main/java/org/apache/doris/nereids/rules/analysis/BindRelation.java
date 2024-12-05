@@ -171,7 +171,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
         TableIf table = null;
-        table = ConnectContext.get().getTableInMinidumpCache(tableQualifier);
+        table = ConnectContext.get().getStatementContext().getTableInMinidumpCache(tableQualifier);
         if (table == null) {
             if (customTableResolver.isPresent()) {
                 table = customTableResolver.get().apply(tableQualifier);
@@ -182,7 +182,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (table == null) {
             table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
-        ConnectContext.get().getTables().put(tableQualifier, table);
+        ConnectContext.get().getStatementContext().getTables().put(tableQualifier, table);
 
         // TODO: should generate different Scan sub class according to table's type
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
@@ -201,13 +201,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (customTableResolver.isPresent()) {
             table = customTableResolver.get().apply(tableQualifier);
         }
-        table = ConnectContext.get().getTableInMinidumpCache(tableQualifier);
+        table = ConnectContext.get().getStatementContext().getTableInMinidumpCache(tableQualifier);
         // In some cases even if we have already called the "cascadesContext.getTableByName",
         // it also gets the null. So, we just check it in the catalog again for safety.
         if (table == null) {
             table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
-        ConnectContext.get().getTables().put(tableQualifier, table);
+        ConnectContext.get().getStatementContext().getTables().put(tableQualifier, table);
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
@@ -242,6 +242,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample());
             }
+        }
+        if (!tabletIds.isEmpty()) {
+            // This tabletIds is set manually, so need to set specifiedTabletIds
+            scan = scan.withManuallySpecifiedTabletIds(tabletIds);
         }
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
             // it's a random distribution agg table
@@ -420,8 +424,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     if (Config.enable_query_hive_views && hmsTable.isView()) {
                         isView = true;
                         String hiveCatalog = hmsTable.getCatalog().getName();
+                        String hiveDb = hmsTable.getDatabase().getFullName();
                         String ddlSql = hmsTable.getViewText();
-                        Plan hiveViewPlan = parseAndAnalyzeHiveView(hmsTable, hiveCatalog, ddlSql, cascadesContext);
+                        Plan hiveViewPlan = parseAndAnalyzeHiveView(
+                                hmsTable, hiveCatalog, hiveDb, ddlSql, cascadesContext);
                         return new LogicalSubQueryAlias<>(qualifiedTableName, hiveViewPlan);
                     }
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
@@ -433,7 +439,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName,
-                                ((HMSExternalTable) table).getAllPartitions(),
                                 unboundRelation.getTableSample(),
                                 unboundRelation.getTableSnapshot());
                     }
@@ -475,15 +480,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Plan parseAndAnalyzeHiveView(
-            HMSExternalTable table, String hiveCatalog, String ddlSql, CascadesContext cascadesContext) {
+            HMSExternalTable table, String hiveCatalog, String hiveDb, String ddlSql, CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
         String previousCatalog = ctx.getCurrentCatalog().getName();
         String previousDb = ctx.getDatabase();
+        // change catalog and db to hive catalog and db, so that we can parse and analyze the view sql in hive context.
         ctx.changeDefaultCatalog(hiveCatalog);
-        Plan hiveViewPlan = parseAndAnalyzeView(table, ddlSql, cascadesContext);
-        ctx.changeDefaultCatalog(previousCatalog);
-        ctx.setDatabase(previousDb);
-        return hiveViewPlan;
+        ctx.setDatabase(hiveDb);
+        try {
+            return parseAndAnalyzeView(table, ddlSql, cascadesContext);
+        } finally {
+            // restore catalog and db in connect context
+            ctx.changeDefaultCatalog(previousCatalog);
+            ctx.setDatabase(previousDb);
+        }
     }
 
     private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext) {

@@ -223,6 +223,10 @@ public class ProfileManager extends MasterDaemon {
     }
 
     public List<List<String>> getAllQueries() {
+        return getQueryInfoByColumnNameList(SummaryProfile.SUMMARY_KEYS);
+    }
+
+    public List<List<String>> getQueryInfoByColumnNameList(List<String> columnNameList) {
         List<List<String>> result = Lists.newArrayList();
         readLock.lock();
         try {
@@ -231,7 +235,7 @@ public class ProfileManager extends MasterDaemon {
                 ProfileElement profileElement = queueIdDeque.poll();
                 Map<String, String> infoStrings = profileElement.infoStrings;
                 List<String> row = Lists.newArrayList();
-                for (String str : SummaryProfile.SUMMARY_KEYS) {
+                for (String str : columnNameList) {
                     row.add(infoStrings.get(str));
                 }
                 result.add(row);

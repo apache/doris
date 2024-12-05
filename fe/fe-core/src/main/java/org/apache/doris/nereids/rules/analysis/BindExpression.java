@@ -80,6 +80,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
@@ -183,6 +184,15 @@ public class BindExpression implements AnalysisRuleFactory {
             ),
             RuleType.BINDING_HAVING_SLOT.build(
                 logicalHaving(any().whenNot(Aggregate.class::isInstance)).thenApply(this::bindHaving)
+            ),
+            RuleType.BINDING_QUALIFY_PROJECT_SLOT.build(
+                logicalQualify(logicalProject()).thenApply(this::bindQualifyProject)
+            ),
+            RuleType.BINDING_QUALIFY_AGGREGATE_SLOT.build(
+                logicalQualify(aggregate()).thenApply(this::bindQualifyAggregate)
+            ),
+            RuleType.BINDING_QUALIFY_HAVING_SLOT.build(
+                logicalQualify(logicalHaving()).thenApply(this::bindQualifyHaving)
             ),
             RuleType.BINDING_INLINE_TABLE_SLOT.build(
                 logicalInlineTable().thenApply(this::bindInlineTable)
@@ -693,6 +703,191 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalFilter<>(boundConjuncts.build(), filter.child());
     }
 
+    /**
+     * there a dup table sales
+     * CREATE TABLE sales (
+     *    year INT,
+     *    country STRING,
+     *    product STRING,
+     *    profit INT
+     * )
+     * DISTRIBUTED BY HASH(`year`)
+     * PROPERTIES (
+     * "replication_num" = "1"
+     * );
+     * 1.qualify -> project
+     * for example :
+     * select year + 1 as year from sales qualify row_number() over (order by year, country) = 1;
+     * We are binding the year field of table sales. Instead of renaming year
+     * -----------------------------------------------------------------------------------------------------------------
+     * 2.qualify -> project(distinct)
+     * for example:
+     * select distinct year + 1, country from sales qualify row_number() over (order by year + 1) > 1;
+     * We are binding the year field of table sales.
+     * -----------------------------------------------------------------------------------------------------------------
+     * 3.qualify -> project(distinct) -> agg
+     * for example:
+     * select distinct year + 1 as year from sales group by year qualify row_number() over (order by year) = 1;
+     * We are binding the year field of group by output. Instead of renaming year
+     * -----------------------------------------------------------------------------------------------------------------
+     * 4.qualify -> project(distinct) -> having -> agg
+     * for example:
+     * select distinct year,country from sales group by year,country having year > 2000
+     * qualify row_number() over (order by year + 1) > 1;
+     * We are binding the year field of group output.
+     *-----------------------------------------------------------------------------------------------------------------
+     * Note: For the query without agg, we first bind slot from the child of the project.
+     * If it cannot be bound in the child, then bind slot from the project.
+     * If query with agg, we bind slot from the group by first. if not then bind slot from the group output
+     * or not bind slot from the agg child output finally.
+     */
+    private Plan bindQualifyProject(MatchingContext<LogicalQualify<LogicalProject<Plan>>> ctx) {
+        LogicalQualify<LogicalProject<Plan>> qualify = ctx.root;
+        CascadesContext cascadesContext = ctx.cascadesContext;
+        LogicalProject<Plan> project = qualify.child();
+        ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
+                qualify.getConjuncts().size());
+        if (project.child() instanceof Aggregate) {
+            Aggregate<Plan> aggregate = (Aggregate<Plan>) project.child();
+            bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
+        } else if (project.child() instanceof LogicalHaving) {
+            LogicalHaving<Plan> having = (LogicalHaving<Plan>) project.child();
+            if (having.child() instanceof Aggregate) {
+                Aggregate<Plan> aggregate = (Aggregate<Plan>) having.child();
+                bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
+            } else {
+                throw new AnalysisException("unknown query structure");
+            }
+        } else {
+            bindQualifyByProject(project, cascadesContext, qualify, boundConjuncts);
+        }
+        return new LogicalQualify<>(boundConjuncts.build(), qualify.child());
+    }
+
+    /**
+     * 1.qualify -> having -> agg
+     * for example:
+     * select country, sum(profit) as total, row_number() over (order by country) as rk from sales where year >= 2000
+     * group by country having sum(profit) > 100 qualify rk = 1
+     * We are binding the country field from group by.
+     * -----------------------------------------------------------------------------------------------------------------
+     * 2.qualify -> having -> project
+     * for example:
+     * select year, country, profit, row_number() over (partition by year, country order by profit desc) as rk from
+     * (select * from sales) a where year >= 2000 having profit > 200 qualify rk = 1 order by profit,country limit 3
+     * We are binding year/country/profit from sales
+     * -----------------------------------------------------------------------------------------------------------------
+     * 3.qualify -> having -> project(distinct)
+     * for example:
+     * select distinct year + 1 as year from sales qualify row_number() over (order by year) = 1;
+     * we are binding year from sales. Instead of renaming year
+     */
+    private Plan bindQualifyHaving(MatchingContext<LogicalQualify<LogicalHaving<Plan>>> ctx) {
+        LogicalQualify<LogicalHaving<Plan>> qualify = ctx.root;
+        CascadesContext cascadesContext = ctx.cascadesContext;
+        LogicalHaving<Plan> having = qualify.child();
+        ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
+                qualify.getConjuncts().size());
+        if (having.child() instanceof Aggregate) {
+            bindQualifyByAggregate((Aggregate<? extends Plan>) having.child(), cascadesContext, qualify,
+                    boundConjuncts);
+        } else {
+            bindQualifyByProject((LogicalProject<? extends Plan>) having.child(), cascadesContext, qualify,
+                    boundConjuncts);
+        }
+        return new LogicalQualify<>(boundConjuncts.build(), qualify.child());
+    }
+
+    /**
+     * qualify -> agg
+     * for example:
+     * select country, sum(profit) as total, row_number() over (order by country) as rk from sales qualify rk > 1
+     * we are binding the country field from group by.
+     */
+    private Plan bindQualifyAggregate(MatchingContext<LogicalQualify<Aggregate<Plan>>> ctx) {
+        LogicalQualify<Aggregate<Plan>> qualify = ctx.root;
+        CascadesContext cascadesContext = ctx.cascadesContext;
+        Aggregate<Plan> aggregate = qualify.child();
+        ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
+                qualify.getConjuncts().size());
+        bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
+        return new LogicalQualify<>(boundConjuncts.build(), qualify.child());
+    }
+
+    private void bindQualifyByProject(LogicalProject<? extends Plan> project, CascadesContext cascadesContext,
+                                    LogicalQualify<? extends Plan> qualify,
+                                    ImmutableSet.Builder<Expression> boundConjuncts) {
+        Supplier<Scope> defaultScope = Suppliers.memoize(() ->
+                toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(project.children()))
+        );
+        Scope backupScope = toScope(cascadesContext, project.getOutput());
+
+        SimpleExprAnalyzer analyzer = buildCustomSlotBinderAnalyzer(
+                qualify, cascadesContext, defaultScope.get(), true, true,
+                (self, unboundSlot) -> {
+                List<Slot> slots = self.bindSlotByScope(unboundSlot, defaultScope.get());
+                if (!slots.isEmpty()) {
+                    return slots;
+                }
+                return self.bindSlotByScope(unboundSlot, backupScope);
+                });
+
+        for (Expression conjunct : qualify.getConjuncts()) {
+            conjunct = analyzer.analyze(conjunct);
+            conjunct = TypeCoercionUtils.castIfNotSameType(conjunct, BooleanType.INSTANCE);
+            boundConjuncts.add(conjunct);
+        }
+    }
+
+    private void bindQualifyByAggregate(Aggregate<? extends Plan> aggregate, CascadesContext cascadesContext,
+                                      LogicalQualify<? extends Plan> qualify,
+                                      ImmutableSet.Builder<Expression> boundConjuncts) {
+        Supplier<CustomSlotBinderAnalyzer> bindByAggChild = Suppliers.memoize(() -> {
+            Scope aggChildOutputScope
+                    = toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(aggregate.children()));
+            return (analyzer, unboundSlot) -> analyzer.bindSlotByScope(unboundSlot, aggChildOutputScope);
+        });
+        Scope aggOutputScope = toScope(cascadesContext, aggregate.getOutput());
+        Supplier<CustomSlotBinderAnalyzer> bindByGroupByThenAggOutputThenAggChildOutput = Suppliers.memoize(() -> {
+            List<Expression> groupByExprs = aggregate.getGroupByExpressions();
+            ImmutableList.Builder<Slot> groupBySlots = ImmutableList.builderWithExpectedSize(groupByExprs.size());
+            for (Expression groupBy : groupByExprs) {
+                if (groupBy instanceof Slot) {
+                    groupBySlots.add((Slot) groupBy);
+                }
+            }
+            Scope groupBySlotsScope = toScope(cascadesContext, groupBySlots.build());
+
+            return (analyzer, unboundSlot) -> {
+                List<Slot> boundInGroupBy = analyzer.bindSlotByScope(unboundSlot, groupBySlotsScope);
+                if (!boundInGroupBy.isEmpty()) {
+                    return ImmutableList.of(boundInGroupBy.get(0));
+                }
+                List<Slot> boundInAggOutput = analyzer.bindSlotByScope(unboundSlot, aggOutputScope);
+                if (!boundInAggOutput.isEmpty()) {
+                    return ImmutableList.of(boundInAggOutput.get(0));
+                }
+                List<? extends Expression> expressions = bindByAggChild.get().bindSlot(analyzer, unboundSlot);
+                return expressions.isEmpty() ? expressions : ImmutableList.of(expressions.get(0));
+            };
+        });
+
+        ExpressionAnalyzer qualifyAnalyzer = new ExpressionAnalyzer(qualify, aggOutputScope, cascadesContext,
+                true, true) {
+            @Override
+            protected List<? extends Expression> bindSlotByThisScope(UnboundSlot unboundSlot) {
+                return bindByGroupByThenAggOutputThenAggChildOutput.get().bindSlot(this, unboundSlot);
+            }
+        };
+
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        for (Expression expression : qualify.getConjuncts()) {
+            Expression boundConjunct = qualifyAnalyzer.analyze(expression, rewriteContext);
+            boundConjunct = TypeCoercionUtils.castIfNotSameType(boundConjunct, BooleanType.INSTANCE);
+            boundConjuncts.add(boundConjunct);
+        }
+    }
+
     private List<Slot> exceptStarSlots(Set<NamedExpression> boundExcepts, BoundStar boundStar) {
         List<Slot> slots = boundStar.getSlots();
         if (!boundExcepts.isEmpty()) {
@@ -947,7 +1142,11 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) bindResult.first);
     }
 
-    private void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
+    /**
+     * Check the slot in childOutputs is duplicated or not
+     * If childOutputs has duplicated column name, would throw analysis exception
+     */
+    public static void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
         Set<String> nameSlots = new HashSet<>(childOutputs.size() * 2);
         for (Slot s : childOutputs) {
             if (!nameSlots.add(s.getInternalName())) {

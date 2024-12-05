@@ -22,7 +22,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
-class MemTracker;
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 
@@ -111,3 +111,5 @@ struct SpillPartitionChannelIds {
 
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

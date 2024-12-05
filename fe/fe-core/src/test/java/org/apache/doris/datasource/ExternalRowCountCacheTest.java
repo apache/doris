@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ThreadPoolManager;
 
 import mockit.Mock;
@@ -44,7 +45,7 @@ public class ExternalRowCountCacheTest {
         };
         ExternalRowCountCache cache = new ExternalRowCountCache(executor);
         long cachedRowCount = cache.getCachedRowCount(1, 1, 1);
-        Assertions.assertEquals(-1, cachedRowCount);
+        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cachedRowCount);
         for (int i = 0; i < 60; i++) {
             if (counter.get() == 1) {
                 break;
@@ -63,12 +64,39 @@ public class ExternalRowCountCacheTest {
         cache.getCachedRowCount(1, 1, 1);
         for (int i = 0; i < 60; i++) {
             cachedRowCount = cache.getCachedRowCount(1, 1, 1);
-            if (cachedRowCount != -1) {
+            if (cachedRowCount != TableIf.UNKNOWN_ROW_COUNT) {
                 Assertions.assertEquals(100, cachedRowCount);
                 break;
             }
             Thread.sleep(1000);
         }
+        cachedRowCount = cache.getCachedRowCount(1, 1, 1);
+        Assertions.assertEquals(100, cachedRowCount);
         Assertions.assertEquals(2, counter.get());
+
+        new MockUp<ExternalRowCountCache.RowCountCacheLoader>() {
+            @Mock
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
+                counter.incrementAndGet();
+                try {
+                    Thread.sleep(1000000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                return Optional.of(100L);
+            }
+        };
+        cachedRowCount = cache.getCachedRowCount(2, 2, 2);
+        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cachedRowCount);
+        Thread.sleep(1000);
+        cachedRowCount = cache.getCachedRowCount(2, 2, 2);
+        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cachedRowCount);
+        for (int i = 0; i < 60; i++) {
+            if (counter.get() == 3) {
+                break;
+            }
+            Thread.sleep(1000);
+        }
+        Assertions.assertEquals(3, counter.get());
     }
 }

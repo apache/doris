@@ -40,26 +40,12 @@ public:
 
     [[nodiscard]] int sender_id() const { return _sender_id; }
 
-    RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
-    RuntimeProfile::Counter* local_send_timer() { return _local_send_timer; }
-    RuntimeProfile::Counter* brpc_send_timer() { return _brpc_send_timer; }
-    RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
-    RuntimeProfile::Counter* split_block_distribute_by_channel_timer() {
-        return _split_block_distribute_by_channel_timer;
-    }
-
 private:
     friend class ResultFileSinkOperatorX;
 
     std::shared_ptr<BufferControlBlock> _sender;
 
     std::shared_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
-    RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
-    RuntimeProfile::Counter* _local_send_timer = nullptr;
-    RuntimeProfile::Counter* _brpc_send_timer = nullptr;
-    RuntimeProfile::Counter* _merge_block_timer = nullptr;
-    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer = nullptr;
-
     int _sender_id;
 };
 

@@ -723,7 +723,7 @@ public:
     bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& column_general = block.get_by_position(arguments[0]);
         ColumnWithTypeAndName& column_result = block.get_by_position(result);
         const DataTypePtr result_type = block.get_by_position(result).type;

@@ -47,6 +47,7 @@ public class IcebergSplit extends FileSplit {
         this.formatVersion = formatVersion;
         this.config = config;
         this.originalPath = originalPath;
+        this.selfSplitWeight = length;
     }
 
     public long getRowCount() {
@@ -55,5 +56,10 @@ public class IcebergSplit extends FileSplit {
 
     public void setRowCount(long rowCount) {
         this.rowCount = rowCount;
+    }
+
+    public void setDeleteFileFilters(List<IcebergDeleteFileFilter> deleteFileFilters) {
+        this.deleteFileFilters = deleteFileFilters;
+        this.selfSplitWeight += deleteFileFilters.stream().mapToLong(IcebergDeleteFileFilter::getFilesize).sum();
     }
 }

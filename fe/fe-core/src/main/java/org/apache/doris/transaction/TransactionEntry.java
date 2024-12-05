@@ -21,8 +21,6 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
@@ -206,13 +204,6 @@ public class TransactionEntry {
             throw new AnalysisException(
                     "Transaction insert can not insert into values and insert into select at the same time");
         }
-        if (Config.isCloudMode()) {
-            OlapTable olapTable = (OlapTable) table;
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                throw new UserException(
-                        "Transaction load is not supported for merge on write unique keys table in cloud mode");
-            }
-        }
         DatabaseIf database = table.getDatabase();
         if (!isTransactionBegan) {
             long timeoutSecond = ConnectContext.get().getExecTimeout();
@@ -225,7 +216,7 @@ public class TransactionEntry {
                                 ExecuteEnv.getInstance().getStartupTime()),
                         LoadJobSourceType.INSERT_STREAMING, timeoutSecond);
             } else {
-                String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+                String token = Env.getCurrentEnv().getTokenManager().acquireToken();
                 MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(ConnectContext.get());
                 TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
                 request.setDb(database.getFullName()).setTbl(table.getName()).setToken(token)

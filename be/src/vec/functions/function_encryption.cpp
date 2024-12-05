@@ -15,32 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stddef.h>
-#include <stdint.h>
-
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "util/encryption_util.h"
-#include "util/string_util.h"
-#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/pod_array.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
-#include "vec/core/column_numbers.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
@@ -50,6 +43,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
@@ -111,7 +105,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl_inner(context, block, arguments, result, input_rows_count);
     }
 };
@@ -136,9 +130,9 @@ void execute_result_vector(std::vector<const ColumnString::Offsets*>& offsets_li
 template <typename Impl, bool is_encrypt>
 void execute_result_const(const ColumnString::Offsets* offsets_column,
                           const ColumnString::Chars* chars_column, StringRef key_arg, size_t i,
-                          EncryptionMode& encryption_mode, const char* iv_raw, int iv_length,
+                          EncryptionMode& encryption_mode, const char* iv_raw, size_t iv_length,
                           ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
-                          NullMap& null_map, const char* aad, int aad_length) {
+                          NullMap& null_map, const char* aad, size_t aad_length) {
     int src_size = (*offsets_column)[i] - (*offsets_column)[i - 1];
     const auto* src_raw = reinterpret_cast<const char*>(&(*chars_column)[(*offsets_column)[i - 1]]);
     execute_result<Impl, is_encrypt>(src_raw, src_size, key_arg.data, key_arg.size, i,
@@ -147,15 +141,15 @@ void execute_result_const(const ColumnString::Offsets* offsets_column,
 }
 
 template <typename Impl, bool is_encrypt>
-void execute_result(const char* src_raw, int src_size, const char* key_raw, int key_size, size_t i,
-                    EncryptionMode& encryption_mode, const char* iv_raw, int iv_length,
+void execute_result(const char* src_raw, size_t src_size, const char* key_raw, size_t key_size,
+                    size_t i, EncryptionMode& encryption_mode, const char* iv_raw, size_t iv_length,
                     ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
-                    NullMap& null_map, const char* aad, int aad_length) {
+                    NullMap& null_map, const char* aad, size_t aad_length) {
     if (src_size == 0) {
         StringOP::push_null_string(i, result_data, result_offset, null_map);
         return;
     }
-    int cipher_len = src_size;
+    auto cipher_len = src_size;
     if constexpr (is_encrypt) {
         cipher_len += 16;
         // for output AEAD tag
@@ -187,7 +181,7 @@ struct EncryptionAndDecryptTwoImpl {
     }
 
     static Status execute_impl_inner(FunctionContext* context, Block& block,
-                                     const ColumnNumbers& arguments, size_t result,
+                                     const ColumnNumbers& arguments, uint32_t result,
                                      size_t input_rows_count) {
         auto result_column = ColumnString::create();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
@@ -298,7 +292,7 @@ struct EncryptionAndDecryptMultiImpl {
     }
 
     static Status execute_impl_inner(FunctionContext* context, Block& block,
-                                     const ColumnNumbers& arguments, size_t result,
+                                     const ColumnNumbers& arguments, uint32_t result,
                                      size_t input_rows_count) {
         auto result_column = ColumnString::create();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
@@ -438,22 +432,25 @@ struct EncryptionAndDecryptMultiImpl {
 };
 
 struct EncryptImpl {
-    static int execute_impl(EncryptionMode mode, const unsigned char* source,
-                            uint32_t source_length, const unsigned char* key, uint32_t key_length,
-                            const char* iv, int iv_length, bool padding, unsigned char* encrypt,
-                            const unsigned char* aad, int aad_length) {
-        return EncryptionUtil::encrypt(mode, source, source_length, key, key_length, iv, iv_length,
-                                       true, encrypt, aad, aad_length);
+    static int execute_impl(EncryptionMode mode, const unsigned char* source, size_t source_length,
+                            const unsigned char* key, size_t key_length, const char* iv,
+                            size_t iv_length, bool padding, unsigned char* encrypt,
+                            const unsigned char* aad, size_t aad_length) {
+        // now the openssl only support int, so here we need to cast size_t to uint32_t
+        return EncryptionUtil::encrypt(mode, source, cast_set<uint32_t>(source_length), key,
+                                       cast_set<uint32_t>(key_length), iv, cast_set<int>(iv_length),
+                                       true, encrypt, aad, cast_set<uint32_t>(aad_length));
     }
 };
 
 struct DecryptImpl {
-    static int execute_impl(EncryptionMode mode, const unsigned char* source,
-                            uint32_t source_length, const unsigned char* key, uint32_t key_length,
-                            const char* iv, int iv_length, bool padding, unsigned char* encrypt,
-                            const unsigned char* aad, int aad_length) {
-        return EncryptionUtil::decrypt(mode, source, source_length, key, key_length, iv, iv_length,
-                                       true, encrypt, aad, aad_length);
+    static int execute_impl(EncryptionMode mode, const unsigned char* source, size_t source_length,
+                            const unsigned char* key, size_t key_length, const char* iv,
+                            size_t iv_length, bool padding, unsigned char* encrypt,
+                            const unsigned char* aad, size_t aad_length) {
+        return EncryptionUtil::decrypt(mode, source, cast_set<uint32_t>(source_length), key,
+                                       cast_set<uint32_t>(key_length), iv, cast_set<int>(iv_length),
+                                       true, encrypt, aad, cast_set<uint32_t>(aad_length));
     }
 };
 

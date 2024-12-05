@@ -66,6 +66,7 @@ public class CreateReplicaTask extends AgentTask {
     private TStorageMedium storageMedium;
     private TCompressionType compressionType;
     private long rowStorePageSize;
+    private long storagePageSize;
 
     private List<Column> columns;
 
@@ -156,7 +157,8 @@ public class CreateReplicaTask extends AgentTask {
                              List<Integer> rowStoreColumnUniqueIds,
                              Map<Object, Object> objectPool,
                              long rowStorePageSize,
-                             boolean variantEnableFlattenNested) {
+                             boolean variantEnableFlattenNested,
+                             long storagePageSize) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -204,6 +206,7 @@ public class CreateReplicaTask extends AgentTask {
         this.objectPool = objectPool;
         this.rowStorePageSize = rowStorePageSize;
         this.variantEnableFlattenNested = variantEnableFlattenNested;
+        this.storagePageSize = storagePageSize;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -365,6 +368,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);
         tSchema.setRowStorePageSize(rowStorePageSize);
+        tSchema.setStoragePageSize(storagePageSize);
         createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);

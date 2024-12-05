@@ -17,6 +17,8 @@
 
 #include "vec/exprs/vmatch_predicate.h"
 
+#include <cstdint>
+
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
@@ -26,8 +28,8 @@
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/Exprs_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <memory>
 #include <ostream>
 #include <string_view>
@@ -50,6 +52,8 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 using namespace doris::segment_v2;
 
 VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
@@ -106,8 +110,8 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
                              FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    for (auto& i : _children) {
+        RETURN_IF_ERROR(i->open(state, context, scope));
     }
     RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::THREAD_LOCAL || scope == FunctionContext::FRAGMENT_LOCAL) {
@@ -161,7 +165,7 @@ Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result
         arguments[i] = column_id;
     }
     // call function
-    size_t num_columns_without_result = block->columns();
+    uint32_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
@@ -181,9 +185,9 @@ const std::string& VMatchPredicate::function_name() const {
 std::string VMatchPredicate::debug_string() const {
     std::stringstream out;
     out << "MatchPredicate(" << children()[0]->debug_string() << ",[";
-    int num_children = children().size();
+    uint16_t num_children = get_num_children();
 
-    for (int i = 1; i < num_children; ++i) {
+    for (uint16_t i = 1; i < num_children; ++i) {
         out << (i == 1 ? "" : " ") << children()[i]->debug_string();
     }
 
@@ -191,4 +195,5 @@ std::string VMatchPredicate::debug_string() const {
     return out.str();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -23,7 +23,7 @@ PhysicalResultSink
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ----------------------------------------PhysicalProject
-------------------------------------------filter(((i_category IN ('Books', 'Children', 'Electronics') AND i_class IN ('audio', 'history', 'school-uniforms')) OR (i_category IN ('Men', 'Shoes', 'Sports') AND i_class IN ('pants', 'tennis', 'womens'))) and i_category IN ('Books', 'Children', 'Electronics', 'Men', 'Shoes', 'Sports') and i_class IN ('audio', 'history', 'pants', 'school-uniforms', 'tennis', 'womens'))
+------------------------------------------filter(OR[AND[i_category IN ('Books', 'Children', 'Electronics'),i_class IN ('audio', 'history', 'school-uniforms')],AND[i_category IN ('Men', 'Shoes', 'Sports'),i_class IN ('pants', 'tennis', 'womens')]] and i_category IN ('Books', 'Children', 'Electronics', 'Men', 'Shoes', 'Sports') and i_class IN ('audio', 'history', 'pants', 'school-uniforms', 'tennis', 'womens'))
 --------------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_year = 2001))

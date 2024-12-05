@@ -22,10 +22,21 @@ on:
   push:
     branches:
       - master
+  workflow_dispatch:
+  issue_comment:
+    types: [ created ]
+
 jobs:
   license-check:
     name: "License Check"
     runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request_target') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.comment.body == 'run buildall' &&
+       github.actor == 'doris-robot' &&
+       github.event.issue.user.login == 'github-actions[bot]')
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         if: ${{ github.event_name != 'pull_request_target' }}

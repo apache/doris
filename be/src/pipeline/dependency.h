@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <concurrentqueue.h>
 #include <sqltypes.h>
 
 #include <atomic>
@@ -27,13 +28,13 @@
 #include <utility>
 
 #include "common/logging.h"
-#include "concurrentqueue.h"
 #include "gutil/integral_types.h"
 #include "pipeline/common/agg_utils.h"
 #include "pipeline/common/join_utils.h"
 #include "pipeline/common/set_utils.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/join/process_hash_table_probe.h"
+#include "util/stack_util.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/core/block.h"
@@ -46,7 +47,7 @@ class VSlotRef;
 } // namespace doris::vectorized
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 class Dependency;
 class PipelineTask;
 struct BasicSharedState;
@@ -81,17 +82,15 @@ struct BasicSharedState {
 
     virtual ~BasicSharedState() = default;
 
-    Dependency* create_source_dependency(int operator_id, int node_id, std::string name);
+    Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
 
-    Dependency* create_sink_dependency(int dest_id, int node_id, std::string name);
+    Dependency* create_sink_dependency(int dest_id, int node_id, const std::string& name);
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
     ENABLE_FACTORY_CREATOR(Dependency);
-    Dependency(int id, int node_id, std::string name)
-            : _id(id), _node_id(node_id), _name(std::move(name)), _ready(false) {}
-    Dependency(int id, int node_id, std::string name, bool ready)
+    Dependency(int id, int node_id, std::string name, bool ready = false)
             : _id(id), _node_id(node_id), _name(std::move(name)), _ready(ready) {}
     virtual ~Dependency() = default;
 
@@ -109,7 +108,7 @@ public:
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
     [[nodiscard]] virtual Dependency* is_blocked_by(PipelineTask* task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
-    void set_ready();
+    virtual void set_ready();
     void set_ready_to_read() {
         DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
@@ -174,11 +173,26 @@ struct FakeSharedState final : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(FakeSharedState)
 };
 
-class CountedFinishDependency final : public Dependency {
+class DependencyWithStack : public Dependency {
+public:
+    using SharedState = FakeSharedState;
+    DependencyWithStack(int id, int node_id, std::string name, bool ready = false)
+            : Dependency(id, node_id, name, ready) {}
+
+    void set_ready() override {
+        _stack_set_ready = get_stack_trace();
+        Dependency::set_ready();
+    }
+
+protected:
+    std::string _stack_set_ready;
+};
+
+class CountedFinishDependency final : public DependencyWithStack {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name)
-            : Dependency(id, node_id, name, true) {}
+            : DependencyWithStack(id, node_id, name, true) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
@@ -277,8 +291,6 @@ public:
     RuntimeFilterDependency(int id, int node_id, std::string name, IRuntimeFilter* runtime_filter)
             : Dependency(id, node_id, name), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
-
-    Dependency* is_blocked_by(PipelineTask* task) override;
 
 private:
     const IRuntimeFilter* _runtime_filter = nullptr;
@@ -504,7 +516,7 @@ struct SpillSortSharedState : public BasicSharedState,
     ~SpillSortSharedState() override = default;
 
     // This number specifies the maximum size of sub blocks
-    static constexpr int SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
+    static constexpr size_t SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
     void update_spill_block_batch_row_count(const vectorized::Block* block) {
         auto rows = block->rows();
         if (rows > 0 && 0 == avg_row_bytes) {
@@ -525,7 +537,7 @@ struct SpillSortSharedState : public BasicSharedState,
 
     std::deque<vectorized::SpillStreamSPtr> sorted_streams;
     size_t avg_row_bytes = 0;
-    int spill_block_batch_row_count;
+    size_t spill_block_batch_row_count;
 };
 
 struct UnionSharedState : public BasicSharedState {
@@ -575,14 +587,12 @@ public:
 
     int64_t current_row_position = 0;
     BlockRowPos partition_by_end;
-    vectorized::VExprContextSPtrs partition_by_eq_expr_ctxs;
     int64_t input_total_rows = 0;
     BlockRowPos all_block_end;
     std::vector<vectorized::Block> input_blocks;
     bool input_eos = false;
     BlockRowPos found_partition_end;
     std::vector<int64_t> origin_cols;
-    vectorized::VExprContextSPtrs order_by_eq_expr_ctxs;
     std::vector<int64_t> input_block_first_row_positions;
     std::vector<std::vector<vectorized::MutableColumnPtr>> agg_input_columns;
 
@@ -606,8 +616,9 @@ struct HashJoinSharedState : public JoinSharedState {
     ENABLE_FACTORY_CREATOR(HashJoinSharedState)
     // mark the join column whether support null eq
     std::vector<bool> is_null_safe_eq_join;
+
     // mark the build hash table whether it needs to store null value
-    std::vector<bool> store_null_in_hash_table;
+    std::vector<bool> serialize_null_into_key;
     std::shared_ptr<vectorized::Arena> arena = std::make_shared<vectorized::Arena>();
 
     // maybe share hash table with other fragment instances
@@ -677,7 +688,7 @@ public:
     std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;
 
     /// init in build side
-    int child_quantity;
+    size_t child_quantity;
     vectorized::VExprContextSPtrs build_child_exprs;
     std::vector<Dependency*> probe_finished_children_dependency;
 
@@ -867,5 +878,5 @@ private:
     std::vector<std::atomic_int64_t> _queues_mem_usage;
     const int64_t _each_queue_limit;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

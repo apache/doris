@@ -229,15 +229,15 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
             left = cast.child();
             DecimalV3Literal literal = (DecimalV3Literal) right;
             if (left.getDataType().isDecimalV3Type()) {
-                if (((DecimalV3Type) left.getDataType())
-                        .getScale() < ((DecimalV3Type) literal.getDataType()).getScale()) {
+                DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
+                DecimalV3Type literalType = (DecimalV3Type) literal.getDataType();
+                if (leftType.getScale() < literalType.getScale()) {
                     int toScale = ((DecimalV3Type) left.getDataType()).getScale();
                     if (comparisonPredicate instanceof EqualTo) {
                         try {
                             return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
-                                    comparisonPredicate.withChildren(left,
-                                            new DecimalV3Literal((DecimalV3Type) left.getDataType(),
-                                                    literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
+                                    comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                            literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             if (left.nullable()) {
                                 // TODO: the ideal way is to return an If expr like:
@@ -255,9 +255,8 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                     } else if (comparisonPredicate instanceof NullSafeEqual) {
                         try {
                             return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
-                                    comparisonPredicate.withChildren(left,
-                                            new DecimalV3Literal((DecimalV3Type) left.getDataType(),
-                                                    literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
+                                    comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                            literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             return BooleanLiteral.of(false);
                         }

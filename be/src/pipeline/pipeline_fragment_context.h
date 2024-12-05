@@ -153,22 +153,19 @@ private:
                                 const std::map<int, int>& shuffle_idx_to_instance_idx);
     Status _plan_local_exchange(int num_buckets, int pip_idx, PipelinePtr pip,
                                 const std::map<int, int>& bucket_seq_to_instance_idx,
-                                const std::map<int, int>& shuffle_idx_to_instance_idx,
-                                const bool ignore_data_distribution);
+                                const std::map<int, int>& shuffle_idx_to_instance_idx);
     void _inherit_pipeline_properties(const DataDistribution& data_distribution,
                                       PipelinePtr pipe_with_source, PipelinePtr pipe_with_sink);
     Status _add_local_exchange(int pip_idx, int idx, int node_id, ObjectPool* pool,
                                PipelinePtr cur_pipe, DataDistribution data_distribution,
                                bool* do_local_exchange, int num_buckets,
                                const std::map<int, int>& bucket_seq_to_instance_idx,
-                               const std::map<int, int>& shuffle_idx_to_instance_idx,
-                               const bool ignore_data_distribution);
+                               const std::map<int, int>& shuffle_idx_to_instance_idx);
     Status _add_local_exchange_impl(int idx, ObjectPool* pool, PipelinePtr cur_pipe,
                                     PipelinePtr new_pip, DataDistribution data_distribution,
                                     bool* do_local_exchange, int num_buckets,
                                     const std::map<int, int>& bucket_seq_to_instance_idx,
-                                    const std::map<int, int>& shuffle_idx_to_instance_idx,
-                                    const bool ignore_data_hash_distribution);
+                                    const std::map<int, int>& shuffle_idx_to_instance_idx);
 
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
                                  ThreadPool* thread_pool);
@@ -230,8 +227,6 @@ private:
     OperatorPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
-
-    bool _need_local_merge = false;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
@@ -304,7 +299,7 @@ private:
      */
     std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
 
-    std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
+    std::vector<RuntimeFilterParamsContext*> _runtime_filter_states;
 
     // Total instance num running on all BEs
     int _total_instances = -1;

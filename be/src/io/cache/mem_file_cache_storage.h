@@ -44,6 +44,7 @@ public:
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                        std::lock_guard<std::mutex>& cache_lock) override;
     Status clear(std::string& msg) override;
+    std::string get_local_file(const FileCacheKey& key) override;
 
     FileCacheStorageType get_type() override { return MEMORY; }
 

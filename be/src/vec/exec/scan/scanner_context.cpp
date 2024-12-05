@@ -46,7 +46,8 @@ ScannerContext::ScannerContext(
         RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
         const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners, int64_t limit_,
-        std::shared_ptr<pipeline::Dependency> dependency, bool ignore_data_distribution)
+        std::shared_ptr<pipeline::Dependency> dependency, bool ignore_data_distribution,
+        bool is_file_scan_operator)
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
@@ -58,12 +59,16 @@ ScannerContext::ScannerContext(
           limit(limit_),
           _scanner_scheduler_global(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
-          _ignore_data_distribution(ignore_data_distribution) {
+          _ignore_data_distribution(ignore_data_distribution),
+          _is_file_scan_operator(is_file_scan_operator) {
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
     _query_id = _state->get_query_ctx()->query_id();
     ctx_id = UniqueId::gen_uid().to_string();
-    _scanners.enqueue_bulk(scanners.begin(), scanners.size());
+    if (!_scanners.enqueue_bulk(scanners.begin(), scanners.size())) [[unlikely]] {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Exception occurs during scanners initialization.");
+    };
     if (limit < 0) {
         limit = -1;
     }
@@ -80,8 +85,6 @@ Status ScannerContext::init() {
     _scanner_profile = _local_state->_scanner_profile;
     _scanner_sched_counter = _local_state->_scanner_sched_counter;
     _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
-    _scanner_wait_batch_timer = _local_state->_scanner_wait_batch_timer;
-    _scanner_ctx_sched_time = _local_state->_scanner_ctx_sched_time;
     _scale_up_scanners_counter = _local_state->_scale_up_scanners_counter;
     _scanner_memory_used_counter = _local_state->_memory_used_counter;
 
@@ -145,7 +148,10 @@ Status ScannerContext::init() {
     }
 
     // _scannner_scheduler will be used to submit scan task.
-    if (_scanner_scheduler->get_queue_size() * 2 > config::doris_scanner_thread_pool_queue_size) {
+    // file_scan_operator currentlly has performance issue if we submit too many scan tasks to scheduler.
+    // we should fix this problem in the future.
+    if (_scanner_scheduler->get_queue_size() * 2 > config::doris_scanner_thread_pool_queue_size ||
+        _is_file_scan_operator) {
         submit_many_scan_tasks_for_potential_performance_issue = false;
     }
 
@@ -168,8 +174,9 @@ Status ScannerContext::init() {
         if (submit_many_scan_tasks_for_potential_performance_issue || _ignore_data_distribution) {
             _max_thread_num = config::doris_scanner_thread_pool_thread_num / 1;
         } else {
-            _max_thread_num =
-                    4 * (config::doris_scanner_thread_pool_thread_num / num_parallel_instances);
+            const size_t factor = _is_file_scan_operator ? 1 : 4;
+            _max_thread_num = factor * (config::doris_scanner_thread_pool_thread_num /
+                                        num_parallel_instances);
             // In some rare cases, user may set num_parallel_instances to 1 handly to make many query could be executed
             // in parallel. We need to make sure the _max_thread_num is smaller than previous value.
             _max_thread_num =
@@ -224,10 +231,6 @@ Status ScannerContext::init() {
     return Status::OK();
 }
 
-std::string ScannerContext::parent_name() {
-    return _local_state->get_name();
-}
-
 vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
     vectorized::BlockUPtr block = nullptr;
     if (_free_blocks.try_dequeue(block)) {
@@ -236,7 +239,6 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
         _scanner_memory_used_counter->set(_block_memory_usage);
         // A free block is reused, so the memory usage should be decreased
         // The caller of get_free_block will increase the memory usage
-        update_peak_memory_usage(-block->allocated_bytes());
     } else if (_block_memory_usage < _max_bytes_in_queue || force) {
         _newly_create_free_blocks_num->update(1);
         block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
@@ -251,15 +253,10 @@ void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
         _block_memory_usage += block_size_to_reuse;
         _scanner_memory_used_counter->set(_block_memory_usage);
         block->clear_column_data();
-        if (_free_blocks.enqueue(std::move(block))) {
-            update_peak_memory_usage(block_size_to_reuse);
-        }
+        // Free blocks is used to improve memory efficiency. Failure during pushing back
+        // free block will not incur any bad result so just ignore the return value.
+        _free_blocks.enqueue(std::move(block));
     }
-}
-
-bool ScannerContext::empty_in_queue(int id) {
-    std::lock_guard<std::mutex> l(_transfer_lock);
-    return _blocks_queue.empty();
 }
 
 Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {
@@ -268,7 +265,7 @@ Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {
     return _scanner_scheduler_global->submit(shared_from_this(), scan_task);
 }
 
-void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) {
+void ScannerContext::push_back_scan_task(std::shared_ptr<ScanTask> scan_task) {
     if (scan_task->status_ok()) {
         for (const auto& [block, _] : scan_task->cached_blocks) {
             if (block->rows() > 0) {
@@ -287,12 +284,12 @@ void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) 
     if (_last_scale_up_time == 0) {
         _last_scale_up_time = UnixMillis();
     }
-    if (_blocks_queue.empty() && _last_fetch_time != 0) {
+    if (_tasks_queue.empty() && _last_fetch_time != 0) {
         // there's no block in queue before current block, so the consumer is waiting
         _total_wait_block_time += UnixMillis() - _last_fetch_time;
     }
     _num_scheduled_scanners--;
-    _blocks_queue.emplace_back(scan_task);
+    _tasks_queue.emplace_back(scan_task);
     _dependency->set_ready();
 }
 
@@ -308,9 +305,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         _set_scanner_done();
         return _process_status;
     }
-    if (!_blocks_queue.empty() && !done()) {
+    if (!_tasks_queue.empty() && !done()) {
         _last_fetch_time = UnixMillis();
-        auto scan_task = _blocks_queue.front();
+        auto scan_task = _tasks_queue.front();
         DCHECK(scan_task);
 
         // The abnormal status of scanner may come from the execution of the scanner itself,
@@ -329,13 +326,12 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                 _estimated_block_size = block_size;
             }
             _block_memory_usage -= block_size;
-            update_peak_memory_usage(-current_block->allocated_bytes());
             // consume current block
             block->swap(*current_block);
             return_free_block(std::move(current_block));
         } else {
             // This scan task do not have any cached blocks.
-            _blocks_queue.pop_front();
+            _tasks_queue.pop_front();
             // current scanner is finished, and no more data to read
             if (scan_task->is_eos()) {
                 _num_finished_scanners++;
@@ -374,13 +370,13 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         RETURN_IF_ERROR(_try_to_scale_up());
     }
 
-    if (_num_finished_scanners == _all_scanners.size() && _blocks_queue.empty()) {
+    if (_num_finished_scanners == _all_scanners.size() && _tasks_queue.empty()) {
         _set_scanner_done();
         _is_finished = true;
     }
     *eos = done();
 
-    if (_blocks_queue.empty()) {
+    if (_tasks_queue.empty()) {
         _dependency->block();
     }
     return Status::OK();
@@ -466,11 +462,6 @@ Status ScannerContext::validate_block_schema(Block* block) {
     return Status::OK();
 }
 
-void ScannerContext::set_status_on_error(const Status& status) {
-    std::lock_guard<std::mutex> l(_transfer_lock);
-    _process_status = status;
-}
-
 void ScannerContext::stop_scanners(RuntimeState* state) {
     std::lock_guard<std::mutex> l(_transfer_lock);
     if (_should_stop) {
@@ -483,7 +474,7 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
             sc->_scanner->try_stop();
         }
     }
-    _blocks_queue.clear();
+    _tasks_queue.clear();
     // TODO yiguolei, call mark close to scanners
     if (state->enable_profile()) {
         std::stringstream scanner_statistics;
@@ -533,11 +524,11 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
 
 std::string ScannerContext::debug_string() {
     return fmt::format(
-            "id: {}, total scanners: {}, blocks in queue: {},"
+            "id: {}, total scanners: {}, pending tasks: {},"
             " _should_stop: {}, _is_finished: {}, free blocks: {},"
             " limit: {}, _num_running_scanners: {}, _max_thread_num: {},"
             " _max_bytes_in_queue: {}, query_id: {}",
-            ctx_id, _all_scanners.size(), _blocks_queue.size(), _should_stop, _is_finished,
+            ctx_id, _all_scanners.size(), _tasks_queue.size(), _should_stop, _is_finished,
             _free_blocks.size_approx(), limit, _num_scheduled_scanners, _max_thread_num,
             _max_bytes_in_queue, print_id(_query_id));
 }
@@ -548,10 +539,6 @@ void ScannerContext::_set_scanner_done() {
 
 void ScannerContext::update_peak_running_scanner(int num) {
     _local_state->_peak_running_scanner->add(num);
-}
-
-void ScannerContext::update_peak_memory_usage(int64_t usage) {
-    _local_state->_scanner_peak_memory_usage->add(usage);
 }
 
 } // namespace doris::vectorized

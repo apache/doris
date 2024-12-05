@@ -364,9 +364,8 @@ public:
         return _rowset_meta_pb.inverted_index_file_info();
     }
 
-    void add_inverted_index_files_info(const std::vector<InvertedIndexFileInfo>& idx_file_info);
-
-    void update_inverted_index_files_info(const std::vector<InvertedIndexFileInfo>& idx_file_info);
+    void add_inverted_index_files_info(
+            const std::vector<const InvertedIndexFileInfo*>& idx_file_info);
 
     int64_t get_metadata_size() const override;
 

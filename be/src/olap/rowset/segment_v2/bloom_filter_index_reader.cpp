@@ -31,8 +31,10 @@
 namespace doris {
 namespace segment_v2 {
 
-Status BloomFilterIndexReader::load(bool use_page_cache, bool kept_in_memory) {
+Status BloomFilterIndexReader::load(bool use_page_cache, bool kept_in_memory,
+                                    OlapReaderStatistics* index_load_stats) {
     // TODO yyq: implement a new once flag to avoid status construct.
+    _index_load_stats = index_load_stats;
     return _load_once.call([this, use_page_cache, kept_in_memory] {
         return _load(use_page_cache, kept_in_memory);
     });
@@ -47,7 +49,7 @@ Status BloomFilterIndexReader::_load(bool use_page_cache, bool kept_in_memory) {
     const IndexedColumnMetaPB& bf_index_meta = _bloom_filter_index_meta->bloom_filter();
 
     _bloom_filter_reader.reset(new IndexedColumnReader(_file_reader, bf_index_meta));
-    RETURN_IF_ERROR(_bloom_filter_reader->load(use_page_cache, kept_in_memory));
+    RETURN_IF_ERROR(_bloom_filter_reader->load(use_page_cache, kept_in_memory, _index_load_stats));
     update_metadata_size();
     return Status::OK();
 }
@@ -68,6 +70,7 @@ Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
     auto column = data_type->create_column();
 
     RETURN_IF_ERROR(_bloom_filter_iter.seek_to_ordinal(ordinal));
+    DCHECK(current_bloom_filter_index() == ordinal);
     size_t num_read = num_to_read;
     RETURN_IF_ERROR(_bloom_filter_iter.next_batch(&num_read, column));
     DCHECK(num_to_read == num_read);

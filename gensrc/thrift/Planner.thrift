@@ -64,10 +64,6 @@ struct TPlanFragment {
   8: optional i64 initial_reservation_total_claims
 
   9: optional QueryCache.TQueryCacheParam query_cache_param
-
-  // Using serial source means a serial source operator will be used in this fragment (e.g. data will be shuffled to
-  // only 1 exchange operator) and then splitted by followed local exchanger
-  10: optional bool use_serial_source
 }
 
 // location information for a single scan range

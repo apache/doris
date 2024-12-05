@@ -23,18 +23,15 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
 #include <map>
-#include <ostream>
 #include <tuple>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/object_pool.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -47,7 +44,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
@@ -126,8 +122,6 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     _open_reader_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
     _cast_to_input_block_timer =
             ADD_TIMER(_local_state->scanner_profile(), "FileScannerCastInputBlockTime");
-    _fill_path_columns_timer =
-            ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillPathColumnTime");
     _fill_missing_columns_timer =
             ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillMissingColumnTime");
     _pre_filter_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerPreFilterTimer");
@@ -137,8 +131,6 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     _not_found_file_counter =
             ADD_COUNTER(_local_state->scanner_profile(), "NotFoundFileNum", TUnit::UNIT);
     _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
-    _has_fully_rf_file_counter =
-            ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -219,7 +211,7 @@ Status VFileScanner::_process_late_arrival_conjuncts() {
         _discard_conjuncts();
     }
     if (_applied_rf_num == _total_rf_num) {
-        COUNTER_UPDATE(_has_fully_rf_file_counter, 1);
+        _local_state->scanner_profile()->add_info_string("ApplyAllRuntimeFilters", "True");
     }
     return Status::OK();
 }
@@ -432,7 +424,7 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
     }
     SCOPED_TIMER(_cast_to_input_block_timer);
     // cast primitive type(PT0) to primitive type(PT1)
-    size_t idx = 0;
+    uint32_t idx = 0;
     for (auto& slot_desc : _input_tuple_desc->slots()) {
         if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
             // skip columns which does not exist in file
@@ -758,17 +750,16 @@ Status VFileScanner::_get_next_reader() {
 
         // create reader for specific format
         Status init_status;
-        TFileFormatType::type format_type = _params->format_type;
+        // for compatibility, if format_type is not set in range, use the format type of params
+        TFileFormatType::type format_type =
+                range.__isset.format_type ? range.format_type : _params->format_type;
         // JNI reader can only push down column value range
         bool push_down_predicates =
                 !_is_load && _params->format_type != TFileFormatType::FORMAT_JNI;
+        // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
-            if (range.table_format_params.table_format_type == "hudi" &&
-                range.table_format_params.hudi_params.delta_logs.empty()) {
-                // fall back to native reader if there is no log file
-                format_type = TFileFormatType::FORMAT_PARQUET;
-            } else if (range.table_format_params.table_format_type == "paimon" &&
-                       !range.table_format_params.paimon_params.__isset.paimon_split) {
+            if (range.table_format_params.table_format_type == "paimon" &&
+                !range.table_format_params.paimon_params.__isset.paimon_split) {
                 // use native reader
                 auto format = range.table_format_params.paimon_params.file_format;
                 if (format == "orc") {
@@ -797,8 +788,8 @@ Status VFileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                _cur_reader =
-                        PaimonJniReader::create_unique(_file_slot_descs, _state, _profile, range);
+                _cur_reader = PaimonJniReader::create_unique(_file_slot_descs, _state, _profile,
+                                                             range, _params);
                 init_status = ((PaimonJniReader*)(_cur_reader.get()))
                                       ->init_reader(_colname_to_value_range);
             } else if (range.__isset.table_format_params &&
@@ -969,8 +960,8 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader =
                     NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                  _file_slot_descs, &_scanner_eof, _io_ctx.get());
-            init_status =
-                    ((NewJsonReader*)(_cur_reader.get()))->init_reader(_col_default_value_ctx);
+            init_status = ((NewJsonReader*)(_cur_reader.get()))
+                                  ->init_reader(_col_default_value_ctx, _is_load);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {

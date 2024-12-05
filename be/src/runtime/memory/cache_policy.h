@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -48,7 +50,8 @@ public:
         CLOUD_TXN_DELETE_BITMAP_CACHE = 17,
         NONE = 18, // not be used
         FOR_UT_CACHE_NUMBER = 19,
-        QUERY_CACHE = 20
+        QUERY_CACHE = 20,
+        TABLET_COLUMN_OBJECT_POOL = 21,
     };
 
     static std::string type_string(CacheType type) {
@@ -93,6 +96,8 @@ public:
             return "ForUTCacheNumber";
         case CacheType::QUERY_CACHE:
             return "QueryCache";
+        case CacheType::TABLET_COLUMN_OBJECT_POOL:
+            return "TabletColumnObjectPool";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }
@@ -119,7 +124,9 @@ public:
             {"CreateTabletRRIdxCache", CacheType::CREATE_TABLET_RR_IDX_CACHE},
             {"CloudTabletCache", CacheType::CLOUD_TABLET_CACHE},
             {"CloudTxnDeleteBitmapCache", CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE},
-            {"ForUTCacheNumber", CacheType::FOR_UT_CACHE_NUMBER}};
+            {"ForUTCacheNumber", CacheType::FOR_UT_CACHE_NUMBER},
+            {"QueryCache", CacheType::QUERY_CACHE},
+            {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL}};
 
     static CacheType string_to_type(std::string type) {
         if (StringToType.contains(type)) {
@@ -128,6 +135,9 @@ public:
             return CacheType::NONE;
         }
     }
+
+    inline static std::vector<CacheType> MetadataCache {
+            CacheType::SEGMENT_CACHE, CacheType::SCHEMA_CACHE, CacheType::TABLET_SCHEMA_CACHE};
 
     CachePolicy(CacheType type, size_t capacity, uint32_t stale_sweep_time_s, bool enable_prune);
     virtual ~CachePolicy();

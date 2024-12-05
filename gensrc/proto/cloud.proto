@@ -197,6 +197,7 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
+    optional bool use_path_style = 16;
 }
 
 // The legacy ObjectStoreInfoPB is stored in InstanceInfoPB
@@ -543,6 +544,10 @@ message TabletCompactionJobPB {
     optional int64 delete_bitmap_lock_initiator = 24;
     optional int64 full_compaction_cnt = 25;  // prepare
     optional bool check_input_versions_range = 26;
+    optional int64 index_size_input_rowsets = 27;
+    optional int64 segment_size_input_rowsets = 28;
+    optional int64 index_size_output_rowsets = 29;
+    optional int64 segment_size_output_rowsets = 30;
 }
 
 message TabletSchemaChangeJobPB {
@@ -562,6 +567,8 @@ message TabletSchemaChangeJobPB {
     optional int64 output_cumulative_point = 12;
     optional bool is_inverted_index_change = 13 [default = false];
     optional int64 delete_bitmap_lock_initiator = 14;
+    optional int64 index_size_output_rowsets = 15;
+    optional int64 segment_size_output_rowsets = 16;
 }
 
 message TabletJobInfoPB {
@@ -575,7 +582,7 @@ message TabletJobInfoPB {
 //==============================================================================
 message TabletStatsPB {
     optional TabletIndexPB idx = 1;
-    optional int64 data_size = 2;
+    optional int64 data_size = 2; // data_size = index_size + segment_size
     optional int64 num_rows = 3;
     optional int64 num_rowsets = 4;
     optional int64 num_segments = 5;
@@ -587,6 +594,8 @@ message TabletStatsPB {
     optional int64 last_cumu_compaction_time_ms = 11;
     optional int64 full_compaction_cnt = 12;
     optional int64 last_full_compaction_time_ms = 13;
+    optional int64 index_size = 14;
+    optional int64 segment_size = 15; 
 }
 
 message ObjectFilePB {
@@ -642,6 +651,7 @@ message BeginTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional int64 txn_id = 2;
     optional int64 dup_txn_id = 3;
+    optional TxnStatusPB txn_status = 4;
     // TODO: There may be more fields TBD
 }
 
@@ -960,6 +970,11 @@ message CreateRowsetResponse {
 }
 
 message GetRowsetRequest {
+    enum SchemaOp {
+        FILL_WITH_DICT = 0; // fill rowset schema with SchemaCloudDictionary value
+        RETURN_DICT = 1;    // not use dict value in MS, return SchemaCloudDictionary directly
+        NO_DICT = 2;        // not read dict info, use local cached SchemaCloudDictionary instead
+    }
     optional string cloud_unique_id = 1; // For auth
     optional TabletIndexPB idx = 2;
     optional int64 start_version = 3;
@@ -967,13 +982,17 @@ message GetRowsetRequest {
     optional int64 base_compaction_cnt = 5;
     optional int64 cumulative_compaction_cnt = 6;
     optional int64 cumulative_point = 7;
-    // TODO: There may be more fields TBD
+    // returned schema format on rowset schema, used in variant type directly.
+    // for compability reason we use FILL_WITH_DICT as default
+    optional SchemaOp schema_op = 8  [default = FILL_WITH_DICT];
 }
 
 message GetRowsetResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated doris.RowsetMetaCloudPB rowset_meta = 2;
     optional TabletStatsPB stats = 3;
+    // Return dict value if SchemaOp is RETURN_DICT
+    optional SchemaCloudDictionary schema_dict = 4; 
 }
 
 message IndexRequest {
@@ -1410,6 +1429,7 @@ message GetDeleteBitmapResponse {
     repeated int64 versions = 4;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 5;
+    optional int64 tablet_id = 6;
 }
 
 message RemoveDeleteBitmapRequest {
@@ -1450,6 +1470,18 @@ message GetDeleteBitmapUpdateLockResponse {
     repeated int64 base_compaction_cnts = 2;
     repeated int64 cumulative_compaction_cnts = 3;
     repeated int64 cumulative_points = 4;
+}
+
+message RemoveDeleteBitmapUpdateLockRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 table_id = 2;
+    optional int64 tablet_id = 3;
+    optional int64 lock_id = 4;
+    optional int64 initiator = 5;
+}
+
+message RemoveDeleteBitmapUpdateLockResponse {
+    optional MetaServiceResponseStatus status = 1;
 }
 
 message GetRLTaskCommitAttachRequest {
@@ -1563,6 +1595,7 @@ service MetaService {
     rpc update_delete_bitmap(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
     rpc get_delete_bitmap(GetDeleteBitmapRequest) returns(GetDeleteBitmapResponse);
     rpc get_delete_bitmap_update_lock(GetDeleteBitmapUpdateLockRequest) returns(GetDeleteBitmapUpdateLockResponse);
+    rpc remove_delete_bitmap_update_lock(RemoveDeleteBitmapUpdateLockRequest) returns(RemoveDeleteBitmapUpdateLockResponse);
     rpc remove_delete_bitmap(RemoveDeleteBitmapRequest) returns(RemoveDeleteBitmapResponse);
 
     // routine load progress

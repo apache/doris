@@ -203,6 +203,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     case TInvertedIndexFileStorageFormat::V2:
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
         break;
+    case TInvertedIndexFileStorageFormat::V3:
+        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+        break;
     default:
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
         break;
@@ -328,6 +331,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     }
     if (tablet_schema.__isset.row_store_page_size) {
         schema->set_row_store_page_size(tablet_schema.row_store_page_size);
+    }
+    if (tablet_schema.__isset.storage_page_size) {
+        schema->set_storage_page_size(tablet_schema.storage_page_size);
     }
     if (tablet_schema.__isset.skip_write_index_on_load) {
         schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
@@ -665,7 +671,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             RowsetId rst_id;
             rst_id.init(tablet_meta_pb.delete_bitmap().rowset_ids(i));
             auto seg_id = tablet_meta_pb.delete_bitmap().segment_ids(i);
-            uint32_t ver = tablet_meta_pb.delete_bitmap().versions(i);
+            auto ver = tablet_meta_pb.delete_bitmap().versions(i);
             auto bitmap = tablet_meta_pb.delete_bitmap().segment_delete_bitmaps(i).data();
             delete_bitmap().delete_bitmap[{rst_id, seg_id, ver}] = roaring::Roaring::read(bitmap);
         }
@@ -776,12 +782,6 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             time_series_compaction_empty_rowsets_threshold());
     tablet_meta_pb->set_time_series_compaction_level_threshold(
             time_series_compaction_level_threshold());
-}
-
-int64_t TabletMeta::mem_size() const {
-    auto size = sizeof(TabletMeta);
-    size += _schema->mem_size();
-    return size;
 }
 
 void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) {
@@ -1189,10 +1189,13 @@ void DeleteBitmap::add_to_remove_queue(
 }
 
 void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector) {
+    if (!config::enable_delete_bitmap_merge_on_compaction) {
+        return;
+    }
     std::shared_lock l(stale_delete_bitmap_lock);
     //<rowset_id, start_version, end_version>
     std::vector<std::tuple<std::string, uint64_t, uint64_t>> to_delete;
-    auto tablet_id = -1;
+    int64_t tablet_id = -1;
     for (auto& version_str : vector) {
         auto it = _stale_delete_bitmap.find(version_str);
         if (it != _stale_delete_bitmap.end()) {
@@ -1203,9 +1206,13 @@ void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::
                 }
                 auto start_bmk = std::get<1>(delete_bitmap_tuple);
                 auto end_bmk = std::get<2>(delete_bitmap_tuple);
+                // the key range of to be removed is [start_bmk,end_bmk),
+                // due to the different definitions of the right boundary,
+                // so use end_bmk as right boundary when removing local delete bitmap,
+                // use (end_bmk - 1) as right boundary when removing ms delete bitmap
                 remove(start_bmk, end_bmk);
                 to_delete.emplace_back(std::make_tuple(std::get<0>(start_bmk).to_string(), 0,
-                                                       std::get<2>(end_bmk)));
+                                                       std::get<2>(end_bmk) - 1));
             }
             _stale_delete_bitmap.erase(version_str);
         }

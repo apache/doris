@@ -123,7 +123,6 @@ Status ScannerScheduler::init(ExecEnv* env) {
 
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                                 std::shared_ptr<ScanTask> scan_task) {
-    scan_task->last_submit_time = GetCurrentTimeNanos();
     if (ctx->done()) {
         return Status::OK();
     }
@@ -154,7 +153,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
             if (!status.ok()) {
                 scanner_ref->set_status(status);
-                ctx->append_block_to_queue(scanner_ref);
+                ctx->push_back_scan_task(scanner_ref);
             }
         });
         if (!s.ok()) {
@@ -184,7 +183,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
                 if (!status.ok()) {
                     scanner_ref->set_status(status);
-                    ctx->append_block_to_queue(scanner_ref);
+                    ctx->push_back_scan_task(scanner_ref);
                 }
             };
             SimplifiedScanTask simple_scan_task = {work_func, ctx};
@@ -212,8 +211,6 @@ std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
 
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                                      std::shared_ptr<ScanTask> scan_task) {
-    // record the time from scanner submission to actual execution in nanoseconds
-    ctx->incr_ctx_scheduling_time(GetCurrentTimeNanos() - scan_task->last_submit_time);
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         return;
@@ -286,8 +283,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     break;
                 }
                 // We got a new created block or a reused block.
-                ctx->update_peak_memory_usage(free_block->allocated_bytes());
-                ctx->update_peak_memory_usage(-free_block->allocated_bytes());
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
                 first_read = false;
                 if (!status.ok()) {
@@ -296,7 +291,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 }
                 // Projection will truncate useless columns, makes block size change.
                 auto free_block_bytes = free_block->allocated_bytes();
-                ctx->update_peak_memory_usage(free_block_bytes);
                 raw_bytes_read += free_block_bytes;
                 if (!scan_task->cached_blocks.empty() &&
                     scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
@@ -304,9 +298,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
                     vectorized::MutableBlock mutable_block(
                             scan_task->cached_blocks.back().first.get());
-                    ctx->update_peak_memory_usage(-mutable_block.allocated_bytes());
                     status = mutable_block.merge(*free_block);
-                    ctx->update_peak_memory_usage(mutable_block.allocated_bytes());
                     if (!status.ok()) {
                         LOG(WARNING) << "Block merge failed: " << status.to_string();
                         break;
@@ -316,7 +308,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                             std::move(mutable_block.mutable_columns()));
 
                     // Return block succeed or not, this free_block is not used by this scan task any more.
-                    ctx->update_peak_memory_usage(-free_block_bytes);
                     // If block can be reused, its memory usage will be added back.
                     ctx->return_free_block(std::move(free_block));
                     ctx->inc_block_usage(scan_task->cached_blocks.back().first->allocated_bytes() -
@@ -343,7 +334,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scanner->mark_to_need_to_close();
     }
     scan_task->set_eos(eos);
-    ctx->append_block_to_queue(scan_task);
+    ctx->push_back_scan_task(scan_task);
 }
 
 void ScannerScheduler::_register_metrics() {

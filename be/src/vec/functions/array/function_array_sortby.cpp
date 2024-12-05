@@ -46,7 +46,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class FunctionArraySortBy : public IFunction {
 public:
     static constexpr auto name = "array_sortby";
@@ -66,7 +66,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr argument_columns[2] = {nullptr, nullptr};
         ColumnPtr argument_nullmap[2] = {nullptr, nullptr};
         for (int i = 0; i < 2; ++i) {

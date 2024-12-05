@@ -128,8 +128,6 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
-    RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
 
 private:
     friend class ResultSinkOperatorX;
@@ -138,8 +136,9 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender = nullptr;
     std::shared_ptr<ResultWriter> _writer = nullptr;
-    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
-    RuntimeProfile::Counter* _rows_sent_counter = nullptr;
+
+    RuntimeProfile::Counter* _fetch_row_id_timer = nullptr;
+    RuntimeProfile::Counter* _write_data_timer = nullptr;
 };
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {

@@ -74,7 +74,16 @@ public class TaskDisruptor<T> {
     public boolean publishEvent(Object... args) {
         try {
             RingBuffer<T> ringBuffer = disruptor.getRingBuffer();
-            return ringBuffer.tryPublishEvent(eventTranslator, args);
+            // Check if the RingBuffer has enough capacity to reserve 10 slots for tasks
+            // If there is insufficient capacity (less than 10 slots available)
+            // log a warning and drop the current task
+            if (!ringBuffer.hasAvailableCapacity(10)) {
+                LOG.warn("ring buffer has no available capacity,task will be dropped,"
+                        + "please check the task queue size.");
+                return false;
+            }
+            ringBuffer.publishEvent(eventTranslator, args);
+            return true;
         } catch (Exception e) {
             LOG.warn("Failed to publish event", e);
             // Handle the exception, e.g., retry or alert

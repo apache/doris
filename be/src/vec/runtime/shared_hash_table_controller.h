@@ -29,6 +29,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class RuntimeState;
 class MinMaxFuncBase;
@@ -46,6 +47,7 @@ struct RuntimeFilterContext {
     std::shared_ptr<BloomFilterFuncBase> bloom_filter_func;
     std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func;
     bool ignored = false;
+    std::string err_msg;
 };
 
 using RuntimeFilterContextSPtr = std::shared_ptr<RuntimeFilterContext>;
@@ -101,3 +103,5 @@ private:
 
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"
