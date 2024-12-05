@@ -268,9 +268,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             }
 
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
-            size_t raw_bytes_read = 0;
-            bool first_read = true;
-            int64_t limit = scanner->limit();
+            size_t raw_bytes_read = 0; bool first_read = true; int64_t limit = scanner->limit();
             while (!eos && raw_bytes_read < raw_bytes_threshold) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;
@@ -318,7 +316,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     ctx->inc_block_usage(free_block->allocated_bytes());
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
                 }
-                if (limit < ctx->batch_size()) {
+                if (limit > 0 && limit < ctx->batch_size()) {
                     // If this scanner has limit, and less than batch size,
                     // return immediately and no need to wait raw_bytes_threshold.
                     // This can save time that each scanner may only return a small number of rows,
