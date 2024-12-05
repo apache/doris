@@ -246,7 +246,16 @@ public abstract class DataType {
                 dataType = DateV2Type.INSTANCE;
                 break;
             case "time":
-                dataType = TimeType.INSTANCE;
+                switch (types.size()) {
+                    case 1:
+                        dataType = TimeV2Type.INSTANCE;
+                        break;
+                    case 2:
+                        dataType = TimeV2Type.of(Integer.parseInt(types.get(1)));
+                        break;
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
                 break;
             case "datetime":
                 switch (types.size()) {
