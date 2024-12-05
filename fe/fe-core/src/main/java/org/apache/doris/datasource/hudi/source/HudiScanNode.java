@@ -271,7 +271,7 @@ public class HudiScanNode extends HiveScanNode {
         tableFormatFileDesc.setHudiParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
-  
+
     private boolean canUseNativeReader() {
         return !sessionVariable.isForceJniScanner() && isCowTable;
     }
