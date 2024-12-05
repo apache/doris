@@ -165,10 +165,9 @@ public:
         return Status::OK();
     }
 
-    void register_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) {
-        _buffer = buffer;
-        _buffer->register_sink(_fragment_instance_id);
-    }
+    void set_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) { _buffer = buffer; }
+
+    InstanceLoId dest_ins_id() const { return _fragment_instance_id.lo; }
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
             InstanceLoId id, bool eos) {
