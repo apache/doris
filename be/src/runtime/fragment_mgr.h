@@ -143,7 +143,7 @@ public:
     std::shared_ptr<QueryContext> get_query_context(const TUniqueId& query_id);
 
     int32_t running_query_num() {
-        std::unique_lock<std::mutex> ctx_lock(_lock);
+        std::shared_lock ctx_lock(_query_ctx_map_lock);
         return _query_ctx_map.size();
     }
 
@@ -201,8 +201,9 @@ private:
 
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
 
+    std::shared_mutex _query_ctx_map_lock;
     // query id -> QueryContext
-    std::unordered_map<TUniqueId, std::shared_ptr<QueryContext>> _query_ctx_map;
+    phmap::flat_hash_map<TUniqueId, std::shared_ptr<QueryContext>> _query_ctx_map;
     std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;
