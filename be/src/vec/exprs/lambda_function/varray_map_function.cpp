@@ -20,7 +20,6 @@
 #include <vector>
 #include <vec/exprs/vslot_ref.h>
 #include <vec/exprs/vcolumn_ref.h>
-#include <vec/functions/array/function_array_utils.h>
 #include <vec/data_types/data_type_number.h>
 
 #include "common/status.h"
@@ -42,19 +41,27 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-#include "common/compile_check_begin.h"
 
 class VExprContext;
 
+// extend a block with all required parameters
 struct LambdaArgs {
+    // the lambda function need the column ids of all the slots
     std::vector<int> output_slot_ref_indexs;
+    // which line is extended to the original block
     int64_t current_row_idx = 0;
+    // when a block is filled, the array may be truncated, recording where it was truncated
     int64_t current_offset_in_array = 0;
+    // the beginning position of the array
     size_t array_start = 0;
+    // the size of the array
     int64_t cur_size = 0;
+    // offset of column array
     const ColumnArray::Offsets64* offsets_ptr = nullptr;
+    // expend data of repeat times
     int current_repeat_times = 0;
-    bool eos = false;
+    // whether the current row of the original block has been extended
+    bool current_row_eos = false;
 };
 
 class ArrayMapFunction : public LambdaFunction {
@@ -190,8 +197,7 @@ public:
                 lambda_block.insert(std::move(data_column));
             }
 
-            MutableBlock m_lambda_block(&lambda_block);
-            MutableColumns& columns = m_lambda_block.mutable_columns();
+            MutableColumns columns = lambda_block.mutate_columns();
             while (columns[gap]->size() < batch_size) {
                 long max_step = batch_size - columns[gap]->size();
                 long current_step = std::min(max_step, (long)(args.cur_size - args.current_offset_in_array));
@@ -202,18 +208,16 @@ public:
                 args.current_offset_in_array += current_step;
                 args.current_repeat_times += current_step;
                 if (args.current_offset_in_array >= args.cur_size) {
-                    args.eos = true;
-                } else {
-                    _extend_data(columns, block, args, gap);
+                    args.current_row_eos = true;
                 }
-                if (args.eos) {
-                    _extend_data(columns, block, args, gap);
+                _extend_data(columns, block, args, gap);
+                if (args.current_row_eos) {
                     args.current_row_idx++;
                     args.current_offset_in_array = 0;
                     if (args.current_row_idx >= block->rows()) {
                         break;
                     }
-                    args.eos = false;
+                    args.current_row_eos = false;
                     args.array_start = (*args.offsets_ptr)[args.current_row_idx - 1];
                     args.cur_size = (*args.offsets_ptr)[args.current_row_idx] - args.array_start;
                 }
