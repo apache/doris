@@ -186,14 +186,6 @@ char* add_float(T data, char* pos, bool dynamic_mode) {
     return pos + length;
 }
 
-static char* add_time(double data, char* pos, bool dynamic_mode) {
-    int length = time_to_buffer_from_double(data, pos + !dynamic_mode);
-    if (!dynamic_mode) {
-        int1store(pos++, length);
-    }
-    return pos + length;
-}
-
 static char* add_timev2(double data, char* pos, bool dynamic_mode, int scale) {
     int length = timev2_to_buffer_from_double(data, pos + !dynamic_mode, scale);
     if (!dynamic_mode) {
@@ -353,21 +345,6 @@ int MysqlRowBuffer<is_binary_format>::push_double(double data) {
     // 1 for string trail, 1 for length, 1 for sign, other for digits
     reserve(3 + MAX_DOUBLE_STR_LENGTH);
     _pos = add_float(data, _pos, _dynamic_mode);
-    return 0;
-}
-
-template <bool is_binary_format>
-int MysqlRowBuffer<is_binary_format>::push_time(double data) {
-    if (is_binary_format && !_dynamic_mode) {
-        char buff[8];
-        _field_pos++;
-        float8store(buff, data);
-        return append(buff, 8);
-    }
-    // 1 for string trail, 1 for length, other for time str
-    reserve(2 + MAX_TIME_WIDTH);
-
-    _pos = add_time(data, _pos, _dynamic_mode);
     return 0;
 }
 
