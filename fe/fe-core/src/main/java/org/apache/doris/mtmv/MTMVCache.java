@@ -80,13 +80,14 @@ public class MTMVCache {
     }
 
     public static MTMVCache from(MTMV mtmv, ConnectContext connectContext, boolean needCost) {
-        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(mtmv.getQuerySql());
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
                 new OriginStatement(mtmv.getQuerySql(), 0));
-        NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
+        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(mtmv.getQuerySql());
+        NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
+
         // Can not convert to table sink, because use the same column from different table when self join
         // the out slot is wrong
         if (needCost) {
