@@ -75,12 +75,12 @@ public class InitMaterializationContextHook implements PlannerHook {
             return;
         }
         // Only collect the table or mv which query use directly, to avoid useless mv partition in rewrite
-        TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), false);
+        // Keep use one connection context when in query, if new connect context,
+        // the ConnectionContext.get() will change
+        TableCollectorContext collectorContext = new TableCollectorContext(Sets.newHashSet(), false,
+                cascadesContext.getConnectContext());
         try {
             Plan rewritePlan = cascadesContext.getRewritePlan();
-            // Keep use one connection context when in query, if new connect context,
-            // the ConnectionContext.get() will change
-            collectorContext.setConnectContext(cascadesContext.getConnectContext());
             rewritePlan.accept(TableCollector.INSTANCE, collectorContext);
         } catch (Exception e) {
             LOG.warn(String.format("MaterializationContext init table collect fail, current queryId is %s",
