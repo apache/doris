@@ -575,7 +575,7 @@ public class StatementContext implements Closeable {
             return Optional.empty();
         }
         MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
-        return snapshots.containsKey(mvccTableInfo) ? Optional.of(snapshots.get(mvccTableInfo)) : Optional.empty();
+        return Optional.ofNullable(snapshots.get(mvccTableInfo));
     }
 
     /**

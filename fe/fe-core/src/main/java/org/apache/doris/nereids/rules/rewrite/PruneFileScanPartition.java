@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
@@ -75,7 +74,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
         if (CollectionUtils.isEmpty(externalTable.getPartitionColumns(
-                ConnectContext.get().getStatementContext().getSnapshot(externalTable)))) {
+                ctx.getStatementContext().getSnapshot(externalTable)))) {
             // non partitioned table, return NOT_PRUNED.
             // non partition table will be handled in HiveScanNode.
             return SelectedPartitions.NOT_PRUNED;
@@ -84,7 +83,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 .stream()
                 .collect(Collectors.toMap(slot -> slot.getName().toLowerCase(), Function.identity()));
         List<Slot> partitionSlots = externalTable.getPartitionColumns(
-                        ConnectContext.get().getStatementContext().getSnapshot(externalTable))
+                        ctx.getStatementContext().getSnapshot(externalTable))
                 .stream()
                 .map(column -> scanOutput.get(column.getName().toLowerCase()))
                 .collect(Collectors.toList());
