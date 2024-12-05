@@ -255,9 +255,21 @@ public class CreateMTMVInfo {
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         // this is for expression column name infer when not use alias
         LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
-        // must disable constant folding by be, because be constant folding may return wrong type
-        ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
-        Plan plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        // Should not make table without data to empty relation when analyze the related table,
+        // so add disable rules
+        Set<String> tempDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
+        ctx.getSessionVariable().setDisableNereidsRules(CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
+        ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        Plan plan;
+        try {
+            // must disable constant folding by be, because be constant folding may return wrong type
+            ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
+            plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        } finally {
+            // after operate, roll back the disable rules
+            ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
+            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        }
         // can not contain VIEW or MTMV
         analyzeBaseTables(planner.getAnalyzedPlan());
         // can not contain Random function
@@ -268,8 +280,7 @@ public class CreateMTMVInfo {
             throw new AnalysisException("can not contain invalid expression");
         }
         getRelation(planner);
-        this.mvPartitionInfo = mvPartitionDefinition
-                .analyzeAndTransferToMTMVPartitionInfo(planner, ctx, logicalQuery);
+        this.mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner, ctx);
         this.partitionDesc = generatePartitionDesc(ctx);
         getColumns(plan, ctx, mvPartitionInfo.getPartitionCol(), distribution);
         analyzeKeys();
@@ -314,24 +325,9 @@ public class CreateMTMVInfo {
         }
     }
 
+    // Should use analyzed plan for collect views and tables
     private void getRelation(NereidsPlanner planner) {
-        // Should not make table without data to empty relation when analyze the related table,
-        // so add disable rules
-        ConnectContext ctx = planner.getCascadesContext().getConnectContext();
-        SessionVariable sessionVariable = ctx.getSessionVariable();
-        Set<String> tempDisableRules = sessionVariable.getDisableNereidsRuleNames();
-        sessionVariable.setDisableNereidsRules(CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
-        if (ctx.getStatementContext() != null) {
-            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-        }
-        Plan plan;
-        try {
-            plan = planner.planWithLock(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
-        } finally {
-            sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
-            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-        }
-        this.relation = MTMVPlanUtil.generateMTMVRelation(plan);
+        this.relation = MTMVPlanUtil.generateMTMVRelation(planner.getAnalyzedPlan(), planner.getConnectContext());
     }
 
     private PartitionDesc generatePartitionDesc(ConnectContext ctx) {
