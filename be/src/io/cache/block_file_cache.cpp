@@ -1093,15 +1093,16 @@ bool BlockFileCache::remove_if_ttl_file_unlock(const UInt128Wrapper& file_key, b
         _key_to_time.find(file_key) != _key_to_time.end()) {
         if (!remove_directly) {
             for (auto& [_, cell] : _files[file_key]) {
-                if (cell.file_block->cache_type() == FileCacheType::TTL) {
-                    Status st = cell.file_block->update_expiration_time(0);
-                    if (!st.ok()) {
-                        LOG_WARNING("Failed to update expiration time to 0").error(st);
-                    }
+                if (cell.file_block->cache_type() != FileCacheType::TTL) {
+                    continue;
+                }
+                Status st = cell.file_block->update_expiration_time(0);
+                if (!st.ok()) {
+                    LOG_WARNING("Failed to update expiration time to 0").error(st);
                 }
 
                 if (cell.file_block->cache_type() == FileCacheType::NORMAL) continue;
-                auto st = cell.file_block->change_cache_type_between_ttl_and_others(
+                st = cell.file_block->change_cache_type_between_ttl_and_others(
                         FileCacheType::NORMAL);
                 if (st.ok()) {
                     if (cell.queue_iterator) {
