@@ -602,27 +602,27 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
 Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const DataTypePtr& data_type,
                                        std::vector<long>& meta_data) {
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
-    const IColumn* const_column = nullptr;
+    const IColumn* column = nullptr;
     // insert const flag
     if (is_column_const(*doris_column)) {
         meta_data.emplace_back((long)1);
-        const auto& column = assert_cast<const ColumnConst&>(*doris_column);
-        const_column = &(column.get_data_column());
+        const auto& const_column = assert_cast<const ColumnConst&>(*doris_column);
+        column = &(const_column.get_data_column());
     } else {
         meta_data.emplace_back((long)0);
-        const_column = &(*doris_column);
+        column = &(*doris_column);
     }
 
     // insert null map address
     const IColumn* data_column = nullptr;
-    if (const_column->is_nullable()) {
-        const auto& nullable_column = assert_cast<const vectorized::ColumnNullable&>(*const_column);
+    if (column->is_nullable()) {
+        const auto& nullable_column = assert_cast<const vectorized::ColumnNullable&>(*column);
         data_column = &(nullable_column.get_nested_column());
         const auto& null_map = nullable_column.get_null_map_data();
         meta_data.emplace_back((long)null_map.data());
     } else {
         meta_data.emplace_back(0);
-        data_column = const_column;
+        data_column = column;
     }
     switch (logical_type) {
 #define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)                                          \
