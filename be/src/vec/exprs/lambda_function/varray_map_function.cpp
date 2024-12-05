@@ -322,6 +322,7 @@ private:
                 columns[i]->insert_many_from(*src_column, args.current_row_idx, args.current_repeat_times);
             } else {
                 // must be column const
+                DCHECK(is_column_const(*columns[i]));
                 columns[i]->resize(columns[i]->size() + args.current_repeat_times);
             }
         }
