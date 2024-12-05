@@ -43,7 +43,7 @@ suite("test_paimon_rewrite_mtmv", "p0,external,mtmv,external_docker,external_doc
         );"""
 
     sql """analyze table ${catalogName}.`test_paimon_spark`.test_tb_mix_format with sync"""
-    sql """alter table ${catalogName}.`test_paimon_spark`.test_tb_mix_format modify column col set stats ('row_count'='20');"""
+    sql """alter table ${catalogName}.`test_paimon_spark`.test_tb_mix_format modify column par set stats ('row_count'='20');"""
 
     sql """drop materialized view if exists ${mvName};"""
 
