@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_show_create_view", "query") {
+suite("test_show_create_view", "query,arrow_flight_sql") {
     String view_name = "view_show_create_view";
     String table_name = "table_for_view_test";
     try {
