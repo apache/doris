@@ -109,7 +109,11 @@ struct BlockQueue {
             : eos(other.eos.load()), data_queue(std::move(other.data_queue)) {}
     inline bool enqueue(BlockType const& item) {
         if (!eos) {
-            data_queue.enqueue(item);
+            if (!data_queue.enqueue(item)) [[unlikely]] {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Exception occurs in data queue [size = {}] of local exchange.",
+                                data_queue.size_approx());
+            }
             return true;
         }
         return false;
@@ -117,7 +121,11 @@ struct BlockQueue {
 
     inline bool enqueue(BlockType&& item) {
         if (!eos) {
-            data_queue.enqueue(std::move(item));
+            if (!data_queue.enqueue(std::move(item))) [[unlikely]] {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Exception occurs in data queue [size = {}] of local exchange.",
+                                data_queue.size_approx());
+            }
             return true;
         }
         return false;
@@ -185,6 +193,8 @@ struct BlockWrapper {
                         shared_state->exchanger->_free_block_limit *
                                 shared_state->exchanger->_num_sources) {
                 data_block.clear_column_data();
+                // Free blocks is used to improve memory efficiency. Failure during pushing back
+                // free block will not incur any bad result so just ignore the return value.
                 shared_state->exchanger->_free_blocks.enqueue(std::move(data_block));
             }
         }
