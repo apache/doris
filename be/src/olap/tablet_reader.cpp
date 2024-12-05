@@ -464,9 +464,16 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
     // UNIQUE_KEYS will compare all keys as before
     if (_tablet_schema->keys_type() == DUP_KEYS || (_tablet_schema->keys_type() == UNIQUE_KEYS &&
                                                     _tablet->enable_unique_key_merge_on_write())) {
-        if (!_tablet_schema->cluster_key_idxes().empty()) {
+        if (!_tablet_schema->cluster_key_uids().empty()) {
+            if (read_params.read_orderby_key_num_prefix_columns >
+                _tablet_schema->cluster_key_uids().size()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "read_orderby_key_num_prefix_columns={} > cluster_keys.size()={}",
+                        read_params.read_orderby_key_num_prefix_columns,
+                        _tablet_schema->cluster_key_uids().size());
+            }
             for (uint32_t i = 0; i < read_params.read_orderby_key_num_prefix_columns; i++) {
-                auto cid = _tablet_schema->cluster_key_idxes()[i];
+                auto cid = _tablet_schema->cluster_key_uids()[i];
                 auto index = _tablet_schema->field_index(cid);
                 if (index < 0) {
                     return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -598,8 +605,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, bloom_filter.second, column.type(),
-                                   _reader_context.runtime_state->be_exec_version(), &column);
+    return create_column_predicate(index, bloom_filter.second, column.type(), &column);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(
@@ -609,8 +615,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, in_filter.second, column.type(),
-                                   _reader_context.runtime_state->be_exec_version(), &column);
+    return create_column_predicate(index, in_filter.second, column.type(), &column);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(
@@ -620,8 +625,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, bitmap_filter.second, column.type(),
-                                   _reader_context.runtime_state->be_exec_version(), &column);
+    return create_column_predicate(index, bitmap_filter.second, column.type(), &column);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& function_filter) {
@@ -631,8 +635,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
     return create_column_predicate(index, std::make_shared<FunctionFilter>(function_filter),
-                                   column.type(), _reader_context.runtime_state->be_exec_version(),
-                                   &column);
+                                   column.type(), &column);
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {

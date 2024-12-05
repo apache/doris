@@ -376,7 +376,7 @@ Status BaseTablet::calc_delete_bitmap_between_segments(
         seq_col_length = _tablet_meta->tablet_schema()->column(seq_col_idx).length() + 1;
     }
     size_t rowid_length = 0;
-    if (!_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+    if (!_tablet_meta->tablet_schema()->cluster_key_uids().empty()) {
         rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
     }
 
@@ -461,7 +461,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         seq_col_length = schema->column(schema->sequence_col_idx()).length() + 1;
     }
     size_t rowid_length = 0;
-    if (with_rowid && !schema->cluster_key_idxes().empty()) {
+    if (with_rowid && !schema->cluster_key_uids().empty()) {
         rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
     }
     Slice key_without_seq =
@@ -654,7 +654,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             Slice key = Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
             RowLocation loc;
             // calculate row id
-            if (!_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+            if (!_tablet_meta->tablet_schema()->cluster_key_uids().empty()) {
                 size_t seq_col_length = 0;
                 if (_tablet_meta->tablet_schema()->has_sequence_col()) {
                     seq_col_length =

@@ -109,7 +109,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                 << ", table_id=" << _tablet_schema->table_id()
                 << ", num_key_columns=" << _num_sort_key_columns
                 << ", num_short_key_columns=" << _num_short_key_columns
-                << ", cluster_key_columns=" << _tablet_schema->cluster_key_idxes().size();
+                << ", cluster_key_columns=" << _tablet_schema->cluster_key_uids().size();
     }
     for (size_t cid = 0; cid < _num_sort_key_columns; ++cid) {
         const auto& column = _tablet_schema->column(cid);
@@ -131,8 +131,8 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
             // cluster keys
             _key_coders.clear();
             _key_index_size.clear();
-            _num_sort_key_columns = _tablet_schema->cluster_key_idxes().size();
-            for (auto cid : _tablet_schema->cluster_key_idxes()) {
+            _num_sort_key_columns = _tablet_schema->cluster_key_uids().size();
+            for (auto cid : _tablet_schema->cluster_key_uids()) {
                 const auto& column = _tablet_schema->column_by_uid(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
                 _key_index_size.push_back(column.index_length());
@@ -1149,9 +1149,9 @@ Status VerticalSegmentWriter::write_batch() {
             }
             auto column_unique_id = _tablet_schema->column(cid).unique_id();
             if (_is_mow_with_cluster_key() &&
-                std::find(_tablet_schema->cluster_key_idxes().begin(),
-                          _tablet_schema->cluster_key_idxes().end(),
-                          column_unique_id) != _tablet_schema->cluster_key_idxes().end()) {
+                std::find(_tablet_schema->cluster_key_uids().begin(),
+                          _tablet_schema->cluster_key_uids().end(),
+                          column_unique_id) != _tablet_schema->cluster_key_uids().end()) {
                 cid_to_column[column_unique_id] = column;
             }
             RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
@@ -1213,7 +1213,7 @@ Status VerticalSegmentWriter::_generate_key_index(
                                                     data.num_rows, true));
         // 2. generate short key index (use cluster key)
         std::vector<vectorized::IOlapColumnDataAccessor*> short_key_columns;
-        for (const auto& cid : _tablet_schema->cluster_key_idxes()) {
+        for (const auto& cid : _tablet_schema->cluster_key_uids()) {
             short_key_columns.push_back(cid_to_column[cid]);
         }
         RETURN_IF_ERROR(_generate_short_key_index(short_key_columns, data.num_rows, short_key_pos));
@@ -1572,7 +1572,7 @@ inline bool VerticalSegmentWriter::_is_mow() {
 }
 
 inline bool VerticalSegmentWriter::_is_mow_with_cluster_key() {
-    return _is_mow() && !_tablet_schema->cluster_key_idxes().empty();
+    return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
 } // namespace segment_v2
 } // namespace doris

@@ -166,12 +166,10 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                 SCOPED_TIMER(_runtime_filter_compute_timer);
                 _runtime_filter_slots->insert(block);
             }
-        } else if (p._shared_hashtable_controller && !p._shared_hash_table_context->signaled) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "build_sink::close meet error state, shared_hash_table_signaled: {}, "
-                            "complete_build_stage: {}",
-                            p._shared_hash_table_context->signaled,
-                            p._shared_hash_table_context->complete_build_stage);
+        } else if ((p._shared_hashtable_controller && !p._shared_hash_table_context->signaled) ||
+                   (p._shared_hash_table_context &&
+                    !p._shared_hash_table_context->complete_build_stage)) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "build_sink::close meet error state");
         }
 
         SCOPED_TIMER(_publish_runtime_filter_timer);
@@ -179,9 +177,12 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     } catch (Exception& e) {
         return Status::InternalError(
                 "rf process meet error: {}, wake_up_by_downstream: {}, should_build_hash_table: "
-                "{}, _finish_dependency: {}",
+                "{}, _finish_dependency: {}, complete_build_stage: {}, shared_hash_table_signaled: "
+                "{}",
                 e.to_string(), state->get_task()->wake_up_by_downstream(), _should_build_hash_table,
-                _finish_dependency->debug_string());
+                _finish_dependency->debug_string(),
+                p._shared_hash_table_context && !p._shared_hash_table_context->complete_build_stage,
+                p._shared_hashtable_controller && !p._shared_hash_table_context->signaled);
     }
     return Base::close(state, exec_status);
 }

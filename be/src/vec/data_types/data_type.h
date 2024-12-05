@@ -151,15 +151,7 @@ public:
       */
     virtual bool is_value_represented_by_number() const { return false; }
 
-    /** Integers, Enums, Date, DateTime. Not nullable.
-      */
-    virtual bool is_value_represented_by_integer() const { return false; }
-
     virtual bool is_object() const { return false; }
-
-    /** Unsigned Integers, Date, DateTime. Not nullable.
-      */
-    virtual bool is_value_represented_by_unsigned_integer() const { return false; }
 
     /** Values are unambiguously identified by contents of contiguous memory region,
       *  that can be obtained by IColumn::get_data_at method.
@@ -384,10 +376,6 @@ bool is_string_or_fixed_string(const T& data_type) {
 inline bool is_not_decimal_but_comparable_to_decimal(const DataTypePtr& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint();
-}
-
-inline bool is_compilable_type(const DataTypePtr& data_type) {
-    return data_type->is_value_represented_by_number() && !is_decimal(data_type);
 }
 
 inline bool is_complex_type(const DataTypePtr& data_type) {

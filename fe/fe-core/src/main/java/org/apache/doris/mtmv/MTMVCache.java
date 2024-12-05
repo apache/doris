@@ -51,14 +51,18 @@ public class MTMVCache {
     // The materialized view plan which should be optimized by the same rules to query
     // and will remove top sink and unused sort
     private final Plan logicalPlan;
-    // The original plan of mv def sql
+    // The original rewritten plan of mv def sql
     private final Plan originalPlan;
+    // The analyzed plan of mv def sql, which is used by tableCollector,should not be optimized by rbo
+    private final Plan analyzedPlan;
     private final Statistics statistics;
     private final StructInfo structInfo;
 
-    public MTMVCache(Plan logicalPlan, Plan originalPlan, Statistics statistics, StructInfo structInfo) {
+    public MTMVCache(Plan logicalPlan, Plan originalPlan, Plan analyzedPlan,
+            Statistics statistics, StructInfo structInfo) {
         this.logicalPlan = logicalPlan;
         this.originalPlan = originalPlan;
+        this.analyzedPlan = analyzedPlan;
         this.statistics = statistics;
         this.structInfo = structInfo;
     }
@@ -71,6 +75,10 @@ public class MTMVCache {
         return originalPlan;
     }
 
+    public Plan getAnalyzedPlan() {
+        return analyzedPlan;
+    }
+
     public Statistics getStatistics() {
         return statistics;
     }
@@ -80,13 +88,14 @@ public class MTMVCache {
     }
 
     public static MTMVCache from(MTMV mtmv, ConnectContext connectContext, boolean needCost) {
-        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(mtmv.getQuerySql());
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
                 new OriginStatement(mtmv.getQuerySql(), 0));
-        NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
+        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(mtmv.getQuerySql());
+        NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
+
         // Can not convert to table sink, because use the same column from different table when self join
         // the out slot is wrong
         if (needCost) {
@@ -117,7 +126,7 @@ public class MTMVCache {
         Optional<StructInfo> structInfoOptional = MaterializationContext.constructStructInfo(mvPlan, originPlan,
                 planner.getCascadesContext(),
                 new BitSet());
-        return new MTMVCache(mvPlan, originPlan, needCost
+        return new MTMVCache(mvPlan, originPlan, planner.getAnalyzedPlan(), needCost
                 ? planner.getCascadesContext().getMemo().getRoot().getStatistics() : null,
                 structInfoOptional.orElseGet(() -> null));
     }
