@@ -83,6 +83,13 @@ public class RoutineLoadOperation implements Writable {
     @Deprecated
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
-        jobState = JobState.valueOf(Text.readString(in));
+        // for https://github.com/apache/doris/pull/45035,
+        // we should update read fields logic
+        // to ensure compatibility of replaying edit log during upgrade from 2.1
+        String[] stateWithReason = Text.readString(in).split("\\|", 2);
+        jobState = JobState.valueOf(stateWithReason[0]);
+        if (stateWithReason.length == 2) {
+            reason = GsonUtils.GSON.fromJson(stateWithReason[1], ErrorReason.class);
+        }
     }
 }
