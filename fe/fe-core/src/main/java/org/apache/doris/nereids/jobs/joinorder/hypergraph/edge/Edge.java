@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.edge;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperElement;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -32,7 +33,7 @@ import java.util.Set;
 /**
  * Edge in HyperGraph
  */
-public abstract class Edge {
+public abstract class Edge implements HyperElement {
     private final int index;
     private final double selectivity;
 
@@ -192,6 +193,7 @@ public abstract class Edge {
         return LongBitmap.isSubset(getReferenceNodes(), otherBitmap);
     }
 
+    @Override
     public long getReferenceNodes() {
         return LongBitmap.newBitmapUnion(leftExtendedNodes, rightExtendedNodes);
     }
