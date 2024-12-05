@@ -83,11 +83,12 @@ public class TaskDisruptor<T> {
                 return false;
             }
             ringBuffer.publishEvent(eventTranslator, args);
+            return true;
         } catch (Exception e) {
             LOG.warn("Failed to publish event", e);
             // Handle the exception, e.g., retry or alert
         }
-        return true;
+        return false;
     }
 
     /**
