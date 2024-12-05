@@ -118,6 +118,12 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
                   << " status=" << res->status().ShortDebugString()
                   << " tablet=" << res->tablet_id()
                   << " delete_bitmap_count=" << res->segment_delete_bitmaps_size();
+    } else if constexpr (std::is_same_v<Response, GetDeleteBitmapUpdateLockResponse>) {
+        if (res->status().code() != MetaServiceCode::OK) {
+            res->clear_base_compaction_cnts();
+            res->clear_cumulative_compaction_cnts();
+            res->clear_cumulative_points();
+        }
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
                          std::is_same_v<Response, GetStageResponse>) {
         std::string debug_string = res->DebugString();
