@@ -23,6 +23,7 @@
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic error "-Wconversion"
+#pragma clang diagnostic error "-Wshadow"
 #pragma clang diagnostic ignored "-Wsign-conversion"
 #pragma clang diagnostic ignored "-Wfloat-conversion"
 #endif

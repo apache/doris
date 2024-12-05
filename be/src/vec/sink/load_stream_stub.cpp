@@ -65,13 +65,11 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
         if (response.failed_tablets_size() > 0) {
             ss << ", failed tablet ids:";
             for (auto pb : response.failed_tablets()) {
-                Status st = Status::create(pb.status());
-                ss << " " << pb.id() << ":" << st;
+                ss << " " << pb.id() << ":" << Status::create(pb.status());
             }
             std::lock_guard<bthread::Mutex> lock(stub->_failed_tablets_mutex);
             for (auto pb : response.failed_tablets()) {
-                Status st = Status::create(pb.status());
-                stub->_failed_tablets.emplace(pb.id(), st);
+                stub->_failed_tablets.emplace(pb.id(), Status::create(pb.status()));
             }
         }
         if (response.tablet_schemas_size() > 0) {
