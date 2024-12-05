@@ -1275,8 +1275,6 @@ public:
         }
     }
 
-    operator int64_t() const { return to_int64(); }
-
     int64_t to_int64() const {
         if constexpr (is_datetime) {
             return (date_v2_value_.year_ * 10000L + date_v2_value_.month_ * 100 +
