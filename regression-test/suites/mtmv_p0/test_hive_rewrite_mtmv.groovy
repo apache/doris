@@ -26,6 +26,7 @@ suite("test_hive_rewrite_mtmv", "p0,external,hive,external_docker,external_docke
     String mvName = "${suiteName}_mv"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+    String mvSql = "SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1 group by part_col;";
     for (String hivePrefix : ["hive2", "hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         sql """drop catalog if exists ${catalogName}"""
@@ -44,8 +45,7 @@ suite("test_hive_rewrite_mtmv", "p0,external,hive,external_docker,external_docke
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1
-                group by part_col;
+                ${mvSql}
             """
         def showPartitionsResult = sql """show partitions from ${mvName}"""
         logger.info("showPartitionsResult: " + showPartitionsResult.toString())
@@ -59,11 +59,13 @@ suite("test_hive_rewrite_mtmv", "p0,external,hive,external_docker,external_docke
         waitingMTMVTaskFinishedByMvName(mvName)
         order_qt_refresh_one_partition "SELECT * FROM ${mvName}"
 
-        def explainOnePartition = sql """ explain  SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1 group by part_col; """
+        def explainOnePartition = sql """ explain  ${mvSql} """
         logger.info("explainOnePartition: " + explainOnePartition.toString())
         assertTrue(explainOnePartition.toString().contains("VUNION"))
         assertTrue(explainOnePartition.toString().contains("part_col[#4] = 20230102"))
-        order_qt_refresh_one_partition_rewrite "SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1 group by part_col;"
+        order_qt_refresh_one_partition_rewrite "${mvSql}"
+
+        mv_rewrite_success("${mvSql}", "${mvName}")
 
         //refresh complete
         sql """
@@ -72,11 +74,13 @@ suite("test_hive_rewrite_mtmv", "p0,external,hive,external_docker,external_docke
         waitingMTMVTaskFinishedByMvName(mvName)
         order_qt_refresh_complete "SELECT * FROM ${mvName}"
 
-        def explainAllPartition = sql """ explain  SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1 group by part_col; """
+        def explainAllPartition = sql """ explain  ${mvSql}; """
         logger.info("explainAllPartition: " + explainAllPartition.toString())
         assertTrue(explainAllPartition.toString().contains("VOlapScanNode"))
         assertTrue(explainAllPartition.toString().contains("partitions=2/2"))
-        order_qt_refresh_all_partition_rewrite "SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1 group by part_col;"
+        order_qt_refresh_all_partition_rewrite "${mvSql}"
+
+        mv_rewrite_success("${mvSql}", "${mvName}")
 
         sql """drop materialized view if exists ${mvName};"""
         sql """drop catalog if exists ${catalogName}"""
