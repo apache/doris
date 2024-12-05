@@ -194,7 +194,7 @@ public:
             Block lambda_block;
             for (int i = 0; i < names.size(); i++) {
                 ColumnWithTypeAndName data_column;
-                if (_contains_column_id(args, i)) {
+                if (_contains_column_id(args, i) || i >= gap) {
                     data_column = ColumnWithTypeAndName(data_types[i], names[i]);
                 } else {
                     data_column = ColumnWithTypeAndName(data_types[i]->create_column_const_with_default_value(0), data_types[i], names[i]);
