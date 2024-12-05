@@ -20,6 +20,10 @@ suite("test_backup_with_ddl") {
     def tableName = "test_backup_with_ddl"
     String dbName = "test_backup_with_ddl_db"
 
+    sql """
+     ADMIN SET FRONTEND CONFIG ("catalog_trash_expire_second" = "10");
+    """
+
     def insert_num = 5
      
     sql "DROP DATABASE IF EXISTS ${dbName}"
@@ -72,7 +76,8 @@ suite("test_backup_with_ddl") {
         """
 
     GetDebugPoint().enableDebugPointForAllFEs('FE.checkBuckupRunning.ignore', null)
-    
+    GetDebugPoint().enableDebugPointForAllFEs('FE.CatalogRecycleBin.isExpire', null)
+
     // wait backup snapshoting
     count = 200 // 20s
     for (int i = 0; i < count; ++i) {
@@ -100,8 +105,12 @@ suite("test_backup_with_ddl") {
     res = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(res.size(), 0)
 
+    sql """
+     ADMIN CLEAN TRASH;
+    """
+
     // wait backup canceled, failed to get tablet
-    count = 100 // 200s
+    count = 1000 // 2000s
     def found = 0
     for (int i = 0; i < count; ++i) {
         def records = sql_return_maparray "SHOW BACKUP FROM ${dbName}"
@@ -127,6 +136,7 @@ suite("test_backup_with_ddl") {
 
     GetDebugPoint().disableDebugPointForAllBEs("SnapshotManager::make_snapshot.wait")
     GetDebugPoint().disableDebugPointForAllFEs('FE.checkBuckupRunning.ignore')
+    GetDebugPoint().disableDebugPointForAllFEs('FE.CatalogRecycleBin.isExpire')
 
 
 
