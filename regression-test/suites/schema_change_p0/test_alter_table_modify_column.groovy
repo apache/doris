@@ -144,7 +144,7 @@ suite("test_alter_table_modify_column") {
     test {
         sql """alter table ${dupTableName} modify COLUMN pv INT SUM DEFAULT '0';"""
         // check exception message contains
-        exception "Can not modify column[pv]'s aggregation type"
+        exception "Can not change BIGINT to INT"
     }
 
     test {

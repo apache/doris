@@ -44,13 +44,13 @@ suite("test_schema_change_auto_inc") {
     // remove auto-increment attribute from a column
     test {
         sql "alter table ${table1} modify column id BIGINT NOT NULL"
-        exception "Can not modify column[id]'s auto-increment attribute"
+        exception "Can't modify the column[id]'s auto-increment attribute."
     }
 
     // add auto-increment attribute to a column
     test {
         sql """alter table ${table1} modify column id2 BIGINT NOT NULL AUTO_INCREMENT DEFAULT "0" """
-        exception "Can not modify column[id2]'s auto-increment attribute"
+        exception "Can't modify the column[id2]'s auto-increment attribute."
     }
 
     sql """ insert into ${table1}(name, value, id2) values("A", 999, 1), ("B", 888, 2), ("C", 777, 3);"""

@@ -28,7 +28,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -65,11 +64,8 @@ public class AddColumnsOp extends AlterTableOp {
         if (columnDefs == null || columnDefs.isEmpty()) {
             throw new AnalysisException("Columns is empty in add columns clause.");
         }
-        if (!Strings.isNullOrEmpty(rollupName)) {
-            throw new AnalysisException("Cannot add column in rollup " + rollupName);
-        }
         for (ColumnDefinition colDef : columnDefs) {
-            AddColumnOp.validateColumnDef(tableName, colDef, null);
+            AddColumnOp.validateColumnDef(tableName, colDef, null, rollupName);
         }
 
         Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())

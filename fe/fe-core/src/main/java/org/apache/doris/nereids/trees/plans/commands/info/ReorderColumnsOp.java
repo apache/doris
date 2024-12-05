@@ -58,9 +58,6 @@ public class ReorderColumnsOp extends AlterTableOp {
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
-        if (!Strings.isNullOrEmpty(rollupName)) {
-            throw new AnalysisException("Cannot reorder columns in rollup " + rollupName);
-        }
         if (columnsByPos == null || columnsByPos.isEmpty()) {
             throw new AnalysisException("No column in reorder columns clause.");
         }
@@ -81,8 +78,8 @@ public class ReorderColumnsOp extends AlterTableOp {
                     }
                     seeValueColumn = seeValueColumn || !column.isKey();
                 } else {
-                    throw new AnalysisException(
-                            String.format("no column %s exists in table %s", col, tableName.getTbl()));
+                    // throw new AnalysisException(
+                    //         String.format("no column %s exists in table %s", col, tableName.getTbl()));
                 }
             }
         }

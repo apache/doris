@@ -188,13 +188,7 @@ public class ModifyColumnOp extends AlterTableOp {
         }
         column = columnDef.translateToCatalogStyle();
         if (originalColumn != null) {
-            String errorMsg = originalColumn.verifyCanChangeTo(column);
-            if (errorMsg != null) {
-                throw new AnalysisException(errorMsg);
-            }
-            if (originalColumn.isAllowNull() && !column.isAllowNull()) {
-                throw new AnalysisException("Can not modify column " + colName + " from NULL to NOT NULL");
-            }
+            originalColumn.checkSchemaChangeAllowed(column);
         }
     }
 

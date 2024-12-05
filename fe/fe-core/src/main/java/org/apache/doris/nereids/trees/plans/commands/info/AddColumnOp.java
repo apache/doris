@@ -25,6 +25,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -33,7 +34,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 
 import java.util.Map;
@@ -77,13 +77,10 @@ public class AddColumnOp extends AlterTableOp {
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
-        if (!Strings.isNullOrEmpty(rollupName)) {
-            throw new AnalysisException("Cannot add column in rollup " + rollupName);
-        }
         if (colPos != null) {
             colPos.analyze();
         }
-        validateColumnDef(tableName, columnDef, colPos);
+        validateColumnDef(tableName, columnDef, colPos, rollupName);
         column = columnDef.translateToCatalogStyle();
     }
 
@@ -128,7 +125,8 @@ public class AddColumnOp extends AlterTableOp {
     /**
      * validateColumnDef
      */
-    public static void validateColumnDef(TableNameInfo tableName, ColumnDefinition columnDef, ColumnPosition colPos)
+    public static void validateColumnDef(TableNameInfo tableName, ColumnDefinition columnDef, ColumnPosition colPos,
+            String rollupName)
             throws UserException {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
@@ -146,6 +144,13 @@ public class AddColumnOp extends AlterTableOp {
             olapTable = (OlapTable) table;
             keysType = olapTable.getKeysType();
             AggregateType aggregateType = columnDef.getAggType();
+            Long indexId = olapTable.getIndexIdByName(rollupName);
+            if (indexId != null) {
+                MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
+                if (indexMeta.getDefineStmt() != null) {
+                    throw new AnalysisException("Cannot add column in rollup " + rollupName);
+                }
+            }
             if (keysType == KeysType.AGG_KEYS) {
                 if (aggregateType == null) {
                     columnDef.setIsKey(true);
@@ -157,7 +162,7 @@ public class AddColumnOp extends AlterTableOp {
                     }
                 }
             } else if (keysType == KeysType.UNIQUE_KEYS) {
-                if (aggregateType != null) {
+                if (aggregateType != null && columnDef.isVisible()) {
                     throw new AnalysisException(
                             String.format("Can not assign aggregation method on column in Unique data model table: %s",
                                     columnDef.getName()));

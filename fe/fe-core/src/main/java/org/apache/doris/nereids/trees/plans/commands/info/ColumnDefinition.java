@@ -180,8 +180,8 @@ public class ColumnDefinition {
         return defaultValue.isPresent();
     }
 
-    public void setAggregationTypeImplicit(boolean aggTypeImplicit) {
-        this.aggTypeImplicit = aggTypeImplicit;
+    public boolean isVisible() {
+        return isVisible;
     }
 
     /**
