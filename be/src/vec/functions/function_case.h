@@ -127,6 +127,7 @@ public:
     static constexpr auto name = FunctionCaseName<has_case, has_else>::name;
     static FunctionPtr create() { return std::make_shared<FunctionCase>(); }
     String get_name() const override { return name; }
+    bool return_type_depend_on_argument_type() override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
 

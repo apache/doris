@@ -974,6 +974,8 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
+    bool return_type_depend_on_argument_type() override { return true; }
+
     DataTypes get_variadic_argument_types_impl() const override {
         if constexpr (OpTraits::has_variadic_argument) {
             return OpTraits::Op::get_variadic_argument_types();
@@ -1057,13 +1059,12 @@ public:
                     using ResultDataType =
                             typename BinaryOperationTraits<Operation, LeftDataType,
                                                            RightDataType>::ResultDataType;
-                    if constexpr (
-                            !std::is_same_v<ResultDataType, InvalidType> &&
-                            (IsDataTypeDecimal<ExpectedResultDataType> ==
-                             IsDataTypeDecimal<
-                                     ResultDataType>)&&(IsDataTypeDecimal<ExpectedResultDataType> ==
-                                                        (IsDataTypeDecimal<LeftDataType> ||
-                                                         IsDataTypeDecimal<RightDataType>))) {
+                    if constexpr (!std::is_same_v<ResultDataType, InvalidType> &&
+                                  (IsDataTypeDecimal<ExpectedResultDataType> ==
+                                   IsDataTypeDecimal<ResultDataType>) &&
+                                  (IsDataTypeDecimal<ExpectedResultDataType> ==
+                                   (IsDataTypeDecimal<LeftDataType> ||
+                                    IsDataTypeDecimal<RightDataType>))) {
                         if (check_overflow_for_decimal) {
                             // !is_to_null_type: plus, minus, multiply,
                             //                   pow, bitxor, bitor, bitand

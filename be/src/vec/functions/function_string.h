@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -63,6 +64,7 @@
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/utils/template_helpers.hpp"
@@ -1322,14 +1324,19 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        const IDataType* first_type = arguments[0].get();
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        const IDataType* first_type = arguments[0].type.get();
         if (first_type->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeString>());
         } else {
             return std::make_shared<DataTypeString>();
         }
     }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -2105,14 +2112,19 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_string(arguments[0]))
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        DCHECK(arguments.size() == 2) << "function " << name << " should have 2 arguments";
+        DCHECK(is_string(arguments[0].type))
                 << "first argument for function: " << name << " should be string"
-                << " and arguments[0] is " << arguments[0]->get_name();
-        DCHECK(is_string(arguments[1]))
+                << " and arguments[0] is " << arguments[0].type->get_name();
+        DCHECK(is_string(arguments[1].type))
                 << "second argument for function: " << name << " should be string"
-                << " and arguments[1] is " << arguments[1]->get_name();
-        return std::make_shared<DataTypeArray>(make_nullable(arguments[0]));
+                << " and arguments[1] is " << arguments[1].type->get_name();
+        return std::make_shared<DataTypeArray>(make_nullable(arguments[0].type));
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
     }
 
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
@@ -2382,13 +2394,18 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_string(arguments[0]))
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        DCHECK(arguments.size() == 2) << "function " << name << " should have 2 arguments";
+        DCHECK(is_string(arguments[0].type))
                 << "first argument for function: " << name << " should be string"
-                << " and arguments[0] is " << arguments[0]->get_name();
-        DCHECK(is_string(arguments[1]))
+                << " and arguments[0] is " << arguments[0].type->get_name();
+        DCHECK(is_string(arguments[1].type))
                 << "second argument for function: " << name << " should be string"
-                << " and arguments[1] is " << arguments[1]->get_name();
+                << " and arguments[1] is " << arguments[1].type->get_name();
+        return std::make_shared<DataTypeInt32>();
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeInt32>();
     }
 

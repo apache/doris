@@ -41,6 +41,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exprs/json_functions.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/io/io_helper.h"
 #ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
@@ -1396,17 +1397,21 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         bool is_nullable = false;
         // arguments: (json_str, path, val[, path, val...], type_flag)
         for (auto col = 0; col < arguments.size() - 1; col += 1) {
-            if (arguments[col]->is_nullable()) {
+            if (arguments[col].type->is_nullable()) {
                 is_nullable = true;
                 break;
             }
         }
         return is_nullable ? make_nullable(std::make_shared<DataTypeString>())
                            : std::make_shared<DataTypeString>();
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

@@ -70,6 +70,10 @@ public:
         RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(DataTypeString);
     }
 
+    DataTypePtr get_return_type_impl(const DataTypes& types) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
     bool is_variadic() const override { return true; }
 
     DataTypes get_variadic_argument_types_impl() const override {

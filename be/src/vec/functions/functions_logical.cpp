@@ -170,13 +170,6 @@ void null_execute_impl(ColumnRawPtrs arguments, ColumnWithTypeAndName& result_in
 template <typename Impl, typename Name>
 DataTypePtr FunctionAnyArityLogical<Impl, Name>::get_return_type_impl(
         const DataTypes& arguments) const {
-    if (arguments.size() < 2) {
-        throw doris::Exception(
-                ErrorCode::INVALID_ARGUMENT,
-                "Number of arguments for function \"{}\" should be at least 2: passed {}",
-                get_name(), arguments.size());
-    }
-
     bool has_nullable_arguments = false;
     for (size_t i = 0; i < arguments.size(); ++i) {
         const auto& arg_type = arguments[i];
@@ -240,7 +233,7 @@ struct UnaryOperationImpl {
 template <template <typename> class Impl, typename Name>
 DataTypePtr FunctionUnaryLogical<Impl, Name>::get_return_type_impl(
         const DataTypes& arguments) const {
-    if (!is_native_number(arguments[0])) {
+    if (!arguments.empty() && !is_native_number(arguments[0])) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                "Illegal type ({}) of argument of function {}",
                                arguments[0]->get_name(), get_name());

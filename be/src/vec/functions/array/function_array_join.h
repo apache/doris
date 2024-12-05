@@ -16,8 +16,12 @@
 // under the License.
 #pragma once
 
+#include <memory>
+
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -52,6 +56,10 @@ public:
                     << ", and arguments[2] is " << arguments[2]->get_name();
         }
 
+        return std::make_shared<DataTypeString>();
+    }
+
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return std::make_shared<DataTypeString>();
     }
 

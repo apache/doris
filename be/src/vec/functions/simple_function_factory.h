@@ -20,10 +20,13 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
@@ -134,6 +137,12 @@ public:
                 key_str.append(type->get_family_name());
             }
         }
+        auto impl = std::static_pointer_cast<FunctionBuilderImpl>(ptr());
+        if (!impl->return_type_depend_on_argument_type()) {
+            auto ret_type = impl->get_return_type_impl(types);
+            key_str.append(remove_nullable(ret_type)->get_family_name());
+        }
+
         function_creators[key_str] = ptr;
     }
 
@@ -182,6 +191,7 @@ public:
                                                  ->get_family_name()
                                        : arg.type->get_family_name());
             }
+            key_str.append(remove_nullable(return_type)->get_family_name());
         }
 
         auto iter = function_creators.find(key_str);

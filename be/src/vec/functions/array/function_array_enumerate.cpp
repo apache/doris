@@ -57,6 +57,8 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionArrayEnumerate>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 1; }
+
+    bool return_type_depend_on_argument_type() override { return true; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         const DataTypeArray* array_type =
                 check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[0]).get());

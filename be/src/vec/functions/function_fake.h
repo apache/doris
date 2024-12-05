@@ -51,6 +51,8 @@ struct UDTFImpl {
 template <typename Impl>
 class FunctionFake : public IFunction {
 public:
+    bool return_type_depend_on_argument_type() override { return true; }
+
     static constexpr auto name = "fake";
 
     static FunctionPtr create() { return std::make_shared<FunctionFake>(); }

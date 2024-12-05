@@ -40,6 +40,7 @@
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
@@ -182,12 +183,16 @@ public:
         return Status::OK();
     }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (arguments[0]->is_nullable()) {
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        if (arguments[0].type->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
         } else {
             return std::make_shared<DataTypeNumber<ResultType>>();
         }
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeNumber<ResultType>>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

@@ -62,6 +62,8 @@ public:
 
     size_t get_number_of_arguments() const override { return 0; }
 
+    bool return_type_depend_on_argument_type() override { return true; }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         // we accept with empty argument, like array(), which will be treated as array(UInt8)
         if (arguments.empty()) {

@@ -299,6 +299,10 @@ public:
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
 
+    // if a function's get_variadic_argument_types() not override and get_return_type_impl()
+    // result is not compile time be sure, the function should override return true
+    virtual bool return_type_depend_on_argument_type() { return false; }
+
 protected:
     // Get the result type by argument type. If the function does not apply to these arguments, throw an exception.
     // the get_return_type_impl and its overrides should only return the nested type if `use_default_implementation_for_nulls` is true.
@@ -342,6 +346,8 @@ protected:
     virtual DataTypes get_variadic_argument_types_impl() const { return {}; }
 
 private:
+    friend class SimpleFunctionFactory;
+
     DataTypePtr get_return_type_without_low_cardinality(
             const ColumnsWithTypeAndName& arguments) const;
 
@@ -532,6 +538,9 @@ public:
 
     String get_name() const override { return function->get_name(); }
     bool is_variadic() const override { return function->is_variadic(); }
+    bool return_type_depend_on_argument_type() override {
+        return function->return_type_depend_on_argument_type();
+    }
     size_t get_number_of_arguments() const override { return function->get_number_of_arguments(); }
 
     ColumnNumbers get_arguments_that_are_always_constant() const override {

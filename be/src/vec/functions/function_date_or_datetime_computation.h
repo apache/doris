@@ -746,6 +746,10 @@ public:
         RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(typename Transform::ReturnType);
     }
 
+    DataTypePtr get_return_type_impl(const DataTypes& types) const override {
+        return std::make_shared<typename Transform::ReturnType>();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const auto& first_arg_type = block.get_by_position(arguments[0]).type;
@@ -812,6 +816,10 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return std::make_shared<typename FunctionImpl::ReturnType>();
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& types) const override {
         return std::make_shared<typename FunctionImpl::ReturnType>();
     }
 
@@ -1067,6 +1075,10 @@ struct TimestampToDateTime : IFunction {
         return make_nullable(std::make_shared<ReturnType>());
     }
 
+    DataTypePtr get_return_type_impl(const DataTypes& types) const override {
+        return std::make_shared<ReturnType>();
+    }
+
     static FunctionPtr create() { return std::make_shared<TimestampToDateTime<Impl>>(); }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1159,9 +1171,6 @@ public:
 
 protected:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeDate>());
-    }
-    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         return make_nullable(std::make_shared<DataTypeDate>());
     }
 

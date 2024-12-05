@@ -184,6 +184,8 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionIf>(); }
     String get_name() const override { return name; }
 
+    bool return_type_depend_on_argument_type() override { return true; }
+
     size_t get_number_of_arguments() const override { return 3; }
     bool use_default_implementation_for_nulls() const override { return false; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {

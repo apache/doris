@@ -61,10 +61,14 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (arguments[0]->is_nullable()) {
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        if (arguments[0].type->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeUInt8>());
         }
+        return std::make_shared<DataTypeUInt8>();
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeUInt8>();
     }
 
@@ -129,6 +133,10 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    DataTypePtr get_return_type_impl(const DataTypes& types) const override {
         return std::make_shared<DataTypeString>();
     }
 

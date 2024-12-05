@@ -62,6 +62,8 @@ public:
 
     String get_name() const override { return name; }
 
+    bool return_type_depend_on_argument_type() override { return true; }
+
     bool use_default_implementation_for_nulls() const override { return false; }
 
     bool is_variadic() const override { return true; }
