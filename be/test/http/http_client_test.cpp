@@ -413,7 +413,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(!st.ok());
         std::cout << "response = " << response << "\n";
         std::cout << "st.msg() = " << st.msg() << "\n";
-        EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+        EXPECT_TRUE(st.msg().find("403") != std::string::npos);
     }
 
     {
@@ -474,7 +474,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(!st.ok());
         std::cout << "response = " << response << "\n";
         std::cout << "st.msg() = " << st.msg() << "\n";
-        EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+        EXPECT_TRUE(st.msg().find("403") != std::string::npos);
     }
 
     // valid token
@@ -521,7 +521,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(!st.ok());
         std::cout << "response = " << response << "\n";
         std::cout << "st.msg() = " << st.msg() << "\n";
-        EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+        EXPECT_TRUE(st.msg().find("403") != std::string::npos);
     }
 
     std::vector<std::string> check_get_list = {"/api/clear_cache/aa",
@@ -566,7 +566,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
             EXPECT_TRUE(!st.ok());
             std::cout << "response = " << response << "\n";
             std::cout << "st.msg() = " << st.msg() << "\n";
-            EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+            EXPECT_TRUE(st.msg().find("403") != std::string::npos);
         }
     }
 }

@@ -227,7 +227,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
         }
     }
     auto total_update_delete_bitmap_time_us = MonotonicMicros() - t3;
-    LOG(INFO) << "calculate delete bitmap successfully on tablet"
+    LOG(INFO) << "finish calculate delete bitmap on tablet"
               << ", table_id=" << tablet->table_id() << ", transaction_id=" << _transaction_id
               << ", tablet_id=" << tablet->tablet_id()
               << ", get_tablet_time_us=" << get_tablet_time_us

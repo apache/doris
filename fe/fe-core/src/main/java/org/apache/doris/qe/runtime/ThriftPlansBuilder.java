@@ -240,14 +240,19 @@ public class ThriftPlansBuilder {
         return senderNum;
     }
 
-    private static void setMultiCastDestinationThrift(PipelineDistributedPlan fragmentPlan) {
+    private static void setMultiCastDestinationThriftIfNotSet(PipelineDistributedPlan fragmentPlan) {
         MultiCastDataSink multiCastDataSink = (MultiCastDataSink) fragmentPlan.getFragmentJob().getFragment().getSink();
         List<List<TPlanFragmentDestination>> destinationList = multiCastDataSink.getDestinations();
 
         List<DataStreamSink> dataStreamSinks = multiCastDataSink.getDataStreamSinks();
         for (int i = 0; i < dataStreamSinks.size(); i++) {
-            DataStreamSink realSink = dataStreamSinks.get(i);
             List<TPlanFragmentDestination> destinations = destinationList.get(i);
+            if (!destinations.isEmpty()) {
+                // we should only set destination only once,
+                // because all backends share the same MultiCastDataSink object
+                continue;
+            }
+            DataStreamSink realSink = dataStreamSinks.get(i);
             for (Entry<DataSink, List<AssignedJob>> kv : fragmentPlan.getDestinations().entrySet()) {
                 DataSink sink = kv.getKey();
                 if (sink == realSink) {
@@ -318,7 +323,7 @@ public class ThriftPlansBuilder {
             List<TPlanFragmentDestination> nonMultiCastDestinations;
             if (fragment.getSink() instanceof MultiCastDataSink) {
                 nonMultiCastDestinations = Lists.newArrayList();
-                setMultiCastDestinationThrift(fragmentPlan);
+                setMultiCastDestinationThriftIfNotSet(fragmentPlan);
             } else {
                 nonMultiCastDestinations = nonMultiCastDestinationToThrift(fragmentPlan);
             }

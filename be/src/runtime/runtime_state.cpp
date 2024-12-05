@@ -295,7 +295,7 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
 }
 
 std::weak_ptr<QueryContext> RuntimeState::get_query_ctx_weak() {
-    return _exec_env->fragment_mgr()->get_or_erase_query_ctx_with_lock(_query_ctx->query_id());
+    return _exec_env->fragment_mgr()->get_query_ctx(_query_ctx->query_id());
 }
 
 void RuntimeState::init_mem_trackers(const std::string& name, const TUniqueId& id) {
@@ -516,14 +516,13 @@ RuntimeFilterMgr* RuntimeState::global_runtime_filter_mgr() {
 }
 
 Status RuntimeState::register_producer_runtime_filter(
-        const TRuntimeFilterDesc& desc, std::shared_ptr<IRuntimeFilter>* producer_filter,
-        bool build_bf_exactly) {
+        const TRuntimeFilterDesc& desc, std::shared_ptr<IRuntimeFilter>* producer_filter) {
     // Producers are created by local runtime filter mgr and shared by global runtime filter manager.
     // When RF is published, consumers in both global and local RF mgr will be found.
-    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(
-            desc, query_options(), producer_filter, build_bf_exactly));
+    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(desc, query_options(),
+                                                                         producer_filter));
     RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merge_producer_filter(
-            desc, query_options(), *producer_filter, build_bf_exactly));
+            desc, query_options(), *producer_filter));
     return Status::OK();
 }
 
@@ -532,10 +531,10 @@ Status RuntimeState::register_consumer_runtime_filter(
         std::shared_ptr<IRuntimeFilter>* consumer_filter) {
     if (desc.has_remote_targets || need_local_merge) {
         return global_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
-                                                                     consumer_filter, false, true);
+                                                                     consumer_filter, true);
     } else {
         return local_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
-                                                                    consumer_filter, false, false);
+                                                                    consumer_filter, false);
     }
 }
 

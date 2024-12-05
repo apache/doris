@@ -2884,6 +2884,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (tableProperty == null) {
             return false;
         }
+        if (getKeysType() != KeysType.UNIQUE_KEYS) {
+            return false;
+        }
         return tableProperty.getEnableUniqueKeyMergeOnWrite();
     }
 
@@ -3323,17 +3326,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             throw new AnalysisException("get table read lock timeout, database=" + getDBName() + ",table=" + getName());
         }
         try {
-            Map<String, PartitionItem> res = Maps.newHashMap();
-            for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
-                Partition partition = idToPartition.get(entry.getKey());
-                if (partition != null) {
-                    res.put(partition.getName(), entry.getValue());
-                }
-            }
-            return res;
+            return getAndCopyPartitionItemsWithoutLock();
         } finally {
             readUnlock();
         }
+    }
+
+    public Map<String, PartitionItem> getAndCopyPartitionItemsWithoutLock() throws AnalysisException {
+        Map<String, PartitionItem> res = Maps.newHashMap();
+        for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
+            Partition partition = idToPartition.get(entry.getKey());
+            if (partition != null) {
+                res.put(partition.getName(), entry.getValue());
+            }
+        }
+        return res;
     }
 
     @Override

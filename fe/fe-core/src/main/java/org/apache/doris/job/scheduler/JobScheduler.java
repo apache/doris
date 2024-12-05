@@ -168,7 +168,9 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
         for (AbstractTask task : tasks) {
             if (!taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
                     job.getJobConfig())) {
-                throw new JobException(job.formatMsgWhenExecuteQueueFull(task.getTaskId()));
+                String errorMsg = job.formatMsgWhenExecuteQueueFull(task.getTaskId());
+                task.onFail(errorMsg);
+                throw new JobException(errorMsg);
 
             }
             log.info("dispatch instant job, job id is {}, job name is {}, task id is {}", job.getJobId(),
