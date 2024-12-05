@@ -41,7 +41,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class VExprContext;
 
 // extend a block with all required parameters
@@ -193,7 +193,12 @@ public:
         while (args.current_row_idx < block->rows()) {
             Block lambda_block;
             for (int i = 0; i < names.size(); i++) {
-                ColumnWithTypeAndName data_column {data_types[i], names[i]};
+                ColumnWithTypeAndName data_column;
+                if (_contains_column_id(args, i)) {
+                    data_column = ColumnWithTypeAndName(data_types[i], names[i]);
+                } else {
+                    data_column = ColumnWithTypeAndName(data_types[i]->create_column_const_with_default_value(0), data_types[i], names[i]);
+                }
                 lambda_block.insert(std::move(data_column));
             }
 
@@ -316,7 +321,8 @@ private:
                 auto src_column = block->get_by_position(i).column->convert_to_full_column_if_const();
                 columns[i]->insert_many_from(*src_column, args.current_row_idx, args.current_repeat_times);
             } else {
-                columns[i]->insert_many_defaults(args.current_repeat_times);
+                // must be column const
+                columns[i]->resize(columns[i]->size() + args.current_repeat_times);
             }
         }
         args.current_repeat_times = 0;
