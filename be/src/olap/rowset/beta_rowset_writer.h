@@ -173,7 +173,7 @@ public:
 
     int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
 
-    void set_segment_start_id(int64_t start_id) override {
+    void set_segment_start_id(int32_t start_id) override {
         _segment_creator.set_segment_start_id(start_id);
         _segment_start_id = start_id;
     }
@@ -226,7 +226,7 @@ protected:
         return Status::OK();
     }
 
-    std::atomic<int64_t> _num_segment; // number of consecutive flushed segments
+    std::atomic<int32_t> _num_segment; // number of consecutive flushed segments
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id
     std::mutex _segment_set_mutex;     // mutex for _segment_set
     int32_t _segment_start_id;         // basic write start from 0, partial update may be different

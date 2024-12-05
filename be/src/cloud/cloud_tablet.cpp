@@ -540,7 +540,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
 
     return RowsetFactory::create_rowset_writer(_engine, context, false)
             .transform([&](auto&& writer) {
-                writer->set_segment_start_id(rowset.num_segments());
+                writer->set_segment_start_id(cast_set<int32_t>(rowset.num_segments()));
                 return writer;
             });
 }
@@ -618,7 +618,7 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
         }
         rapidjson::Value value;
         std::string version_str = rowset->get_rowset_info_str();
-        value.SetString(version_str.c_str(), static_cast<uint32_t>(version_str.length()),
+        value.SetString(version_str.c_str(), cast_set<uint32_t>(version_str.length()),
                         versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
         last_version = ver.second;
@@ -632,7 +632,7 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     for (auto& rowset : stale_rowsets) {
         rapidjson::Value value;
         std::string version_str = rowset->get_rowset_info_str();
-        value.SetString(version_str.c_str(), static_cast<uint32_t>(version_str.length()),
+        value.SetString(version_str.c_str(), cast_set<uint32_t>(version_str.length()),
                         stale_versions_arr.GetAllocator());
         stale_versions_arr.PushBack(value, stale_versions_arr.GetAllocator());
     }
