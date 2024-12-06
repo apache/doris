@@ -90,6 +90,11 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         qt_predicate_pushdown6 """ SELECT count(o_orderkey) FROM tpch1_orc.orders WHERE o_orderstatus <> 'F' AND o_custkey < 54321; """
         qt_predicate_pushdown7 """ SELECT count(o_orderkey) FROM tpch1_orc.orders WHERE o_comment LIKE '%delayed%' OR o_orderpriority = '1-URGENT'; """
         qt_predicate_pushdown8 """ SELECT count(o_orderkey) FROM tpch1_orc.orders WHERE o_orderkey IN (1000000, 2000000, 3000000) OR o_clerk = 'Clerk#000000470'; """
+
+        qt_predicate_pushdown_in1 """ select count(*)  from orc_all_types where boolean_col in (null); """
+        qt_predicate_pushdown_in2 """ select count(*)  from orc_all_types where boolean_col in (null, 0); """
+        qt_predicate_pushdown_in3 """ select count(*)  from orc_all_types where boolean_col in (null, 1); """
+        qt_predicate_pushdown_is_null """ select count(*)  from orc_all_types where boolean_col is null; """
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
