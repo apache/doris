@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -26,37 +27,41 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.base.Strings;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
- * alter role command
+ * drop repository command
  */
-public class AlterRoleCommand extends AlterCommand {
-    private final String role;
-    private final String comment;
+public class DropRepositoryCommand extends DropCommand {
+    public static final Logger LOG = LogManager.getLogger(DropRepositoryCommand.class);
+    private final String repoName;
 
     /**
      * constructor
      */
-
-    public AlterRoleCommand(String role, String comment) {
-        super(PlanType.ALTER_ROLE_COMMAND);
-        this.role = role;
-        this.comment = Strings.nullToEmpty(comment);
-
+    public DropRepositoryCommand(String repoName) {
+        super(PlanType.DROP_REPOSITOORY_COMMAND);
+        this.repoName = repoName;
     }
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // check if current user has GRANT priv on GLOBAL level.
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER ROLE");
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-        Env.getCurrentEnv().getAuth().alterRole(role, comment);
+        Env.getCurrentEnv().getBackupHandler().dropRepository(repoName);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitAlterRoleCommand(this, context);
+        return visitor.visitDropRepositoryCommand(this, context);
+    }
+
+    @Override
+    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
+        LOG.info("DropRepositoryCommand not supported in cloud mode");
+        throw new DdlException("Unsupported operation");
     }
 }
