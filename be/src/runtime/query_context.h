@@ -306,49 +306,6 @@ public:
         return _using_brpc_stubs;
     }
 
-    // Query will run in low memory mode when
-    // 1. the query is enable spill and wg's low water mark reached, if not release buffer, it will trigger spill disk, it is very expensive.
-    // 2. the query is not enable spill, but wg's high water mark reached, if not release buffer, the query will be cancelled.
-    // 3. the process reached soft mem_limit, if not release these, if not release buffer, the query will be cancelled.
-    // 4. If the query reserve memory failed.
-    // Under low memory mode, the query should release some buffers such as scan operator block queue, union operator queue, exchange buffer size, streaming agg
-    void update_low_memory_mode() {
-        if (_low_memory_mode) {
-            return;
-        }
-
-        // If less than 100MB left, then it is low memory mode
-        if (doris::GlobalMemoryArbitrator::is_exceed_soft_mem_limit(100 * 1024 * 1024)) {
-            _low_memory_mode = true;
-            LOG(INFO) << "Query " << print_id(_query_id)
-                      << " goes to low memory mode due to exceed process soft memory limit";
-            return;
-        }
-
-        if (_workload_group) {
-            bool is_low_watermark = false;
-            bool is_high_watermark = false;
-            _workload_group->check_mem_used(&is_low_watermark, &is_high_watermark);
-            // If the wg is not enable hard limit, this will also take effect to lower down the memory usage.
-            if (is_high_watermark) {
-                LOG(INFO)
-                        << "Query " << print_id(_query_id)
-                        << " goes to low memory mode due to workload group high water mark reached";
-                _low_memory_mode = true;
-                return;
-            }
-
-            if (is_low_watermark &&
-                (_query_options.__isset.enable_spill && _query_options.enable_spill)) {
-                LOG(INFO) << "Query " << print_id(_query_id)
-                          << " goes to low memory mode due to workload group low water mark "
-                             "reached and the query enable spill";
-                _low_memory_mode = true;
-                return;
-            }
-        }
-    }
-
     void set_low_memory_mode() { _low_memory_mode = true; }
 
     bool low_memory_mode() { return _low_memory_mode; }

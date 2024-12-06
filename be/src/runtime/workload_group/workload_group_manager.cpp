@@ -761,7 +761,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
     bool is_high_watermark = false;
     wg->check_mem_used(&is_low_watermark, &is_high_watermark);
     int64_t wg_high_water_mark_limit =
-            (int64_t)(wg_mem_limit * wg->spill_threshold_high_water_mark() * 1.0 / 100);
+            (int64_t)(wg_mem_limit * wg->memory_high_watermark() * 1.0 / 100);
     int64_t memtable_usage = wg->write_buffer_size();
     int64_t wg_high_water_mark_except_load = wg_high_water_mark_limit;
     if (memtable_usage > wg->write_buffer_limit()) {

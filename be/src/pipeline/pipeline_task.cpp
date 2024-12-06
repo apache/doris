@@ -395,8 +395,6 @@ Status PipelineTask::execute(bool* eos) {
                     Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task executing failed");
             return status;
         });
-        // Every loop should check if memory is not enough.
-        // _state->get_query_ctx()->update_low_memory_mode();
 
         if (_pending_block) [[unlikely]] {
             LOG(INFO) << "Query: " << print_id(query_id)

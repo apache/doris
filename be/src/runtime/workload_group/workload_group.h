@@ -108,9 +108,6 @@ public:
     }
 
     void set_weighted_memory_ratio(double ratio);
-    int spill_threshold_high_water_mark() const {
-        return _memory_high_watermark.load(std::memory_order_relaxed);
-    }
 
     int total_query_slot_count() const {
         return _total_query_slot_count.load(std::memory_order_relaxed);
