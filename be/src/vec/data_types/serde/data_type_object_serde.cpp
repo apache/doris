@@ -192,6 +192,7 @@ Status DataTypeObjectSerDe::write_one_cell_to_json(const IColumn& column, rapidj
         }
         result.AddMember(key, val, allocator);
     }
+    return Status::OK();
 }
 
 Status DataTypeObjectSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
