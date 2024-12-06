@@ -18,7 +18,6 @@
 #pragma once
 
 #include <mutex>
-#include <thread>
 
 #include "util/blocking_priority_queue.hpp"
 #include "util/blocking_queue.hpp"
@@ -126,12 +125,13 @@ public:
     }
 
     std::string get_info() const {
-        return fmt::format(
-                "PriorityThreadPool(name={}, queue_size={}/{}, active_thread={}/{}, "
-                "total_get_wait_time={}, total_put_wait_time={})",
-                _name, get_queue_size(), _work_queue.get_capacity(), _active_threads,
-                _threads.size(), _work_queue.total_get_wait_time(),
-                _work_queue.total_put_wait_time());
+        return (Priority ? "PriorityThreadPool" : "FifoThreadPool") +
+               fmt::format(
+                       "(name={}, queue_size={}/{}, active_thread={}/{}, "
+                       "total_get_wait_time={}, total_put_wait_time={})",
+                       _name, get_queue_size(), _work_queue.get_capacity(), _active_threads,
+                       _threads.size(), _work_queue.total_get_wait_time(),
+                       _work_queue.total_put_wait_time());
     }
 
 protected:
