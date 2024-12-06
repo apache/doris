@@ -149,12 +149,14 @@ private:
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
     void _serialize_block_to_row_column(vectorized::Block& block);
+    Status _partial_update_preconditions_check(size_t row_pos);
     Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
     Status _append_block_with_variant_subcolumns(RowsInBlock& data);
     Status _fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
                                  const std::vector<bool>& use_default_or_null_flag,
                                  bool has_default_or_nullable, const size_t& segment_start_pos,
                                  const vectorized::Block* block);
+    bool _is_mow() const;
 
 private:
     uint32_t _segment_id;
