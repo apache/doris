@@ -170,6 +170,9 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                    (p._shared_hash_table_context &&
                     !p._shared_hash_table_context->complete_build_stage)) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "build_sink::close meet error state");
+        } else {
+            RETURN_IF_ERROR(local_state._runtime_filter_slots->copy_from_shared_context(
+                    _shared_hash_table_context));
         }
 
         SCOPED_TIMER(_publish_runtime_filter_timer);
@@ -552,9 +555,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         if (!_shared_hash_table_context->status.ok()) {
             return _shared_hash_table_context->status;
         }
-
-        RETURN_IF_ERROR(local_state._runtime_filter_slots->copy_from_shared_context(
-                _shared_hash_table_context));
 
         local_state.profile()->add_info_string(
                 "SharedHashTableFrom",
