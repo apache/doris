@@ -70,6 +70,10 @@ protected:
     // merge inverted index files
     Status do_inverted_index_compaction();
 
+    // mark all columns in columns_to_do_index_compaction to skip index compaction next time.
+    void mark_skip_index_compaction(const RowsetWriterContext& context,
+                                    const std::function<void(int64_t, int64_t)>& error_handler);
+
     void construct_index_compaction_columns(RowsetWriterContext& ctx);
 
     virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
