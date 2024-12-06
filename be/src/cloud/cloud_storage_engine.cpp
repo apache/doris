@@ -357,7 +357,7 @@ void CloudStorageEngine::sync_storage_vault() {
                           : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
                                        vault_info);
         if (!status.ok()) [[unlikely]] {
-            LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
+            LOG(WARNING) << vault_process_error(id, vault_info, std::move(status));
         }
     }
 
