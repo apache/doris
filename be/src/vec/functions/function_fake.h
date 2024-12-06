@@ -51,7 +51,7 @@ struct UDTFImpl {
 template <typename Impl>
 class FunctionFake : public IFunction {
 public:
-    bool return_type_depend_on_argument_type() override { return true; }
+    bool dont_append_return_type_name_when_register_function() override { return true; }
 
     static constexpr auto name = "fake";
 

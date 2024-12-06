@@ -55,6 +55,8 @@ public:
 
     bool is_variadic() const override { return true; }
 
+    bool dont_append_return_type_name_when_register_function() override { return true; }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments.size() == 2) {
             return std::make_shared<DataTypeInt64>();

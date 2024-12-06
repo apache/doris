@@ -58,7 +58,7 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    bool return_type_depend_on_argument_type() override { return true; }
+    bool dont_append_return_type_name_when_register_function() override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(remove_nullable(arguments[0])))

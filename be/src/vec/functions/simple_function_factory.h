@@ -138,7 +138,7 @@ public:
             }
         }
         auto impl = std::static_pointer_cast<FunctionBuilderImpl>(ptr());
-        if (!impl->return_type_depend_on_argument_type()) {
+        if (!impl->dont_append_return_type_name_when_register_function()) {
             auto ret_type = impl->get_return_type_impl(types);
             key_str.append(remove_nullable(ret_type)->get_family_name());
         }
@@ -197,7 +197,11 @@ public:
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
             // use original name as signature without variadic arguments
-            iter = function_creators.find(name);
+            key_str = name;
+            if (function_alias.contains(name)) {
+                key_str = function_alias[name];
+            }
+            iter = function_creators.find(key_str);
             if (iter == function_creators.end()) {
                 LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
                 return nullptr;

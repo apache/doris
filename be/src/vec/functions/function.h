@@ -301,7 +301,7 @@ public:
 
     // if a function's get_variadic_argument_types() not override and get_return_type_impl()
     // result is not compile time be sure, the function should override return true
-    virtual bool return_type_depend_on_argument_type() { return false; }
+    virtual bool dont_append_return_type_name_when_register_function() { return false; }
 
 protected:
     // Get the result type by argument type. If the function does not apply to these arguments, throw an exception.
@@ -538,8 +538,8 @@ public:
 
     String get_name() const override { return function->get_name(); }
     bool is_variadic() const override { return function->is_variadic(); }
-    bool return_type_depend_on_argument_type() override {
-        return function->return_type_depend_on_argument_type();
+    bool dont_append_return_type_name_when_register_function() override {
+        return function->dont_append_return_type_name_when_register_function();
     }
     size_t get_number_of_arguments() const override { return function->get_number_of_arguments(); }
 

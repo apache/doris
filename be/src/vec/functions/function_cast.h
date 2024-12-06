@@ -453,8 +453,8 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
-                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>)&&(
-                                             std::is_same_v<ToDataType, DataTypeIPv6>)) {
+                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>) &&
+                                     (std::is_same_v<ToDataType, DataTypeIPv6>)) {
                     for (size_t i = 0; i < size; ++i) {
                         map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
                     }
@@ -1582,11 +1582,11 @@ private:
             /// that will not throw an exception but return NULL in case of malformed input.
             function = FunctionConvertFromString<DataType, NameCast>::create();
         } else if (requested_result_is_nullable &&
-                   (IsTimeType<DataType> || IsTimeV2Type<DataType>)&&!(
-                           check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDate>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
+                   (IsTimeType<DataType> || IsTimeV2Type<DataType>) &&
+                   !(check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDate>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
             function = FunctionConvertToTimeType<DataType, NameCast>::create();
         } else {
             function = FunctionTo<DataType>::Type::create();
@@ -2362,7 +2362,7 @@ public:
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
-    bool return_type_depend_on_argument_type() override { return true; }
+    bool dont_append_return_type_name_when_register_function() override { return true; }
 
 protected:
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
@@ -2383,16 +2383,7 @@ protected:
         // 2. from_type is string, to_type is not string
         need_to_be_nullable |= (arguments[0].type->get_type_id() == TypeIndex::String) &&
                                (type->get_type_id() != TypeIndex::String);
-        // 3. from_type is not DateTime/Date, to_type is DateTime/Date
-        need_to_be_nullable |= (arguments[0].type->get_type_id() != TypeIndex::Date &&
-                                arguments[0].type->get_type_id() != TypeIndex::DateTime) &&
-                               (type->get_type_id() == TypeIndex::Date ||
-                                type->get_type_id() == TypeIndex::DateTime);
-        // 4. from_type is not DateTimeV2/DateV2, to_type is DateTimeV2/DateV2
-        need_to_be_nullable |= (arguments[0].type->get_type_id() != TypeIndex::DateV2 &&
-                                arguments[0].type->get_type_id() != TypeIndex::DateTimeV2) &&
-                               (type->get_type_id() == TypeIndex::DateV2 ||
-                                type->get_type_id() == TypeIndex::DateTimeV2);
+
         if (need_to_be_nullable && !type->is_nullable()) {
             return make_nullable(type);
         }

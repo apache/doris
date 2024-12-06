@@ -46,7 +46,7 @@ public:
     static constexpr auto name = Name::name;
     static FunctionPtr create() { return std::make_shared<FunctionArrayMapped>(); }
 
-    bool return_type_depend_on_argument_type() override { return true; }
+    bool dont_append_return_type_name_when_register_function() override { return true; }
 
     String get_name() const override { return name; }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
