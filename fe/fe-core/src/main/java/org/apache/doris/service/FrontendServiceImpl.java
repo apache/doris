@@ -280,7 +280,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             BackupJob backupJob = (BackupJob) Env.getCurrentEnv().getBackupHandler().getJob(tabletMeta.getDbId());
-            if (!backupJob.isDone() && backupJob.getBackupMeta().getTable((tabletMeta.getTableId())) != null) {
+            if (backupJob != null && !backupJob.isDone()
+                    && backupJob.getBackupMeta().getTable((tabletMeta.getTableId())) != null) {
                 LOG.warn("Backup is running on this tablet {} ", info.tablet_id);
                 return;
             }
