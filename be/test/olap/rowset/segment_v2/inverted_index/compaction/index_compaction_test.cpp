@@ -30,8 +30,15 @@ class IndexCompactionTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // absolute dir
-        EXPECT_NE(getenv("DORIS_HOME"), nullptr);
-        _doris_home = std::string(getenv("DORIS_HOME"));
+        const char* doris_home_env = getenv("DORIS_HOME");
+        ASSERT_NE(doris_home_env, nullptr) << "DORIS_HOME environment variable is not set.";
+
+        _doris_home = std::string(doris_home_env);
+
+        while (!_doris_home.empty() && _doris_home.back() == '/') {
+            _doris_home.pop_back();
+        }
+
         _absolute_dir = _doris_home + std::string(dest_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(_absolute_dir).ok());
