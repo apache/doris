@@ -727,7 +727,8 @@ EOF
     extensions_modules=("java-udf")
     extensions_modules+=("jdbc-scanner")
     extensions_modules+=("hudi-scanner")
-    extensions_modules+=("hadoop-hudi-scanner")
+    # don't compile hadoop-hudi-scanner for 2.1 now
+    # extensions_modules+=("hadoop-hudi-scanner")
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("max-compute-scanner")
     extensions_modules+=("avro-scanner")
