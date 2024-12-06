@@ -23,23 +23,18 @@ namespace doris {
 
 using namespace doris::vectorized;
 
-constexpr static std::string_view dest_dir = "/ut_dir/inverted_index_test";
+constexpr static uint32_t MAX_PATH_LEN = 1024;
+constexpr static std::string_view dest_dir = "./ut_dir/inverted_index_test";
 constexpr static std::string_view tmp_dir = "./ut_dir/tmp";
 
 class IndexCompactionTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // absolute dir
-        const char* doris_home_env = getenv("DORIS_HOME");
-        ASSERT_NE(doris_home_env, nullptr) << "DORIS_HOME environment variable is not set.";
-
-        _doris_home = std::string(doris_home_env);
-
-        while (!_doris_home.empty() && _doris_home.back() == '/') {
-            _doris_home.pop_back();
-        }
-
-        _absolute_dir = _doris_home + std::string(dest_dir);
+        char buffer[MAX_PATH_LEN];
+        EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
+        _current_dir = std::string(buffer);
+        _absolute_dir = _current_dir + std::string(dest_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(_absolute_dir).ok());
 
@@ -100,16 +95,16 @@ private:
     std::unique_ptr<DataDir> _data_dir = nullptr;
     TabletSharedPtr _tablet = nullptr;
     std::string _absolute_dir;
-    std::string _doris_home;
+    std::string _current_dir;
 };
 
 TEST_F(IndexCompactionTest, tes_write_index_normally) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
     std::string data_file2 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
     std::vector<std::string> data_files;
     data_files.push_back(data_file1);
     data_files.push_back(data_file2);
@@ -194,9 +189,9 @@ TEST_F(IndexCompactionTest, test_col_unique_ids_empty) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
     std::string data_file2 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
     std::vector<std::string> data_files;
     data_files.push_back(data_file1);
     data_files.push_back(data_file2);
@@ -244,9 +239,9 @@ TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
     std::string data_file2 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
     std::vector<std::string> data_files;
     data_files.push_back(data_file1);
     data_files.push_back(data_file2);
@@ -295,9 +290,9 @@ TEST_F(IndexCompactionTest, test_tablet_schema_tablet_index_is_null) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
     std::string data_file2 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
     std::vector<std::string> data_files;
     data_files.push_back(data_file1);
     data_files.push_back(data_file2);
@@ -338,9 +333,9 @@ TEST_F(IndexCompactionTest, test_rowset_schema_tablet_index_is_null) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
     std::string data_file2 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
     std::vector<std::string> data_files;
     data_files.push_back(data_file1);
     data_files.push_back(data_file2);
@@ -403,9 +398,9 @@ TEST_F(IndexCompactionTest, test_tablet_index_properties_not_equal) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
     std::string data_file2 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
     std::vector<std::string> data_files;
     data_files.push_back(data_file1);
     data_files.push_back(data_file2);
@@ -451,9 +446,9 @@ TEST_F(IndexCompactionTest, test_is_skip_index_compaction_not_empty) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
     std::string data_file2 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
     std::vector<std::string> data_files;
     data_files.push_back(data_file1);
     data_files.push_back(data_file2);
@@ -499,9 +494,9 @@ TEST_F(IndexCompactionTest, test_rowset_fs_nullptr) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
     std::string data_file2 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
     std::vector<std::string> data_files;
     data_files.push_back(data_file1);
     data_files.push_back(data_file2);
@@ -537,9 +532,9 @@ TEST_F(IndexCompactionTest, test_input_row_num_zero) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
     std::string data_file2 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
     std::vector<std::string> data_files;
     data_files.push_back(data_file1);
     data_files.push_back(data_file2);
@@ -602,9 +597,9 @@ TEST_F(IndexCompactionTest, test_cols_to_do_index_compaction_empty) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
     std::string data_file2 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
     std::vector<std::string> data_files;
     data_files.push_back(data_file1);
     data_files.push_back(data_file2);
@@ -652,9 +647,9 @@ TEST_F(IndexCompactionTest, test_index_compaction_with_delete) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
     std::string data_file1 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
     std::string data_file2 =
-            _doris_home + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
     std::vector<std::string> data_files;
     data_files.push_back(data_file1);
     data_files.push_back(data_file2);
