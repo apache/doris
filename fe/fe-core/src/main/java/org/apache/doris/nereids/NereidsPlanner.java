@@ -54,6 +54,8 @@ import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -65,6 +67,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -263,6 +266,7 @@ public class NereidsPlanner extends Planner {
             Optional<String> reason = StatsCalculator.disableJoinReorderIfStatsInvalid(scans, cascadesContext);
             reason.ifPresent(LOG::info);
         }
+        setRuntimeFilterWaitTimeByTableRowCountAndType();
         optimize();
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsOptimizeTime();
@@ -297,6 +301,45 @@ public class NereidsPlanner extends Planner {
 
     private LogicalPlan preprocess(LogicalPlan logicalPlan) {
         return new PlanPreprocessors(statementContext).process(logicalPlan);
+    }
+
+    /**
+     * compute rf wait time according to max table row count, if wait time is not default value
+     *     olap:
+     *     row < 1G: 1 sec
+     *     1G <= row < 10G: 5 sec
+     *     10G < row: 20 sec
+     *     external:
+     *     row < 1G: 5 sec
+     *     1G <= row < 10G: 10 sec
+     *     10G < row: 50 sec
+     */
+    private void setRuntimeFilterWaitTimeByTableRowCountAndType() {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs()
+                != VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs()) {
+            List<LogicalCatalogRelation> scans = cascadesContext.getRewritePlan()
+                    .collectToList(LogicalCatalogRelation.class::isInstance);
+            double maxRow = StatsCalculator.getMaxTableRowCount(scans, cascadesContext);
+            boolean hasExternalTable = scans.stream().anyMatch(scan -> !(scan instanceof LogicalOlapScan));
+            SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+            if (hasExternalTable) {
+                if (maxRow < 1_000_000_000L) {
+                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
+                } else if (maxRow < 10_000_000_000L) {
+                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
+                } else {
+                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "50000");
+                }
+            } else {
+                if (maxRow < 1_000_000_000L) {
+                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "1000");
+                } else if (maxRow < 10_000_000_000L) {
+                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
+                } else {
+                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
+                }
+            }
+        }
     }
 
     private void initCascadesContext(LogicalPlan plan, PhysicalProperties requireProperties) {

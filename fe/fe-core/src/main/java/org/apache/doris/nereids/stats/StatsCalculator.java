@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -295,6 +296,25 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     *
+     * get the max row count of tables used in a query
+     */
+    public static double getMaxTableRowCount(List<LogicalCatalogRelation> scans, CascadesContext context) {
+        StatsCalculator calculator = new StatsCalculator(context);
+        double max = -1;
+        for (LogicalCatalogRelation scan : scans) {
+            double row;
+            if (scan instanceof LogicalOlapScan) {
+                row = calculator.getOlapTableRowCount((LogicalOlapScan) scan);
+            } else {
+                row = scan.getTable().getRowCount();
+            }
+            max = Math.max(row, max);
+        }
+        return max;
     }
 
     /**
