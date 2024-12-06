@@ -304,6 +304,39 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
                << watch.elapsed_time() / 1000;
 }
 
+Status VerticalSegmentWriter::_partial_update_preconditions_check(size_t row_pos) {
+    if (!_is_mow()) {
+        auto msg = fmt::format(
+                "Can only do partial update on merge-on-write unique table, but found: "
+                "keys_type={}, _opts.enable_unique_key_merge_on_write={}, tablet_id={}",
+                _tablet_schema->keys_type(), _opts.enable_unique_key_merge_on_write,
+                _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    if (_opts.rowset_ctx->partial_update_info == nullptr) {
+        auto msg =
+                fmt::format("partial_update_info should not be nullptr, please check, tablet_id={}",
+                            _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    if (!_opts.rowset_ctx->partial_update_info->is_partial_update) {
+        auto msg = fmt::format(
+                "in partial update code, but is_partial_update=false, please check, tablet_id={}",
+                _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    if (row_pos != 0) {
+        auto msg = fmt::format("row_pos should be 0, but found {}, tablet_id={}", row_pos,
+                               _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    return Status::OK();
+}
+
 // for partial update, we should do following steps to fill content of block:
 // 1. set block data to data convertor, and get all key_column's converted slice
 // 2. get pk of input block, and read missing columns
@@ -318,8 +351,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         return Status::NotSupported("append_block_with_partial_content");
     }
 
-    DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
-    DCHECK(_opts.rowset_ctx->partial_update_info != nullptr);
+    RETURN_IF_ERROR(_partial_update_preconditions_check(data.row_pos));
 
     auto tablet = static_cast<Tablet*>(_tablet.get());
     // create full block and fill with input columns
@@ -1207,6 +1239,10 @@ void VerticalSegmentWriter::_set_min_key(const Slice& key) {
 void VerticalSegmentWriter::_set_max_key(const Slice& key) {
     _max_key.clear();
     _max_key.append(key.get_data(), key.get_size());
+}
+
+inline bool VerticalSegmentWriter::_is_mow() const {
+    return _tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write;
 }
 
 } // namespace segment_v2
