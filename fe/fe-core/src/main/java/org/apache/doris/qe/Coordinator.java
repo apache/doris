@@ -81,6 +81,7 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
@@ -741,16 +742,15 @@ public class Coordinator implements CoordInterface {
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
-            receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
-                    addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline,
-                    context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
-
-            if (!context.isReturnResultFromLocal()) {
+            if (context.isReturnResultFromLocal()) {
+                receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
+                        addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline,
+                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+            } else {
                 Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
-                context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
-                context.setResultFlightServerAddr(toArrowFlightHost(execBeAddr));
-                context.setResultInternalServiceAddr(toBrpcHost(execBeAddr));
-                context.setResultOutputExprs(fragments.get(0).getOutputExprs());
+                TUniqueId finstId = topParams.instanceExecParams.get(0).instanceId;
+                context.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(finstId,
+                        toArrowFlightHost(execBeAddr), toBrpcHost(execBeAddr), fragments.get(0).getOutputExprs()));
             }
 
             LOG.info("dispatch result sink of query {} to {}", DebugUtil.printId(queryId),
@@ -761,7 +761,8 @@ public class Coordinator implements CoordInterface {
                 // set the broker address for OUTFILE sink
                 ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
                 FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
-                        .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
+                        .getBroker(topResultFileSink.getBrokerName(),
+                                topParams.instanceExecParams.get(0).host.getHostname());
                 topResultFileSink.setBrokerAddr(broker.host, broker.port);
             }
         } else {
