@@ -31,6 +31,8 @@ import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
@@ -40,6 +42,7 @@ import java.util.Map;
  * admin rebalance disk
  */
 public class AdminRebalanceDiskCommand extends Command {
+    private static final Logger LOG = LogManager.getLogger(AdminRebalanceDiskCommand.class);
     private final long timeoutS = 24 * 3600; // default 24 hours
     private List<String> backends;
 
@@ -85,6 +88,10 @@ public class AdminRebalanceDiskCommand extends Command {
 
     private void handleRebalanceDisk() throws AnalysisException {
         List<Backend> needRebalanceDiskBackends = getNeedRebalanceDiskBackends(backends);
+        if (needRebalanceDiskBackends.isEmpty()) {
+            LOG.info("The matching be is empty, no be to rebalance disk.");
+            return;
+        }
         Env.getCurrentEnv().getTabletScheduler().rebalanceDisk(needRebalanceDiskBackends, timeoutS);
     }
 
