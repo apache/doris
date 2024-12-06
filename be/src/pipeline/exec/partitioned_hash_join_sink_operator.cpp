@@ -438,7 +438,7 @@ Status PartitionedHashJoinSinkOperatorX::_setup_internal_operator(RuntimeState* 
     auto& local_state = get_local_state(state);
 
     local_state._shared_state->inner_runtime_state = RuntimeState::create_unique(
-            nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
+            state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
     local_state._shared_state->inner_runtime_state->set_task_execution_context(
             state->get_task_execution_context().lock());
