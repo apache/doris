@@ -86,7 +86,7 @@ public class HudiUtils {
             case LONG:
                 if (logicalType instanceof LogicalTypes.TimestampMillis
                         || logicalType instanceof LogicalTypes.TimestampMicros) {
-                    return logicalType.getName();
+                    return "timestamp";
                 }
                 if (logicalType instanceof LogicalTypes.TimeMicros) {
                     return handleUnsupportedType(schema);

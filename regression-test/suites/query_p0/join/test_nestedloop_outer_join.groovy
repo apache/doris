@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_nestedloop_outer_join", "query_p0") {
+suite("test_nestedloop_outer_join", "query_p0,arrow_flight_sql") {
     def tbl1 = "test_nestedloop_outer_join1"
     def tbl2 = "test_nestedloop_outer_join2"
 

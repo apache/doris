@@ -163,7 +163,11 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
           _tablet_schema(std::move(tablet_schema)),
           _idx_file_info(idx_file_info) {}
 
-Segment::~Segment() = default;
+Segment::~Segment() {
+    g_segment_estimate_mem_bytes << -_tracked_meta_mem_usage;
+    // if failed, fix `_tracked_meta_mem_usage` accuracy
+    DCHECK(_tracked_meta_mem_usage == meta_mem_usage());
+}
 
 io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t seg_id) {
     return io::BlockFileCache::hash(fmt::format("{}_{}.dat", rowset_id, seg_id));
@@ -172,6 +176,12 @@ io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t 
 int64_t Segment::get_metadata_size() const {
     return sizeof(Segment) + (_footer_pb ? _footer_pb->ByteSizeLong() : 0) +
            (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0);
+}
+
+void Segment::update_metadata_size() {
+    MetadataAdder::update_metadata_size();
+    g_segment_estimate_mem_bytes << _meta_mem_usage - _tracked_meta_mem_usage;
+    _tracked_meta_mem_usage = _meta_mem_usage;
 }
 
 Status Segment::_open() {
@@ -191,8 +201,6 @@ Status Segment::_open() {
         _meta_mem_usage += _pk_index_meta->ByteSizeLong();
     }
 
-    update_metadata_size();
-
     _meta_mem_usage += sizeof(*this);
     _meta_mem_usage += _tablet_schema->num_columns() * config::estimated_mem_per_column_reader;
 
@@ -200,6 +208,8 @@ Status Segment::_open() {
     _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
     // 0.01 comes from PrimaryKeyIndexBuilder::init
     _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
+
+    update_metadata_size();
 
     return Status::OK();
 }
@@ -467,6 +477,7 @@ Status Segment::_load_pk_bloom_filter() {
         // for BE UT "segment_cache_test"
         return _load_pk_bf_once.call([this] {
             _meta_mem_usage += 100;
+            update_metadata_size();
             return Status::OK();
         });
     }
@@ -955,7 +966,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
                                std::string* encoded_seq_value, OlapReaderStatistics* stats) {
     RETURN_IF_ERROR(load_pk_index_and_bf());
     bool has_seq_col = latest_schema->has_sequence_col();
-    bool has_rowid = !latest_schema->cluster_key_idxes().empty();
+    bool has_rowid = !latest_schema->cluster_key_uids().empty();
     size_t seq_col_length = 0;
     if (has_seq_col) {
         seq_col_length = latest_schema->column(latest_schema->sequence_col_idx()).length() + 1;
@@ -1065,7 +1076,7 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
     RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
     CHECK(num_read == 1);
     // trim row id
-    if (_tablet_schema->cluster_key_idxes().empty()) {
+    if (_tablet_schema->cluster_key_uids().empty()) {
         *key = index_column->get_data_at(0).to_string();
     } else {
         Slice sought_key =

@@ -103,7 +103,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                 << ", table_id=" << _tablet_schema->table_id()
                 << ", num_key_columns=" << _num_sort_key_columns
                 << ", num_short_key_columns=" << _num_short_key_columns
-                << ", cluster_key_columns=" << _tablet_schema->cluster_key_idxes().size();
+                << ", cluster_key_columns=" << _tablet_schema->cluster_key_uids().size();
     }
     for (size_t cid = 0; cid < _num_sort_key_columns; ++cid) {
         const auto& column = _tablet_schema->column(cid);
@@ -125,8 +125,8 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
             // cluster keys
             _key_coders.clear();
             _key_index_size.clear();
-            _num_sort_key_columns = _tablet_schema->cluster_key_idxes().size();
-            for (auto cid : _tablet_schema->cluster_key_idxes()) {
+            _num_sort_key_columns = _tablet_schema->cluster_key_uids().size();
+            for (auto cid : _tablet_schema->cluster_key_uids()) {
                 const auto& column = _tablet_schema->column_by_uid(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
                 _key_index_size.push_back(column.index_length());
@@ -788,7 +788,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                                                         seq_column, num_rows, true));
             // 2. generate short key index (use cluster key)
             key_columns.clear();
-            for (const auto& cid : _tablet_schema->cluster_key_idxes()) {
+            for (const auto& cid : _tablet_schema->cluster_key_uids()) {
                 // find cluster key index in tablet schema
                 auto cluster_key_index = _tablet_schema->field_index(cid);
                 if (cluster_key_index == -1) {
@@ -1016,6 +1016,18 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     *index_size = _file_writer->bytes_appended() - index_start;
     if (_has_key) {
         if (_is_mow_with_cluster_key()) {
+            // 1. sort primary keys
+            std::sort(_primary_keys.begin(), _primary_keys.end());
+            // 2. write primary keys index
+            std::string last_key;
+            for (const auto& key : _primary_keys) {
+                DCHECK(key.compare(last_key) > 0)
+                        << "found duplicate key or key is not sorted! current key: " << key
+                        << ", last key: " << last_key;
+                RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+                last_key = key;
+            }
+
             RETURN_IF_ERROR(_write_short_key_index());
             *index_size = _file_writer->bytes_appended() - index_start;
             RETURN_IF_ERROR(_write_primary_key_index());
@@ -1236,27 +1248,16 @@ Status SegmentWriter::_generate_primary_key_index(
             last_key = std::move(key);
         }
     } else { // mow table with cluster key
-        // 1. generate primary keys in memory
-        std::vector<std::string> primary_keys;
+        // generate primary keys in memory
         for (uint32_t pos = 0; pos < num_rows; pos++) {
             std::string key = _full_encode_keys(primary_key_coders, primary_key_columns, pos);
             _maybe_invalid_row_cache(key);
             if (_tablet_schema->has_sequence_col()) {
                 _encode_seq_column(seq_column, pos, &key);
             }
-            _encode_rowid(pos, &key);
-            primary_keys.emplace_back(std::move(key));
-        }
-        // 2. sort primary keys
-        std::sort(primary_keys.begin(), primary_keys.end());
-        // 3. write primary keys index
-        std::string last_key;
-        for (const auto& key : primary_keys) {
-            DCHECK(key.compare(last_key) > 0)
-                    << "found duplicate key or key is not sorted! current key: " << key
-                    << ", last key: " << last_key;
-            RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
-            last_key = key;
+            _encode_rowid(pos + _num_rows_written, &key);
+            _primary_keys_size += key.size();
+            _primary_keys.emplace_back(std::move(key));
         }
     }
     return Status::OK();
@@ -1289,7 +1290,7 @@ inline bool SegmentWriter::_is_mow() {
 }
 
 inline bool SegmentWriter::_is_mow_with_cluster_key() {
-    return _is_mow() && !_tablet_schema->cluster_key_idxes().empty();
+    return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
 } // namespace segment_v2
 } // namespace doris

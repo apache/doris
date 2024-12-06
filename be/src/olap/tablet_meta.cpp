@@ -203,6 +203,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     case TInvertedIndexFileStorageFormat::V2:
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
         break;
+    case TInvertedIndexFileStorageFormat::V3:
+        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+        break;
     default:
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
         break;
@@ -216,8 +219,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_sort_type(SortType::LEXICAL);
     }
     schema->set_sort_col_num(tablet_schema.sort_col_num);
-    for (const auto& i : tablet_schema.cluster_key_idxes) {
-        schema->add_cluster_key_idxes(i);
+    for (const auto& i : tablet_schema.cluster_key_uids) {
+        schema->add_cluster_key_uids(i);
     }
     tablet_meta_pb.set_in_restore_mode(false);
 
@@ -779,12 +782,6 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             time_series_compaction_empty_rowsets_threshold());
     tablet_meta_pb->set_time_series_compaction_level_threshold(
             time_series_compaction_level_threshold());
-}
-
-int64_t TabletMeta::mem_size() const {
-    auto size = sizeof(TabletMeta);
-    size += _schema->mem_size();
-    return size;
 }
 
 void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) {
