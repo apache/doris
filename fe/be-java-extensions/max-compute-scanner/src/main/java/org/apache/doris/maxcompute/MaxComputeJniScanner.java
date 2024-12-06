@@ -25,6 +25,7 @@ import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.table.configuration.CompressionCodec;
 import com.aliyun.odps.table.configuration.ReaderOptions;
+import com.aliyun.odps.table.configuration.RestOptions;
 import com.aliyun.odps.table.enviroment.Credentials;
 import com.aliyun.odps.table.enviroment.EnvironmentSettings;
 import com.aliyun.odps.table.read.SplitReader;
@@ -66,6 +67,10 @@ public class MaxComputeJniScanner extends JniScanner {
     private static final String SESSION_ID = "session_id";
     private static final String SCAN_SERIALIZER = "scan_serializer";
     private static final String TIME_ZONE = "time_zone";
+
+    private static final String CONNECT_TIMEOUT = "connect_timeout";
+    private static final String READ_TIMEOUT = "read_timeout";
+    private static final String RETRY_COUNT  = "retry_count";
 
     private enum SplitType {
         BYTE_SIZE,
@@ -136,16 +141,40 @@ public class MaxComputeJniScanner extends JniScanner {
         Credentials credentials = Credentials.newBuilder().withAccount(odps.getAccount())
                 .withAppAccount(odps.getAppAccount()).build();
 
+
+        int connectTimeout = 10; // 10s
+        if (!Strings.isNullOrEmpty(params.get(CONNECT_TIMEOUT))) {
+            connectTimeout = Integer.parseInt(params.get(CONNECT_TIMEOUT));
+        }
+
+        int readTimeout = 120; // 120s
+        if (!Strings.isNullOrEmpty(params.get(READ_TIMEOUT))) {
+            readTimeout =  Integer.parseInt(params.get(READ_TIMEOUT));
+        }
+
+        int retryTimes = 4; // 4 times
+        if (!Strings.isNullOrEmpty(params.get(RETRY_COUNT))) {
+            retryTimes = Integer.parseInt(params.get(RETRY_COUNT));
+        }
+
+        RestOptions restOptions = RestOptions.newBuilder()
+                .withConnectTimeout(connectTimeout)
+                .withReadTimeout(readTimeout)
+                .withRetryTimes(retryTimes).build();
+
         settings = EnvironmentSettings.newBuilder()
                 .withCredentials(credentials)
                 .withServiceEndpoint(odps.getEndpoint())
                 .withQuotaName(quota)
+                .withRestOptions(restOptions)
                 .build();
 
         try {
             scan = (TableBatchReadSession) deserialize(scanSerializer);
         } catch (Exception e) {
-            LOG.info("deserialize TableBatchReadSession failed.", e);
+            String errorMsg = "Failed to deserialize table batch read session.";
+            LOG.warn(errorMsg, e);
+            throw new IllegalArgumentException(errorMsg, e);
         }
     }
 
@@ -176,11 +205,11 @@ public class MaxComputeJniScanner extends JniScanner {
                     .withReuseBatch(true)
                     .build());
 
-        } catch (IOException e) {
-            LOG.info("createArrowReader failed.", e);
         } catch (Exception e) {
+            String errorMsg = "MaxComputeJniScanner Failed to open table batch read session.";
+            LOG.warn(errorMsg, e);
             close();
-            throw new IOException(e.getMessage(), e);
+            throw new IOException(errorMsg, e);
         }
     }
 
@@ -215,8 +244,9 @@ public class MaxComputeJniScanner extends JniScanner {
                     break;
                 }
             } catch (Exception e) {
-                LOG.info("currentSplitReader hasNext fail", e);
-                break;
+                String errorMsg = "MaxComputeJniScanner readVectors hasNext fail";
+                LOG.warn(errorMsg, e);
+                throw new IOException(e.getMessage(), e);
             }
 
             try {
@@ -241,7 +271,10 @@ public class MaxComputeJniScanner extends JniScanner {
                 }
                 curReadRows += batchRows;
             } catch (Exception e) {
-                throw new RuntimeException("Fail to read arrow data, reason: " + e.getMessage(), e);
+                String errorMsg = String.format("MaxComputeJniScanner Fail to read arrow data. "
+                        + "curReadRows = {}, expectedRows = {}", curReadRows, expectedRows);
+                LOG.warn(errorMsg, e);
+                throw new RuntimeException(errorMsg, e);
             }
         }
         return curReadRows;

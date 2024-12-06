@@ -56,6 +56,14 @@ public class MCProperties extends BaseProperties {
     public static final String SPLIT_ROW_COUNT = "mc.split_row_count";
     public static final String DEFAULT_SPLIT_ROW_COUNT = "1048576"; // 256 * 4096
 
+    public static final String CONNECT_TIMEOUT = "mc.connect_timeout";
+    public static final String READ_TIMEOUT = "mc.read_timeout";
+    public static final String RETRY_COUNT = "mc.retry_count";
+
+    public static final String DEFAULT_CONNECT_TIMEOUT = "10"; // 10s
+    public static final String DEFAULT_READ_TIMEOUT = "120"; // 120s
+    public static final String DEFAULT_RETRY_COUNT = "4"; // 4 times
+
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
     }
