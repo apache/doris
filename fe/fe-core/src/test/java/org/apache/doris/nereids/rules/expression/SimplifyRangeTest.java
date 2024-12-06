@@ -189,7 +189,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA + TC = 1 and TA + TC = 3", "(TA + TC) is null and null");
         assertRewriteNotNull("TA + TC in (1) and TA + TC in (3)", "FALSE");
         assertRewrite("TA + TC in (1) and TA + TC in (3)", "(TA + TC) is null and null");
-        assertRewrite("TA + TC in (1) and TA + TC in (1)", "(TA + TC) IN (1)");
+        assertRewrite("TA + TC in (1) and TA + TC in (1)", "(TA + TC) = (1)");
         assertRewriteNotNull("(TA + TC > 3 and TA + TC < 1) and TB < 5", "FALSE");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) and TB < 5", "(TA + TC) is null and null and TB < 5");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or TB < 5", "((TA + TC) is null and null) OR TB < 5");

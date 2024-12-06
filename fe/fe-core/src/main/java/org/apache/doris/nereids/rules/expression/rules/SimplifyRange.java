@@ -203,12 +203,10 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         }
 
         // later will add `addExprs` to original expr, before doing that, remove duplicate expr in original expr
-        Expression result = replaceCmpMinMax(expr, Sets.newHashSet(addExprs));
+        Expression replaceOriginExpr = replaceCmpMinMax(expr, Sets.newHashSet(addExprs));
 
-        for (Expression addExpr : addExprs) {
-            result = ExpressionUtils.and(result, addExpr);
-        }
-        result = FoldConstantRuleOnFE.evaluate(result, context);
+        addExprs.add(0, replaceOriginExpr);
+        Expression result = FoldConstantRuleOnFE.evaluate(ExpressionUtils.and(addExprs), context);
         if (result.equals(expr)) {
             return expr;
         }
@@ -357,7 +355,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             Multimap<Expression, ValueDesc> groupByReference
                     = Multimaps.newListMultimap(new LinkedHashMap<>(), ArrayList::new);
             for (Expression predicate : predicates) {
-                ValueDesc valueDesc = predicate.accept(this, null);
+                ValueDesc valueDesc = predicate.accept(this, context);
                 List<ValueDesc> valueDescs = (List<ValueDesc>) groupByReference.get(valueDesc.reference);
                 valueDescs.add(valueDesc);
             }
@@ -404,7 +402,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
                 return range;
             }
             Expression toExpr = FoldConstantRuleOnFE.evaluate(
-                    ExpressionUtils.or(range.toExpr, discrete.toExpr), context);
+                    new Or(range.toExpr, discrete.toExpr), context);
             List<ValueDesc> sourceValues = reverseOrder
                     ? ImmutableList.of(discrete, range)
                     : ImmutableList.of(range, discrete);
@@ -419,8 +417,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (!result.values.isEmpty()) {
                 return result;
             }
-            Expression originExpr = FoldConstantRuleOnFE.evaluate(
-                    ExpressionUtils.and(range.toExpr, discrete.toExpr), context);
+            Expression originExpr = FoldConstantRuleOnFE.evaluate(new And(range.toExpr, discrete.toExpr), context);
             return new EmptyValue(context, range.reference, originExpr);
         }
 
@@ -514,8 +511,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
                 return other.union(this);
             }
             if (other instanceof RangeValue) {
-                Expression originExpr = FoldConstantRuleOnFE.evaluate(
-                        ExpressionUtils.or(toExpr, other.toExpr), context);
+                Expression originExpr = FoldConstantRuleOnFE.evaluate(new Or(toExpr, other.toExpr), context);
                 RangeValue o = (RangeValue) other;
                 if (range.isConnected(o.range)) {
                     return new RangeValue(context, reference, originExpr, range.span(o.range));
@@ -526,8 +522,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (other instanceof DiscreteValue) {
                 return union(context, this, (DiscreteValue) other, false);
             }
-            Expression originExpr = FoldConstantRuleOnFE.evaluate(
-                    ExpressionUtils.or(toExpr, other.toExpr), context);
+            Expression originExpr = FoldConstantRuleOnFE.evaluate(new Or(toExpr, other.toExpr), context);
             return new UnknownValue(context, originExpr,
                     ImmutableList.of(this, other), false);
         }
@@ -538,8 +533,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
                 return other.intersect(this);
             }
             if (other instanceof RangeValue) {
-                Expression originExpr = FoldConstantRuleOnFE.evaluate(
-                        ExpressionUtils.and(toExpr, other.toExpr), context);
+                Expression originExpr = FoldConstantRuleOnFE.evaluate(new And(toExpr, other.toExpr), context);
                 RangeValue o = (RangeValue) other;
                 if (range.isConnected(o.range)) {
                     return new RangeValue(context, reference, originExpr, range.intersection(o.range));
@@ -549,8 +543,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (other instanceof DiscreteValue) {
                 return intersect(context, this, (DiscreteValue) other);
             }
-            Expression originExpr = FoldConstantRuleOnFE.evaluate(
-                    ExpressionUtils.and(toExpr, other.toExpr), context);
+            Expression originExpr = FoldConstantRuleOnFE.evaluate(new And(toExpr, other.toExpr), context);
             return new UnknownValue(context, originExpr,
                     ImmutableList.of(this, other), true);
         }
@@ -762,11 +755,9 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (sourceValues.isEmpty()) {
                 return toExpr;
             }
-            Expression result = sourceValues.get(0).toExpression();
-            BinaryOperator<Expression> mergeExprOp = isAnd ? ExpressionUtils::and : ExpressionUtils::or;
-            for (int i = 1; i < sourceValues.size(); i++) {
-                result = mergeExprOp.apply(result, sourceValues.get(i).toExpression());
-            }
+            List<Expression> sourceExprs = sourceValues.stream().map(ValueDesc::toExpression)
+                    .collect(Collectors.toList());
+            Expression result = isAnd ? ExpressionUtils.and(sourceExprs) : ExpressionUtils.or(sourceExprs);
             result = FoldConstantRuleOnFE.evaluate(result, context);
             // ATTN: we must return original expr, because OrToIn is implemented with MutableState,
             //   newExpr will lose these states leading to dead loop by OrToIn -> SimplifyRange -> FoldConstantByFE
