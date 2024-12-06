@@ -779,12 +779,17 @@ void OrcReader::_build_filter_in(const VExprSPtr& expr,
     for (size_t i = 1; i < expr->children().size(); ++i) {
         DCHECK(expr->children()[i]->is_literal());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
-        DCHECK(_vliteral_to_orc_literal.contains(literal));
-        auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
-        literals.emplace_back(orc_literal);
+        if (_vliteral_to_orc_literal.contains(literal)) {
+            auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
+            literals.emplace_back(orc_literal);
+        }
     }
     DCHECK(!literals.empty());
-    builder->in(slot_ref->expr_name(), predicate_type, literals);
+    if (literals.size() == 1) {
+        builder->equals(slot_ref->expr_name(), predicate_type, literals[0]);
+    } else {
+        builder->in(slot_ref->expr_name(), predicate_type, literals);
+    }
 }
 
 void OrcReader::_build_is_null(const VExprSPtr& expr,
