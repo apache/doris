@@ -312,12 +312,10 @@ void WorkloadGroupMgr::handle_paused_queries() {
 
     std::unique_lock<std::mutex> lock(_paused_queries_lock);
     bool has_revoked_from_other_group = false;
-    LOG_IF(INFO, _paused_queries_list.empty()) << "empty _paused_queries_list";
     for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end();) {
         auto& queries_list = it->second;
         const auto& wg = it->first;
 
-        LOG_IF(INFO, queries_list.empty()) << "empty queries_list";
         LOG_EVERY_T(INFO, 120) << "Paused queries count: " << queries_list.size();
 
         bool is_low_watermark = false;
