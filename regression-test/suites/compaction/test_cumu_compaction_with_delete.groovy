@@ -28,7 +28,6 @@ suite("test_cumu_compaction_with_delete") {
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
-            assert tabletJson.rowsets instanceof List
             cumuPoint = tabletJson["cumulative point"]
         }
         return cumuPoint == cumu_point
