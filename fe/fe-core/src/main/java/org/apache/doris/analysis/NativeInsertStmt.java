@@ -1359,6 +1359,7 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         boolean hasMissingColExceptAutoIncKey = false;
+        boolean hasMissingAutoIncKey = false;
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;
             for (Column insertCol : targetColumns) {
@@ -1378,9 +1379,16 @@ public class NativeInsertStmt extends InsertStmt {
                 if (!(col.isKey() && col.isAutoInc()) && col.isVisible()) {
                     hasMissingColExceptAutoIncKey = true;
                 }
+                if (col.isKey() && col.isAutoInc()) {
+                    hasMissingAutoIncKey = true;
+                }
             }
         }
         if (!hasMissingColExceptAutoIncKey) {
+            return;
+        } else if (hasMissingAutoIncKey) {
+            // becuase of the uniqueness of genetaed value of auto-increment column,
+            // we convert this load to upsert when is misses auto-increment key column
             return;
         }
 

@@ -35,6 +35,14 @@ doris9
 3	888	888	30
 4	40	40	40
 
+-- !sql --
+test1	15
+test2	29
+test3	49
+
+-- !sql --
+3
+
 -- !select_1 --
 doris1
 doris2
@@ -70,4 +78,12 @@ doris9
 2	888	888	20
 3	888	888	30
 4	40	40	40
+
+-- !sql --
+test1	15
+test2	29
+test3	49
+
+-- !sql --
+3
 
