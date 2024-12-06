@@ -216,8 +216,8 @@ TEST_F(ColumnIPTest, CloneTest) {
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
     load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
-    cloneEmptyAssert(column_ipv4->assume_mutable_ref());
-    cloneEmptyAssert(column_ipv6->assume_mutable_ref());
+    assert_clone_empty(column_ipv4->assume_mutable_ref());
+    assert_clone_empty(column_ipv6->assume_mutable_ref());
     check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_clone_resized_callback);
 }
 
@@ -283,8 +283,8 @@ TEST_F(ColumnIPTest, PermutationAndSortTest) {
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
     load_data_from_csv(serde, ip_cols, data_files[1], ';', {1, 2});
-    assertColumnPermutations(column_ipv4->assume_mutable_ref(), dt_ipv4);
-    assertColumnPermutations(column_ipv6->assume_mutable_ref(), dt_ipv6);
+    assert_column_permutations(column_ipv4->assume_mutable_ref(), dt_ipv4);
+    assert_column_permutations(column_ipv6->assume_mutable_ref(), dt_ipv6);
 }
 
 TEST_F(ColumnIPTest, FilterTest) {

@@ -247,122 +247,12 @@ public:
 
     static void checkColumn(const IColumn& col1, const IColumn& col2, const IDataType& dataType,
                             size_t column_size) {
-        if (WhichDataType(dataType).is_map()) {
-            auto map1 = check_and_get_column<ColumnMap>(col1);
-            auto map2 = check_and_get_column<ColumnMap>(col2);
-            const DataTypeMap& rhs_map = static_cast<const DataTypeMap&>(dataType);
-            checkColumn(map1->get_keys(), map2->get_keys(), *rhs_map.get_key_type(),
-                        map1->get_keys().size());
-            checkColumn(map2->get_values(), map2->get_values(), *rhs_map.get_value_type(),
-                        map1->get_values().size());
-        } else {
-            if (WhichDataType(dataType).is_int8()) {
-                auto c1 = check_and_get_column<ColumnInt8>(col1);
-                auto c2 = check_and_get_column<ColumnInt8>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_int16()) {
-                auto c1 = check_and_get_column<ColumnInt16>(col1);
-                auto c2 = check_and_get_column<ColumnInt16>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_int32()) {
-                auto c1 = check_and_get_column<ColumnInt32>(col1);
-                auto c2 = check_and_get_column<ColumnInt32>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_int64()) {
-                auto c1 = check_and_get_column<ColumnInt64>(col1);
-                auto c2 = check_and_get_column<ColumnInt64>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_int128()) {
-                auto c1 = check_and_get_column<ColumnInt128>(col1);
-                auto c2 = check_and_get_column<ColumnInt128>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_float32()) {
-                auto c1 = check_and_get_column<ColumnFloat32>(col1);
-                auto c2 = check_and_get_column<ColumnFloat32>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_float64()) {
-                auto c1 = check_and_get_column<ColumnFloat64>(col1);
-                auto c2 = check_and_get_column<ColumnFloat64>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_uint8()) {
-                auto c1 = check_and_get_column<ColumnUInt8>(col1);
-                auto c2 = check_and_get_column<ColumnUInt8>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_uint16()) {
-                auto c1 = check_and_get_column<ColumnUInt16>(col1);
-                auto c2 = check_and_get_column<ColumnUInt16>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_uint32()) {
-                auto c1 = check_and_get_column<ColumnUInt32>(col1);
-                auto c2 = check_and_get_column<ColumnUInt32>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_uint64()) {
-                auto c1 = check_and_get_column<ColumnUInt64>(col1);
-                auto c2 = check_and_get_column<ColumnUInt64>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_decimal()) {
-                auto c1 = check_and_get_column<ColumnDecimal64>(col1);
-                auto c2 = check_and_get_column<ColumnDecimal64>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_decimal32()) {
-                auto c1 = check_and_get_column<ColumnDecimal32>(col1);
-                auto c2 = check_and_get_column<ColumnDecimal32>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_decimal64()) {
-                auto c1 = check_and_get_column<ColumnDecimal64>(col1);
-                auto c2 = check_and_get_column<ColumnDecimal64>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_decimal128v2()) {
-                auto c1 = check_and_get_column<ColumnDecimal128V2>(col1);
-                auto c2 = check_and_get_column<ColumnDecimal128V2>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_decimal128v3()) {
-                auto c1 = check_and_get_column<ColumnDecimal128V3>(col1);
-                auto c2 = check_and_get_column<ColumnDecimal128V3>(col2);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else if (WhichDataType(dataType).is_decimal256()) {
-                auto c1 = check_and_get_column<ColumnDecimal<Decimal256>>(col1);
-                auto c2 = check_and_get_column<ColumnDecimal<Decimal256>>(col1);
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(c1->get_element(i), c2->get_element(i));
-                }
-            } else {
-                for (size_t i = 0; i < column_size; ++i) {
-                    EXPECT_EQ(col1.get_data_at(i), col2.get_data_at(i));
-                }
-            }
+        for (size_t i = 0; i < column_size; ++i) {
+            Field f1;
+            Field f2;
+            col1.get(i, f1);
+            col2.get(i, f2);
+            EXPECT_EQ(f1, f2);
         }
     }
 
@@ -1254,7 +1144,7 @@ public:
     //virtual MutablePtr
     // Creates empty column with the same type.
     //clone_empty () const this is clone ,we should also check if the size is 0 after clone and ptr is not the same
-    void cloneEmptyAssert(IColumn& column) {
+    void assert_clone_empty(IColumn& column) {
         auto ptr = column.clone_empty();
         EXPECT_EQ(ptr->size(), 0);
         EXPECT_NE(ptr.get(), &column);
@@ -1906,25 +1796,25 @@ public:
         check_res_file("shrink_padding_chars", res);
     }
 
-    void sizeAssert(MutableColumnPtr col, size_t expect_size) {
+    void assert_size_eq(MutableColumnPtr col, size_t expect_size) {
         EXPECT_EQ(col->size(), expect_size);
     }
 
     // empty just use size() == 0 to impl as default behavior
-    void emptyAssert(MutableColumnPtr col) { EXPECT_EQ(col->size(), 0); }
+    void assert_empty(MutableColumnPtr col) { EXPECT_EQ(col->size(), 0); }
 
     // reserve, resize, byte_size, allocated_bytes, clone_resized, get_shrinked_column
-    void reserveAssert(MutableColumnPtr col, size_t expect_size) {
-        col->reserve(expect_size);
-        EXPECT_EQ(col->allocated_bytes(), expect_size);
+    void assert_reserve_size(MutableColumnPtr col, size_t reserve_size, size_t expect_size) {
+        col->reserve(reserve_size);
+        EXPECT_EQ(col->size(), expect_size);
     }
 
     //  cut(LIMIT operation) will cut the column with the given from and to, and return the new column
     //  notice return column is clone from origin column
-    void cutAssert(MutableColumnPtr col, size_t from, size_t to, size_t expect_size) {
+    void assert_cut(MutableColumnPtr col, size_t from, size_t to) {
         auto ori = col->size();
         auto ptr = col->cut(from, to);
-        EXPECT_EQ(ptr->size(), expect_size);
+        EXPECT_EQ(ptr->size(), to - from);
         EXPECT_EQ(col->size(), ori);
     }
 
@@ -1932,7 +1822,7 @@ public:
     // and some Operator may call this set_num_rows to make rows satisfied, like limit operation
     // but different from cut behavior which
     // return column is mutate from origin column
-    void shrinkAssert(MutableColumnPtr col, size_t shrink_size) {
+    void assert_shrink(MutableColumnPtr col, size_t shrink_size) {
         auto ptr = col->shrink(shrink_size);
         EXPECT_EQ(ptr->size(), shrink_size);
         EXPECT_EQ(col->size(), shrink_size);
@@ -1942,13 +1832,13 @@ public:
     // like string column, the resize will resize the offsets column but not the data column (because it doesn't matter the size of data column, all operation for string column is based on the offsets column)
     // like vector column, the resize will resize the data column
     // like array column, the resize will resize the offsets column and the data column (which in creator we have check staff for the size of data column is the same as the size of offsets column)
-    void resizeAssert(MutableColumnPtr col, size_t expect_size) {
+    void assert_resize(MutableColumnPtr col, size_t expect_size) {
         col->resize(expect_size);
         EXPECT_EQ(col->size(), expect_size);
     }
 
     // replicate is clone with new column from the origin column, always from ColumnConst to expand the column
-    void replicateAssert(MutableColumnPtr col, IColumn::Offsets& offsets) {
+    void assert_replicate(MutableColumnPtr col, IColumn::Offsets& offsets) {
         auto new_col = col->replicate(offsets);
         EXPECT_EQ(new_col->size(), offsets.back());
     }
@@ -1956,17 +1846,17 @@ public:
     // byte size is just appriximate size of the column
     //  as fixed column type, like column_vector, the byte size is sizeof(columnType) * size()
     //  as variable column type, like column_string, the byte size is sum of chars size() and offsets size * sizeof(offsetType)
-    void byteSizeAssert(MutableColumnPtr col, size_t expect_size) {
+    void assert_byte_size(MutableColumnPtr col, size_t expect_size) {
         EXPECT_EQ(col->byte_size(), expect_size);
     }
 
     // allocated bytes is the real size of the column
-    void allocatedBytesAssert(MutableColumnPtr col, size_t expect_size) {
+    void assert_allocated_bytes(MutableColumnPtr col, size_t expect_size) {
         EXPECT_EQ(col->allocated_bytes(), expect_size);
     }
 
     // clone_resized will clone the column and cut/append to the new column with the size of the original column
-    void cloneResizedAssert(MutableColumnPtr col, size_t expect_size) {
+    void assert_clone_resized(MutableColumnPtr col, size_t expect_size) {
         auto new_col = col->clone_resized(expect_size);
         EXPECT_EQ(new_col->size(), expect_size);
     }
@@ -2101,7 +1991,7 @@ public:
     // filter calculation:
     //  filter (called in Block::filter_block_internal to filter data with filter filled with 0or1 array, like: [0,1,0,1])
     //   used in join to filter next block by row_ids, and filter column by row_ids in first read which called in SegmentIterator
-    void filterAssert(MutableColumnPtr col, std::vector<uint8_t> filter, size_t expect_size) {
+    void assert_filter(MutableColumnPtr col, std::vector<uint8_t> filter, size_t expect_size) {
         EXPECT_EQ(col->size(), filter.size());
         auto filted_col = col->filter(create_filter(filter), expect_size);
         EXPECT_EQ(filted_col->size(), expect_size);
@@ -2110,28 +2000,27 @@ public:
     //  filter_by_selector (called SegmentIterator::copy_column_data_by_selector,
     //  now just used in filter column, according to the selector to
     //  select size of row_ids for column by given column, which only used for predict_column and column_dictionary, column_nullable sometimes in Schema::get_predicate_column_ptr() also will return)
-    void filterBySelectorAssert(vectorized::IColumn::MutablePtr col, std::vector<uint16_t> selector,
-                                DataTypeSerDeSPtr serder, MutableColumnPtr should_sel_col,
-                                size_t expect_size) {
+    void assert_filter_by_selector(vectorized::IColumn::MutablePtr col,
+                                   std::vector<uint16_t> selector, DataTypeSerDeSPtr serder,
+                                   MutableColumnPtr should_sel_col, size_t expect_size) {
         // for every data type should assert behavior in own UT case
         DataTypeSerDe::FormatOptions option;
         col->clear();
         col->insert_many_defaults(should_sel_col->size());
         std::cout << "col size:" << col->size() << std::endl;
-        auto sel = should_sel_col->clone_empty();
-        Status st = col->filter_by_selector(selector.data(), expect_size, sel);
+        Status st = col->filter_by_selector(selector.data(), expect_size, should_sel_col.get());
         EXPECT_EQ(st, Status::OK());
-        EXPECT_EQ(sel->size(), expect_size);
         std::vector<std::vector<string>> res;
         std::vector<string> data;
         auto ser_col = ColumnString::create();
-        ser_col->reserve(sel->size());
+        ser_col->reserve(should_sel_col->size());
         VectorBufferWriter buffer_writer(*ser_col.get());
         data.push_back("column: " + col->get_name() +
-                       " with selector: " + std::to_string(*selector.data()) +
-                       " with ptr: " + std::to_string(sel->size()));
-        for (size_t j = 0; j < sel->size(); ++j) {
-            if (auto ret = serder->serialize_one_cell_to_json(*sel, j, buffer_writer, option);
+                       " with selector: " + std::to_string(selector.size()) +
+                       " with ptr: " + std::to_string(should_sel_col->size()));
+        for (size_t j = 0; j < should_sel_col->size(); ++j) {
+            if (auto ret = serder->serialize_one_cell_to_json(*should_sel_col, j, buffer_writer,
+                                                              option);
                 !ret) {
                 std::cerr << "Failed to serialize column "
                           << " at row " << j << std::endl;
@@ -2145,8 +2034,8 @@ public:
         check_res_file("filter_by_selector-" + col->get_name(), res);
     }
 
-    void assertPermutationsWithLimit(const IColumn::Permutation& lhs,
-                                     const IColumn::Permutation& rhs, size_t limit) {
+    void assert_permutations_with_limit(const IColumn::Permutation& lhs,
+                                        const IColumn::Permutation& rhs, size_t limit) {
         std::cout << "lhs size: " << lhs.size() << " rhs size: " << rhs.size()
                   << " limit: " << limit << std::endl;
         if (limit == 0) {
@@ -2159,8 +2048,9 @@ public:
     }
 
     // this function helps to check sort permutation behavior for column
-    void stableGetColumnPermutation(const IColumn& column, bool ascending, size_t limit,
-                                    int nan_direction_hint, IColumn::Permutation& out_permutation) {
+    void stable_get_column_permutation(const IColumn& column, bool ascending, size_t limit,
+                                       int nan_direction_hint,
+                                       IColumn::Permutation& out_permutation) {
         (void)(limit);
 
         size_t size = column.size();
@@ -2183,7 +2073,7 @@ public:
     //   get_permutation
     // this function helps check permutation result with sort & limit
     //  by given ColumnValueGetter which how to generate a column value
-    void assertColumnPermutations(vectorized::IColumn& column, DataTypePtr dataType) {
+    void assert_column_permutations(vectorized::IColumn& column, DataTypePtr dataType) {
         IColumn::Permutation actual_permutation;
         IColumn::Permutation expected_permutation;
 
@@ -2194,15 +2084,15 @@ public:
         size_t column_limit_part = (column_size / limit_parts) + 1;
         std::cout << "column size: " << column_size << std::endl;
         for (size_t limit = 0; limit < column_size; limit += column_limit_part) {
-            assertColumnPermutation(column, true, limit, -1, actual_permutation,
-                                    expected_permutation);
-            assertColumnPermutation(column, true, limit, 1, actual_permutation,
-                                    expected_permutation);
+            assert_column_permutation(column, true, limit, -1, actual_permutation,
+                                      expected_permutation);
+            assert_column_permutation(column, true, limit, 1, actual_permutation,
+                                      expected_permutation);
 
-            assertColumnPermutation(column, false, limit, -1, actual_permutation,
-                                    expected_permutation);
-            assertColumnPermutation(column, false, limit, 1, actual_permutation,
-                                    expected_permutation);
+            assert_column_permutation(column, false, limit, -1, actual_permutation,
+                                      expected_permutation);
+            assert_column_permutation(column, false, limit, 1, actual_permutation,
+                                      expected_permutation);
         }
     }
 
@@ -2210,17 +2100,17 @@ public:
     //    get_permutation means sort data in Column as sort order
     //    limit should be set to limit the sort result
     //    nan_direction_hint deal with null|NaN value
-    void assertColumnPermutation(const IColumn& column, bool ascending, size_t limit,
-                                 int nan_direction_hint, IColumn::Permutation& actual_permutation,
-                                 IColumn::Permutation& expected_permutation) {
+    void assert_column_permutation(const IColumn& column, bool ascending, size_t limit,
+                                   int nan_direction_hint, IColumn::Permutation& actual_permutation,
+                                   IColumn::Permutation& expected_permutation) {
         std::cout << "assertColumnPermutation start, limit: " << limit
                   << " ascending: " << ascending << " nan_direction_hint: " << nan_direction_hint
                   << " column size: " << column.size()
                   << " actual_permutation size: " << actual_permutation.size()
                   << " expected_permutation size: " << expected_permutation.size() << std::endl;
         // step1. get expect permutation as stabled sort
-        stableGetColumnPermutation(column, ascending, limit, nan_direction_hint,
-                                   expected_permutation);
+        stable_get_column_permutation(column, ascending, limit, nan_direction_hint,
+                                      expected_permutation);
         std::cout << "expected_permutation size: " << expected_permutation.size() << std::endl;
         for (size_t i = 0; i < expected_permutation.size(); i++) {
             std::cout << "expected_permutation: " << expected_permutation[i] << std::endl;
@@ -2238,14 +2128,14 @@ public:
         }
 
         // step3. check the permutation result
-        assertPermutationsWithLimit(actual_permutation, expected_permutation, limit);
+        assert_permutations_with_limit(actual_permutation, expected_permutation, limit);
         std::cout << "assertColumnPermutation done" << std::endl;
     }
 
     //  permute()
     //   1/ Key topN set read_orderby_key_reverse = true; SegmentIterator::next_batch will permute the column by the given permutation(which reverse the rows of current segment)
     //  should check rows with the given permutation
-    void assertPermute(MutableColumns& cols, IColumn::Permutation& permutation, size_t num_rows) {
+    void assert_permute(MutableColumns& cols, IColumn::Permutation& permutation, size_t num_rows) {
         std::vector<ColumnPtr> res_permuted;
         for (auto& col : cols) {
             res_permuted.emplace_back(col->permute(permutation, num_rows));
