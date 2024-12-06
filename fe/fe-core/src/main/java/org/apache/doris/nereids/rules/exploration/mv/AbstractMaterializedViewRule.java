@@ -781,11 +781,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return SplitPredicate.INVALID_INSTANCE;
         }
         return SplitPredicate.of(equalCompensateConjunctions.isEmpty() ? BooleanLiteral.TRUE
-                        : ExpressionUtils.and(equalCompensateConjunctions),
+                        : ExpressionUtils.and(Lists.newArrayList(equalCompensateConjunctions)),
                 rangeCompensatePredicates.isEmpty() ? BooleanLiteral.TRUE
-                        : ExpressionUtils.and(rangeCompensatePredicates),
+                        : ExpressionUtils.and(Lists.newArrayList(rangeCompensatePredicates)),
                 residualCompensatePredicates.isEmpty() ? BooleanLiteral.TRUE
-                        : ExpressionUtils.and(residualCompensatePredicates));
+                        : ExpressionUtils.and(Lists.newArrayList(residualCompensatePredicates)));
     }
 
     /**

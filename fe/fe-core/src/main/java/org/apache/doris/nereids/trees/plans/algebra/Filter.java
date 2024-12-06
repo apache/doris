@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.plans.algebra;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.Lists;
+
 import java.util.Set;
 
 /**
@@ -29,6 +31,6 @@ public interface Filter {
     Set<Expression> getConjuncts();
 
     default Expression getPredicate() {
-        return ExpressionUtils.and(getConjuncts());
+        return ExpressionUtils.and(Lists.newArrayList(getConjuncts()));
     }
 }
