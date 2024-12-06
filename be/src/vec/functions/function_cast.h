@@ -453,8 +453,8 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
-                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>) &&
-                                     (std::is_same_v<ToDataType, DataTypeIPv6>)) {
+                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>)&&(
+                                             std::is_same_v<ToDataType, DataTypeIPv6>)) {
                     for (size_t i = 0; i < size; ++i) {
                         map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
                     }
@@ -1582,11 +1582,11 @@ private:
             /// that will not throw an exception but return NULL in case of malformed input.
             function = FunctionConvertFromString<DataType, NameCast>::create();
         } else if (requested_result_is_nullable &&
-                   (IsTimeType<DataType> || IsTimeV2Type<DataType>) &&
-                   !(check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
-                     check_and_get_data_type<DataTypeDate>(from_type.get()) ||
-                     check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
-                     check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
+                   (IsTimeType<DataType> || IsTimeV2Type<DataType>)&&!(
+                           check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
+                           check_and_get_data_type<DataTypeDate>(from_type.get()) ||
+                           check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
+                           check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
             function = FunctionConvertToTimeType<DataType, NameCast>::create();
         } else {
             function = FunctionTo<DataType>::Type::create();
