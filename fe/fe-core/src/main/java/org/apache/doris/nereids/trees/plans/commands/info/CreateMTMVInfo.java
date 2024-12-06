@@ -327,7 +327,8 @@ public class CreateMTMVInfo {
 
     // Should use analyzed plan for collect views and tables
     private void getRelation(NereidsPlanner planner) {
-        this.relation = MTMVPlanUtil.generateMTMVRelation(planner.getAnalyzedPlan(), planner.getConnectContext());
+        this.relation = MTMVPlanUtil.generateMTMVRelation(planner.getAnalyzedPlan(),
+                planner.getCascadesContext().getConnectContext());
     }
 
     private PartitionDesc generatePartitionDesc(ConnectContext ctx) {
