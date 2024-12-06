@@ -3220,7 +3220,7 @@ public class Env {
     public static String getMTMVDdl(MTMV mtmv) throws AnalysisException {
         if (!mtmv.tryReadLock(1, TimeUnit.MINUTES)) {
             throw new AnalysisException(
-                    "get table read lock timeout, database=" + mtmv.getDBName() + ",table=" + mtmv.getName());
+                    "get table read lock timeout, database=" + mtmv.getQualifiedDbName() + ",table=" + mtmv.getName());
         }
         try {
             StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
