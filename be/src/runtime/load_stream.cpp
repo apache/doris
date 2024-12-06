@@ -428,7 +428,7 @@ LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool e
     TUniqueId load_tid = ((UniqueId)load_id).to_thrift();
 #ifndef BE_TEST
     std::shared_ptr<QueryContext> query_context =
-            ExecEnv::GetInstance()->fragment_mgr()->get_or_erase_query_ctx_with_lock(load_tid);
+            ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(load_tid);
     if (query_context != nullptr) {
         _query_thread_context = {load_tid, query_context->query_mem_tracker,
                                  query_context->workload_group()};

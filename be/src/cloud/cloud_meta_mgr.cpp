@@ -64,6 +64,7 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris::cloud {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency) {
@@ -717,7 +718,7 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
                 "rowset_ids.size={},segment_ids.size={},vers.size={},delete_bitmaps.size={}",
                 rowset_ids.size(), segment_ids.size(), vers.size(), delete_bitmaps.size());
     }
-    for (size_t i = 0; i < rowset_ids.size(); i++) {
+    for (int i = 0; i < rowset_ids.size(); i++) {
         RowsetId rst_id;
         rst_id.init(rowset_ids[i]);
         delete_bitmap->merge(
@@ -1286,4 +1287,5 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
     return total_inverted_index_size;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::cloud

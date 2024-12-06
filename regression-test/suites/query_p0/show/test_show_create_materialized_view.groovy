@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_show_create_materialized_view", "query") {
+suite("test_show_create_materialized_view", "query,arrow_flight_sql") {
     String tableName = "table_for_mv_test";
     String mvName = "mv_show_create_materialized_view";
     try {  
