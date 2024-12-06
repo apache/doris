@@ -16,6 +16,7 @@
 // under the License.
 
 suite("varchar_as_date_partition_col") {
+    sql "set ENABLE_FOLD_CONSTANT_BY_BE=false"
     sql"""drop table if exists partition_varchar;"""
     sql """CREATE TABLE partition_varchar(a int, dt varchar(10), rdt datetime) PARTITION BY list(dt) (
     partition p20240101 values in ("20240101","20240102"),

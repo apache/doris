@@ -16,6 +16,7 @@
 // under the License.
 
 suite("int_as_date_partition_col") {
+    sql "set ENABLE_FOLD_CONSTANT_BY_BE=false"
     sql "drop table if exists partition_int"
     sql """CREATE TABLE partition_int(a int, dt int) PARTITION BY range(dt) (
             partition p20240101 values less than ("20240101"),
