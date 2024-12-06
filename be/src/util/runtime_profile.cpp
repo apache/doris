@@ -600,6 +600,8 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
 
     ChildVector children;
     {
+        // _children may be modified during to_thrift(),
+        // so we have to lock and copy _children to avoid race condition
         std::lock_guard<std::mutex> l(_children_lock);
         children = _children;
     }
