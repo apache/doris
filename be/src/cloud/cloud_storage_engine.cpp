@@ -352,11 +352,10 @@ void CloudStorageEngine::sync_storage_vault() {
 
     for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
-        auto status =
-            (fs == nullptr)
-                ? std::visit(VaultCreateFSVisitor{id, path_format}, vault_info)
-                : std::visit(RefreshFSVaultVisitor{id, std::move(fs), path_format},
-                             vault_info);
+        auto status = (fs == nullptr)
+                              ? std::visit(VaultCreateFSVisitor {id, path_format}, vault_info)
+                              : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
+                                           vault_info);
         if (!status.ok()) [[unlikely]] {
             LOG(WARNING) << vault_process_error(id, vault_info, std::move(status));
         }
