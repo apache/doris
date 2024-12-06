@@ -80,16 +80,6 @@ void QueryStatistics::to_pb(PQueryStatistics* statistics) {
     statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
     statistics->set_scan_bytes_from_remote_storage(_scan_bytes_from_remote_storage);
     statistics->set_scan_bytes_from_local_storage(_scan_bytes_from_local_storage);
-
-    for (const auto& [node_id, exec_stats_item] : _exec_stats_items) {
-        auto new_exec_stats_item = statistics->add_node_exec_stats_items();
-        new_exec_stats_item->set_node_id(node_id);
-        new_exec_stats_item->set_push_rows(exec_stats_item->push_rows);
-        new_exec_stats_item->set_pull_rows(exec_stats_item->pull_rows);
-        new_exec_stats_item->set_index_filter_rows(exec_stats_item->index_filter_rows);
-        new_exec_stats_item->set_rf_filter_rows(exec_stats_item->rf_filter_rows);
-        new_exec_stats_item->set_pred_filter_rows(exec_stats_item->pred_filter_rows);
-    }
 }
 
 void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
