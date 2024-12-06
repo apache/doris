@@ -257,201 +257,23 @@ public:
     }
 
     void printColumn(const IColumn& column, const IDataType& dataType) {
-        std::cout << "column total size: " << column.size() << std::endl;
-        if (WhichDataType(dataType).is_map()) {
-            auto map = check_and_get_column<ColumnMap>(column);
-            std::cout << "map {keys, values}" << std::endl;
-            const DataTypeMap& rhs_map = static_cast<const DataTypeMap&>(dataType);
-            printColumn(map->get_keys(), *rhs_map.get_key_type());
-            printColumn(map->get_values(), *rhs_map.get_value_type());
-        } else if (WhichDataType(dataType).is_array()) {
-            auto array = check_and_get_column<ColumnArray>(column);
-            std::cout << "array: " << std::endl;
-            const auto& rhs_array = static_cast<const DataTypeArray&>(dataType);
-            printColumn(array->get_data(), *rhs_array.get_nested_type());
-        } else {
-            size_t column_size = column.size();
-            std::cout << column.get_name() << ": " << std::endl;
-            if (WhichDataType(dataType).is_int8()) {
-                auto col = check_and_get_column<ColumnInt8>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_int16()) {
-                auto col = check_and_get_column<ColumnInt16>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_int32()) {
-                auto col = check_and_get_column<ColumnInt32>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_int64()) {
-                auto col = check_and_get_column<ColumnInt64>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_int128()) {
-                auto col = check_and_get_column<ColumnInt128>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_float32()) {
-                auto col = check_and_get_column<ColumnFloat32>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_float64()) {
-                auto col = check_and_get_column<ColumnFloat64>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_uint8()) {
-                auto col = check_and_get_column<ColumnUInt8>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_uint16()) {
-                auto col = check_and_get_column<ColumnUInt16>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_uint32()) {
-                auto col = check_and_get_column<ColumnUInt32>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_ipv4()) {
-                auto col = check_and_get_column<ColumnIPv4>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_ipv6()) {
-                auto col = check_and_get_column<ColumnIPv6>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_data_at(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_uint64()) {
-                auto col = check_and_get_column<ColumnUInt64>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_uint128()) {
-                auto col = check_and_get_column<ColumnUInt128>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_data_at(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_decimal()) {
-                auto col = check_and_get_column<ColumnDecimal64>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_decimal32()) {
-                auto col = check_and_get_column<ColumnDecimal32>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_decimal64()) {
-                auto col = check_and_get_column<ColumnDecimal64>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_decimal128v2()) {
-                auto col = check_and_get_column<ColumnDecimal128V2>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_decimal128v3()) {
-                auto col = check_and_get_column<ColumnDecimal128V3>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_decimal256()) {
-                auto col = check_and_get_column<ColumnDecimal<Decimal256>>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_element(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_date()) {
-                auto col = check_and_get_column<ColumnDate>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_data_at(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_date_time()) {
-                auto col = check_and_get_column<ColumnDateTime>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_data_at(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_date_v2()) {
-                auto col = check_and_get_column<ColumnDateV2>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_data_at(i) << " ";
-                }
-            } else if (WhichDataType(dataType).is_date_time_v2()) {
-                auto col = check_and_get_column<ColumnDateTimeV2>(column);
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << col->get_data_at(i) << " ";
-                }
-            } else {
-                std::cout << "data type: " << dataType.get_name() << std::endl;
-                std::cout << "column type: " << column.get_name() << std::endl;
-                for (size_t i = 0; i < column_size; ++i) {
-                    std::cout << column.get_data_at(i).to_string() << " ";
-                }
+        std::cout << "colum: " << column.get_name() << " total size: " << column.size()
+                  << std::endl;
+        auto serde = dataType.get_serde(0);
+        auto serde_col = ColumnString::create();
+        auto option = DataTypeSerDe::FormatOptions();
+        serde_col->reserve(column.size());
+        VectorBufferWriter buffer_writer(*serde_col.get());
+        for (size_t i = 0; i < column.size(); ++i) {
+            if (auto st = serde->serialize_one_cell_to_json(column, i, buffer_writer, option);
+                !st) {
+                std::cerr << "Failed to serialize column at row " << i << std::endl;
+                break;
             }
-            std::cout << std::endl;
+            buffer_writer.commit();
+            std::cout << serde_col->get_data_at(i).to_string() << std::endl;
         }
     }
-
-    //// data insert interfaces:
-    //insert (const Field &x)=0
-    //
-    //virtual void
-    //insert_from_multi_column (const std::vector< const IColumn * > &srcs, std::vector< size_t > positions)
-    //
-    //
-    //virtual void
-    //insert_data (const char *pos, size_t length)=0
-    //
-    //virtual void
-    //insert_many_fix_len_data (const char *pos, size_t num)
-    //
-    //virtual void
-    //insert_many_data (const char *pos, size_t length, size_t data_num)
-    //
-    //virtual void
-    //insert_many_raw_data (const char *pos, size_t num)
-
-    //virtual void
-    //insert_many_dict_data (const int32_t *data_array, size_t start_index, const StringRef *dict, size_t data_num, uint32_t dict_num=0)
-    //
-    //virtual void
-    //insert_many_binary_data (char *data_array, uint32_t *len_array, uint32_t *start_offset_array, size_t num)
-    //
-    //virtual void
-    //insert_many_continuous_binary_data (const char *data, const uint32_t *offsets, const size_t num)
-    //
-    //virtual void
-    //insert_many_strings (const StringRef *strings, size_t num)
-    //
-    //virtual void
-    //insert_many_strings_overflow (const StringRef *strings, size_t num, size_t max_length)
-    //
-    //
-
-    //
-    //
-    //void
-    //
-
-    //
-    //
-    //virtual void
-    //insert_default ()=0
-    //
-    //
-    //virtual void
-    //insert_many_defaults (size_t length)
 
     // assert insert_from
     // Define the custom assert callback function to verify insert_from behavior
