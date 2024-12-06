@@ -119,6 +119,8 @@ suite("mtmv_range_date_part_up") {
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-29');
     """
 
+    sql """alter table lineitem_range_date modify column l_comment set stats ('row_count'='7');"""
+
     def get_part = { def mv_name ->
         def part_res = sql """show partitions from ${mv_name}"""
         return part_res.size()
