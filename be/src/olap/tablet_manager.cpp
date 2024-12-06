@@ -1170,14 +1170,14 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
             if (tablet_in_not_shutdown->tablet_path() != tablet->tablet_path()) {
                 LOG(INFO) << "tablet path not eq shutdown tablet path, move it to trash, tablet_id="
                           << tablet_in_not_shutdown->tablet_id()
-                          << " mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
-                          << " shutdown tablet path=" << tablet->tablet_path();
+                          << ", mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
+                          << ", shutdown tablet path=" << tablet->tablet_path();
                 return tablet->data_dir()->move_to_trash(tablet->tablet_path());
             } else {
                 LOG(INFO) << "tablet path eq shutdown tablet path, not move to trash, tablet_id="
                           << tablet_in_not_shutdown->tablet_id()
-                          << " mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
-                          << " shutdown tablet path=" << tablet->tablet_path();
+                          << ", mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
+                          << ", shutdown tablet path=" << tablet->tablet_path();
                 return true;
             }
         }
@@ -1282,7 +1282,7 @@ Status TabletManager::register_transition_tablet(int64_t tablet_id, std::string 
         // not found
         shard.tablets_under_transition[tablet_id] = std::make_tuple(reason, thread_id, 1);
         LOG(INFO) << "add tablet_id= " << tablet_id << " to map, reason=" << reason
-                  << " lock times=1 thread_id_in_map=" << thread_id;
+                  << ", lock times=1, thread_id_in_map=" << thread_id;
         return Status::OK();
     } else {
         // found
@@ -1290,15 +1290,15 @@ Status TabletManager::register_transition_tablet(int64_t tablet_id, std::string 
         if (thread_id != thread_id_in_map) {
             // other thread, failed
             LOG(INFO) << "tablet_id = " << tablet_id << " is doing " << r
-                      << " thread_id_in_map=" << thread_id_in_map << " , add reason=" << reason
-                      << " thread_id=" << thread_id;
+                      << ", thread_id_in_map=" << thread_id_in_map << " , add reason=" << reason
+                      << ", thread_id=" << thread_id;
             return Status::InternalError<false>("{} failed try later, tablet_id={}", reason,
                                                 tablet_id);
         }
         // add lock times
         ++lock_times;
         LOG(INFO) << "add tablet_id= " << tablet_id << " to map, reason=" << reason
-                  << " lock times=" << lock_times << " thread_id_in_map=" << thread_id_in_map;
+                  << ", lock times=" << lock_times << ", thread_id_in_map=" << thread_id_in_map;
         return Status::OK();
     }
 }
@@ -1322,10 +1322,10 @@ void TabletManager::unregister_transition_tablet(int64_t tablet_id, std::string 
         --lock_times;
         if (lock_times != 0) {
             LOG(INFO) << "erase tablet_id= " << tablet_id << " from map, reason=" << reason
-                      << " left=" << lock_times << " thread_id_in_map=" << thread_id_in_map;
+                      << ", left=" << lock_times << ", thread_id_in_map=" << thread_id_in_map;
         } else {
             LOG(INFO) << "erase tablet_id= " << tablet_id << " from map, reason=" << reason
-                      << " thread_id_in_map=" << thread_id_in_map;
+                      << ", thread_id_in_map=" << thread_id_in_map;
             shard.tablets_under_transition.erase(tablet_id);
         }
     }
