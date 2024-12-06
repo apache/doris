@@ -519,6 +519,40 @@ Status SegmentWriter::probe_key_for_mow(
     return Status::OK();
 }
 
+Status SegmentWriter::partial_update_preconditions_check(size_t row_pos) {
+    if (!_is_mow()) {
+        auto msg = fmt::format(
+                "Can only do partial update on merge-on-write unique table, but found: "
+                "keys_type={}, _opts.enable_unique_key_merge_on_write={}, tablet_id={}",
+                _tablet_schema->keys_type(), _opts.enable_unique_key_merge_on_write,
+                _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    if (_opts.rowset_ctx->partial_update_info == nullptr) {
+        auto msg =
+                fmt::format("partial_update_info should not be nullptr, please check, tablet_id={}",
+                            _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    if (!_opts.rowset_ctx->partial_update_info->is_partial_update) {
+        auto msg = fmt::format(
+                "in fixed partial update code, but is_partial_update=false, please check, "
+                "tablet_id={}",
+                _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    if (row_pos != 0) {
+        auto msg = fmt::format("row_pos should be 0, but found {}, tablet_id={}", row_pos,
+                               _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    return Status::OK();
+}
+
 // for partial update, we should do following steps to fill content of block:
 // 1. set block data to data convertor, and get all key_column's converted slice
 // 2. get pk of input block, and read missing columns
@@ -536,10 +570,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                             block->columns(), _tablet_schema->num_key_columns(),
                             _tablet_schema->num_columns()));
     }
-    DCHECK(_is_mow());
-
-    DCHECK(_opts.rowset_ctx->partial_update_info);
-    DCHECK(row_pos == 0);
+    RETURN_IF_ERROR(partial_update_preconditions_check(row_pos));
 
     // find missing column cids
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
