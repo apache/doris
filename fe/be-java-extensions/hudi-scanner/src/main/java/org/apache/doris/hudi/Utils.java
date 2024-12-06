@@ -23,6 +23,7 @@ import org.apache.doris.common.security.authentication.HadoopUGI;
 import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import sun.management.VMManagement;
 
 import java.io.BufferedReader;
@@ -85,7 +86,8 @@ public class Utils {
     }
 
     public static HoodieTableMetaClient getMetaClient(Configuration conf, String basePath) {
+        HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
         return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf), () -> HoodieTableMetaClient.builder()
-                .setConf(conf).setBasePath(basePath).build());
+                .setConf(hadoopStorageConfiguration).setBasePath(basePath).build());
     }
 }
