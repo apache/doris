@@ -24,6 +24,8 @@
 
 namespace doris {
 
+#include "common/compile_check_begin.h"
+
 WorkloadGroupMetrics::~WorkloadGroupMetrics() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }

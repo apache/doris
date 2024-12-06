@@ -31,6 +31,7 @@
 namespace doris {
 
 struct CpuMetrics;
+struct CpuNumberMetrics;
 struct MemoryMetrics;
 struct DiskMetrics;
 struct NetworkMetrics;
@@ -99,6 +100,7 @@ private:
     static const char* _s_hook_name;
 
     std::map<std::string, CpuMetrics*> _cpu_metrics;
+    std::unique_ptr<CpuNumberMetrics> _cpu_num_metrics;
     std::unique_ptr<MemoryMetrics> _memory_metrics;
     std::map<std::string, DiskMetrics*> _disk_metrics;
     std::map<std::string, NetworkMetrics*> _network_metrics;
