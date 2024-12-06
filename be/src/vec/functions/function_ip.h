@@ -458,10 +458,10 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
                 std::reverse(res_value, res_value + IPV6_BINARY_LENGTH);
             }
             if constexpr (std::is_same_v<ToColumn, ColumnString>) {
-                auto* column_string = assert_cast<ColumnString*>(col_res.get());
+                auto* column_string_res = assert_cast<ColumnString*>(col_res.get());
                 std::copy(res_value, res_value + IPV6_BINARY_LENGTH,
-                          column_string->get_chars().begin() + i * IPV6_BINARY_LENGTH);
-                column_string->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
+                          column_string_res->get_chars().begin() + i * IPV6_BINARY_LENGTH);
+                column_string_res->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
             } else {
                 col_res->insert_data(reinterpret_cast<const char*>(res_value), IPV6_BINARY_LENGTH);
             }
@@ -471,8 +471,8 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
             }
             std::fill_n(&vec_res[out_offset], offset_inc, 0);
             if constexpr (std::is_same_v<ToColumn, ColumnString>) {
-                auto* column_string = assert_cast<ColumnString*>(col_res.get());
-                column_string->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
+                auto* column_string_res = assert_cast<ColumnString*>(col_res.get());
+                column_string_res->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
             }
             if constexpr (exception_mode == IPConvertExceptionMode::Null) {
                 (*vec_null_map_to)[i] = true;
