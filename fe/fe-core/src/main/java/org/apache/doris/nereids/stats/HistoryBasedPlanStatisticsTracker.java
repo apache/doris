@@ -56,7 +56,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 public class HistoryBasedPlanStatisticsTracker {
-    private final Supplier<HistoryBasedPlanStatisticsProvider> historyBasedPlanStatisticsProvider;
+    private final HistoryBasedPlanStatisticsProvider historyBasedPlanStatisticsProvider;
     private final HistoryBasedStatisticsCacheManager historyBasedStatisticsCacheManager;
     Map<PlanNodeWithHash, PlanStatisticsWithSourceInfo> planStatisticsMap = new HashMap<>();
 
@@ -67,14 +67,14 @@ public class HistoryBasedPlanStatisticsTracker {
 
     public HistoryBasedPlanStatisticsTracker(
             ConnectContext context,
-            Supplier<HistoryBasedPlanStatisticsProvider> historyBasedPlanStatisticsProvider,
+            HistoryBasedPlanStatisticsProvider historyBasedPlanStatisticsProvider,
             HistoryBasedStatisticsCacheManager historyBasedStatisticsCacheManager) {
         this.connectContext = context;
         this.historyBasedPlanStatisticsProvider = historyBasedPlanStatisticsProvider;
         this.historyBasedStatisticsCacheManager = historyBasedStatisticsCacheManager;
     }
 
-    public Supplier<HistoryBasedPlanStatisticsProvider> getHistoryBasedPlanStatisticsProvider() {
+    public HistoryBasedPlanStatisticsProvider getHistoryBasedPlanStatisticsProvider() {
         return this.historyBasedPlanStatisticsProvider;
     }
 
@@ -153,7 +153,7 @@ public class HistoryBasedPlanStatisticsTracker {
         AuditEvent event = auditEventList.get(0);
         Map<PlanNodeWithHash, PlanStatisticsWithSourceInfo> planStatistics = getQueryStats(event.queryId);
         Map<PlanNodeWithHash, HistoricalPlanStatistics> historicalPlanStatisticsMap =
-                historyBasedPlanStatisticsProvider.get().getStats(
+                historyBasedPlanStatisticsProvider.getStats(
                         planStatistics.keySet().stream().collect(toImmutableList()), 1000);
 
         Map<PlanNodeWithHash, HistoricalPlanStatistics> newPlanStatistics = planStatistics.entrySet().stream()
@@ -172,7 +172,7 @@ public class HistoryBasedPlanStatisticsTracker {
                         }));
 
         if (!newPlanStatistics.isEmpty()) {
-            historyBasedPlanStatisticsProvider.get().putStats(ImmutableMap.copyOf(newPlanStatistics));
+            historyBasedPlanStatisticsProvider.putStats(ImmutableMap.copyOf(newPlanStatistics));
         }
         historyBasedStatisticsCacheManager.invalidate(event.queryId);
     }

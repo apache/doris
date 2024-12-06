@@ -314,7 +314,7 @@ public class StmtExecutor {
                 this.context.getSessionVariable().getAutoProfileThresholdMs());
         this.historyBasedPlanStatisticsTracker = new HistoryBasedPlanStatisticsTracker(
                 context,
-                (Supplier<HistoryBasedPlanStatisticsProvider>) new InMemoryHistoryBasedPlanStatisticsProvider(),
+                new InMemoryHistoryBasedPlanStatisticsProvider(),
                 new HistoryBasedStatisticsCacheManager());
         this.statementContext.setHistoryBasedPlanStatisticsTracker(historyBasedPlanStatisticsTracker);
     }
@@ -351,8 +351,7 @@ public class StmtExecutor {
                             context.getSessionVariable().getProfileLevel(),
                             context.getSessionVariable().getAutoProfileThresholdMs());
         this.historyBasedPlanStatisticsTracker = new HistoryBasedPlanStatisticsTracker(
-                context,
-                (Supplier<HistoryBasedPlanStatisticsProvider>) new InMemoryHistoryBasedPlanStatisticsProvider(),
+                context, new InMemoryHistoryBasedPlanStatisticsProvider(),
                 new HistoryBasedStatisticsCacheManager());
         this.statementContext.setHistoryBasedPlanStatisticsTracker(historyBasedPlanStatisticsTracker);
     }

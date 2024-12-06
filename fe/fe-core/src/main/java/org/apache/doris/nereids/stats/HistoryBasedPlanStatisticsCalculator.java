@@ -55,7 +55,7 @@ import java.util.function.Supplier;
  * HistoryBasedPlanStatisticsCalculator
  */
 public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
-    private final Supplier<HistoryBasedPlanStatisticsProvider> historyBasedPlanStatisticsProvider;
+    private final HistoryBasedPlanStatisticsProvider historyBasedPlanStatisticsProvider;
     private final HistoryBasedStatisticsCacheManager historyBasedStatisticsCacheManager;
     private final String queryId;
     public HistoryBasedPlanStatisticsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
