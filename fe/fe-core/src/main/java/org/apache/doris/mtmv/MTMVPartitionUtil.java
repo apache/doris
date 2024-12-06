@@ -172,18 +172,12 @@ public class MTMVPartitionUtil {
     }
 
     public static List<Long> getPartitionsIdsByNames(MTMV mtmv, List<String> partitions) throws AnalysisException {
-        mtmv.readLock();
-        try {
-            List<Long> res = Lists.newArrayList();
-            for (String partitionName : partitions) {
-                Partition partition = mtmv.getPartitionOrAnalysisException(partitionName);
-                res.add(partition.getId());
-            }
-            return res;
-        } finally {
-            mtmv.readUnlock();
+        List<Long> res = Lists.newArrayList();
+        for (String partitionName : partitions) {
+            Partition partition = mtmv.getPartitionOrAnalysisException(partitionName);
+            res.add(partition.getId());
         }
-
+        return res;
     }
 
     /**
