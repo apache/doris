@@ -98,33 +98,6 @@ public class ModifyColumnOp extends AlterTableOp {
             isEnableMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
             if (!Strings.isNullOrEmpty(rollupName)) {
                 throw new AnalysisException("Cannot modify column in rollup " + rollupName);
-                // Long indexId = olapTable.getIndexIdByName(rollupName);
-                // if (indexId != null) {
-                //     MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
-                //     schemaColumns = indexMeta.getSchema(false);
-                //     if (indexMeta.getDefineStmt() == null) {
-                //         originalColumn = indexMeta.getColumnByName(colName);
-                //         if (originalColumn != null) {
-                //             columnDef.setIsKey(originalColumn.isKey());
-                //             if (originalColumn.isKey()) {
-                //                 if (indexMeta.getSchema(false).stream()
-                //                         .anyMatch(col -> col.getAggregationType() != null
-                //                                 && col.getAggregationType().isReplaceFamily())) {
-                //                     throw new AnalysisException(String.format(
-                //                             "Can not modify key column %s when rollup has value column "
-                //                                     + "with REPLACE aggregation method",
-                //                             colName));
-                //                 }
-                //             }
-                //         } else {
-                //             throw new AnalysisException(String.format("Column[%s] does not exist", colName));
-                //         }
-                //     } else {
-                //         throw new AnalysisException("Can not modify column in mv " + rollupName);
-                //     }
-                // } else {
-                //     throw new AnalysisException(String.format("rollup[%s] does not exist", rollupName));
-                // }
             } else {
                 originalColumn = olapTable.getColumn(colName);
                 if (originalColumn != null) {
@@ -186,7 +159,7 @@ public class ModifyColumnOp extends AlterTableOp {
                 }
             }
         }
-        column = columnDef.translateToCatalogStyle();
+        column = columnDef.translateToCatalogStyleForSchemaChange();
         if (originalColumn != null) {
             originalColumn.checkSchemaChangeAllowed(column);
         }

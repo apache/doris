@@ -81,7 +81,7 @@ public class AddColumnOp extends AlterTableOp {
             colPos.analyze();
         }
         validateColumnDef(tableName, columnDef, colPos, rollupName);
-        column = columnDef.translateToCatalogStyle();
+        column = columnDef.translateToCatalogStyleForSchemaChange();
     }
 
     @Override
@@ -211,8 +211,8 @@ public class AddColumnOp extends AlterTableOp {
                         }
                     }
                 } else {
-                    // throw new AnalysisException(
-                    //         String.format("Column[%s] does not exist", colPos.getLastCol()));
+                    // do nothing for now, because previous command may add a new column, but it can only be seen
+                    // after previous command finished, we should not report error only by check the currect schema
                 }
             }
         }

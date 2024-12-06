@@ -79,26 +79,6 @@ public class AddColumnsOp extends AlterTableOp {
                 }
                 seeValueColumn = seeValueColumn || !colDef.isKey();
             }
-            // OlapTable olapTable = (OlapTable) table;
-            // boolean lastColumnIsKey = olapTable.getFullSchema().get(olapTable.getFullSchema().size() - 1).isKey();
-            // if (lastColumnIsKey) {
-            //     boolean seeValueColumn = false;
-            //     for (ColumnDefinition colDef : columnDefs) {
-            //         if (seeValueColumn && colDef.isKey()) {
-            //             throw new AnalysisException(String.format("Cannot add key column %s after value column",
-            //                  colDef.getName()));
-            //         }
-            //         seeValueColumn = seeValueColumn || !colDef.isKey();
-            //     }
-            // } else {
-            //     for (ColumnDefinition colDef : columnDefs) {
-            //         if (colDef.isKey()) {
-            //             throw new AnalysisException(
-            //                     String.format("Cannot add key column %s after %s's last column", colDef.getName(),
-            //                             tableName.getTbl()));
-            //         }
-            //     }
-            // }
         }
 
         columns = Lists.newArrayList();
