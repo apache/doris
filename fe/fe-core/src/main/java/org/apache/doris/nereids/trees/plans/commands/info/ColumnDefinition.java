@@ -720,9 +720,9 @@ public class ColumnDefinition {
      */
     public Column translateToCatalogStyle() {
         Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
-                autoIncInitValue, defaultValue.map(DefaultValue::getRawValue).orElse(null), comment, isVisible,
+                autoIncInitValue, defaultValue.map(DefaultValue::getValue).orElse(null), comment, isVisible,
                 defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
-                defaultValue.map(DefaultValue::getValue).orElse(null), onUpdateDefaultValue.isPresent(),
+                defaultValue.map(DefaultValue::getRawValue).orElse(null), onUpdateDefaultValue.isPresent(),
                 onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId,
                 generatedColumnDesc.map(GeneratedColumnDesc::translateToInfo).orElse(null),
                 generatedColumnsThatReferToThis);
