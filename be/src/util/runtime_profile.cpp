@@ -574,8 +574,6 @@ void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree) {
 }
 
 void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
-    nodes->reserve(nodes->size() + _children.size());
-
     int index = nodes->size();
     nodes->push_back(TRuntimeProfileNode());
     TRuntimeProfileNode& node = (*nodes)[index];
@@ -602,10 +600,13 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
 
     ChildVector children;
     {
+        // _children may be modified during to_thrift(),
+        // so we have to lock and copy _children to avoid race condition
         std::lock_guard<std::mutex> l(_children_lock);
         children = _children;
     }
     node.num_children = children.size();
+    nodes->reserve(nodes->size() + children.size());
 
     for (int i = 0; i < children.size(); ++i) {
         int child_idx = nodes->size();
