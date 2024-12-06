@@ -18,7 +18,9 @@
 import env
 import os
 
-status = os.system(f'$RUBY_HOME/bin/gem build -C {env.LOGSTASH_DORIS_HOME} {env.LOGSTASH_DORIS_HOME}/logstash-output-doris.gemspec -o {env.LOGSTASH_DORIS_HOME}/{env.LOGSTASH_OUTPUT_DORIS}.gem')
+os.system('echo $RUBY_HOME')
+
+status = os.system(f'$RUBY_HOME/bin/gem build -C {env.LOGSTASH_DORIS_DIR} {env.LOGSTASH_DORIS_DIR}/logstash-output-doris.gemspec -o {env.LOGSTASH_DORIS_DIR}/{env.LOGSTASH_OUTPUT_DORIS}.gem')
 
 if status != 0:
     raise Exception('Failed to build logstash extension')

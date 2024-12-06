@@ -16,26 +16,26 @@
 # under the License.
 
 import os
+from dotenv import load_dotenv
 
-def add_env(key: str, value: str):
-    os.environ[key] = value
-    os.system(f'echo {key}: ${key}')
+load_dotenv()
 
 LOGSTASH_OUTPUT_DORIS = 'logstash-output-doris'
+
 DB = 'logstash_db'
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 9030,
-    'user': 'admin',
-    'password': 'admin',
+    'host': os.environ.get('DORIS_FE_HOST'),
+    'port': int(os.environ.get('DORIS_FE_PORT')),
+    'user': os.environ.get('DORIS_USER'),
+    'password': os.environ.get('DORIS_PASSWORD'),
     'database': 'mysql',
 }
 
-CONF_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'conf')
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+TEST_CONF_DIR = os.environ.get('TEST_CONF_DIR')
+TEST_DDL_DIR = os.environ.get('TEST_DDL_DIR')
+TEST_DATA_DIR = os.environ.get('TEST_DATA_DIR')
 
-LOGSTASH_DORIS_HOME = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../extension/logstash')
-add_env('LOGSTASH_DORIS_HOME', LOGSTASH_DORIS_HOME)
+LOGSTASH_DORIS_DIR = os.environ.get('LOGSTASH_DORIS_DIR')
+LOGSTASH_HOME = os.environ.get('LOGSTASH_HOME')
 
-LOGSTASH_HOME = '/home/liumx/logstash-8.16.0' # TODO: change me
-add_env('LOGSTASH_HOME', LOGSTASH_HOME)
+RUBY_HOME = os.environ.get('RUBY_HOME')

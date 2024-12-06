@@ -38,13 +38,13 @@ def run(args, first_run=False):
     case_name = args.case
     timeout = args.timeout
 
-    conf = f'{env.CONF_DIR}/{case_name}.conf'
+    conf = f'{env.TEST_CONF_DIR}/{case_name}.conf'
     print('conf:', conf)
-    ddl = f'{env.CONF_DIR}/{case_name}.sql'
+    ddl = f'{env.TEST_DDL_DIR}/{case_name}.sql'
     print('ddl:', ddl)
-    input = f'{env.DATA_DIR}/{case_name}.input'
+    input = f'{env.TEST_DATA_DIR}/{case_name}.input'
     print('input:', input)
-    output = f'{env.DATA_DIR}/{case_name}.output'
+    output = f'{env.TEST_DATA_DIR}/{case_name}.output'
     print('output:', output)
 
     db = pymysql.connect(**env.DB_CONFIG)
@@ -102,5 +102,5 @@ if __name__ == "__main__":
     parser.add_argument("--timeout", "-t", type=int, help="timeout", default=20)
     args = parser.parse_args()
     
-    run(args, True)
+    # run(args, True)
     run(args)

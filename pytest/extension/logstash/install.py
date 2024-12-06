@@ -19,16 +19,16 @@ import env
 import os
 
 # online install
-status = os.system(f'{env.LOGSTASH_HOME}/bin/logstash-plugin install {env.LOGSTASH_DORIS_HOME}/{env.LOGSTASH_OUTPUT_DORIS}.gem')
+status = os.system(f'{env.LOGSTASH_HOME}/bin/logstash-plugin install {env.LOGSTASH_DORIS_DIR}/{env.LOGSTASH_OUTPUT_DORIS}.gem')
 if status != 0:
     raise Exception('Failed to install logstash extension online')
 
 # package
-status = os.system(f'{env.LOGSTASH_HOME}/bin/logstash-plugin prepare-offline-pack --overwrite --output {env.LOGSTASH_DORIS_HOME}/{env.LOGSTASH_OUTPUT_DORIS}.zip {env.LOGSTASH_OUTPUT_DORIS}')
+status = os.system(f'{env.LOGSTASH_HOME}/bin/logstash-plugin prepare-offline-pack --overwrite --output {env.LOGSTASH_DORIS_DIR}/{env.LOGSTASH_OUTPUT_DORIS}.zip {env.LOGSTASH_OUTPUT_DORIS}')
 if status != 0:
     raise Exception('Failed to package logstash extension')
 
 # offline install
-status = os.system(f'{env.LOGSTASH_HOME}/bin/logstash-plugin install file://{env.LOGSTASH_DORIS_HOME}/{env.LOGSTASH_OUTPUT_DORIS}.zip')
+status = os.system(f'{env.LOGSTASH_HOME}/bin/logstash-plugin install file://{env.LOGSTASH_DORIS_DIR}/{env.LOGSTASH_OUTPUT_DORIS}.zip')
 if status != 0:
     raise Exception('Failed to install logstash extension offline')

@@ -1,6 +1,8 @@
 import env
 import os
 
+# 命令行参数代替
+
 WORKERS = 1
 BATCH_SIZE = 100
 BATCH_DELAY = 3000
