@@ -76,6 +76,9 @@ namespace vectorized {
 class BlockSerializer {
 public:
     BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool is_local = true);
+#ifdef BE_TEST
+    BlockSerializer() : _batch_size(0) {};
+#endif
     Status next_serialized_block(Block* src, PBlock* dest, size_t num_receivers, bool* serialized,
                                  bool eos, const std::vector<uint32_t>* rows = nullptr);
     Status serialize_block(PBlock* dest, size_t num_receivers = 1);

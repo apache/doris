@@ -206,10 +206,21 @@ private:
                      +-----------------+       +-----------------+    +-----------------+
 */
 
-class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
+#ifdef BE_TEST
+void transmit_blockv2(PBackendService_Stub& stub,
+                      std::unique_ptr<AutoReleaseClosure<PTransmitDataParams,
+                                                         ExchangeSendCallback<PTransmitDataResult>>>
+                              closure);
+#endif
+class ExchangeSinkBuffer : public HasTaskExecutionCtx {
 public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, RuntimeState* state,
                        const std::vector<InstanceLoId>& sender_ins_ids);
+
+#ifdef BE_TEST
+    ExchangeSinkBuffer(RuntimeState* state, int64_t sinknum)
+            : HasTaskExecutionCtx(state), _exchange_sink_num(sinknum) {};
+#endif
     ~ExchangeSinkBuffer() override = default;
 
     void construct_request(TUniqueId);
@@ -227,8 +238,11 @@ public:
         _queue_deps[sender_ins_id] = queue_dependency;
         _parents[sender_ins_id] = local_state;
     }
-
+#ifdef BE_TEST
+public:
+#else
 private:
+#endif
     friend class ExchangeSinkLocalState;
 
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
@@ -274,10 +288,20 @@ private:
     QueryContext* _context = nullptr;
 
     Status _send_rpc(InstanceLoId);
+
+#ifndef BE_TEST
     inline void _ended(InstanceLoId id);
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
     inline void _turn_off_channel(InstanceLoId id, std::unique_lock<std::mutex>& with_lock);
+
+#else
+    virtual void _ended(InstanceLoId id);
+    virtual void _failed(InstanceLoId id, const std::string& err);
+    virtual void _set_receiver_eof(InstanceLoId id);
+    virtual void _turn_off_channel(InstanceLoId id, std::unique_lock<std::mutex>& with_lock);
+#endif
+
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 

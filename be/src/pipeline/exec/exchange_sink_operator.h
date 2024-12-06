@@ -61,6 +61,14 @@ public:
                                              parent->get_name() + "_FINISH_DEPENDENCY", false);
     }
 
+#ifdef BE_TEST
+    ExchangeSinkLocalState(RuntimeState* state) : Base(nullptr, state) {
+        _profile = state->obj_pool()->add(new RuntimeProfile("mock"));
+        _memory_used_counter =
+                _profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+    }
+#endif
+
     std::vector<Dependency*> dependencies() const override {
         std::vector<Dependency*> dep_vec;
         if (_queue_dependency) {
