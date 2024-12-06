@@ -156,6 +156,9 @@ public class CreateMTMVInfo {
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(mvName.getCtl())) {
             throw new AnalysisException("Only support creating asynchronous materialized views in internal catalog");
         }
+        if (ctx.getSessionVariable().isInDebugMode()) {
+            throw new AnalysisException("Create materialized view fail, because is in debug mode");
+        }
         try {
             FeNameFormat.checkTableName(mvName.getTbl());
         } catch (org.apache.doris.common.AnalysisException e) {
