@@ -2176,7 +2176,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                         vectorized::MutableColumnPtr col0 =
                                 std::move(*block->get_by_position(0).column).mutate();
                         auto tmp_indicator_col =
-                            block->get_by_position(0).type->create_column_const_with_default_value(selected_size);
+                                block->get_by_position(0)
+                                        .type->create_column_const_with_default_value(
+                                                selected_size);
                         block->replace_by_position(0, std::move(tmp_indicator_col));
                         _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size,
                                                              block);
