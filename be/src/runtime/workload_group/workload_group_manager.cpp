@@ -387,7 +387,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
                     query_it = queries_list.erase(query_it);
                     continue;
                 }
-                if (flushed_memtable_bytes < 0) {
+                if (flushed_memtable_bytes <= 0) {
                     flushed_memtable_bytes = flush_memtable_from_current_group_(
                             query_ctx, wg, query_it->reserve_size_);
                 }
@@ -454,7 +454,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 }
                 if (query_it->cache_ratio_ < 0.001) {
                     // 1. Check if could revoke some memory from memtable
-                    if (flushed_memtable_bytes < 0) {
+                    if (flushed_memtable_bytes <= 0) {
                         flushed_memtable_bytes = flush_memtable_from_current_group_(
                                 query_ctx, wg, query_it->reserve_size_);
                     }

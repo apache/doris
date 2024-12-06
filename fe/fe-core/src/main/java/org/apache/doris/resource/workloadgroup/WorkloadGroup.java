@@ -118,8 +118,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     public static final ImmutableMap<String, Integer> WORKLOAD_TYPE_MAP = new ImmutableMap.Builder<String, Integer>()
             .put(TWorkloadType.INTERNAL.toString().toLowerCase(), TWorkloadType.INTERNAL.getValue()).build();
 
-    public static final int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 50;
-    public static final int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 80;
+    public static final int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 80;
+    public static final int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 95;
 
     private static final Map<String, String> ALL_PROPERTIES_DEFAULT_VALUE_MAP = Maps.newHashMap();
 

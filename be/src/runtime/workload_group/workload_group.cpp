@@ -48,8 +48,8 @@ const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
 const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
 const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
 
-const static int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 50;
-const static int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 80;
+const static int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 80;
+const static int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 95;
 // This is a invalid value, and should ignore this value during usage
 const static int TOTAL_QUERY_SLOT_COUNT_DEFAULT_VALUE = 0;
 const static int LOAD_BUFFER_RATIO_DEFAULT_VALUE = 20;
