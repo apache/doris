@@ -193,8 +193,6 @@ cherry	3
 
 -- !partition_topn --
 
--- !partition_topn_qualifiy --
-
 -- !cte_producer --
 1	1	100
 
