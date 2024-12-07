@@ -1171,7 +1171,7 @@ public:
 
 protected:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeDate>());
+        return std::make_shared<DataTypeDate>();
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }

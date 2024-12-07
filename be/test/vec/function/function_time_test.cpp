@@ -1409,7 +1409,7 @@ TEST(VTimestampFunctionsTest, from_days_test) {
         std::cout << "test date 0000-03-01" << std::endl;
         DataSet data_set = {{{60}, str_to_date_time("0000-03-01", false)}, {{0}, Null()}};
 
-        static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }
 }
 

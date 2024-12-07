@@ -167,18 +167,20 @@ public:
     FunctionBasePtr get_function(const std::string& name, const ColumnsWithTypeAndName& arguments,
                                  const DataTypePtr& return_type, const FunctionAttr& attr = {},
                                  int be_version = BeExecVersionManager::get_newest_version()) {
-        std::string key_str = name;
+        std::string key_str, ori_name = name;
 
         if (function_alias.contains(name)) {
-            key_str = function_alias[name];
+            ori_name = function_alias[name];
         }
 
         if (attr.enable_decimal256) {
-            if (key_str == "array_sum" || key_str == "array_avg" || key_str == "array_product" ||
-                key_str == "array_cum_sum") {
-                key_str += DECIMAL256_FUNCTION_SUFFIX;
+            if (ori_name == "array_sum" || ori_name == "array_avg" || ori_name == "array_product" ||
+                ori_name == "array_cum_sum") {
+                ori_name += DECIMAL256_FUNCTION_SUFFIX;
             }
         }
+
+        key_str = ori_name;
 
         temporary_function_update(be_version, key_str);
 
@@ -197,11 +199,7 @@ public:
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
             // use original name as signature without variadic arguments
-            key_str = name;
-            if (function_alias.contains(name)) {
-                key_str = function_alias[name];
-            }
-            iter = function_creators.find(key_str);
+            iter = function_creators.find(ori_name);
             if (iter == function_creators.end()) {
                 LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
                 return nullptr;
