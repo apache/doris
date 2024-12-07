@@ -337,6 +337,10 @@ struct TMaxComputeFileDesc {
     1: optional string partition_spec // deprecated 
     2: optional string session_id 
     3: optional string table_batch_read_session
+    // for mc network configuration
+    4: optional i32 connect_timeout
+    5: optional i32 read_timeout
+    6: optional i32 retry_times
 }
 
 struct THudiFileDesc {
