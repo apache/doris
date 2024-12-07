@@ -156,7 +156,7 @@ public class SplitAssignment {
         return splits;
     }
 
-    public void setException(UserException e) {
+    public synchronized void setException(UserException e) {
         exception = e;
         notifyAssignment();
     }
@@ -171,7 +171,7 @@ public class SplitAssignment {
         notifyAssignment();
     }
 
-    public boolean isStop() {
+    public synchronized boolean isStop() {
         return isStop.get();
     }
 }
