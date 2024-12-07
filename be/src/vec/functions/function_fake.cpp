@@ -42,6 +42,7 @@ namespace doris::vectorized {
 
 template <typename ReturnType, bool AlwaysNullable = false, bool VARIADIC = false>
 struct FunctionFakeBaseImpl {
+    static bool dont_append_return_type_name_when_register_function() { return false; }
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         if constexpr (AlwaysNullable) {
             return make_nullable(std::make_shared<ReturnType>());
@@ -62,6 +63,7 @@ struct FunctionFakeBaseImpl {
 };
 
 struct FunctionExplode {
+    static bool dont_append_return_type_name_when_register_function() { return true; }
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
         return make_nullable(
@@ -73,6 +75,7 @@ struct FunctionExplode {
 
 // explode map: make map k,v as struct field
 struct FunctionExplodeMap {
+    static bool dont_append_return_type_name_when_register_function() { return true; }
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         DCHECK(is_map(arguments[0])) << arguments[0]->get_name() << " not supported";
         DataTypes fieldTypes(2);
@@ -86,6 +89,7 @@ struct FunctionExplodeMap {
 
 template <bool AlwaysNullable = false>
 struct FunctionPoseExplode {
+    static bool dont_append_return_type_name_when_register_function() { return true; }
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
         DataTypes fieldTypes(2);
@@ -105,6 +109,7 @@ struct FunctionPoseExplode {
 
 // explode json-object: expands json-object to struct with a pair of key and value in column string
 struct FunctionExplodeJsonObject {
+    static bool dont_append_return_type_name_when_register_function() { return true; }
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         DCHECK(WhichDataType(arguments[0]).is_json())
                 << " explode json object " << arguments[0]->get_name() << " not supported";
@@ -118,6 +123,7 @@ struct FunctionExplodeJsonObject {
 };
 
 struct FunctionEsquery {
+    static bool dont_append_return_type_name_when_register_function() { return false; }
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return FunctionFakeBaseImpl<DataTypeUInt8>::get_return_type_impl(arguments);
     }
