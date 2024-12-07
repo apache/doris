@@ -343,9 +343,6 @@ public class S3Properties extends BaseProperties {
                     || value.equalsIgnoreCase("false"),
                     "Invalid use_path_style value: %s only 'true' or 'false' is acceptable", value);
             builder.setUsePathStyle(value.equalsIgnoreCase("true"));
-        } else {
-            // use path style
-            builder.setUsePathStyle(true);
         }
         return builder;
     }
