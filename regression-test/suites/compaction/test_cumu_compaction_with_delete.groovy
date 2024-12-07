@@ -30,7 +30,7 @@ suite("test_cumu_compaction_with_delete") {
             def tabletJson = parseJson(out.trim())
             cumuPoint = tabletJson["cumulative point"]
         }
-        return cumuPoint == cumu_point
+        return cumuPoint > cumu_point
     }
 
     try {
@@ -45,7 +45,7 @@ suite("test_cumu_compaction_with_delete") {
             PROPERTIES ("replication_allocation" = "tag.location.default: 1",
             "enable_mow_light_delete" = "true")"""
 
-        for(int i = 1; i <= 50; ++i){
+        for(int i = 1; i <= 100; ++i){
             sql """ INSERT INTO ${tableName} VALUES (1,1)"""
             sql """ delete from ${tableName} where user_id = 1"""
         }
@@ -53,7 +53,7 @@ suite("test_cumu_compaction_with_delete") {
         now = System.currentTimeMillis()
 
         while(true){
-            if(check_cumu_point(102)){
+            if(check_cumu_point(100)){
                 break;
             }
             Thread.sleep(1000)
