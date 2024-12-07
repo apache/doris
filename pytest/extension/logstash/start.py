@@ -19,7 +19,7 @@ import env
 import subprocess
 import time
 
-cmd = [f'{env.LOGSTASH_HOME}/bin/logstash', '-f', f'{env.CONF_DIR}/start.conf']
+cmd = [f'{env.LOGSTASH_HOME}/bin/logstash', '-f', f'{env.TEST_CONF_DIR}/start.conf']
 print(f'Running command: {cmd}')
 try:
     p = subprocess.Popen(cmd, text=True)

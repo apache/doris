@@ -20,12 +20,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-LOGSTASH_OUTPUT_DORIS = 'logstash-output-doris'
+LOGSTASH_OUTPUT_DORIS = 'logstash-output-doris-1.0.1'
 
 DB = 'logstash_db'
 DB_CONFIG = {
-    'host': os.environ.get('DORIS_FE_HOST'),
-    'port': int(os.environ.get('DORIS_FE_PORT')),
+    'host': os.environ.get('DORIS_HOST'),
+    'port': int(os.environ.get('DORIS_MYSQL_PORT')),
     'user': os.environ.get('DORIS_USER'),
     'password': os.environ.get('DORIS_PASSWORD'),
     'database': 'mysql',

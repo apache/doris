@@ -37,6 +37,9 @@ def tuple_to_str(tuple):
 def run(args, first_run=False):
     case_name = args.case
     timeout = args.timeout
+    workers = args.workers
+    batch_size = args.batch_size
+    batch_delay = args.batch_delay
 
     conf = f'{env.TEST_CONF_DIR}/{case_name}.conf'
     print('conf:', conf)
@@ -57,7 +60,13 @@ def run(args, first_run=False):
         ddl = f.read()
         cursor.execute(ddl)
     
-    cmd = [f"{env.LOGSTASH_HOME}/bin/logstash", "-f", conf]
+    cmd = [
+        f"{env.LOGSTASH_HOME}/bin/logstash", 
+        "-f", conf,
+        "-w", str(workers),
+        "-b", str(batch_size),
+        "-u", str(batch_delay)
+        ]
     print(f'Running command: {cmd} < {input}')
     
     with open (input, 'r') as f:
@@ -98,8 +107,11 @@ def run(args, first_run=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--case", "-c", type=str, help="case name: (also data_file_name, config_file_name, table_name)", default='json_nested')
-    parser.add_argument("--timeout", "-t", type=int, help="timeout", default=20)
+    parser.add_argument("-c", "--case", type=str, help="case name: (also data_file_name, config_file_name, table_name)", default='csv_basic')
+    parser.add_argument("-t", "--timeout", type=int, help="timeout", default=20)
+    parser.add_argument("-w", "--workers", type=int, help="pipeline workers", default=1)
+    parser.add_argument("-b", "--batch-size", type=int, help="pipeline batch size", default=100)
+    parser.add_argument("-u", "--batch-delay", type=int, help="pipeline batch delay", default=3000)
     args = parser.parse_args()
     
     # run(args, True)

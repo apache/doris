@@ -1,7 +1,0 @@
-jruby 环境
-jruby 依赖包 (国内源，对象存储)
-logstash 下载
-修改 logstash 配置（攒批，开启转义）
-python 库下载:
-    pymysql
-    python-dotenv
