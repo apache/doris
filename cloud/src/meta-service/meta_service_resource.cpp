@@ -715,12 +715,12 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
 
     // For ak or sk is not altered.
     EncryptionInfoPB encryption_info = new_vault.obj_info().encryption_info();
-    AkSkPair new_as_sk_pair {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
+    AkSkPair new_ak_sk_pair {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
 
     if (obj_info.has_ak()) {
         // ak and sk must be altered together, there is check before.
-        auto ret = encrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), &encryption_info, &new_as_sk_pair, code,
-                                        msg);
+        auto ret = encrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), &encryption_info,
+                                        &new_ak_sk_pair, code, msg);
         if (ret != 0) {
             msg = "failed to encrypt";
             code = MetaServiceCode::ERR_ENCRYPT;
@@ -729,8 +729,8 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         }
     }
 
-    new_vault.mutable_obj_info()->set_ak(new_as_sk_pair.first);
-    new_vault.mutable_obj_info()->set_sk(new_as_sk_pair.second);
+    new_vault.mutable_obj_info()->set_ak(new_ak_sk_pair.first);
+    new_vault.mutable_obj_info()->set_sk(new_ak_sk_pair.second);
     new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
     if (obj_info.has_use_path_style()) {
         new_vault.mutable_obj_info()->set_use_path_style(obj_info.use_path_style());
