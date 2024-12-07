@@ -70,7 +70,7 @@ suite("test_alter_s3_vault", "nonConcurrent") {
             "s3.access_key" = "new_ak"
             );
         """
-    }, "Alter property")
+    }, "Access key and secret key must be altered together")
 
     expectExceptionLike({
         sql """
@@ -170,6 +170,7 @@ suite("test_alter_s3_vault", "nonConcurrent") {
 
 
     vaultName = newVaultName;
+
     newVaultName = vaultName + "_new";
 
     vaultInfos = sql """SHOW STORAGE VAULT;"""
