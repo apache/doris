@@ -656,7 +656,7 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     if (obj_info.has_ak() ^ obj_info.has_sk()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
-        ss << "Access key and secret key must be altered together";
+        ss << "Accesskey and secretkey must be alter together";
         msg = ss.str();
         return -1;
     }

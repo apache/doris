@@ -42,6 +42,43 @@ suite("test_alter_s3_vault", "nonConcurrent") {
         );
     """
 
+    def dupVaultName = "${suiteName}" + "_dup"
+    sql """
+        CREATE STORAGE VAULT IF NOT EXISTS ${dupVaultName}
+        PROPERTIES (
+            "type"="S3",
+            "s3.endpoint"="${getS3Endpoint()}",
+            "s3.region" = "${getS3Region()}",
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}",
+            "s3.root.path" = "${suiteName}",
+            "s3.bucket" = "${getS3BucketName()}",
+            "s3.external_endpoint" = "",
+            "provider" = "${getS3Provider()}"
+        );
+    """
+
+    sql """
+        DROP TABLE IF EXISTS alter_s3_vault_tbl
+        """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS alter_s3_vault_tbl
+        (
+        `k1` INT NULL,
+        `v1` INT NULL
+        )
+        UNIQUE KEY (k1)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        PROPERTIES (
+        "replication_num" = "1",
+        "disable_auto_compaction" = "true",
+        "storage_vault_name" = "${suiteName}"
+        );
+    """
+
+    sql """insert into alter_s3_vault_tbl values(2, 2); """
+
     expectExceptionLike({
         sql """
             ALTER STORAGE VAULT ${suiteName}
@@ -70,20 +107,10 @@ suite("test_alter_s3_vault", "nonConcurrent") {
             "s3.access_key" = "new_ak"
             );
         """
-    }, "Access key and secret key must be altered together")
-
-    expectExceptionLike({
-        sql """
-            ALTER STORAGE VAULT ${suiteName}
-            PROPERTIES (
-            "type"="S3",
-            "s3.secret_key" = "new_sk"
-            );
-        """
-    }, "Alter property")
+    }, "Accesskey and secretkey must be alter together")
 
     def vaultName = suiteName
-    String properties;
+    def String properties;
 
     def vaultInfos = try_sql """show storage vault"""
 
@@ -110,6 +137,7 @@ suite("test_alter_s3_vault", "nonConcurrent") {
         def name = vaultInfos[i][0]
         logger.info("name is ${name}, info ${vaultInfos[i]}")
         if (name.equals(vaultName)) {
+            def newProperties = vaultInfos[i][2]
             assert properties == newProperties, "Properties are not the same"
         }
     }
@@ -133,6 +161,7 @@ suite("test_alter_s3_vault", "nonConcurrent") {
         def name = vaultInfos[i][0]
         logger.info("name is ${name}, info ${vaultInfos[i]}")
         if (name.equals(newVaultName)) {
+            def newProperties = vaultInfos[i][2]
             assert properties == newProperties, "Properties are not the same"
         }
         if (name.equals(vaultName)) {
@@ -144,6 +173,7 @@ suite("test_alter_s3_vault", "nonConcurrent") {
 
     // rename + aksk
     vaultName = newVaultName
+    newVaultName = vaultName + "_new";
 
     sql """
         ALTER STORAGE VAULT ${vaultName}
@@ -160,6 +190,7 @@ suite("test_alter_s3_vault", "nonConcurrent") {
         def name = vaultInfos[i][0]
         logger.info("name is ${name}, info ${vaultInfos[i]}")
         if (name.equals(newVaultName)) {
+            def newProperties = vaultInfos[i][2]
             assert properties == newProperties, "Properties are not the same"
         }
         if (name.equals(vaultName)) {
@@ -198,6 +229,21 @@ suite("test_alter_s3_vault", "nonConcurrent") {
         }
     }
     assertTrue(exist)
+
+    vaultName = newVaultName;
+
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${vaultName}
+            PROPERTIES (
+                "type"="S3",
+                "VAULT_NAME" = "${dupVaultName}",
+                "s3.access_key" = "new_ak_ak",
+                "s3.secret_key" = "sk"
+            );
+        """
+    }, "already exists")
+
     // failed to insert due to the wrong ak
     expectExceptionLike({ sql """insert into alter_s3_vault_tbl values("2", "2");""" }, "")
 }
