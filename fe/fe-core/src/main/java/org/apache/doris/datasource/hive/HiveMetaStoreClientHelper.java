@@ -40,7 +40,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopUGI;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.thrift.TExprOpcode;
@@ -68,6 +68,7 @@ import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -820,19 +821,22 @@ public class HiveMetaStoreClientHelper {
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
         // if hive config is not ready, then use hadoop kerberos to login
-        AuthenticationConfig krbConfig = AuthenticationConfig.getKerberosConfig(conf,
-                AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
-        return HadoopUGI.ugiDoAs(krbConfig, action);
+        AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(conf);
+        HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+        try {
+            return hadoopAuthenticator.doAs(action);
+        } catch (IOException e) {
+            LOG.warn("HiveMetaStoreClientHelper ugiDoAs failed.", e);
+            throw new RuntimeException(e);
+        }
     }
 
     public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
         String hudiBasePath = table.getRemoteTable().getSd().getLocation();
         Configuration conf = getConfiguration(table);
         HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
-        return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf),
-                () -> HoodieTableMetaClient.builder().setConf(hadoopStorageConfiguration).setBasePath(hudiBasePath)
-                        .build());
+        return ugiDoAs(conf, () -> HoodieTableMetaClient.builder().setConf(hadoopStorageConfiguration)
+                .setBasePath(hudiBasePath).build());
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {
