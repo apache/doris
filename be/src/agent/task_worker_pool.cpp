@@ -1630,11 +1630,13 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
                 dropped_tablet->tablet_uid());
         LOG_INFO("successfully drop tablet")
                 .tag("signature", req.signature)
-                .tag("tablet_id", drop_tablet_req.tablet_id);
+                .tag("tablet_id", drop_tablet_req.tablet_id)
+                .tag("replica_id", drop_tablet_req.replica_id);
     } else {
         LOG_WARNING("failed to drop tablet")
                 .tag("signature", req.signature)
                 .tag("tablet_id", drop_tablet_req.tablet_id)
+                .tag("replica_id", drop_tablet_req.replica_id)
                 .error(status);
     }
 
