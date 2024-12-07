@@ -648,10 +648,19 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         obj_info.has_provider()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
-        ss << "Only ak, sk can be altered";
+        ss << "Bucket, endpoint, prefix and provider can not be altered";
         msg = ss.str();
         return -1;
     }
+
+    if (obj_info.has_ak() ^ obj_info.has_sk()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "Accesskey and secretkey must be alter together";
+        msg = ss.str();
+        return -1;
+    }
+
     const auto& name = vault.name();
     // Here we try to get mutable iter since we might need to alter the vault name
     auto name_itr = std::find_if(instance.mutable_storage_vault_names()->begin(),
@@ -703,22 +712,25 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         *name_itr = vault.alter_name();
     }
     auto origin_vault_info = new_vault.DebugString();
-    AkSkPair pre {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
-    const auto& plain_ak = obj_info.has_ak() ? obj_info.ak() : new_vault.obj_info().ak();
-    const auto& plain_sk = obj_info.has_ak() ? obj_info.sk() : new_vault.obj_info().sk();
-    AkSkPair plain_ak_sk_pair {plain_ak, plain_sk};
-    AkSkPair cipher_ak_sk_pair;
-    EncryptionInfoPB encryption_info;
-    auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
-                                    msg);
-    if (ret != 0) {
-        msg = "failed to encrypt";
-        code = MetaServiceCode::ERR_ENCRYPT;
-        LOG(WARNING) << msg;
-        return -1;
+
+    // For ak or sk is not altered.
+    EncryptionInfoPB encryption_info = new_vault.obj_info().encryption_info();
+    AkSkPair new_as_sk_pair {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
+
+    if (obj_info.has_ak()) {
+        // ak and sk must be altered together, there is check before.
+        auto ret = encrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), &encryption_info, &new_as_sk_pair, code,
+                                        msg);
+        if (ret != 0) {
+            msg = "failed to encrypt";
+            code = MetaServiceCode::ERR_ENCRYPT;
+            LOG(WARNING) << msg;
+            return -1;
+        }
     }
-    new_vault.mutable_obj_info()->set_ak(cipher_ak_sk_pair.first);
-    new_vault.mutable_obj_info()->set_sk(cipher_ak_sk_pair.second);
+
+    new_vault.mutable_obj_info()->set_ak(new_as_sk_pair.first);
+    new_vault.mutable_obj_info()->set_sk(new_as_sk_pair.second);
     new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
     if (obj_info.has_use_path_style()) {
         new_vault.mutable_obj_info()->set_use_path_style(obj_info.use_path_style());
