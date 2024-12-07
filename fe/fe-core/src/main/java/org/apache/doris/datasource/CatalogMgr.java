@@ -50,6 +50,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -235,26 +236,40 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         lock.readLock().unlock();
     }
 
-    /**
-     * Create and hold the catalog instance and write the meta log.
-     */
-    public void createCatalog(CreateCatalogStmt stmt) throws UserException {
-        long id = Env.getCurrentEnv().getNextId();
-        CatalogIf catalog = CatalogFactory.createFromStmt(id, stmt);
+    private void createCatalogImpl(CatalogIf catalog, String catalogName,
+            boolean ifNotExists) throws UserException {
         writeLock();
         try {
             if (nameToCatalog.containsKey(catalog.getName())) {
-                if (stmt.isSetIfNotExists()) {
-                    LOG.warn("Catalog {} is already exist.", stmt.getCatalogName());
+                if (ifNotExists) {
+                    LOG.warn("Catalog {} is already exist.", catalogName);
                     return;
                 }
-                throw new DdlException("Catalog had already exist with name: " + stmt.getCatalogName());
+                throw new DdlException("Catalog had already exist with name: " + catalogName);
             }
             createCatalogInternal(catalog, false);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_CREATE_CATALOG, catalog.constructEditLog());
         } finally {
             writeUnlock();
         }
+    }
+
+    /**
+     * Create and hold the catalog instance and write the meta log.
+     */
+    public void createCatalog(CreateCatalogCommand cmd) throws UserException {
+        long id = Env.getCurrentEnv().getNextId();
+        CatalogIf catalog = CatalogFactory.createFromCommand(id, cmd);
+        createCatalogImpl(catalog, cmd.getCatalogName(), cmd.isSetIfNotExists());
+    }
+
+    /**
+     * Create and hold the catalog instance and write the meta log.
+     */
+    public void createCatalog(CreateCatalogStmt stmt) throws UserException {
+        long id = Env.getCurrentEnv().getNextId();
+        CatalogIf catalog = CatalogFactory.createFromStmt(id, stmt);
+        createCatalogImpl(catalog, stmt.getCatalogName(), stmt.isSetIfNotExists());
     }
 
     /**
