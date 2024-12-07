@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.planner.PlanNodeId;
@@ -40,7 +41,6 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -243,9 +243,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                             LocationPath locationPath = new LocationPath(file.path(),
                                     source.getCatalog().getProperties());
                             try {
-                                List<Split> dorisSplits = splitFile(
+                                List<Split> dorisSplits = FileSplitter.splitFile(
                                         locationPath,
-                                        0,
+                                        getRealFileSplitSize(0),
                                         null,
                                         file.length(),
                                         -1,
@@ -266,7 +266,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                             }
                         }
                     } else {
-                        createRawFileSplits(rawFiles, splits, applyCountPushdown ? Long.MAX_VALUE: 0);
+                        createRawFileSplits(rawFiles, splits, applyCountPushdown ? Long.MAX_VALUE : 0);
                     }
                 } else {
                     if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_JNI) {
@@ -287,9 +287,6 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         this.selectedPartitionNum = selectedPartitionValues.size();
         // TODO: get total partition number
-        // We should set fileSplitSize at the end because fileSplitSize may be modified
-        // in splitFile.
-        splits.forEach(s -> s.setTargetSplitSize(fileSplitSize));
         return splits;
     }
 
@@ -299,9 +296,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                     source.getCatalog().getProperties());
             try {
                 splits.addAll(
-                        splitFile(
+                        FileSplitter.splitFile(
                                 locationPath,
-                                blockSize,
+                                getRealFileSplitSize(blockSize),
                                 null,
                                 file.length(),
                                 -1,

@@ -32,6 +32,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
+import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
@@ -289,26 +290,22 @@ public class HiveScanNode extends FileQueryScanNode {
         if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
                 && hiveTransaction != null
                 && noNeedSplitForCountPushDown()) {
-            int parallelNum = sessionVariable.getParallelExecInstanceNum();
             int totalFileNum = 0;
             for (FileCacheValue fileCacheValue : fileCaches) {
                 if (fileCacheValue.getFiles() != null) {
                     totalFileNum += fileCacheValue.getFiles().size();
                 }
             }
-            // If the number of files is larger than parallel instances * num of backends,
-            // we don't need to split the file.
-            // Otherwise, split the file to avoid local shuffle.
-            if (totalFileNum > parallelNum * numBackends) {
-                needSplit = false;
-            }
+            int parallelNum = sessionVariable.getParallelExecInstanceNum();
+            needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             if (fileCacheValue.getFiles() != null) {
                 boolean isSplittable = fileCacheValue.isSplittable();
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
-                    // set block size to Long.MAX_VALUE to avoid splitting the file.
-                    allFiles.addAll(splitFile(status.getPath(), needSplit ? status.getBlockSize() : Long.MAX_VALUE,
+                    allFiles.addAll(FileSplitter.splitFile(status.getPath(),
+                            // set block size to Long.MAX_VALUE to avoid splitting the file.
+                            getRealFileSplitSize(needSplit ? status.getBlockSize() : Long.MAX_VALUE),
                             status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                             isSplittable, fileCacheValue.getPartitionValues(),
                             new HiveSplitCreator(fileCacheValue.getAcidInfo())));
@@ -320,7 +317,7 @@ public class HiveScanNode extends FileQueryScanNode {
     private void splitAllFiles(List<Split> allFiles,
                                List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses) throws IOException {
         for (HiveMetaStoreCache.HiveFileStatus status : hiveFileStatuses) {
-            allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
+            allFiles.addAll(FileSplitter.splitFile(status.getPath(), getRealFileSplitSize(status.getBlockSize()),
                     status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                     status.isSplittable(), status.getPartitionValues(),
                     new HiveSplitCreator(status.getAcidInfo())));

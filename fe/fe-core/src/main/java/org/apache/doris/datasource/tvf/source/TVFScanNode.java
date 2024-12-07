@@ -29,6 +29,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
+import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -137,22 +138,19 @@ public class TVFScanNode extends FileQueryScanNode {
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
 
         // Push down count optimization.
-        // See comment in HiveScanNode.getFileSplitByPartitions
         boolean needSplit = true;
         if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
                 && noNeedSplitForCountPushDown()) {
             int parallelNum = sessionVariable.getParallelExecInstanceNum();
             int totalFileNum = fileStatuses.size();
-            if (totalFileNum > parallelNum * numBackends) {
-                needSplit = false;
-            }
+            needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
 
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             Map<String, String> prop = Maps.newHashMap();
             try {
-                splits.addAll(splitFile(new LocationPath(fileStatus.getPath(), prop),
-                        needSplit ? fileStatus.getBlockSize() : Long.MAX_VALUE,
+                splits.addAll(FileSplitter.splitFile(new LocationPath(fileStatus.getPath(), prop),
+                        getRealFileSplitSize(needSplit ? fileStatus.getBlockSize() : Long.MAX_VALUE),
                         null, fileStatus.getSize(),
                         fileStatus.getModificationTime(), fileStatus.isSplitable, null,
                         FileSplitCreator.DEFAULT));

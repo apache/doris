@@ -210,9 +210,10 @@ public class IcebergScanNode extends FileQueryScanNode {
         HashSet<String> partitionPathSet = new HashSet<>();
         boolean isPartitionedTable = icebergTable.spec().isPartitioned();
 
-        CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), fileSplitSize);
+        long realFileSplitSize = getRealFileSplitSize(0);
+        CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), realFileSplitSize);
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
-                TableScanUtil.planTasks(fileScanTasks, fileSplitSize, 1, 0)) {
+                TableScanUtil.planTasks(fileScanTasks, realFileSplitSize, 1, 0)) {
             combinedScanTasks.forEach(taskGrp -> taskGrp.files().forEach(splitTask -> {
                 List<String> partitionValues = new ArrayList<>();
                 if (isPartitionedTable) {
@@ -251,6 +252,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                         source.getCatalog().getProperties(),
                         partitionValues,
                         originalPath);
+                split.setTargetSplitSize(realFileSplitSize);
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
                     split.setDeleteFileFilters(getDeleteFileFilters(splitTask));
                 }
@@ -283,7 +285,6 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         selectedPartitionNum = partitionPathSet.size();
-        splits.forEach(s -> s.setTargetSplitSize(fileSplitSize));
         return splits;
     }
 
