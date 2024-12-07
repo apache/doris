@@ -1312,9 +1312,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
             List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
                                     ? localTbl.getCopiedIndexes() : null;
-            List<Integer> clusterKeyIndexes = null;
+            List<Integer> clusterKeyUids = null;
             if (indexMeta.getIndexId() == localTbl.getBaseIndexId() || localTbl.isShadowIndex(indexMeta.getIndexId())) {
-                clusterKeyIndexes = OlapTable.getClusterKeyIndexes(indexMeta.getSchema());
+                clusterKeyUids = OlapTable.getClusterKeyUids(indexMeta.getSchema());
             }
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
                 TabletRef baseTabletRef = tabletBases == null ? null : tabletBases.get(restoreTablet.getId());
@@ -1363,11 +1363,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         LOG.info("set base tablet {} for replica {} in restore job {}, tablet id={}",
                                 baseTabletRef.tabletId, restoreReplica.getId(), jobId, restoreTablet.getId());
                     }
-                    if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
-                        task.setClusterKeyIndexes(clusterKeyIndexes);
-                        LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key indexes: {}",
+                    if (!CollectionUtils.isEmpty(clusterKeyUids)) {
+                        task.setClusterKeyUids(clusterKeyUids);
+                        LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key uids: {}",
                                 localTbl.getId(), restorePart.getId(), restoredIdx.getId(), restoreTablet.getId(),
-                                clusterKeyIndexes);
+                                clusterKeyUids);
                     }
                     batchTask.addTask(task);
                 }
@@ -2208,6 +2208,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public synchronized List<String> getInfo(boolean isBrief) {
+        String unfinishedTaskIdsStr = unfinishedSignatureToId.entrySet().stream()
+                .map(e -> "[" + e.getKey() + "=" + e.getValue() + "]")
+                .limit(100)
+                .collect(Collectors.joining(", "));
+
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
         info.add(label);
@@ -2227,13 +2232,18 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
         info.add(TimeUtils.longToTimeString(downloadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
-        info.add(Joiner.on(", ").join(unfinishedSignatureToId.entrySet()));
+        info.add(unfinishedTaskIdsStr);
         if (!isBrief) {
-            info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
-                    e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
-                    Collectors.toList())));
-            info.add(Joiner.on(", ").join(taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": "
-                    + n.getValue() + "]").collect(Collectors.toList())));
+            String taskProgressStr = taskProgress.entrySet().stream()
+                    .map(e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]")
+                    .limit(100)
+                    .collect(Collectors.joining(", "));
+            String taskErrMsgStr = taskErrMsg.entrySet().stream()
+                    .map(n -> "[" + n.getKey() + ": " + n.getValue() + "]")
+                    .limit(100)
+                    .collect(Collectors.joining(", "));
+            info.add(taskProgressStr);
+            info.add(taskErrMsgStr);
         }
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));

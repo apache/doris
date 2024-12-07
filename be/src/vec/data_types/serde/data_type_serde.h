@@ -77,6 +77,18 @@ struct ColumnVectorBatch;
         ++*num_deserialized;                                                             \
     }
 
+#define INIT_MEMORY_FOR_ORC_WRITER()                                                 \
+    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);                                     \
+    if (!ptr) {                                                                      \
+        return Status::InternalError(                                                \
+                "malloc memory error when write largeint column data to orc file."); \
+    }                                                                                \
+    StringRef bufferRef;                                                             \
+    bufferRef.data = ptr;                                                            \
+    bufferRef.size = BUFFER_UNIT_SIZE;                                               \
+    size_t offset = 0;                                                               \
+    buffer_list.emplace_back(bufferRef);
+
 #define REALLOC_MEMORY_FOR_ORC_WRITER()                                                  \
     while (bufferRef.size - BUFFER_RESERVED_SIZE < offset + len) {                       \
         char* new_ptr = (char*)malloc(bufferRef.size + BUFFER_UNIT_SIZE);                \
@@ -99,6 +111,10 @@ namespace vectorized {
 class IColumn;
 class Arena;
 class IDataType;
+
+class DataTypeSerDe;
+using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
+using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 
 // Deserialize means read from different file format or memory format,
 // for example read from arrow, read from parquet.
@@ -337,6 +353,11 @@ public:
                                           Arena& mem_pool, int64_t row_num) const;
     virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
 
+    virtual DataTypeSerDeSPtrs get_nested_serdes() const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method get_nested_serdes is not supported for this serde");
+    }
+
 protected:
     bool _return_object_as_string = false;
     // This parameter indicates what level the serde belongs to and is mainly used for complex types
@@ -378,9 +399,6 @@ inline void checkArrowStatus(const arrow::Status& status, const std::string& col
                    << " with error msg: " << status.ToString();
     }
 }
-
-using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
-using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
 
 DataTypeSerDeSPtrs create_data_type_serdes(
         const std::vector<std::shared_ptr<const IDataType>>& types);

@@ -75,9 +75,9 @@ public:
     // Holding all opened segments of a rowset.
     class CacheValue : public LRUCacheValueBase {
     public:
-        ~CacheValue() override { segment.reset(); }
+        CacheValue(segment_v2::SegmentSharedPtr segment_) : segment(std::move(segment_)) {}
 
-        segment_v2::SegmentSharedPtr segment;
+        const segment_v2::SegmentSharedPtr segment;
     };
 
     SegmentCache(size_t memory_bytes_limit, size_t segment_num_limit)
@@ -124,8 +124,13 @@ public:
 
     void erase_segments(const RowsetId& rowset_id, int64_t num_segments);
 
-    // Just used for BE UT
-    int64_t cache_mem_usage() const { return _cache_mem_usage; }
+    int64_t cache_mem_usage() const {
+#ifdef BE_TEST
+        return _cache_mem_usage;
+#else
+        return _segment_cache->value_mem_consumption();
+#endif
+    }
 
 private:
     SegmentLoader();

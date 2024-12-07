@@ -50,7 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
-import java.util.OptionalLong;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -172,18 +172,12 @@ public class MTMVPartitionUtil {
     }
 
     public static List<Long> getPartitionsIdsByNames(MTMV mtmv, List<String> partitions) throws AnalysisException {
-        mtmv.readLock();
-        try {
-            List<Long> res = Lists.newArrayList();
-            for (String partitionName : partitions) {
-                Partition partition = mtmv.getPartitionOrAnalysisException(partitionName);
-                res.add(partition.getId());
-            }
-            return res;
-        } finally {
-            mtmv.readUnlock();
+        List<Long> res = Lists.newArrayList();
+        for (String partitionName : partitions) {
+            Partition partition = mtmv.getPartitionOrAnalysisException(partitionName);
+            res.add(partition.getId());
         }
-
+        return res;
     }
 
     /**
@@ -330,7 +324,7 @@ public class MTMVPartitionUtil {
         }
         for (String relatedPartitionName : relatedPartitionNames) {
             MTMVSnapshotIf relatedPartitionCurrentSnapshot = relatedTable
-                    .getPartitionSnapshot(relatedPartitionName, context, OptionalLong.empty());
+                    .getPartitionSnapshot(relatedPartitionName, context, Optional.empty());
             if (!mtmv.getRefreshSnapshot()
                     .equalsWithRelatedPartition(mtmvPartitionName, relatedPartitionName,
                             relatedPartitionCurrentSnapshot)) {
@@ -447,7 +441,7 @@ public class MTMVPartitionUtil {
         if (!baseTable.needAutoRefresh()) {
             return true;
         }
-        MTMVSnapshotIf baseTableCurrentSnapshot = baseTable.getTableSnapshot(context, OptionalLong.empty());
+        MTMVSnapshotIf baseTableCurrentSnapshot = baseTable.getTableSnapshot(context, Optional.empty());
         return mtmv.getRefreshSnapshot()
                 .equalsWithBaseTable(mtmvPartitionName, new BaseTableInfo(baseTable), baseTableCurrentSnapshot);
     }
@@ -483,7 +477,7 @@ public class MTMVPartitionUtil {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
             for (String relatedPartitionName : relatedPartitionNames) {
                 MTMVSnapshotIf partitionSnapshot = relatedTable
-                        .getPartitionSnapshot(relatedPartitionName, context, OptionalLong.empty());
+                        .getPartitionSnapshot(relatedPartitionName, context, Optional.empty());
                 refreshPartitionSnapshot.getPartitions()
                         .put(relatedPartitionName, partitionSnapshot);
             }
@@ -498,13 +492,13 @@ public class MTMVPartitionUtil {
                 continue;
             }
             refreshPartitionSnapshot.addTableSnapshot(baseTableInfo,
-                    ((MTMVRelatedTableIf) table).getTableSnapshot(context, OptionalLong.empty()));
+                    ((MTMVRelatedTableIf) table).getTableSnapshot(context, Optional.empty()));
         }
         return refreshPartitionSnapshot;
     }
 
     public static Type getPartitionColumnType(MTMVRelatedTableIf relatedTable, String col) throws AnalysisException {
-        List<Column> partitionColumns = relatedTable.getPartitionColumns();
+        List<Column> partitionColumns = relatedTable.getPartitionColumns(Optional.empty());
         for (Column column : partitionColumns) {
             if (column.getName().equals(col)) {
                 return column.getType();

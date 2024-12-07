@@ -1638,17 +1638,16 @@ private:
                       LikeState* state, JsonbPath* cur_path,
                       std::unordered_set<std::string>* matches) const {
         if (element.isString()) {
-            const std::string_view str = element.getString();
+            const std::string_view element_str = element.getString();
             unsigned char res;
-            RETURN_IF_ERROR(matched(str, state, &res));
+            RETURN_IF_ERROR(matched(element_str, state, &res));
             if (res) {
                 std::string str;
                 auto valid = cur_path->to_string(&str);
                 if (!valid) {
                     return false;
                 }
-                auto res = matches->insert(str);
-                return res.second;
+                return matches->insert(str).second;
             } else {
                 return false;
             }

@@ -36,14 +36,10 @@ public:
     DataTypeBitMapSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
-                                      FormatOptions& options) const override {
-        return Status::NotSupported("serialize_one_cell_to_json with type [{}]", column.get_name());
-    }
+                                      FormatOptions& options) const override;
 
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
-                                    BufferWritable& bw, FormatOptions& options) const override {
-        return Status::NotSupported("serialize_column_to_json with type [{}]", column.get_name());
-    }
+                                    BufferWritable& bw, FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
@@ -63,10 +59,7 @@ public:
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                               const cctz::time_zone& ctz) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "write_column_to_arrow with type " + column.get_name());
-    }
+                               const cctz::time_zone& ctz) const override;
 
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override {

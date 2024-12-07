@@ -46,7 +46,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class FunctionArraySortBy : public IFunction {
 public:
     static constexpr auto name = "array_sortby";

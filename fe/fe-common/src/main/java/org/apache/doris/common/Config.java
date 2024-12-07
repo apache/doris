@@ -164,7 +164,7 @@ public class Config extends ConfigBase {
             "MySQL Jdbc Catalog mysql does not support pushdown functions"})
     public static String[] jdbc_mysql_unsupported_pushdown_functions = {"date_trunc", "money_format", "negative"};
 
-    @ConfField(description = {"强制 SQLServer Jdbc Catalog 加密为 false",
+    @ConfField(mutable = true, masterOnly = true, description = {"强制 SQLServer Jdbc Catalog 加密为 false",
             "Force SQLServer Jdbc Catalog encrypt to false"})
     public static boolean force_sqlserver_jdbc_encrypt_false = false;
 
@@ -424,6 +424,10 @@ public class Config extends ConfigBase {
                     + "If you enlarge this value, you should enlarge the value in "
                     + "`/proc/sys/net/core/somaxconn` at the same time"})
     public static int mysql_nio_backlog_num = 1024;
+
+    @ConfField(description = {"是否启用 mysql 连接中的 TCP keep alive，默认禁用",
+            "Whether to enable TCP Keep-Alive for MySQL connections, disabled by default"})
+    public static boolean mysql_nio_enable_keep_alive = false;
 
     @ConfField(description = {"thrift client 的连接超时时间，单位是毫秒。0 表示不设置超时时间。",
             "The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
@@ -3221,6 +3225,10 @@ public class Config extends ConfigBase {
         "The automatic start-stop wait time for cluster wake-up backoff retry count in the cloud "
             + "model is set to 300 times, which is approximately 5 minutes by default."})
     public static int auto_start_wait_to_resume_times = 300;
+
+    @ConfField(description = {"Get tablet stat task的最大并发数。",
+        "Maximal concurrent num of get tablet stat job."})
+    public static int max_get_tablet_stat_task_threads_num = 4;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

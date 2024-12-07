@@ -417,8 +417,12 @@ public:
             LOG(WARNING) << "malformed schema value, key=" << hex(schema_key);
             return -1;
         }
-        if (schema.index_size() > 0 && schema.has_inverted_index_storage_format()) {
-            res.first = schema.inverted_index_storage_format();
+        if (schema.index_size() > 0) {
+            InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V1;
+            if (schema.has_inverted_index_storage_format()) {
+                index_format = schema.inverted_index_storage_format();
+            }
+            res.first = index_format;
             res.second.reserve(schema.index_size());
             for (auto& i : schema.index()) {
                 if (i.has_index_type() && i.index_type() == IndexType::INVERTED) {
@@ -1382,17 +1386,19 @@ int InstanceRecycler::delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta
     }
     std::vector<std::string> file_paths;
     auto tablet_schema = rs_meta_pb.tablet_schema();
+    auto index_storage_format = InvertedIndexStorageFormatPB::V1;
     for (int64_t i = 0; i < num_segments; ++i) {
         file_paths.push_back(segment_path(tablet_id, rowset_id, i));
         if (tablet_schema.has_inverted_index_storage_format()) {
-            if (tablet_schema.inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
-                for (const auto& index_id : index_ids) {
-                    file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i,
-                                                                index_id.first, index_id.second));
-                }
-            } else if (!index_ids.empty()) {
-                file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
+            index_storage_format = tablet_schema.inverted_index_storage_format();
+        }
+        if (index_storage_format == InvertedIndexStorageFormatPB::V1) {
+            for (const auto& index_id : index_ids) {
+                file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
+                                                            index_id.second));
             }
+        } else if (!index_ids.empty()) {
+            file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
         }
     }
     // TODO(AlexYue): seems could do do batch
@@ -1429,8 +1435,8 @@ int InstanceRecycler::delete_rowset_data(const std::vector<doris::RowsetMetaClou
 
         // Process inverted indexes
         std::vector<std::pair<int64_t, std::string>> index_ids;
-        // default format as v2.
-        InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V2;
+        // default format as v1.
+        InvertedIndexStorageFormatPB index_format = InvertedIndexStorageFormatPB::V1;
 
         if (rs.has_tablet_schema()) {
             for (const auto& index : rs.tablet_schema().index()) {

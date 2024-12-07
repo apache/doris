@@ -102,8 +102,6 @@ public:
     using value_type = T;
     using Container = PaddedPODArray<value_type>;
 
-    bool is_numeric() const override { return false; }
-
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {

@@ -717,7 +717,7 @@ suite("txn_insert") {
         }
 
         // 18. column update(mow table)
-        if (use_nereids_planner) {
+        if (use_nereids_planner && !isClusterKeyEnabled()) {
             def unique_table = "txn_insert_cu"
             for (def i in 0..3) {
                 sql """ drop table if exists ${unique_table}_${i} """

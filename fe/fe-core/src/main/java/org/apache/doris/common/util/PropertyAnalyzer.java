@@ -637,6 +637,9 @@ public class PropertyAnalyzer {
             }
 
             String[] bfColumnArr = bfColumnsStr.split(COMMA_SEPARATOR);
+            if (bfColumnArr.length == 0) {
+                return bfColumns;
+            }
             Set<String> bfColumnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             for (String bfColumn : bfColumnArr) {
                 bfColumn = bfColumn.trim();
@@ -1126,6 +1129,8 @@ public class PropertyAnalyzer {
         } else {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                 return TInvertedIndexFileStorageFormat.V1;
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V3")) {
+                return TInvertedIndexFileStorageFormat.V3;
             } else {
                 return TInvertedIndexFileStorageFormat.V2;
             }
@@ -1135,9 +1140,13 @@ public class PropertyAnalyzer {
             return TInvertedIndexFileStorageFormat.V1;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v2")) {
             return TInvertedIndexFileStorageFormat.V2;
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v3")) {
+            return TInvertedIndexFileStorageFormat.V3;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                 return TInvertedIndexFileStorageFormat.V1;
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V3")) {
+                return TInvertedIndexFileStorageFormat.V3;
             } else {
                 return TInvertedIndexFileStorageFormat.V2;
             }
