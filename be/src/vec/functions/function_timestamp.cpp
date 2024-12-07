@@ -249,7 +249,7 @@ struct MakeDateImpl {
     static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return make_nullable(std::make_shared<DataTypeDateTime>());
+        return make_nullable(std::make_shared<DataTypeDate>());
     }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
