@@ -1395,14 +1395,14 @@ TEST(VTimestampFunctionsTest, from_days_test) {
     {
         DataSet data_set = {{{730669}, str_to_date_time("2000-07-03", false)}, {{0}, Null()}};
 
-        static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }
 
     {
         std::cout << "test date 0000-02-28" << std::endl;
         DataSet data_set = {{{59}, str_to_date_time("0000-02-28", false)}, {{0}, Null()}};
 
-        static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }
 
     {
