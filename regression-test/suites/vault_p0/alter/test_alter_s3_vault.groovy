@@ -62,6 +62,25 @@ suite("test_alter_s3_vault", "nonConcurrent") {
         """
     }, "Alter property")
 
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${suiteName}
+            PROPERTIES (
+            "type"="S3",
+            "s3.access_key" = "new_ak"
+            );
+        """
+    }, "Alter property")
+
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${suiteName}
+            PROPERTIES (
+            "type"="S3",
+            "s3.secret_key" = "new_sk"
+            );
+        """
+    }, "Alter property")
 
     def vaultName = suiteName
     String properties;
@@ -75,19 +94,96 @@ suite("test_alter_s3_vault", "nonConcurrent") {
         }
     }
 
-    def newVaultName = suiteName + "_new";
+    // alter ak sk
+    sql """
+        ALTER STORAGE VAULT ${vaultName}
+        PROPERTIES (
+            "type"="S3",
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}"
+        );
+    """
+
+    vaultInfos = sql """SHOW STORAGE VAULT;"""
+
+    for (int i = 0; i < vaultInfos.size(); i++) {
+        def name = vaultInfos[i][0]
+        logger.info("name is ${name}, info ${vaultInfos[i]}")
+        if (name.equals(vaultName)) {
+            assert properties == newProperties, "Properties are not the same"
+        }
+    }
+
+    sql """insert into alter_s3_vault_tbl values("2", "2"); """
+
+
+    // rename
+    newVaultName = vaultName + "_new";
+
+    sql """
+        ALTER STORAGE VAULT ${vaultName}
+        PROPERTIES (
+            "type"="S3",
+            "VAULT_NAME" = "${newVaultName}"
+        );
+    """
+
+    vaultInfos = sql """SHOW STORAGE VAULT;"""
+    for (int i = 0; i < vaultInfos.size(); i++) {
+        def name = vaultInfos[i][0]
+        logger.info("name is ${name}, info ${vaultInfos[i]}")
+        if (name.equals(newVaultName)) {
+            assert properties == newProperties, "Properties are not the same"
+        }
+        if (name.equals(vaultName)) {
+            assertTrue(false);
+        }
+    }
+
+    sql """insert into alter_s3_vault_tbl values("2", "2"); """
+
+    // rename + aksk
+    vaultName = newVaultName
 
     sql """
         ALTER STORAGE VAULT ${vaultName}
         PROPERTIES (
             "type"="S3",
             "VAULT_NAME" = "${newVaultName}",
-            "s3.access_key" = "new_ak"
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}"
         );
     """
 
     vaultInfos = sql """SHOW STORAGE VAULT;"""
+    for (int i = 0; i < vaultInfos.size(); i++) {
+        def name = vaultInfos[i][0]
+        logger.info("name is ${name}, info ${vaultInfos[i]}")
+        if (name.equals(newVaultName)) {
+            assert properties == newProperties, "Properties are not the same"
+        }
+        if (name.equals(vaultName)) {
+            assertTrue(false);
+        }
+    }
+    sql """insert into alter_s3_vault_tbl values("2", "2"); """
+
+
+    vaultName = newVaultName;
+    newVaultName = vaultName + "_new";
+
+    vaultInfos = sql """SHOW STORAGE VAULT;"""
     boolean exist = false
+
+    sql """
+        ALTER STORAGE VAULT ${vaultName}
+        PROPERTIES (
+            "type"="S3",
+            "VAULT_NAME" = "${newVaultName}",
+            "s3.access_key" = "new_ak_ak",
+            "s3.secret_key" = "sk"
+        );
+    """
 
     for (int i = 0; i < vaultInfos.size(); i++) {
         def name = vaultInfos[i][0]
@@ -96,7 +192,7 @@ suite("test_alter_s3_vault", "nonConcurrent") {
             assertTrue(false);
         }
         if (name.equals(newVaultName)) {
-            assertTrue(vaultInfos[i][2].contains("new_ak"))
+            assertTrue(vaultInfos[i][2].contains("new_ak_ak"))
             exist = true
         }
     }
