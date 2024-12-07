@@ -269,14 +269,20 @@ Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
 }
 
 Status VTabletWriterV2::_open_streams() {
-    bool fault_injection_skip_be = true;
+    int fault_injection_skip_be = 0;
     bool any_backend = false;
     bool any_success = false;
     for (auto& [dst_id, _] : _tablets_for_node) {
         auto streams = _load_stream_map->get_or_create(dst_id);
         DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_one_backend", {
-            if (fault_injection_skip_be) {
-                fault_injection_skip_be = false;
+            if (fault_injection_skip_be < 1) {
+                fault_injection_skip_be++;
+                continue;
+            }
+        });
+        DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_two_backends", {
+            if (fault_injection_skip_be < 2) {
+                fault_injection_skip_be++;
                 continue;
             }
         });
