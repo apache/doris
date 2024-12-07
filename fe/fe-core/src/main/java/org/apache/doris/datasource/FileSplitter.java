@@ -22,17 +22,13 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TFileCompressType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import lombok.Getter;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 
 public class FileSplitter {
     private static final Logger LOG = LogManager.getLogger(FileSplitter.class);
