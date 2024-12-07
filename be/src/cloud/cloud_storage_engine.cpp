@@ -337,11 +337,11 @@ void CloudStorageEngine::sync_storage_vault() {
 
     for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
-        auto st = (fs == nullptr)
-                          ? std::visit(VaultCreateFSVisitor {id, path_format}, vault_info)
-                          : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
-                                       vault_info);
-        if (!st.ok()) [[unlikely]] {
+        auto status = (fs == nullptr)
+                              ? std::visit(VaultCreateFSVisitor {id, path_format}, vault_info)
+                              : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
+                                           vault_info);
+        if (!status.ok()) [[unlikely]] {
             LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
         }
     }
@@ -491,13 +491,13 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
             /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
             /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
-                Status st = submit_compaction_task(tablet, compaction_type);
-                if (st.ok()) continue;
-                if ((!st.is<ErrorCode::BE_NO_SUITABLE_VERSION>() &&
-                     !st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) ||
+                Status status = submit_compaction_task(tablet, compaction_type);
+                if (status.ok()) continue;
+                if ((!status.is<ErrorCode::BE_NO_SUITABLE_VERSION>() &&
+                     !status.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) ||
                     VLOG_DEBUG_IS_ON) {
                     LOG(WARNING) << "failed to submit compaction task for tablet: "
-                                 << tablet->tablet_id() << ", err: " << st;
+                                 << tablet->tablet_id() << ", err: " << status;
                 }
             }
             interval = config::generate_compaction_tasks_interval_ms;

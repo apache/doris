@@ -757,10 +757,10 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
     Status st = retry_rpc("prepare rowset", req, &resp, &MetaService_Stub::prepare_rowset);
     if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
-            RowsetMetaPB doris_rs_meta =
+            RowsetMetaPB doris_rs_meta_tmp =
                     cloud_rowset_meta_to_doris(std::move(*resp.mutable_existed_rowset_meta()));
             *existed_rs_meta = std::make_shared<RowsetMeta>();
-            (*existed_rs_meta)->init_from_pb(doris_rs_meta);
+            (*existed_rs_meta)->init_from_pb(doris_rs_meta_tmp);
         }
         return Status::AlreadyExist("failed to prepare rowset: {}", resp.status().msg());
     }
