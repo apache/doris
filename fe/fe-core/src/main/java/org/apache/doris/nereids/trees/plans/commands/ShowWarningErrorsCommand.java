@@ -54,15 +54,11 @@ public class ShowWarningErrorsCommand extends ShowCommand {
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<List<String>> rowSet = Lists.newArrayList();
         // Only success
-        return new ShowResultSet(this.getMetaData(), rowSet);
+        return new ShowResultSet(META_DATA, rowSet);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowWarningErrorsCommand(this, context);
-    }
-
-    public ShowResultSetMetaData getMetaData() {
-        return META_DATA;
     }
 }
