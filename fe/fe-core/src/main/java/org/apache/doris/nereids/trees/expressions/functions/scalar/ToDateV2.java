@@ -67,7 +67,7 @@ public class ToDateV2 extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitToDate(this, context);
+        return visitor.visitToDateV2(this, context);
     }
 
     @Override
