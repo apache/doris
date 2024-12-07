@@ -104,7 +104,7 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
         static constexpr auto name = #NAME;                                                        \
         static constexpr auto is_nullable = true;                                                  \
         static bool dont_append_return_type_name_when_register_function() {                        \
-            return true;                                                                           \
+            return false;                                                                          \
         }                                                                                          \
         static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta,              \
                                                bool& is_null) {                                    \
