@@ -411,6 +411,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     size_t nonnull_size = 0;
     null_map.emplace_back(0);
     bool prev_is_null = false;
+    std::unordered_set<size_t> ancestor_null_indices;
 
     while (has_read < origin_size + parsed_values) {
         level_t def_level = _def_levels[has_read++];
@@ -421,6 +422,9 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         }
 
         if (def_level < _field_schema->repeated_parent_def_level) {
+            for (size_t i = 0; i < loop_read; i++) {
+                ancestor_null_indices.insert(has_read - loop_read + i);
+            }
             ancestor_nulls += loop_read;
             continue;
         }
@@ -469,7 +473,8 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             SCOPED_RAW_TIMER(&_decode_null_map_time);
             RETURN_IF_ERROR(
                     select_vector.init(null_map, num_values, map_data_column, current_filter_map,
-                                       _nested_filter_map_data ? origin_size : _filter_map_index));
+                                       _nested_filter_map_data ? origin_size : _filter_map_index,
+                                       &ancestor_null_indices));
         }
 
         RETURN_IF_ERROR(

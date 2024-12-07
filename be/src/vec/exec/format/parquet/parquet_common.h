@@ -24,6 +24,7 @@
 #include <ostream>
 #include <regex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "vec/columns/column_nullable.h"
@@ -102,13 +103,15 @@ public:
     ColumnSelectVector() = default;
 
     Status init(const std::vector<uint16_t>& run_length_null_map, size_t num_values,
-                NullMap* null_map, FilterMap* filter_map, size_t filter_map_index) {
+                NullMap* null_map, FilterMap* filter_map, size_t filter_map_index,
+                const std::unordered_set<size_t>* skipped_indices = nullptr) {
         _num_values = num_values;
         _num_nulls = 0;
         _read_index = 0;
         size_t map_index = 0;
         bool is_null = false;
         _has_filter = filter_map->has_filter();
+
         if (filter_map->has_filter()) {
             // No run length null map is generated when _filter_all = true
             DCHECK(!filter_map->filter_all());
@@ -126,19 +129,36 @@ public:
                 }
                 is_null = !is_null;
             }
+
             size_t num_read = 0;
-            DCHECK_LE(filter_map_index + num_values, filter_map->filter_map_size());
-            for (size_t i = 0; i < num_values; ++i) {
-                if (filter_map->filter_map_data()[filter_map_index++]) {
-                    _data_map[i] = _data_map[i] == FILTERED_NULL ? NULL_DATA : CONTENT;
+            size_t i = 0;
+            size_t valid_count = 0;
+
+            while (valid_count < num_values) {
+                DCHECK_LT(filter_map_index + i, filter_map->filter_map_size());
+
+                if (skipped_indices != nullptr &&
+                    skipped_indices->count(filter_map_index + i) > 0) {
+                    ++i;
+                    continue;
+                }
+
+                if (filter_map->filter_map_data()[filter_map_index + i]) {
+                    _data_map[valid_count] =
+                            _data_map[valid_count] == FILTERED_NULL ? NULL_DATA : CONTENT;
                     num_read++;
                 }
+                ++valid_count;
+                ++i;
             }
+
             _num_filtered = num_values - num_read;
+
             if (null_map != nullptr && num_read > 0) {
                 NullMap& map_data_column = *null_map;
                 auto null_map_index = map_data_column.size();
                 map_data_column.resize(null_map_index + num_read);
+
                 if (_num_nulls == 0) {
                     memset(map_data_column.data() + null_map_index, 0, num_read);
                 } else if (_num_nulls == num_values) {
