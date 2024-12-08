@@ -1419,6 +1419,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = "filter_cost_factor", needForward = true)
     public double filterCostFactor = 0.0001;
 
+    @VariableMgr.VarAttr(name = "scan_cost_factor", needForward = true)
+    public double scanCostFactor = 0.0005;
+
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
 

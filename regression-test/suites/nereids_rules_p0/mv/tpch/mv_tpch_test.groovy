@@ -1789,4 +1789,72 @@ suite("mv_tpch_test") {
     async_mv_rewrite_success(db, mv22, query22, "mv22")
     order_qt_query22_after "${query22}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv22"""
+
+    // Test the cost model should chose the mv when join partition rewrite successfully
+    def mv23 = """
+            SELECT
+              s_acctbal,
+              s_name,
+              n_name,
+              p_partkey,
+              ps_partkey,
+              p_size,
+              p_type,
+              p_mfgr,
+              s_address,
+              s_phone,
+              s_comment,
+              s_suppkey,
+              ps_suppkey,
+              s_nationkey,
+              n_nationkey,
+              n_regionkey
+            FROM
+              part,
+              supplier,
+              partsupp,
+              nation
+            WHERE
+              p_partkey = ps_partkey
+              AND s_suppkey = ps_suppkey
+              AND s_nationkey = n_nationkey;
+    """
+    def query23 = """
+             SELECT
+              s_acctbal,
+              s_name,
+              n_name,
+              p_partkey,
+              p_size,
+              p_type,
+              p_mfgr,
+              s_address,
+              s_phone,
+              s_comment,
+              r_name
+            FROM
+              part,
+              supplier,
+              partsupp,
+              nation,
+              region
+            WHERE
+              p_partkey = ps_partkey
+              AND s_suppkey = ps_suppkey
+              AND p_size = 15
+              AND p_type LIKE '%BRASS'
+              AND s_nationkey = n_nationkey
+              AND n_regionkey = r_regionkey
+              AND r_name = 'EUROPE'
+            ORDER BY
+              s_acctbal DESC,
+              n_name,
+              s_name,
+              p_partkey
+            LIMIT 100;
+    """
+    order_qt_query23_before "${query23}"
+    async_mv_rewrite_success(db, mv23, query23, "mv23")
+    order_qt_query23_after "${query23}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv23"""
 }
