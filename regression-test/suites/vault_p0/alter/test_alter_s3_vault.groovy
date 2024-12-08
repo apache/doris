@@ -245,6 +245,9 @@ suite("test_alter_s3_vault", "nonConcurrent") {
         """
     }, "already exists")
 
+    def count = sql """ select count() from alter_s3_vault_tbl; """
+    assertTrue(res[0][0] == 4)
+
     // failed to insert due to the wrong ak
     expectExceptionLike({ sql """insert into alter_s3_vault_tbl values("2", "2");""" }, "")
 }
