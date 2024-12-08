@@ -87,7 +87,13 @@ public class IcebergScanNode extends FileQueryScanNode {
     private IcebergSource source;
     private Table icebergTable;
     private List<String> pushdownIcebergPredicates = Lists.newArrayList();
-    private boolean pushDownCount = false;
+    // If tableLevelPushDownCount is true, means we can do count push down opt at table level.
+    // which means all splits have no position/equality delete files,
+    // so for query like "select count(*) from ice_tbl", we can get count from snapshot row count info directly.
+    // If tableLevelPushDownCount is false, means we can't do count push down opt at table level,
+    // But for part of splits which have no position/equality delete files, we can still do count push down opt.
+    // And for split level count push down opt, the flag is set in each split.
+    private boolean tableLevelPushDownCount = false;
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
 
     /**
@@ -140,8 +146,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         int formatVersion = icebergSplit.getFormatVersion();
         fileDesc.setFormatVersion(formatVersion);
         fileDesc.setOriginalFilePath(icebergSplit.getOriginalPath());
-        if (pushDownCount) {
-            fileDesc.setRowCount(icebergSplit.getRowCount());
+        if (tableLevelPushDownCount) {
+            fileDesc.setRowCount(icebergSplit.getTableLevelRowCount());
         }
         if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
@@ -271,7 +277,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             long countFromSnapshot = getCountFromSnapshot();
             if (countFromSnapshot >= 0) {
-                pushDownCount = true;
+                tableLevelPushDownCount = true;
                 List<Split> pushDownCountSplits;
                 if (countFromSnapshot > COUNT_WITH_PARALLEL_SPLITS) {
                     int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
@@ -424,8 +430,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         int size = splits.size();
         long countPerSplit = totalCount / size;
         for (int i = 0; i < size - 1; i++) {
-            ((IcebergSplit) splits.get(i)).setRowCount(countPerSplit);
+            ((IcebergSplit) splits.get(i)).setTableLevelRowCount(countPerSplit);
         }
-        ((IcebergSplit) splits.get(size - 1)).setRowCount(countPerSplit + totalCount % size);
+        ((IcebergSplit) splits.get(size - 1)).setTableLevelRowCount(countPerSplit + totalCount % size);
     }
 }
