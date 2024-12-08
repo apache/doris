@@ -1460,15 +1460,6 @@ TEST(VTimestampFunctionsTest, dayname_test) {
     }
 
     {
-        InputTypeSet input_types = {TypeIndex::Date};
-
-        DataSet data_set = {{{std::string("2007-02-03")}, std::string("Saturday")},
-                            {{std::string("2020-01-00")}, Null()}};
-
-        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
-    }
-
-    {
         InputTypeSet input_types = {TypeIndex::DateTimeV2};
 
         DataSet data_set = {{{std::string("2007-02-03 00:00:11.123")}, std::string("Saturday")},
