@@ -59,6 +59,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BinlogConfig;
@@ -890,9 +891,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             return;
         }
 
-        BackupJob backupJob = (BackupJob) Env.getCurrentEnv().getBackupHandler().getJob(db.getId());
-        if (backupJob != null && !backupJob.isDone()
-                && (olapTable == null || backupJob.getBackupMeta().getTable(olapTable.getId()) != null)) {
+        AbstractJob job = Env.getCurrentEnv().getBackupHandler().getJob(db.getId());
+        if (job != null job instanceof BackupJob) {
+            BackupJob backupJob = (BackupJob) job;
+            if (backupJob.isDone()
+                    && (olapTable == null || backupJob.getBackupMeta().getTable(olapTable.getId()) != null)) {
             LOG.warn("Backup is running on this db {} ", db.getName());
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Backup is running on this db: " + db.getName());
         }
