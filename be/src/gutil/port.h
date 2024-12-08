@@ -1075,33 +1075,6 @@ inline void UNALIGNED_STORE64(void* p, uint64 v) {
 #define UNALIGNED_STOREW(_p, _val) UNALIGNED_STORE32(_p, _val)
 #endif
 
-// NOTE(user): These are only exported to C++ because the macros they depend on
-// use C++-only syntax. This #ifdef can be removed if/when the macros are fixed.
-
-#if defined(__cplusplus)
-
-inline void UnalignedCopy16(const void* src, void* dst) {
-    UNALIGNED_STORE16(dst, UNALIGNED_LOAD16(src));
-}
-
-inline void UnalignedCopy32(const void* src, void* dst) {
-    UNALIGNED_STORE32(dst, UNALIGNED_LOAD32(src));
-}
-
-inline void UnalignedCopy64(const void* src, void* dst) {
-    if (sizeof(void*) == 8) {
-        UNALIGNED_STORE64(dst, UNALIGNED_LOAD64(src));
-    } else {
-        const char* src_char = reinterpret_cast<const char*>(src);
-        char* dst_char = reinterpret_cast<char*>(dst);
-
-        UNALIGNED_STORE32(dst_char, UNALIGNED_LOAD32(src_char));
-        UNALIGNED_STORE32(dst_char + 4, UNALIGNED_LOAD32(src_char + 4));
-    }
-}
-
-#endif // defined(__cpluscplus)
-
 // printf macros for size_t, in the style of inttypes.h
 #ifdef _LP64
 #define __PRIS_PREFIX "z"

@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,7 +27,6 @@
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -42,17 +40,17 @@ class Block;
 namespace doris::vectorized {
 
 struct StConstructState {
-    StConstructState() : is_null(false) {}
-    ~StConstructState() {}
+    StConstructState() = default;
+    ~StConstructState() = default;
 
-    bool is_null;
+    bool is_null {};
     std::string encoded_buf;
 };
 
 struct StContainsState {
-    StContainsState() : is_null(false), shapes {nullptr, nullptr} {}
-    ~StContainsState() {}
-    bool is_null;
+    StContainsState() : shapes {nullptr, nullptr} {}
+    ~StContainsState() = default;
+    bool is_null {};
     std::vector<std::shared_ptr<GeoShape>> shapes;
 };
 
