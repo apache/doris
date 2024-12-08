@@ -597,7 +597,7 @@ TEST(VTimestampFunctionsTest, weekday_test) {
 
         static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
     }
-    InputTypeSet input_types = {TypeIndex::Date};
+    InputTypeSet input_types = {TypeIndex::DateV2};
 
     DataSet data_set = {{{std::string("2001-02-03")}, int8_t {5}},
                         {{std::string("2019-06-25")}, int8_t {1}},
