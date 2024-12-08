@@ -21,24 +21,53 @@
 
 namespace doris::vectorized {
 
-using FunctionAddSeconds = FunctionDateOrDateTimeComputation<AddSecondsImpl<DataTypeDateTime>>;
-using FunctionAddMinutes = FunctionDateOrDateTimeComputation<AddMinutesImpl<DataTypeDateTime>>;
-using FunctionAddHours = FunctionDateOrDateTimeComputation<AddHoursImpl<DataTypeDateTime>>;
-using FunctionAddDays = FunctionDateOrDateTimeComputation<AddDaysImpl<DataTypeDateTime>>;
-using FunctionAddWeeks = FunctionDateOrDateTimeComputation<AddWeeksImpl<DataTypeDateTime>>;
-using FunctionAddMonths = FunctionDateOrDateTimeComputation<AddMonthsImpl<DataTypeDateTime>>;
-using FunctionAddQuarters = FunctionDateOrDateTimeComputation<AddQuartersImpl<DataTypeDateTime>>;
-using FunctionAddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDateTime>>;
+using FunctionDatetimeAddSeconds =
+        FunctionDateOrDateTimeComputation<AddSecondsImpl<DataTypeDateTime>>;
+using FunctionDatetimeAddMinutes =
+        FunctionDateOrDateTimeComputation<AddMinutesImpl<DataTypeDateTime>>;
+using FunctionDatetimeAddHours = FunctionDateOrDateTimeComputation<AddHoursImpl<DataTypeDateTime>>;
+using FunctionDatetimeAddDays = FunctionDateOrDateTimeComputation<AddDaysImpl<DataTypeDateTime>>;
+using FunctionDatetimeAddWeeks = FunctionDateOrDateTimeComputation<AddWeeksImpl<DataTypeDateTime>>;
+using FunctionDatetimeAddMonths =
+        FunctionDateOrDateTimeComputation<AddMonthsImpl<DataTypeDateTime>>;
+using FunctionDatetimeAddQuarters =
+        FunctionDateOrDateTimeComputation<AddQuartersImpl<DataTypeDateTime>>;
+using FunctionDatetimeAddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDateTime>>;
 
-using FunctionSubSeconds = FunctionDateOrDateTimeComputation<SubtractSecondsImpl<DataTypeDateTime>>;
-using FunctionSubMinutes = FunctionDateOrDateTimeComputation<SubtractMinutesImpl<DataTypeDateTime>>;
-using FunctionSubHours = FunctionDateOrDateTimeComputation<SubtractHoursImpl<DataTypeDateTime>>;
-using FunctionSubDays = FunctionDateOrDateTimeComputation<SubtractDaysImpl<DataTypeDateTime>>;
-using FunctionSubWeeks = FunctionDateOrDateTimeComputation<SubtractWeeksImpl<DataTypeDateTime>>;
-using FunctionSubMonths = FunctionDateOrDateTimeComputation<SubtractMonthsImpl<DataTypeDateTime>>;
-using FunctionSubQuarters =
+using FunctionAddSeconds = FunctionDateOrDateTimeComputation<AddSecondsImpl<DataTypeDate>>;
+using FunctionAddMinutes = FunctionDateOrDateTimeComputation<AddMinutesImpl<DataTypeDate>>;
+using FunctionAddHours = FunctionDateOrDateTimeComputation<AddHoursImpl<DataTypeDate>>;
+using FunctionAddDays = FunctionDateOrDateTimeComputation<AddDaysImpl<DataTypeDate>>;
+using FunctionAddWeeks = FunctionDateOrDateTimeComputation<AddWeeksImpl<DataTypeDate>>;
+using FunctionAddMonths = FunctionDateOrDateTimeComputation<AddMonthsImpl<DataTypeDate>>;
+using FunctionAddQuarters = FunctionDateOrDateTimeComputation<AddQuartersImpl<DataTypeDate>>;
+using FunctionAddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDate>>;
+
+using FunctionDatetimeSubSeconds =
+        FunctionDateOrDateTimeComputation<SubtractSecondsImpl<DataTypeDateTime>>;
+using FunctionDatetimeSubMinutes =
+        FunctionDateOrDateTimeComputation<SubtractMinutesImpl<DataTypeDateTime>>;
+using FunctionDatetimeSubHours =
+        FunctionDateOrDateTimeComputation<SubtractHoursImpl<DataTypeDateTime>>;
+using FunctionDatetimeSubDays =
+        FunctionDateOrDateTimeComputation<SubtractDaysImpl<DataTypeDateTime>>;
+using FunctionDatetimeSubWeeks =
+        FunctionDateOrDateTimeComputation<SubtractWeeksImpl<DataTypeDateTime>>;
+using FunctionDatetimeSubMonths =
+        FunctionDateOrDateTimeComputation<SubtractMonthsImpl<DataTypeDateTime>>;
+using FunctionDatetimeSubQuarters =
         FunctionDateOrDateTimeComputation<SubtractQuartersImpl<DataTypeDateTime>>;
-using FunctionSubYears = FunctionDateOrDateTimeComputation<SubtractYearsImpl<DataTypeDateTime>>;
+using FunctionDatetimeSubYears =
+        FunctionDateOrDateTimeComputation<SubtractYearsImpl<DataTypeDateTime>>;
+
+using FunctionSubSeconds = FunctionDateOrDateTimeComputation<SubtractSecondsImpl<DataTypeDate>>;
+using FunctionSubMinutes = FunctionDateOrDateTimeComputation<SubtractMinutesImpl<DataTypeDate>>;
+using FunctionSubHours = FunctionDateOrDateTimeComputation<SubtractHoursImpl<DataTypeDate>>;
+using FunctionSubDays = FunctionDateOrDateTimeComputation<SubtractDaysImpl<DataTypeDate>>;
+using FunctionSubWeeks = FunctionDateOrDateTimeComputation<SubtractWeeksImpl<DataTypeDate>>;
+using FunctionSubMonths = FunctionDateOrDateTimeComputation<SubtractMonthsImpl<DataTypeDate>>;
+using FunctionSubQuarters = FunctionDateOrDateTimeComputation<SubtractQuartersImpl<DataTypeDate>>;
+using FunctionSubYears = FunctionDateOrDateTimeComputation<SubtractYearsImpl<DataTypeDate>>;
 
 using FunctionDateDiff =
         FunctionDateOrDateTimeComputation<DateDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
@@ -94,6 +123,15 @@ using FunctionMilliSecToDateTime = TimestampToDateTime<MilliSec>;
 using FunctionSecToDateTime = TimestampToDateTime<Sec>;
 
 void register_function_date_time_computation(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionDatetimeAddSeconds>();
+    factory.register_function<FunctionDatetimeAddMinutes>();
+    factory.register_function<FunctionDatetimeAddHours>();
+    factory.register_function<FunctionDatetimeAddDays>();
+    factory.register_function<FunctionDatetimeAddWeeks>();
+    factory.register_function<FunctionDatetimeAddMonths>();
+    factory.register_function<FunctionDatetimeAddYears>();
+    factory.register_function<FunctionDatetimeAddQuarters>();
+
     factory.register_function<FunctionAddSeconds>();
     factory.register_function<FunctionAddMinutes>();
     factory.register_function<FunctionAddHours>();
@@ -102,6 +140,15 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddMonths>();
     factory.register_function<FunctionAddYears>();
     factory.register_function<FunctionAddQuarters>();
+
+    factory.register_function<FunctionDatetimeSubSeconds>();
+    factory.register_function<FunctionDatetimeSubMinutes>();
+    factory.register_function<FunctionDatetimeSubHours>();
+    factory.register_function<FunctionDatetimeSubDays>();
+    factory.register_function<FunctionDatetimeSubMonths>();
+    factory.register_function<FunctionDatetimeSubYears>();
+    factory.register_function<FunctionDatetimeSubQuarters>();
+    factory.register_function<FunctionDatetimeSubWeeks>();
 
     factory.register_function<FunctionSubSeconds>();
     factory.register_function<FunctionSubMinutes>();

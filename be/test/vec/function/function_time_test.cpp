@@ -1393,21 +1393,21 @@ TEST(VTimestampFunctionsTest, from_days_test) {
     InputTypeSet input_types = {TypeIndex::Int32};
 
     {
-        DataSet data_set = {{{730669}, str_to_date_time("2000-07-03", false)}, {{0}, Null()}};
+        DataSet data_set = {{{730669}, str_to_date_v2("2000-07-03", "%Y-%m-%d")}, {{0}, Null()}};
 
         static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }
 
     {
         std::cout << "test date 0000-02-28" << std::endl;
-        DataSet data_set = {{{59}, str_to_date_time("0000-02-28", false)}, {{0}, Null()}};
+        DataSet data_set = {{{59}, str_to_date_v2("0000-02-28", "%Y-%m-%d")}, {{0}, Null()}};
 
         static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }
 
     {
         std::cout << "test date 0000-03-01" << std::endl;
-        DataSet data_set = {{{60}, str_to_date_time("0000-03-01", false)}, {{0}, Null()}};
+        DataSet data_set = {{{60}, str_to_date_v2("0000-03-01", "%Y-%m-%d")}, {{0}, Null()}};
 
         static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }

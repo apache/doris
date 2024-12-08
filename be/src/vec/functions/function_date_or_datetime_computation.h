@@ -89,7 +89,15 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
     template <typename DateType>                                                                   \
     struct CLASS {                                                                                 \
         using ReturnType = std::conditional_t<                                                     \
-                date_cast::IsV1<DateType>(), DataTypeDateTime,                                     \
+                date_cast::IsV1<DateType>(),                                                       \
+                std::conditional_t<                                                                \
+                        std::is_same_v<DateType, DataTypeDate>,                                    \
+                        std::conditional_t<TimeUnit::UNIT == TimeUnit::HOUR ||                     \
+                                                   TimeUnit::UNIT == TimeUnit::MINUTE ||           \
+                                                   TimeUnit::UNIT == TimeUnit::SECOND ||           \
+                                                   TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND, \
+                                           DataTypeDateTime, DataTypeDate>,                        \
+                        DataTypeDateTime>,                                                         \
                 std::conditional_t<                                                                \
                         std::is_same_v<DateType, DataTypeDateV2>,                                  \
                         std::conditional_t<TimeUnit::UNIT == TimeUnit::HOUR ||                     \
