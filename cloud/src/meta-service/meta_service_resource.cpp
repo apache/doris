@@ -183,7 +183,7 @@ int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_
     return 0;
 }
 
-static int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode& code,
+int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode& code,
                                     std::string& msg) {
     if (obj_info.has_encryption_info()) {
         AkSkPair plain_ak_sk_pair;
@@ -963,7 +963,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         return;
     }
     err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG(INFO) << "get instance_id=" << instance_id << ", instance_key=" << hex(key);
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);

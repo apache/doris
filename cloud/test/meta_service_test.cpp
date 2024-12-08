@@ -446,12 +446,78 @@ TEST(MetaServiceTest, CreateInstanceTest) {
     }
 }
 
+static void get_all_vaults(const MetaServiceProxy* meta_service, const InstanceInfoPB& instance,
+                           std::vector<StorageVaultPB>& all_vaults) {
+    LOG(INFO) << "get all vaults " << instance.DebugString();
+    for (auto vault_id : instance.resource_ids()) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        const std::string key = storage_vault_key({instance.instance_id(), vault_id});
+
+        LOG(INFO) << "vault key = " << hex(key);
+
+        std::string value;
+        ASSERT_EQ(txn->get(key, &value), TxnErrorCode::TXN_OK);
+
+        StorageVaultPB vault_pb;
+        ASSERT_TRUE(vault_pb.ParseFromArray(value.data(), value.size()));
+
+        all_vaults.push_back(vault_pb);
+        LOG(INFO) << "get vault = " << vault_pb.DebugString();
+    }
+    EXPECT_EQ(all_vaults.size(), instance.resource_ids().size());
+}
+
+static void check_vault_name_consistency(const MetaServiceProxy* meta_service, const InstanceInfoPB& instance) {
+    std::vector<StorageVaultPB> all_vaults;
+
+    get_all_vaults(meta_service, instance, all_vaults);
+    LOG(INFO) << "All Vaults: ";
+    for (const auto& vault : all_vaults) {
+        LOG(INFO) << "Vault Name: " << vault.name();
+    }
+    LOG(INFO) << "Instance Storage Vault Names: ";
+    for (const auto& vault_name : instance.storage_vault_names()) {
+        LOG(INFO) << "Vault Name: " << vault_name;
+    }
+    for (const auto& vault_name : instance.storage_vault_names()) {
+        int found = 0;
+        for (const auto& vault_pb : all_vaults) {
+            if (vault_pb.name() == vault_name) {
+                found++;
+            }
+        }
+        ASSERT_EQ(found, 1) << "vault_name " << vault_name << " does not exists in objinfo";
+    }
+
+    for (const auto& vault_pb : all_vaults) {
+        int found = 0;
+        for (const auto& vault_name : instance.storage_vault_names()) {
+            if (vault_pb.name() == vault_name) {
+                found++;
+            }
+        }
+        ASSERT_EQ(found, 1) << "vault_name " << vault_pb.name() << " does not exists in vault names";
+    }
+}
+
+extern int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode& code,
+                                    std::string& msg);
+
 TEST(MetaServiceTest, AlterS3StorageVaultTest) {
     auto meta_service = get_meta_service();
 
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
     sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
         auto* ret = try_any_cast<int*>(args[0]);
         *ret = 0;
         auto* key = try_any_cast<std::string*>(args[1]);
@@ -469,7 +535,9 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     std::string key;
     std::string val;
-    InstanceKeyInfo key_info {"test_instance"};
+
+    const std::string instance_id = "test_instance";
+    InstanceKeyInfo key_info {instance_id};
     instance_key(key_info, &key);
 
     ObjectStoreInfoPB obj_info;
@@ -484,29 +552,56 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
     InstanceInfoPB instance;
     instance.add_storage_vault_names(vault.name());
     instance.add_resource_ids(vault.id());
-    instance.set_instance_id("GetObjStoreInfoTestInstance");
+    instance.set_instance_id(instance_id);
     val = instance.SerializeAsString();
     txn->put(key, val);
-    txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    key.clear();
+    storage_vault_key({instance.instance_id(), vault.id()}, &key);
+    LOG(INFO) << "vault key = " << hex(key);
+    txn->put(key, vault.SerializeAsString());
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     txn = nullptr;
+
+    std::vector<StorageVaultPB> vaults;
+    get_all_vaults(meta_service.get(), instance, vaults);
 
     auto get_test_instance = [&](InstanceInfoPB& i) {
         std::string key;
         std::string val;
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        InstanceKeyInfo key_info {"test_instance"};
+        InstanceKeyInfo key_info {instance_id};
         instance_key(key_info, &key);
         ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
         i.ParseFromString(val);
     };
 
+    auto get_vault_pb = [&](std::string vault_id) {
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+
+        std::vector<StorageVaultPB> vaults;
+        get_all_vaults(meta_service.get(), instance, vaults);
+
+        for (const auto& vault : vaults) {
+            if (vault.id() == vault_id) {
+                return vault;
+            }
+        }
+
+        return StorageVaultPB();
+    };
+
+    // can not change ak without sk
     {
+
+        StorageVaultPB orig_vault = get_vault_pb("2");
+
         AlterObjStoreInfoRequest req;
-        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_cloud_unique_id("1:" + instance_id + ":1");
         req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
         StorageVaultPB vault;
+
         vault.mutable_obj_info()->set_ak("new_ak");
         vault.set_name(vault_name);
         req.mutable_vault()->CopyFrom(vault);
@@ -515,27 +610,50 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         AlterObjStoreInfoResponse res;
         meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
-        InstanceInfoPB instance;
-        get_test_instance(instance);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
 
-        std::unique_ptr<Transaction> txn;
-        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        std::string val;
-        ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "2"}), &val),
-                  TxnErrorCode::TXN_OK);
-        StorageVaultPB get_obj;
-        get_obj.ParseFromString(val);
-        ASSERT_EQ(get_obj.obj_info().ak(), "new_ak") << get_obj.obj_info().ak();
+        StorageVaultPB new_vault = get_vault_pb("2");
+
+        ASSERT_EQ(orig_vault.SerializeAsString(), new_vault.SerializeAsString());
     }
 
+    // can not change sk without ak
     {
+
+        StorageVaultPB orig_vault = get_vault_pb("2");
+
         AlterObjStoreInfoRequest req;
-        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_cloud_unique_id("1:" + instance_id + ":1");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+
+        vault.mutable_obj_info()->set_sk("new_sk");
+        vault.set_name(vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+
+        StorageVaultPB new_vault = get_vault_pb("2");
+
+        ASSERT_EQ(orig_vault.SerializeAsString(), new_vault.SerializeAsString());
+    }
+
+    // alter not exists
+    {
+        StorageVaultPB orig_vault = get_vault_pb("2");
+
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("1:" + instance_id + ":1");
         req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
         StorageVaultPB vault;
         ObjectStoreInfoPB obj;
-        obj_info.set_ak("new_ak");
+        obj.set_ak("new_ak");
+        obj.set_sk("new_sk");
+
         vault.mutable_obj_info()->MergeFrom(obj);
         vault.set_name("test_alter_s3_vault_non_exist");
         req.mutable_vault()->CopyFrom(vault);
@@ -545,17 +663,76 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        StorageVaultPB new_vault = get_vault_pb("2");
+
+        EXPECT_EQ(new_vault.SerializeAsString(), orig_vault.SerializeAsString());
     }
 
+    // alter ak sk
     {
+
+        LOG(INFO) << "alter ak sk";
+
+        StorageVaultPB orig_vault = get_vault_pb("2");
+
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("1:" + instance_id + ":1");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        ObjectStoreInfoPB obj;
+        obj.set_ak("new_ak");
+        obj.set_sk("new_sk");
+
+        vault.mutable_obj_info()->MergeFrom(obj);
+        vault.set_name(vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        StorageVaultPB new_vault = get_vault_pb("2");
+
+        // Check if all fields except ak and sk are the same for orig_vault and new_vault
+        EXPECT_EQ(orig_vault.name(), new_vault.name());
+        EXPECT_EQ(orig_vault.obj_info().endpoint(), new_vault.obj_info().endpoint());
+        EXPECT_EQ(orig_vault.obj_info().region(), new_vault.obj_info().region());
+        EXPECT_EQ(orig_vault.obj_info().bucket(), new_vault.obj_info().bucket());
+        EXPECT_EQ(orig_vault.obj_info().prefix(), new_vault.obj_info().prefix());
+        EXPECT_EQ(orig_vault.obj_info().external_endpoint(), new_vault.obj_info().external_endpoint());
+        EXPECT_EQ(orig_vault.obj_info().provider(), new_vault.obj_info().provider());
+        ASSERT_NE(orig_vault.obj_info().ak(), new_vault.obj_info().ak());
+        ASSERT_NE(orig_vault.obj_info().sk(), new_vault.obj_info().sk());
+
+        MetaServiceCode code;
+        std::string msg;
+        LOG(INFO) << "alter ak sk";
+
+        int ret = decrypt_and_update_ak_sk(*new_vault.mutable_obj_info(), code, msg);
+        ASSERT_EQ(ret, 0);
+        // Check if ak and sk of new vault are set
+        LOG(INFO) << "alter ak sk";
+
+        ASSERT_EQ(new_vault.obj_info().ak(), "new_ak");
+        ASSERT_EQ(new_vault.obj_info().sk(), "new_sk");
+    }
+
+    // rename with invalid name
+    {
+        LOG(INFO) << "rename with invalid name";
+
+        StorageVaultPB orig_vault = get_vault_pb("2");
+
         AlterObjStoreInfoRequest req;
         constexpr char new_vault_name[] = "@!#vault_name";
-        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_cloud_unique_id("1:" + instance_id + ":1");
         req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
         StorageVaultPB vault;
         vault.set_alter_name(new_vault_name);
         ObjectStoreInfoPB obj;
-        obj_info.set_ak("new_ak");
         vault.mutable_obj_info()->MergeFrom(obj);
         vault.set_name(vault_name);
         req.mutable_vault()->CopyFrom(vault);
@@ -567,17 +744,29 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         ASSERT_TRUE(res.status().msg().find("invalid storage vault name") != std::string::npos)
                 << res.status().msg();
+
+        StorageVaultPB new_vault = get_vault_pb("2");
+
+        EXPECT_EQ(orig_vault.name(), new_vault.name());
+        EXPECT_EQ(orig_vault.obj_info().endpoint(), new_vault.obj_info().endpoint());
+        EXPECT_EQ(orig_vault.obj_info().region(), new_vault.obj_info().region());
+        EXPECT_EQ(orig_vault.obj_info().bucket(), new_vault.obj_info().bucket());
+        EXPECT_EQ(orig_vault.obj_info().prefix(), new_vault.obj_info().prefix());
+        EXPECT_EQ(orig_vault.obj_info().external_endpoint(), new_vault.obj_info().external_endpoint());
+        EXPECT_EQ(orig_vault.obj_info().provider(), new_vault.obj_info().provider());
+        EXPECT_EQ(orig_vault.obj_info().ak(), new_vault.obj_info().ak());
+        EXPECT_EQ(orig_vault.obj_info().sk(), new_vault.obj_info().sk());
     }
 
+    // empty rename
     {
+        StorageVaultPB orig_vault = get_vault_pb("2");
+
         AlterObjStoreInfoRequest req;
-        constexpr char new_vault_name[] = "new_test_alter_s3_vault";
-        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_cloud_unique_id("1:" + instance_id + ":1");
         req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
         StorageVaultPB vault;
-        vault.set_alter_name(new_vault_name);
         ObjectStoreInfoPB obj;
-        obj_info.set_ak("new_ak");
         vault.mutable_obj_info()->MergeFrom(obj);
         vault.set_name(vault_name);
         req.mutable_vault()->CopyFrom(vault);
@@ -587,17 +776,139 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        StorageVaultPB new_vault = get_vault_pb("2");
+
+        EXPECT_EQ(orig_vault.name(), new_vault.name());
+        EXPECT_EQ(orig_vault.obj_info().endpoint(), new_vault.obj_info().endpoint());
+        EXPECT_EQ(orig_vault.obj_info().region(), new_vault.obj_info().region());
+        EXPECT_EQ(orig_vault.obj_info().bucket(), new_vault.obj_info().bucket());
+        EXPECT_EQ(orig_vault.obj_info().prefix(), new_vault.obj_info().prefix());
+        EXPECT_EQ(orig_vault.obj_info().external_endpoint(), new_vault.obj_info().external_endpoint());
+        EXPECT_EQ(orig_vault.obj_info().provider(), new_vault.obj_info().provider());
+        EXPECT_EQ(orig_vault.obj_info().ak(), new_vault.obj_info().ak());
+        EXPECT_EQ(orig_vault.obj_info().sk(), new_vault.obj_info().sk());
+    }
+
+    // rename with normal name
+    {
+        StorageVaultPB orig_vault = get_vault_pb("2");
+
+        AlterObjStoreInfoRequest req;
+        constexpr char new_vault_name[] = "new_test_alter_s3_vault";
+        req.set_cloud_unique_id("1:" + instance_id + ":1");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        vault.set_alter_name(new_vault_name);
+        ObjectStoreInfoPB obj;
+        obj.set_ak("new_ak");
+        vault.mutable_obj_info()->MergeFrom(obj);
+        vault.set_name(vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        StorageVaultPB new_vault = get_vault_pb("2");
+
+        EXPECT_EQ(vault.name(), new_vault.name());
+        EXPECT_EQ(orig_vault.obj_info().endpoint(), new_vault.obj_info().endpoint());
+        EXPECT_EQ(orig_vault.obj_info().region(), new_vault.obj_info().region());
+        EXPECT_EQ(orig_vault.obj_info().bucket(), new_vault.obj_info().bucket());
+        EXPECT_EQ(orig_vault.obj_info().prefix(), new_vault.obj_info().prefix());
+        EXPECT_EQ(orig_vault.obj_info().external_endpoint(), new_vault.obj_info().external_endpoint());
+        EXPECT_EQ(orig_vault.obj_info().provider(), new_vault.obj_info().provider());
+        EXPECT_EQ(orig_vault.obj_info().ak(), new_vault.obj_info().ak());
+        EXPECT_EQ(orig_vault.obj_info().sk(), new_vault.obj_info().sk());
+
         InstanceInfoPB instance;
         get_test_instance(instance);
+        check_vault_name_consistency(meta_service.get(), instance);
+    }
 
-        std::unique_ptr<Transaction> txn;
-        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        std::string val;
-        ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "2"}), &val),
-                  TxnErrorCode::TXN_OK);
-        StorageVaultPB get_obj;
-        get_obj.ParseFromString(val);
-        ASSERT_EQ(get_obj.name(), new_vault_name) << get_obj.obj_info().ak();
+    // rename with normal name
+    {
+        StorageVaultPB orig_vault = get_vault_pb("2");
+
+        constexpr char orig_vault_name[] = "new_test_alter_s3_vault";
+
+        AlterObjStoreInfoRequest req;
+        constexpr char new_vault_name[] = "new_test_alter_s3_vault_new";
+        req.set_cloud_unique_id("1:" + instance_id + ":1");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        vault.set_alter_name(new_vault_name);
+        ObjectStoreInfoPB obj;
+        obj.set_ak("new_ak");
+        vault.mutable_obj_info()->MergeFrom(obj);
+        vault.set_name(orig_vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        StorageVaultPB new_vault = get_vault_pb("2");
+
+        EXPECT_EQ(vault.name(), new_vault.name());
+        EXPECT_EQ(orig_vault.obj_info().endpoint(), new_vault.obj_info().endpoint());
+        EXPECT_EQ(orig_vault.obj_info().region(), new_vault.obj_info().region());
+        EXPECT_EQ(orig_vault.obj_info().bucket(), new_vault.obj_info().bucket());
+        EXPECT_EQ(orig_vault.obj_info().prefix(), new_vault.obj_info().prefix());
+        EXPECT_EQ(orig_vault.obj_info().external_endpoint(), new_vault.obj_info().external_endpoint());
+        EXPECT_EQ(orig_vault.obj_info().provider(), new_vault.obj_info().provider());
+        EXPECT_EQ(orig_vault.obj_info().ak(), new_vault.obj_info().ak());
+        EXPECT_EQ(orig_vault.obj_info().sk(), new_vault.obj_info().sk());
+
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        check_vault_name_consistency(meta_service.get(), instance);
+    }
+
+    // rename with same name
+    {
+        StorageVaultPB orig_vault = get_vault_pb("2");
+
+        AlterObjStoreInfoRequest req;
+        constexpr char new_vault_name[] = "new_test_alter_s3_vault_new";
+        req.set_cloud_unique_id("1:" + instance_id + ":1");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        StorageVaultPB vault;
+        vault.set_alter_name(new_vault_name);
+        ObjectStoreInfoPB obj;
+        obj.set_ak("new_ak");
+        vault.mutable_obj_info()->MergeFrom(obj);
+        vault.set_name(new_vault_name);
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        StorageVaultPB new_vault = get_vault_pb("2");
+
+        EXPECT_EQ(orig_vault.name(), new_vault.name());
+        EXPECT_EQ(orig_vault.obj_info().endpoint(), new_vault.obj_info().endpoint());
+        EXPECT_EQ(orig_vault.obj_info().region(), new_vault.obj_info().region());
+        EXPECT_EQ(orig_vault.obj_info().bucket(), new_vault.obj_info().bucket());
+        EXPECT_EQ(orig_vault.obj_info().prefix(), new_vault.obj_info().prefix());
+        EXPECT_EQ(orig_vault.obj_info().external_endpoint(), new_vault.obj_info().external_endpoint());
+        EXPECT_EQ(orig_vault.obj_info().provider(), new_vault.obj_info().provider());
+        EXPECT_EQ(orig_vault.obj_info().ak(), new_vault.obj_info().ak());
+        EXPECT_EQ(orig_vault.obj_info().sk(), new_vault.obj_info().sk());
+    }
+
+    {
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        check_vault_name_consistency(meta_service.get(), instance);
     }
 
     SyncPoint::get_instance()->disable_processing();
@@ -754,6 +1065,12 @@ TEST(MetaServiceTest, AlterHdfsStorageVaultTest) {
         StorageVaultPB get_obj;
         get_obj.ParseFromString(val);
         ASSERT_EQ(get_obj.name(), new_vault_name) << get_obj.obj_info().ak();
+    }
+
+    {
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        check_vault_name_consistency(meta_service.get(), instance);
     }
 
     SyncPoint::get_instance()->disable_processing();
