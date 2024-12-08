@@ -305,6 +305,22 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     }
 }
 
+static bool is_vault_id_not_used(const InstanceInfoPB& instance, const std::string& vault_id) {
+    if (std::find_if(instance.resource_ids().begin(), instance.resource_ids().end(),
+                     [&vault_id](const auto& id) { return id == vault_id; }) !=
+        instance.resource_ids().end()) {
+        return false;
+    }
+
+    if (std::find_if(instance.obj_info().begin(), instance.obj_info().end(),
+                     [&vault_id](const auto& obj) { return obj.id() == vault_id; }) !=
+        instance.obj_info().end()) {
+        return false;
+    }
+
+    return true;
+}
+
 // The next available vault id would be max(max(obj info id), max(vault id)) + 1.
 static std::string next_available_vault_id(const InstanceInfoPB& instance) {
     int vault_id = 0;
@@ -328,6 +344,12 @@ static std::string next_available_vault_id(const InstanceInfoPB& instance) {
             instance.resource_ids().begin(), instance.resource_ids().end(),
             std::accumulate(instance.obj_info().begin(), instance.obj_info().end(), vault_id, max),
             max);
+
+    // just add a defensive logic, we should use int64 in the future.
+    while (!is_vault_id_not_used(instance, std::to_string(prev + 1))) {
+        prev += 1;
+    }
+
     return std::to_string(prev + 1);
 }
 
@@ -454,14 +476,41 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     obj->set_sse_enabled(sse_enabled);
 }
 
+static int check_duplicated_vault_name(const InstanceInfoPB& instance, const std::string& candidate_name,
+                                       MetaServiceCode& code, std::string& msg) {
+    if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
+                     [&candidate_name](const auto& name) { return name == candidate_name; }) !=
+        instance.storage_vault_names().end()) {
+        code = MetaServiceCode::ALREADY_EXISTED;
+        msg = fmt::format("candidate_name={} already created", candidate_name);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int check_new_vault_name(const InstanceInfoPB& instance, const std::string& candidate_name,
+                                MetaServiceCode& code, std::string& msg) {
+    if (!is_valid_storage_vault_name(candidate_name)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "invalid storage vault name =" << candidate_name << " the name must satisfy "
+            << pattern_str;
+        msg = ss.str();
+        return -1;
+    }
+
+    if (check_duplicated_vault_name(instance, candidate_name, code, msg) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
 static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
                                    StorageVaultPB& vault_param, MetaServiceCode& code,
                                    std::string& msg) {
-    if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
-                     [&vault_param](const auto& name) { return name == vault_param.name(); }) !=
-        instance.storage_vault_names().end()) {
-        code = MetaServiceCode::ALREADY_EXISTED;
-        msg = fmt::format("vault_name={} already created", vault_param.name());
+    if (check_new_vault_name(instance, vault_param.name(), code, msg) != 0) {
         return -1;
     }
 
@@ -583,12 +632,7 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
 
     auto origin_vault_info = new_vault.DebugString();
     if (vault.has_alter_name()) {
-        if (!is_valid_storage_vault_name(vault.alter_name())) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            std::stringstream ss;
-            ss << "invalid storage vault name =" << vault.alter_name() << " the name must satisfy "
-               << pattern_str;
-            msg = ss.str();
+        if (check_new_vault_name(instance, vault.alter_name(), code, msg) != 0) {
             return -1;
         }
         new_vault.set_name(vault.alter_name());
@@ -623,12 +667,6 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     txn->put(vault_key, val);
     LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
               << ", origin vault=" << origin_vault_info << ", new_vault=" << new_vault_info;
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
-    }
 
     return 0;
 }
@@ -700,14 +738,10 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     }
 
     if (vault.has_alter_name()) {
-        if (!is_valid_storage_vault_name(vault.alter_name())) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            std::stringstream ss;
-            ss << "invalid storage vault name =" << vault.alter_name() << " the name must satisfy "
-               << pattern_str;
-            msg = ss.str();
+        if (check_new_vault_name(instance, vault.alter_name(), code, msg) != 0) {
             return -1;
         }
+
         new_vault.set_name(vault.alter_name());
         *name_itr = vault.alter_name();
     }
@@ -747,12 +781,6 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     txn->put(vault_key, val);
     LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
               << ", origin vault=" << origin_vault_info << ", new vault=" << new_vault_info;
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to commit kv txn, err={}", err);
-        LOG(WARNING) << msg;
-    }
 
     return 0;
 }
@@ -998,16 +1026,10 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
                 ObjectStorageDesc {ak, sk, bucket, prefix, endpoint, external_endpoint, region};
         ObjectStoreInfoPB last_item = object_info_pb_factory(tmp_tuple, obj, instance,
                                                              encryption_info, cipher_ak_sk_pair);
-        if (instance.storage_vault_names().end() !=
-            std::find_if(instance.storage_vault_names().begin(),
-                         instance.storage_vault_names().end(),
-                         [&](const std::string& candidate_name) {
-                             return candidate_name == request->vault().name();
-                         })) {
-            code = MetaServiceCode::ALREADY_EXISTED;
-            msg = fmt::format("vault_name={} already created", request->vault().name());
+        if (check_new_vault_name(instance, request->vault().name(), code, msg) != 0) {
             return;
         }
+
         StorageVaultPB vault;
         vault.set_id(last_item.id());
         vault.set_name(request->vault().name());
@@ -1097,11 +1119,11 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
     }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
         alter_s3_storage_vault(instance, std::move(txn), request->vault(), code, msg);
-        return;
+        break;
     }
     case AlterObjStoreInfoRequest::ALTER_HDFS_VAULT: {
         alter_hdfs_storage_vault(instance, std::move(txn), request->vault(), code, msg);
-        return;
+        break;
     }
     case AlterObjStoreInfoRequest::DROP_S3_VAULT:
         [[fallthrough]];
