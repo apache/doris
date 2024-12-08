@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -34,6 +35,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * When file splits are supplied in batch mode, splits are generated lazily and assigned in each call of `getNextBatch`.
@@ -48,24 +50,51 @@ public class SplitAssignment {
     private final SplitToScanRange splitToScanRange;
     private final Map<String, String> locationProperties;
     private final List<String> pathPartitionKeys;
+    private final TableIf tableIf;
     private final Object assignLock = new Object();
     private Split sampleSplit = null;
     private final AtomicBoolean isStop = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
 
-    private UserException exception = null;
+    private volatile UserException exception = null;
+
+    public TableIf getTableIf() {
+        return tableIf;
+    }
+
+    private int totalPartitions;
+
+    private AtomicInteger completedPartitions = new AtomicInteger(0);
+
+    public int getTotalPartitions() {
+        return totalPartitions;
+    }
+
+    public void setTotalPartitions(int totalPartitions) {
+        this.totalPartitions = totalPartitions;
+    }
+
+    public int getCompletedPartitions() {
+        return completedPartitions.get();
+    }
+
+    public void incrementCompletedPartition() {
+        completedPartitions.incrementAndGet();
+    }
 
     public SplitAssignment(
             FederationBackendPolicy backendPolicy,
             SplitGenerator splitGenerator,
             SplitToScanRange splitToScanRange,
             Map<String, String> locationProperties,
-            List<String> pathPartitionKeys) {
+            List<String> pathPartitionKeys,
+            TableIf tableIf) {
         this.backendPolicy = backendPolicy;
         this.splitGenerator = splitGenerator;
         this.splitToScanRange = splitToScanRange;
         this.locationProperties = locationProperties;
         this.pathPartitionKeys = pathPartitionKeys;
+        this.tableIf = tableIf;
     }
 
     public void init() throws UserException {
