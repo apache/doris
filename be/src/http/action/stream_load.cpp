@@ -734,7 +734,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             master_addr.hostname, master_addr.port,
             [&request, ctx](FrontendServiceConnection& client) {
                 client->streamLoadPut(ctx->put_result, request);
-            }));
+            },
+            g_bvar_frontend_service_stream_load_put_latency));
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
 #else
     ctx->put_result = k_stream_load_put_result;

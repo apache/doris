@@ -174,7 +174,8 @@ Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
             master_addr.hostname, master_addr.port,
             [&request, &result](FrontendServiceConnection& client) {
                 client->loadTxnRollback(result, request);
-            });
+            },
+            g_bvar_frontend_service_load_txn_rollback_latency);
     auto result_status = Status::create<false>(result.status);
     LOG(INFO) << "abort label " << label << ", st:" << st << ", result_status:" << result_status;
     return result_status;
@@ -305,7 +306,8 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id,
                 master_addr.hostname, master_addr.port,
                 [&request, &result](FrontendServiceConnection& client) {
                     client->getColumnInfo(result, request);
-                }));
+                },
+                g_bvar_frontend_service_get_column_info_latency));
         status = Status::create<false>(result.status);
         if (!status.ok()) {
             return status;

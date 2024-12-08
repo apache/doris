@@ -43,79 +43,97 @@ class TShowUserResult;
 Status SchemaHelper::get_db_names(const std::string& ip, const int32_t port,
                                   const TGetDbsParams& request, TGetDbsResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
+            ip, port,
+            [&request, &result](FrontendServiceConnection& client) {
                 client->getDbNames(*result, request);
-            });
+            },
+            g_bvar_frontend_service_get_db_names_latency);
 }
 
 Status SchemaHelper::get_table_names(const std::string& ip, const int32_t port,
                                      const TGetTablesParams& request, TGetTablesResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
+            ip, port,
+            [&request, &result](FrontendServiceConnection& client) {
                 client->getTableNames(*result, request);
-            });
+            },
+            g_bvar_frontend_service_get_table_names_latency);
 }
 
 Status SchemaHelper::list_table_status(const std::string& ip, const int32_t port,
                                        const TGetTablesParams& request,
                                        TListTableStatusResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
+            ip, port,
+            [&request, &result](FrontendServiceConnection& client) {
                 client->listTableStatus(*result, request);
-            });
+            },
+            g_bvar_frontend_service_list_table_status_latency);
 }
 Status SchemaHelper::list_table_metadata_name_ids(const std::string& ip, const int32_t port,
                                                   const doris::TGetTablesParams& request,
                                                   TListTableMetadataNameIdsResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
+            ip, port,
+            [&request, &result](FrontendServiceConnection& client) {
                 client->listTableMetadataNameIds(*result, request);
-            });
+            },
+            g_bvar_frontend_service_list_table_metadata_name_ids_latency);
 }
 
 Status SchemaHelper::describe_tables(const std::string& ip, const int32_t port,
                                      const TDescribeTablesParams& request,
                                      TDescribeTablesResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
+            ip, port,
+            [&request, &result](FrontendServiceConnection& client) {
                 client->describeTables(*result, request);
-            });
+            },
+            g_bvar_frontend_service_describe_tables_latency);
 }
 
 Status SchemaHelper::show_variables(const std::string& ip, const int32_t port,
                                     const TShowVariableRequest& request,
                                     TShowVariableResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
+            ip, port,
+            [&request, &result](FrontendServiceConnection& client) {
                 client->showVariables(*result, request);
-            });
+            },
+            g_bvar_frontend_service_show_variables_latency);
 }
 
 Status SchemaHelper::list_table_privilege_status(const std::string& ip, const int32_t port,
                                                  const TGetTablesParams& request,
                                                  TListPrivilegesResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
+            ip, port,
+            [&request, &result](FrontendServiceConnection& client) {
                 client->listTablePrivilegeStatus(*result, request);
-            });
+            },
+            g_bvar_frontend_service_list_table_privilege_status_latency);
 }
 
 Status SchemaHelper::list_schema_privilege_status(const std::string& ip, const int32_t port,
                                                   const TGetTablesParams& request,
                                                   TListPrivilegesResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
+            ip, port,
+            [&request, &result](FrontendServiceConnection& client) {
                 client->listSchemaPrivilegeStatus(*result, request);
-            });
+            },
+            g_bvar_frontend_service_list_schema_privilege_status_latency);
 }
 
 Status SchemaHelper::list_user_privilege_status(const std::string& ip, const int32_t port,
                                                 const TGetTablesParams& request,
                                                 TListPrivilegesResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
+            ip, port,
+            [&request, &result](FrontendServiceConnection& client) {
                 client->listUserPrivilegeStatus(*result, request);
-            });
+            },
+            g_bvar_frontend_service_list_user_privilege_status_latency);
 }
 
 std::string SchemaHelper::extract_db_name(const std::string& full_name) {
@@ -131,17 +149,21 @@ Status SchemaHelper::show_process_list(const std::string& ip, const int32_t port
                                        const TShowProcessListRequest& request,
                                        TShowProcessListResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
+            ip, port,
+            [&request, &result](FrontendServiceConnection& client) {
                 client->showProcessList(*result, request);
-            });
+            },
+            g_bvar_frontend_service_show_process_list_latency);
 }
 
 Status SchemaHelper::show_user(const std::string& ip, const int32_t port,
                                const TShowUserRequest& request, TShowUserResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
-            ip, port, [&request, &result](FrontendServiceConnection& client) {
+            ip, port,
+            [&request, &result](FrontendServiceConnection& client) {
                 client->showUser(*result, request);
-            });
+            },
+            g_bvar_frontend_service_show_user_latency);
 }
 
 } // namespace doris

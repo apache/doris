@@ -188,7 +188,8 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
                 master_addr.hostname, master_addr.port,
                 [&request, &result](FrontendServiceConnection& client) {
                     client->loadTxnBegin(result, request);
-                }));
+                },
+                g_bvar_frontend_service_load_txn_begin_latency));
 #else
         result = k_stream_load_begin_result;
 #endif
@@ -226,7 +227,8 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
                 [&request, &result](FrontendServiceConnection& client) {
                     client->loadTxnPreCommit(result, request);
                 },
-                config::txn_commit_rpc_timeout_ms));
+                config::txn_commit_rpc_timeout_ms,
+                g_bvar_frontend_service_load_txn_pre_commit_latency));
 #else
         result = k_stream_load_commit_result;
 #endif
@@ -270,7 +272,7 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
                 [&request, &result](FrontendServiceConnection& client) {
                     client->loadTxn2PC(result, request);
                 },
-                config::txn_commit_rpc_timeout_ms));
+                config::txn_commit_rpc_timeout_ms, g_bvar_frontend_service_load_txn_2pc_latency));
     }
     g_stream_load_commit_txn_latency << duration_ns / 1000;
     Status status(Status::create(result.status));
@@ -320,7 +322,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
             [&request, &result](FrontendServiceConnection& client) {
                 client->loadTxnCommit(result, request);
             },
-            config::txn_commit_rpc_timeout_ms));
+            config::txn_commit_rpc_timeout_ms, g_bvar_frontend_service_load_txn_commit_latency));
 #else
     result = k_stream_load_commit_result;
 #endif
@@ -369,7 +371,8 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
             master_addr.hostname, master_addr.port,
             [&request, &result](FrontendServiceConnection& client) {
                 client->loadTxnRollback(result, request);
-            });
+            },
+            g_bvar_frontend_service_load_txn_rollback_latency);
     if (!rpc_st.ok()) {
         LOG(WARNING) << "transaction rollback failed. errmsg=" << rpc_st << ctx->brief();
     }

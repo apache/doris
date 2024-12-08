@@ -203,7 +203,8 @@ Status MultiTablePipe::request_and_exec_plans() {
                 master_addr.hostname, master_addr.port,
                 [&request, this](FrontendServiceConnection& client) {
                     client->streamLoadMultiTablePut(_ctx->multi_table_put_result, request);
-                }));
+                },
+                g_bvar_frontend_service_stream_load_multi_table_put_latency));
         _ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
 
         Status plan_status(Status::create(_ctx->multi_table_put_result.status));

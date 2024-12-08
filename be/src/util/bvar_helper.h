@@ -29,3 +29,7 @@ namespace doris {
     Defer __record_bvar([&] { bvar_item << __watch.elapsed_time() / 1000; });
 
 } // end namespace doris
+
+#define DEFINE_PER_SECOND_BVAR(type, prefix, name, var) \
+    bvar::Adder<type> var(prefix, name);                \
+    bvar::PerSecond<bvar::Adder<type>> var##_per_second(prefix, name "_per_second", &var);
