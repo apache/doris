@@ -112,8 +112,7 @@ public:
 private:
     int64_t cancel_top_query_in_overcommit_group_(int64_t need_free_mem, int64_t lower_bound,
                                                   RuntimeProfile* profile);
-    int64_t flush_memtable_from_current_group_(std::shared_ptr<QueryContext> requestor,
-                                               WorkloadGroupPtr wg, int64_t need_free_mem);
+    int64_t flush_memtable_from_current_group_(WorkloadGroupPtr wg, int64_t need_free_mem);
     bool handle_single_query_(const std::shared_ptr<QueryContext>& query_ctx,
                               size_t size_to_reserve, int64_t time_in_queue, Status paused_reason);
     int64_t revoke_memory_from_other_group_(std::shared_ptr<QueryContext> requestor,

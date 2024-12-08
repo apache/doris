@@ -388,8 +388,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                     continue;
                 }
                 if (flushed_memtable_bytes <= 0) {
-                    flushed_memtable_bytes = flush_memtable_from_current_group_(
-                            query_ctx, wg, query_it->reserve_size_);
+                    flushed_memtable_bytes =
+                            flush_memtable_from_current_group_(wg, query_it->reserve_size_);
                 }
                 if (flushed_memtable_bytes > 0) {
                     // Flushed some memtable, just wait flush finished and not do anything more.
@@ -455,8 +455,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 if (query_it->cache_ratio_ < 0.001) {
                     // 1. Check if could revoke some memory from memtable
                     if (flushed_memtable_bytes <= 0) {
-                        flushed_memtable_bytes = flush_memtable_from_current_group_(
-                                query_ctx, wg, query_it->reserve_size_);
+                        flushed_memtable_bytes =
+                                flush_memtable_from_current_group_(wg, query_it->reserve_size_);
                     }
                     if (flushed_memtable_bytes > 0) {
                         // Flushed some memtable, just wait flush finished and not do anything more.
@@ -521,8 +521,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
 }
 
 // Return the expected free bytes if memtable could flush
-int64_t WorkloadGroupMgr::flush_memtable_from_current_group_(
-        std::shared_ptr<QueryContext> requestor, WorkloadGroupPtr wg, int64_t need_free_mem) {
+int64_t WorkloadGroupMgr::flush_memtable_from_current_group_(WorkloadGroupPtr wg,
+                                                             int64_t need_free_mem) {
     // If there are a lot of memtable memory, then wait them flush finished.
     MemTableMemoryLimiter* memtable_limiter =
             doris::ExecEnv::GetInstance()->memtable_memory_limiter();
