@@ -927,6 +927,7 @@ visible_functions = {
         [['curdate', 'current_date'], 'DATE', [], 'ALWAYS_NOT_NULLABLE'],
         [['utc_timestamp'], 'DATETIME', [], 'ALWAYS_NOT_NULLABLE'],
         [['timestamp'], 'DATETIME', ['DATETIME'], 'ALWAYS_NULLABLE'],
+        [['timestamp'], 'DATETIME', ['DATETIME','VARCHAR'], 'ALWAYS_NULLABLE'],
 
         [['from_days'], 'DATEV2', ['INT'], 'ALWAYS_NULLABLE'],
         [['from_days'], 'DATE', ['INT'], 'ALWAYS_NULLABLE'],
@@ -986,6 +987,7 @@ visible_functions = {
         [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATE', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date', 'to_date'], 'DATE', ['DATETIME'], 'ALWAYS_NULLABLE'],
+        [['date', 'to_date'], 'DATE', ['DATETIME','VARCHAR'], 'ALWAYS_NULLABLE'],
 
         [['dayname'], 'VARCHAR', ['DATETIME'], 'ALWAYS_NULLABLE'],
         [['monthname'], 'VARCHAR', ['DATETIME'], 'ALWAYS_NULLABLE'],
@@ -1058,6 +1060,7 @@ visible_functions = {
         [['second_ceil'], 'DATETIME', ['DATETIME', 'INT', 'DATETIME'], 'ALWAYS_NULLABLE'],
 
         [['timestamp'], 'DATETIMEV2', ['DATETIMEV2'], ''],
+        [['timestamp'], 'DATETIMEV2', ['DATETIMEV2','VARCHAR'], ''],
 
         [['to_days'], 'INT', ['DATEV2'], ''],
         [['time_to_sec'], 'INT', ['TIME'], ''],
