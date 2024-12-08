@@ -112,10 +112,11 @@ suite("test_alter_s3_vault", "nonConcurrent") {
     def vaultName = suiteName
     def String properties;
 
-    def vaultInfos = try_sql """show storage vault"""
+    def vaultInfos = try_sql """show storage vaults"""
 
     for (int i = 0; i < vaultInfos.size(); i++) {
         def name = vaultInfos[i][0]
+        logger.info("name is ${name}, info ${vaultInfos[i]}")
         if (name.equals(vaultName)) {
             properties = vaultInfos[i][2]
         }
