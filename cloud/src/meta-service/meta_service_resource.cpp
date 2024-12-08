@@ -183,8 +183,7 @@ int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_
     return 0;
 }
 
-int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode& code,
-                                    std::string& msg) {
+int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode& code, std::string& msg) {
     if (obj_info.has_encryption_info()) {
         AkSkPair plain_ak_sk_pair;
         if (int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), obj_info.encryption_info(),
@@ -476,8 +475,9 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     obj->set_sse_enabled(sse_enabled);
 }
 
-static int check_duplicated_vault_name(const InstanceInfoPB& instance, const std::string& candidate_name,
-                                       MetaServiceCode& code, std::string& msg) {
+static int check_duplicated_vault_name(const InstanceInfoPB& instance,
+                                       const std::string& candidate_name, MetaServiceCode& code,
+                                       std::string& msg) {
     if (std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                      [&candidate_name](const auto& name) { return name == candidate_name; }) !=
         instance.storage_vault_names().end()) {
@@ -495,7 +495,7 @@ static int check_new_vault_name(const InstanceInfoPB& instance, const std::strin
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
         ss << "invalid storage vault name =" << candidate_name << " the name must satisfy "
-            << pattern_str;
+           << pattern_str;
         msg = ss.str();
         return -1;
     }

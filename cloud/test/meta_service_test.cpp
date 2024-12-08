@@ -468,7 +468,8 @@ static void get_all_vaults(const MetaServiceProxy* meta_service, const InstanceI
     EXPECT_EQ(all_vaults.size(), instance.resource_ids().size());
 }
 
-static void check_vault_name_consistency(const MetaServiceProxy* meta_service, const InstanceInfoPB& instance) {
+static void check_vault_name_consistency(const MetaServiceProxy* meta_service,
+                                         const InstanceInfoPB& instance) {
     std::vector<StorageVaultPB> all_vaults;
 
     get_all_vaults(meta_service, instance, all_vaults);
@@ -487,7 +488,8 @@ static void check_vault_name_consistency(const MetaServiceProxy* meta_service, c
                 found++;
             }
         }
-        ASSERT_EQ(found, 1) << "vault_name " << vault_name << " does not exists in objinfo";
+        ASSERT_EQ(found, 1) << "vault_name " << vault_name
+                            << " does not exists in objinfo";
     }
 
     for (const auto& vault_pb : all_vaults) {
@@ -594,7 +596,6 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
 
     // can not change ak without sk
     {
-
         StorageVaultPB orig_vault = get_vault_pb("2");
 
         AlterObjStoreInfoRequest req;
@@ -619,7 +620,6 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
 
     // can not change sk without ak
     {
-
         StorageVaultPB orig_vault = get_vault_pb("2");
 
         AlterObjStoreInfoRequest req;
@@ -671,7 +671,6 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
 
     // alter ak sk
     {
-
         LOG(INFO) << "alter ak sk";
 
         StorageVaultPB orig_vault = get_vault_pb("2");
@@ -702,7 +701,8 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         EXPECT_EQ(orig_vault.obj_info().region(), new_vault.obj_info().region());
         EXPECT_EQ(orig_vault.obj_info().bucket(), new_vault.obj_info().bucket());
         EXPECT_EQ(orig_vault.obj_info().prefix(), new_vault.obj_info().prefix());
-        EXPECT_EQ(orig_vault.obj_info().external_endpoint(), new_vault.obj_info().external_endpoint());
+        EXPECT_EQ(orig_vault.obj_info().external_endpoint(),
+                  new_vault.obj_info().external_endpoint());
         EXPECT_EQ(orig_vault.obj_info().provider(), new_vault.obj_info().provider());
         ASSERT_NE(orig_vault.obj_info().ak(), new_vault.obj_info().ak());
         ASSERT_NE(orig_vault.obj_info().sk(), new_vault.obj_info().sk());
@@ -752,7 +752,8 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         EXPECT_EQ(orig_vault.obj_info().region(), new_vault.obj_info().region());
         EXPECT_EQ(orig_vault.obj_info().bucket(), new_vault.obj_info().bucket());
         EXPECT_EQ(orig_vault.obj_info().prefix(), new_vault.obj_info().prefix());
-        EXPECT_EQ(orig_vault.obj_info().external_endpoint(), new_vault.obj_info().external_endpoint());
+        EXPECT_EQ(orig_vault.obj_info().external_endpoint(),
+                  new_vault.obj_info().external_endpoint());
         EXPECT_EQ(orig_vault.obj_info().provider(), new_vault.obj_info().provider());
         EXPECT_EQ(orig_vault.obj_info().ak(), new_vault.obj_info().ak());
         EXPECT_EQ(orig_vault.obj_info().sk(), new_vault.obj_info().sk());
@@ -784,7 +785,8 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         EXPECT_EQ(orig_vault.obj_info().region(), new_vault.obj_info().region());
         EXPECT_EQ(orig_vault.obj_info().bucket(), new_vault.obj_info().bucket());
         EXPECT_EQ(orig_vault.obj_info().prefix(), new_vault.obj_info().prefix());
-        EXPECT_EQ(orig_vault.obj_info().external_endpoint(), new_vault.obj_info().external_endpoint());
+        EXPECT_EQ(orig_vault.obj_info().external_endpoint(),
+                  new_vault.obj_info().external_endpoint());
         EXPECT_EQ(orig_vault.obj_info().provider(), new_vault.obj_info().provider());
         EXPECT_EQ(orig_vault.obj_info().ak(), new_vault.obj_info().ak());
         EXPECT_EQ(orig_vault.obj_info().sk(), new_vault.obj_info().sk());
@@ -819,7 +821,8 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         EXPECT_EQ(orig_vault.obj_info().region(), new_vault.obj_info().region());
         EXPECT_EQ(orig_vault.obj_info().bucket(), new_vault.obj_info().bucket());
         EXPECT_EQ(orig_vault.obj_info().prefix(), new_vault.obj_info().prefix());
-        EXPECT_EQ(orig_vault.obj_info().external_endpoint(), new_vault.obj_info().external_endpoint());
+        EXPECT_EQ(orig_vault.obj_info().external_endpoint(),
+                  new_vault.obj_info().external_endpoint());
         EXPECT_EQ(orig_vault.obj_info().provider(), new_vault.obj_info().provider());
         EXPECT_EQ(orig_vault.obj_info().ak(), new_vault.obj_info().ak());
         EXPECT_EQ(orig_vault.obj_info().sk(), new_vault.obj_info().sk());
@@ -860,7 +863,8 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         EXPECT_EQ(orig_vault.obj_info().region(), new_vault.obj_info().region());
         EXPECT_EQ(orig_vault.obj_info().bucket(), new_vault.obj_info().bucket());
         EXPECT_EQ(orig_vault.obj_info().prefix(), new_vault.obj_info().prefix());
-        EXPECT_EQ(orig_vault.obj_info().external_endpoint(), new_vault.obj_info().external_endpoint());
+        EXPECT_EQ(orig_vault.obj_info().external_endpoint(),
+                  new_vault.obj_info().external_endpoint());
         EXPECT_EQ(orig_vault.obj_info().provider(), new_vault.obj_info().provider());
         EXPECT_EQ(orig_vault.obj_info().ak(), new_vault.obj_info().ak());
         EXPECT_EQ(orig_vault.obj_info().sk(), new_vault.obj_info().sk());
@@ -899,7 +903,8 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         EXPECT_EQ(orig_vault.obj_info().region(), new_vault.obj_info().region());
         EXPECT_EQ(orig_vault.obj_info().bucket(), new_vault.obj_info().bucket());
         EXPECT_EQ(orig_vault.obj_info().prefix(), new_vault.obj_info().prefix());
-        EXPECT_EQ(orig_vault.obj_info().external_endpoint(), new_vault.obj_info().external_endpoint());
+        EXPECT_EQ(orig_vault.obj_info().external_endpoint(),
+                  new_vault.obj_info().external_endpoint());
         EXPECT_EQ(orig_vault.obj_info().provider(), new_vault.obj_info().provider());
         EXPECT_EQ(orig_vault.obj_info().ak(), new_vault.obj_info().ak());
         EXPECT_EQ(orig_vault.obj_info().sk(), new_vault.obj_info().sk());
