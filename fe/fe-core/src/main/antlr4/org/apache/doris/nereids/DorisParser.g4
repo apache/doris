@@ -204,6 +204,7 @@ supportedAlterStatement
     : ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         AS query                                                          #alterView
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause   #alterStorageVault
+    | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename    
     | ALTER ROLE role=identifier commentSpec                                        #alterRole
     | ALTER WORKLOAD GROUP name=identifierOrText
         properties=propertyClause?                                                  #alterWorkloadGroup
@@ -585,7 +586,6 @@ unsupportedAlterStatement
     | ALTER DATABASE name=identifier RENAME newName=identifier                      #alterDatabaseRename
     | ALTER DATABASE name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterDatabaseProperties
-    | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
     | ALTER CATALOG name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterCatalogProperties
     | ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource

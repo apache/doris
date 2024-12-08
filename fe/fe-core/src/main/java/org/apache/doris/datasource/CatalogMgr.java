@@ -310,25 +310,27 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Modify the catalog name into a new one and write the meta log.
      */
-    public void alterCatalogName(AlterCatalogNameStmt stmt) throws UserException {
+    public void alterCatalogName(String catalogName, String newCatalogName) throws UserException {
         writeLock();
         try {
-            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            CatalogIf catalog = nameToCatalog.get(catalogName);
             if (catalog == null) {
-                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+                throw new DdlException("No catalog found with name: " + catalogName);
             }
-            if (nameToCatalog.get(stmt.getNewCatalogName()) != null) {
-                throw new DdlException("Catalog with name " + stmt.getNewCatalogName() + " already exist");
+            if (nameToCatalog.get(newCatalogName) != null) {
+                throw new DdlException("Catalog with name " + newCatalogName + " already exist");
             }
-            CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
+            CatalogLog log = new CatalogLog();
+            log.setCatalogId(catalog.getId());
+            log.setNewCatalogName(newCatalogName);
             replayAlterCatalogName(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_NAME, log);
 
             ConnectContext ctx = ConnectContext.get();
             if (ctx != null) {
-                String db = ctx.getLastDBOfCatalog(stmt.getCatalogName());
+                String db = ctx.getLastDBOfCatalog(catalogName);
                 if (db != null) {
-                    ctx.removeLastDBOfCatalog(stmt.getCatalogName());
+                    ctx.removeLastDBOfCatalog(catalogName);
                     ctx.addLastDBOfCatalog(log.getNewCatalogName(), db);
                 }
             }
@@ -337,6 +339,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
+    /**
+     * Modify the catalog name into a new one and write the meta log.
+     */
+    public void alterCatalogName(AlterCatalogNameStmt stmt) throws UserException {
+        alterCatalogName(stmt.getCatalogName(), stmt.getNewCatalogName());
+    }
+
+    /**
+     * Modify the catalog comment to a new one and write the meta log.
+     */
     public void alterCatalogComment(String catalogName, String comment) throws UserException {
         writeLock();
         try {
