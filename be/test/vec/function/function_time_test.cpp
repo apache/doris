@@ -540,7 +540,7 @@ TEST(VTimestampFunctionsTest, week_test) {
 
     static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
 
-    InputTypeSet new_input_types = {TypeIndex::Date};
+    InputTypeSet new_input_types = {TypeIndex::DateV2};
     DataSet new_data_set = {{{std::string("1989-03-21")}, int8_t {12}},
                             {{std::string("")}, Null()},
                             {{std::string("9999-12-12")}, int8_t {50}}};
@@ -559,7 +559,7 @@ TEST(VTimestampFunctionsTest, yearweek_test) {
 
     static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 
-    InputTypeSet new_input_types = {TypeIndex::Date};
+    InputTypeSet new_input_types = {TypeIndex::DateV2};
     DataSet new_data_set = {{{std::string("1989-03-21")}, 198912},
                             {{std::string("")}, Null()},
                             {{std::string("9999-12-12")}, 999950}};
