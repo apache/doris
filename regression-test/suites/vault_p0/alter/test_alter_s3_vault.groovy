@@ -173,7 +173,7 @@ suite("test_alter_s3_vault", "nonConcurrent") {
     sql """insert into alter_s3_vault_tbl values("2", "2"); """
 
     // rename + aksk
-    vaultName = newVaultName
+    vaultName = new String(newVaultName)
     newVaultName = vaultName + "_new";
 
     sql """
@@ -200,13 +200,9 @@ suite("test_alter_s3_vault", "nonConcurrent") {
     }
     sql """insert into alter_s3_vault_tbl values("2", "2"); """
 
-
-    vaultName = newVaultName;
+    vaultName = new String(newVaultName)
 
     newVaultName = vaultName + "_new";
-
-    vaultInfos = sql """SHOW STORAGE VAULT;"""
-    boolean exist = false
 
     sql """
         ALTER STORAGE VAULT ${vaultName}
@@ -218,8 +214,12 @@ suite("test_alter_s3_vault", "nonConcurrent") {
         );
     """
 
+    vaultInfos = sql """SHOW STORAGE VAULT;"""
+    def boolean exist = false
+
     for (int i = 0; i < vaultInfos.size(); i++) {
         def name = vaultInfos[i][0]
+        logger.info("vaultName ${vaultName}");
         logger.info("name is ${name}, info ${vaultInfos[i]}")
         if (name.equals(vaultName)) {
             assertTrue(false);
@@ -231,7 +231,7 @@ suite("test_alter_s3_vault", "nonConcurrent") {
     }
     assertTrue(exist)
 
-    vaultName = newVaultName;
+    vaultName = new String(newVaultName)
 
     expectExceptionLike({
         sql """

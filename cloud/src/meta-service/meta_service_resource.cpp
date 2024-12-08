@@ -482,7 +482,7 @@ static int check_duplicated_vault_name(const InstanceInfoPB& instance, const std
                      [&candidate_name](const auto& name) { return name == candidate_name; }) !=
         instance.storage_vault_names().end()) {
         code = MetaServiceCode::ALREADY_EXISTED;
-        msg = fmt::format("candidate_name={} already created", candidate_name);
+        msg = fmt::format("vault named {} already exists", candidate_name);
         return -1;
     }
 
@@ -572,7 +572,7 @@ static void set_default_vault_log_helper(const InstanceInfoPB& instance,
     LOG(INFO) << vault_msg;
 }
 
-static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction> txn,
+static int alter_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
                                     const StorageVaultPB& vault, MetaServiceCode& code,
                                     std::string& msg) {
     if (!vault.has_hdfs_info()) {
@@ -671,7 +671,7 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     return 0;
 }
 
-static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction> txn,
+static int alter_s3_storage_vault(InstanceInfoPB& instance, Transaction* txn,
                                   const StorageVaultPB& vault, MetaServiceCode& code,
                                   std::string& msg) {
     if (!vault.has_obj_info()) {
@@ -1118,14 +1118,14 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
-        int ret = alter_s3_storage_vault(instance, std::move(txn), request->vault(), code, msg);
+        int ret = alter_s3_storage_vault(instance, txn.get(), request->vault(), code, msg);
         if (ret != 0) {
             return;
         }
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_HDFS_VAULT: {
-        int ret = alter_hdfs_storage_vault(instance, std::move(txn), request->vault(), code, msg);
+        int ret = alter_hdfs_storage_vault(instance, txn.get(), request->vault(), code, msg);
         if (ret != 0) {
             return;
         }
