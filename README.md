@@ -201,11 +201,11 @@ All release and binary version 🔗[Download](https://doris.apache.org/download)
 
 ### 🗄️ Compile
 
-See how to compile  🔗[Compilation](https://doris.apache.org/docs/dev/install/source-install/compilation-general)
+See how to compile with [Docker](https://doris.apache.org/docs/install/source-install/compilation-with-docker/) or [LDB Toolchain](https://doris.apache.org/docs/install/source-install/compilation-with-ldb-toolchain/) or on 🔗[Mac](https://doris.apache.org/docs/install/source-install/compilation-mac/)|[linux](https://doris.apache.org/docs/install/source-install/compilation-linux/)|[win](https://doris.apache.org/docs/install/source-install/compilation-win/)|[Arm](https://doris.apache.org/docs/install/source-install/compilation-arm/).
 
 ### 📮 Install
 
-See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/dev/install/standard-deployment) 
+See how to install and deploy 🔗[Installation and deployment](https://doris.apache.org/docs/install/source-install/compilation-with-docker).
 
 ## 🧩 Components
 
