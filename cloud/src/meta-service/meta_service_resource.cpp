@@ -1118,11 +1118,17 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
-        alter_s3_storage_vault(instance, std::move(txn), request->vault(), code, msg);
+        int ret = alter_s3_storage_vault(instance, std::move(txn), request->vault(), code, msg);
+        if (ret != 0) {
+            return;
+        }
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_HDFS_VAULT: {
-        alter_hdfs_storage_vault(instance, std::move(txn), request->vault(), code, msg);
+        int ret = alter_hdfs_storage_vault(instance, std::move(txn), request->vault(), code, msg);
+        if (ret != 0) {
+            return;
+        }
         break;
     }
     case AlterObjStoreInfoRequest::DROP_S3_VAULT:
