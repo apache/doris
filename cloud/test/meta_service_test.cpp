@@ -488,8 +488,7 @@ static void check_vault_name_consistency(const MetaServiceProxy* meta_service,
                 found++;
             }
         }
-        ASSERT_EQ(found, 1) << "vault_name " << vault_name
-                            << " does not exists in objinfo";
+        ASSERT_EQ(found, 1) << "vault_name " << vault_name << " does not exists in objinfo";
     }
 
     for (const auto& vault_pb : all_vaults) {
@@ -499,7 +498,8 @@ static void check_vault_name_consistency(const MetaServiceProxy* meta_service,
                 found++;
             }
         }
-        ASSERT_EQ(found, 1) << "vault_name " << vault_pb.name() << " does not exists in vault names";
+        ASSERT_EQ(found, 1) << "vault_name " << vault_pb.name()
+                            << " does not exists in vault names";
     }
 }
 
