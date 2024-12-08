@@ -99,6 +99,7 @@ public:
     // sender_id indicates which instance within a fragment, while be_number indicates which instance
     // across all fragments. For example, with 3 BEs and 8 instances, the range of sender_id would be 0 to 24,
     // and the range of be_number would be from n + 0 to n + 24.
+    // Since be_number is a required field, it still needs to be set for compatibility with older code.
     [[nodiscard]] int sender_id() const { return _sender_id; }
     [[nodiscard]] int be_number() const { return _state->be_number(); }
 

@@ -754,6 +754,11 @@ std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::_create_buffer(
     return sink_buffer;
 }
 
+// For a normal shuffle scenario, if the concurrency is n,
+// there can be up to n * n RPCs in the current fragment.
+// Therefore, a shared sink buffer is used here to limit the number of concurrent RPCs.
+// (Note: This does not reduce the total number of RPCs.)
+// In a merge sort scenario, there are only n RPCs, so a shared sink buffer is not needed.
 /// TODO: Modify this to let FE handle the judgment instead of BE.
 std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::get_sink_buffer(
         InstanceLoId sender_ins_id) {
@@ -761,10 +766,12 @@ std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::get_sink_buffer(
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "ExchangeSinkOperatorX did not correctly set the child.");
     }
-    if (std::dynamic_pointer_cast<SortSourceOperatorX>(_child)) {
-        return _create_buffer({sender_ins_id});
-    }
-    if (std::dynamic_pointer_cast<LocalExchangeSourceOperatorX>(_child)) {
+    // When the child is SortSourceOperatorX or LocalExchangeSourceOperatorX,
+    // it is an order-by scenario.
+    // In this case, there is only one target instance, and no n * n RPC concurrency will occur.
+    // Therefore, sharing a sink buffer is not necessary.
+    if (std::dynamic_pointer_cast<SortSourceOperatorX>(_child) ||
+        std::dynamic_pointer_cast<LocalExchangeSourceOperatorX>(_child)) {
         return _create_buffer({sender_ins_id});
     }
     if (_state->enable_shared_exchange_sink_buffer()) {
