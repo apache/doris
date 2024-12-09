@@ -246,8 +246,10 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
         SchemaScannerHelper::insert_int64_value(col_idx++, tqs.scan_bytes, block);
 
         if (need_local_and_remote_bytes) {
-            SchemaScannerHelper::insert_int64_value(col_idx++, tqs.scan_bytes_from_local_storage, block);
-            SchemaScannerHelper::insert_int64_value(col_idx++, tqs.scan_bytes_from_remote_storage, block);
+            SchemaScannerHelper::insert_int64_value(col_idx++, tqs.scan_bytes_from_local_storage,
+                                                    block);
+            SchemaScannerHelper::insert_int64_value(col_idx++, tqs.scan_bytes_from_remote_storage,
+                                                    block);
         }
 
         SchemaScannerHelper::insert_int64_value(col_idx++, tqs.max_peak_memory_bytes, block);
