@@ -654,15 +654,14 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
 
             if (!query_ctx) {
                 WorkloadGroupPtr workload_group_ptr = nullptr;
-                std::string wg_info_str = "not carry wg";
+                std::string wg_info_str = "Workload Group not set";
                 if (params.__isset.workload_groups && !params.workload_groups.empty()) {
                     uint64_t wg_id = params.workload_groups[0].id;
-                    workload_group_ptr =
-                            _exec_env->workload_group_mgr()->get_task_group_by_id(wg_id);
+                    workload_group_ptr = _exec_env->workload_group_mgr()->get_group(wg_id);
                     if (workload_group_ptr != nullptr) {
                         wg_info_str = workload_group_ptr->debug_string();
                     } else {
-                        wg_info_str = "carrying wg but not find it in be";
+                        wg_info_str = "set wg but not find it in be";
                     }
                 }
 
