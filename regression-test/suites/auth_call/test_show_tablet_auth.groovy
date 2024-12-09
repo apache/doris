@@ -78,6 +78,9 @@ suite("test_show_tablet_auth","p0,auth_call") {
 
         def tablet_res = sql """SHOW TABLET ${res[0][0]}"""
         assertTrue(tablet_res.size() == 1)
+        
+        checkNereidsExecute("SHOW TABLETS BELONG ${res[0][0]}")
+        checkNereidsExecute("SHOW TABLETS BELONG 100,101")
 
         tablet_res = sql """SHOW TABLETS BELONG ${res[0][0]}"""
         assertTrue(tablet_res.size() == 1)

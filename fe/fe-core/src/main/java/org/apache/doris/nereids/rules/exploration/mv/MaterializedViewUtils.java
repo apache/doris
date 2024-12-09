@@ -343,11 +343,19 @@ public class MaterializedViewUtils {
                     ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
             return childContext.getRewritePlan();
         }, mvPlan, originPlan);
-        return new MTMVCache(mvPlan, originPlan,
+        return new MTMVCache(mvPlan, originPlan, planner.getAnalyzedPlan(),
                 planner.getCascadesContext().getMemo().getRoot().getStatistics(), null);
     }
 
-    private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
+    /**
+     * Check the query if Contains query operator
+     * Such sql as following should return true
+     * select * from orders TABLET(10098) because TABLET(10098) should return true
+     * select * from orders_partition PARTITION (day_2) because PARTITION (day_2)
+     * select * from orders index query_index_test because index query_index_test
+     * select * from orders TABLESAMPLE(20 percent) because TABLESAMPLE(20 percent)
+     * */
+    public static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
         public static final TableQueryOperatorChecker INSTANCE = new TableQueryOperatorChecker();
 
         @Override
@@ -358,12 +366,20 @@ public class MaterializedViewUtils {
             if (relation instanceof LogicalOlapScan) {
                 LogicalOlapScan logicalOlapScan = (LogicalOlapScan) relation;
                 if (logicalOlapScan.getTableSample().isPresent()) {
+                    // Contain sample, select * from orders TABLESAMPLE(20 percent)
                     return true;
                 }
-                if (!logicalOlapScan.getSelectedTabletIds().isEmpty()) {
+                if (!logicalOlapScan.getManuallySpecifiedTabletIds().isEmpty()) {
+                    // Contain tablets, select * from orders TABLET(10098) because TABLET(10098)
                     return true;
                 }
                 if (!logicalOlapScan.getManuallySpecifiedPartitions().isEmpty()) {
+                    // Contain specified partitions, select * from orders_partition PARTITION (day_2)
+                    return true;
+                }
+                if (logicalOlapScan.getSelectedIndexId() != logicalOlapScan.getTable().getBaseIndexId()) {
+                    // Contains select index or use sync mv in rbo rewrite
+                    // select * from orders index query_index_test
                     return true;
                 }
             }
@@ -481,13 +497,13 @@ public class MaterializedViewUtils {
                 return null;
             }
             MTMVRelatedTableIf relatedTable = (MTMVRelatedTableIf) table;
-            PartitionType type = relatedTable.getPartitionType();
+            PartitionType type = relatedTable.getPartitionType(Optional.empty());
             if (PartitionType.UNPARTITIONED.equals(type)) {
                 context.addFailReason(String.format("related base table is not partition table, the table is %s",
                         table.getName()));
                 return null;
             }
-            Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
+            Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns(Optional.empty()));
             Column mvReferenceColumn = contextPartitionColumn.getColumn().get();
             Expr definExpr = mvReferenceColumn.getDefineExpr();
             if (definExpr instanceof SlotRef) {

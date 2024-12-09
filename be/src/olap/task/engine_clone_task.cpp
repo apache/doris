@@ -32,7 +32,6 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
-#include <regex>
 #include <set>
 #include <shared_mutex>
 #include <system_error>
@@ -64,6 +63,7 @@
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/network_util.h"
+#include "util/security.h"
 #include "util/stopwatch.hpp"
 #include "util/thrift_rpc_helper.h"
 #include "util/trace.h"
@@ -82,8 +82,9 @@ namespace {
 /// if not equal, then return error
 /// return value: if binlog file not exist, then return to binlog file path
 Result<std::string> check_dest_binlog_valid(const std::string& tablet_dir,
+                                            const std::string& clone_dir,
                                             const std::string& clone_file, bool* skip_link_file) {
-    std::string to;
+    std::string from, to;
     std::string new_clone_file = clone_file;
     if (clone_file.ends_with(".binlog")) {
         // change clone_file suffix from .binlog to .dat
@@ -92,6 +93,7 @@ Result<std::string> check_dest_binlog_valid(const std::string& tablet_dir,
         // change clone_file suffix from .binlog-index to .idx
         new_clone_file.replace(clone_file.size() - 13, 13, ".idx");
     }
+    from = fmt::format("{}/{}", clone_dir, clone_file);
     to = fmt::format("{}/_binlog/{}", tablet_dir, new_clone_file);
 
     // check to to file exist
@@ -106,10 +108,10 @@ Result<std::string> check_dest_binlog_valid(const std::string& tablet_dir,
     }
 
     LOG(WARNING) << "binlog file already exist. "
-                 << "tablet_dir=" << tablet_dir << ", clone_file=" << clone_file;
+                 << "tablet_dir=" << tablet_dir << ", clone_file=" << from << ", to=" << to;
 
     std::string clone_file_md5sum;
-    status = io::global_local_filesystem()->md5sum(clone_file, &clone_file_md5sum);
+    status = io::global_local_filesystem()->md5sum(from, &clone_file_md5sum);
     if (!status.ok()) {
         return ResultError(std::move(status));
     }
@@ -415,7 +417,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         status = _download_files(&data_dir, remote_url_prefix, local_data_path);
         if (!status.ok()) [[unlikely]] {
             LOG_WARNING("failed to download snapshot from remote BE")
-                    .tag("url", _mask_token(remote_url_prefix))
+                    .tag("url", mask_token(remote_url_prefix))
                     .error(status);
             continue; // Try another BE
         }
@@ -552,11 +554,11 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
 
         std::string local_file_path = local_path + "/" + file_name;
 
-        LOG(INFO) << "clone begin to download file from: " << _mask_token(remote_file_url)
+        LOG(INFO) << "clone begin to download file from: " << mask_token(remote_file_url)
                   << " to: " << local_file_path << ". size(B): " << file_size
                   << ", timeout(s): " << estimate_timeout;
 
-        auto download_cb = [this, &remote_file_url, estimate_timeout, &local_file_path,
+        auto download_cb = [&remote_file_url, estimate_timeout, &local_file_path,
                             file_size](HttpClient* client) {
             RETURN_IF_ERROR(client->init(remote_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
@@ -572,7 +574,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
             }
             if (local_file_size != file_size) {
                 LOG(WARNING) << "download file length error"
-                             << ", remote_path=" << _mask_token(remote_file_url)
+                             << ", remote_path=" << mask_token(remote_file_url)
                              << ", file_size=" << file_size
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
@@ -600,7 +602,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
 
 /// This method will only be called if tablet already exist in this BE when doing clone.
 /// This method will do the following things:
-/// 1. Linke all files from CLONE dir to tablet dir if file does not exist in tablet dir
+/// 1. Link all files from CLONE dir to tablet dir if file does not exist in tablet dir
 /// 2. Call _finish_xx_clone() to revise the tablet meta.
 Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_dir, int64_t version,
                                       bool is_incremental_clone) {
@@ -697,7 +699,6 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
             continue;
         }
 
-        auto from = fmt::format("{}/{}", clone_dir, clone_file);
         std::string to;
         if (clone_file.ends_with(".binlog") || clone_file.ends_with(".binlog-index")) {
             if (!contain_binlog) {
@@ -706,7 +707,8 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
                 break;
             }
 
-            if (auto&& result = check_dest_binlog_valid(tablet_dir, clone_file, &skip_link_file);
+            if (auto&& result =
+                        check_dest_binlog_valid(tablet_dir, clone_dir, clone_file, &skip_link_file);
                 result) {
                 to = std::move(result.value());
             } else {
@@ -718,6 +720,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
         }
 
         if (!skip_link_file) {
+            auto from = fmt::format("{}/{}", clone_dir, clone_file);
             status = io::global_local_filesystem()->link_file(from, to);
             if (!status.ok()) {
                 return status;
@@ -862,11 +865,6 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     }
     return tablet->revise_tablet_meta(to_add, to_delete, false);
     // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica
-}
-
-std::string EngineCloneTask::_mask_token(const std::string& str) {
-    std::regex pattern("token=[\\w|-]+");
-    return regex_replace(str, pattern, "token=******");
 }
 
 } // namespace doris

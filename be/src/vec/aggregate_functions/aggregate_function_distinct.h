@@ -42,6 +42,7 @@
 #include "vec/io/var_int.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -94,7 +95,7 @@ struct AggregateFunctionDistinctSingleNumericData {
     void deserialize(BufferReadable& buf, Arena*) {
         DCHECK(!stable);
         if constexpr (!stable) {
-            size_t new_size = 0;
+            uint64_t new_size = 0;
             read_var_uint(new_size, buf);
             T x;
             for (size_t i = 0; i < new_size; ++i) {
@@ -347,3 +348,5 @@ public:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

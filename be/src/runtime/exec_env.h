@@ -178,7 +178,6 @@ public:
     std::vector<TrackerLimiterGroup> mem_tracker_limiter_pool;
     void init_mem_tracker();
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
-    std::shared_ptr<MemTracker> page_no_cache_mem_tracker() { return _page_no_cache_mem_tracker; }
     std::shared_ptr<MemTrackerLimiter> brpc_iobuf_block_memory_tracker() {
         return _brpc_iobuf_block_memory_tracker;
     }
@@ -187,6 +186,15 @@ public:
     }
     std::shared_ptr<MemTrackerLimiter> stream_load_pipe_tracker() {
         return _stream_load_pipe_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> tablets_no_cache_mem_tracker() {
+        return _tablets_no_cache_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> rowsets_no_cache_mem_tracker() {
+        return _rowsets_no_cache_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> segments_no_cache_mem_tracker() {
+        return _segments_no_cache_mem_tracker;
     }
     std::shared_ptr<MemTrackerLimiter> point_query_executor_mem_tracker() {
         return _point_query_executor_mem_tracker;
@@ -294,6 +302,7 @@ public:
     static void set_tracking_memory(bool tracking_memory) {
         _s_tracking_memory.store(tracking_memory, std::memory_order_release);
     }
+    void set_orc_memory_pool(orc::MemoryPool* pool) { _orc_memory_pool = pool; }
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
@@ -376,12 +385,14 @@ private:
     // Ideally, all threads are expected to attach to the specified tracker, so that "all memory has its own ownership",
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
-    // page size not in cache, data page/index page/etc.
-    std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
     std::shared_ptr<MemTrackerLimiter> _brpc_iobuf_block_memory_tracker;
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTrackerLimiter> _segcompaction_mem_tracker;
     std::shared_ptr<MemTrackerLimiter> _stream_load_pipe_tracker;
+
+    std::shared_ptr<MemTrackerLimiter> _tablets_no_cache_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _rowsets_no_cache_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _segments_no_cache_mem_tracker;
 
     // Tracking memory may be shared between multiple queries.
     std::shared_ptr<MemTrackerLimiter> _point_query_executor_mem_tracker;

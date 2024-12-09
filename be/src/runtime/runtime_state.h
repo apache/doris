@@ -85,12 +85,7 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env, QueryContext* ctx);
 
-    // for only use in pipelineX
-    RuntimeState(pipeline::PipelineFragmentContext*, const TUniqueId& instance_id,
-                 const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
-
-    // Used by pipelineX. This runtime state is only used for setup.
+    // Used by pipeline. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
@@ -449,6 +444,8 @@ public:
 
     QueryContext* get_query_ctx() { return _query_ctx; }
 
+    std::weak_ptr<QueryContext> get_query_ctx_weak();
+
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
     }
@@ -559,9 +556,7 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            bool need_local_merge,
-                                            std::shared_ptr<IRuntimeFilter>* producer_filter,
-                                            bool build_bf_exactly);
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
 
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,

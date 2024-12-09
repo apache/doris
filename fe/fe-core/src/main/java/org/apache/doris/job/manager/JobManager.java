@@ -41,6 +41,8 @@ import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.scheduler.JobScheduler;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -189,6 +191,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     public void alterJobStatus(Long jobId, JobStatus status) throws JobException {
         checkJobExist(jobId);
         jobMap.get(jobId).updateJobStatus(status);
+        if (status.equals(JobStatus.RUNNING)) {
+            jobScheduler.scheduleOneJob(jobMap.get(jobId));
+        }
         jobMap.get(jobId).logUpdateOperation();
     }
 
@@ -519,4 +524,93 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     //            job.updateLoadingStatus(beId, loadId, fragmentId, scannedRows, scannedBytes, isDone);
     //        }
     //    }
+
+    /**
+     * used for nereids planner
+     */
+    public void cancelLoadJob(String dbName, String label, String state,
+                              Expression operator)
+            throws JobException, AnalysisException, DdlException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        // List of load jobs waiting to be cancelled
+        List<InsertJob> unfinishedLoadJob;
+        readLock();
+        try {
+            List<InsertJob> loadJobs = Env.getCurrentEnv().getLabelProcessor().getJobs(db);
+            List<InsertJob> matchLoadJobs = Lists.newArrayList();
+            addNeedCancelLoadJob(label, state, operator, loadJobs, matchLoadJobs);
+            if (matchLoadJobs.isEmpty()) {
+                throw new JobException("Load job does not exist");
+            }
+            // check state here
+            unfinishedLoadJob =
+                matchLoadJobs.stream().filter(InsertJob::isRunning)
+                    .collect(Collectors.toList());
+            if (unfinishedLoadJob.isEmpty()) {
+                throw new JobException("There is no uncompleted job");
+            }
+        } finally {
+            readUnlock();
+        }
+        // check auth
+        if (unfinishedLoadJob.size() > 1 || unfinishedLoadJob.get(0).getTableNames().isEmpty()) {
+            if (Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                    PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, "LOAD",
+                        ConnectContext.get().getQualifiedUser(),
+                        ConnectContext.get().getRemoteIP(), dbName);
+            }
+        } else {
+            for (String tableName : unfinishedLoadJob.get(0).getTableNames()) {
+                if (Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                        tableName,
+                        PrivPredicate.LOAD)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                            ConnectContext.get().getQualifiedUser(),
+                            ConnectContext.get().getRemoteIP(), dbName + ":" + tableName);
+                }
+            }
+        }
+        for (InsertJob loadJob : unfinishedLoadJob) {
+            try {
+                alterJobStatus(loadJob.getJobId(), JobStatus.STOPPED);
+            } catch (JobException e) {
+                log.warn("Fail to cancel job, its label: {}", loadJob.getLabelName());
+            }
+        }
+    }
+
+    private static void addNeedCancelLoadJob(String label, String state,
+                                             Expression operator,
+                                             List<InsertJob> loadJobs,
+                                             List<InsertJob> matchLoadJobs)
+            throws AnalysisException {
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
+                CaseSensibility.LABEL.getCaseSensibility());
+        matchLoadJobs.addAll(
+                loadJobs.stream()
+                .filter(job -> !job.isCancelled())
+                .filter(job -> {
+                    if (operator != null) {
+                        // compound
+                        boolean labelFilter =
+                                label.contains("%") ? matcher.match(job.getLabelName())
+                                : job.getLabelName().equalsIgnoreCase(label);
+                        boolean stateFilter = job.getJobStatus().name().equalsIgnoreCase(state);
+                        return operator instanceof And ? labelFilter && stateFilter :
+                            labelFilter || stateFilter;
+                    }
+                    if (StringUtils.isNotEmpty(label)) {
+                        return label.contains("%") ? matcher.match(job.getLabelName())
+                            : job.getLabelName().equalsIgnoreCase(label);
+                    }
+                    if (StringUtils.isNotEmpty(state)) {
+                        return job.getJobStatus().name().equalsIgnoreCase(state);
+                    }
+                    return false;
+                }).collect(Collectors.toList())
+        );
+    }
 }

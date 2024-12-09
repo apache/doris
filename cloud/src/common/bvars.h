@@ -198,6 +198,7 @@ extern bvar::LatencyRecorder g_bvar_txn_kv_batch_get;
 
 extern bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 extern bvar::Adder<int64_t> g_bvar_txn_kv_commit_conflict_counter;
+extern bvar::Adder<int64_t> g_bvar_txn_kv_get_count_normalized;
 
 extern const int64_t BVAR_FDB_INVALID_VALUE;
 extern bvar::Status<int64_t> g_bvar_fdb_client_count;
@@ -249,3 +250,7 @@ extern BvarStatusWithTag<long> g_bvar_checker_last_success_time_ms;
 extern BvarStatusWithTag<long> g_bvar_checker_instance_volume;
 extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_scanned;
 extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed;
+
+extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps;
+extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps;
+extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned;

@@ -393,9 +393,11 @@ void PartitionedHashJoinSinkLocalState::_spill_to_disk(
     }
 }
 
-PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(
-        ObjectPool* pool, int operator_id, const TPlanNode& tnode, const DescriptorTbl& descs,
-        bool use_global_rf, uint32_t partition_count)
+PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(ObjectPool* pool,
+                                                                   int operator_id,
+                                                                   const TPlanNode& tnode,
+                                                                   const DescriptorTbl& descs,
+                                                                   uint32_t partition_count)
         : JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>(pool, operator_id, tnode,
                                                                     descs),
           _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
@@ -436,7 +438,7 @@ Status PartitionedHashJoinSinkOperatorX::_setup_internal_operator(RuntimeState* 
     auto& local_state = get_local_state(state);
 
     local_state._shared_state->inner_runtime_state = RuntimeState::create_unique(
-            nullptr, state->fragment_instance_id(), state->query_id(), state->fragment_id(),
+            state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
     local_state._shared_state->inner_runtime_state->set_task_execution_context(
             state->get_task_execution_context().lock());

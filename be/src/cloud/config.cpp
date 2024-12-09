@@ -20,6 +20,7 @@
 #include "common/status.h"
 
 namespace doris::config {
+#include "common/compile_check_begin.h"
 
 DEFINE_String(deploy_mode, "");
 DEFINE_mString(cloud_unique_id, "");
@@ -28,7 +29,7 @@ DEFINE_Bool(meta_service_use_load_balancer, "false");
 DEFINE_mInt32(meta_service_rpc_timeout_ms, "10000");
 DEFINE_Bool(meta_service_connection_pooled, "true");
 DEFINE_mInt64(meta_service_connection_pool_size, "20");
-DEFINE_mInt32(meta_service_connection_age_base_minutes, "5");
+DEFINE_mInt32(meta_service_connection_age_base_seconds, "30");
 DEFINE_mInt32(meta_service_idle_connection_timeout_ms, "0");
 DEFINE_mInt32(meta_service_rpc_retry_times, "200");
 DEFINE_mInt32(meta_service_brpc_timeout_ms, "10000");
@@ -76,4 +77,5 @@ DEFINE_mInt32(tablet_txn_info_min_expired_seconds, "120");
 DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
 
 DEFINE_mBool(enable_cloud_tablet_report, "true");
+#include "common/compile_check_end.h"
 } // namespace doris::config

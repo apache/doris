@@ -63,7 +63,6 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<Long, MultiFragme
     private final long timeoutDeadline;
     private final CoordinatorContext coordinatorContext;
     private final BackendServiceProxy backendServiceProxy;
-    private final Map<BackendFragmentId, SingleFragmentPipelineTask> backendFragmentTasks;
 
     // mutable states
     public PipelineExecutionTask(
@@ -88,7 +87,6 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<Long, MultiFragme
                 backendFragmentTasks.put(new BackendFragmentId(backendId, fragmentId), fragmentTask);
             }
         }
-        this.backendFragmentTasks = backendFragmentTasks.build();
     }
 
     @Override
@@ -104,7 +102,7 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<Long, MultiFragme
 
     @Override
     public String toString() {
-        return "SqlPipelineTask(\n"
+        return "PipelineExecutionTask(\n"
                 + childrenTasks.allTasks()
                     .stream()
                     .map(multiFragmentsPipelineTask -> "  " + multiFragmentsPipelineTask)

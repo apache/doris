@@ -101,6 +101,9 @@ suite("dimension_join_agg_negative") {
     sql """analyze table orders_negative with sync;"""
     sql """analyze table lineitem_negative with sync;"""
 
+    sql """alter table orders_negative modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem_negative modify column l_comment set stats ('row_count'='7');"""
+
     // left join + agg (function + group by + +-*/ + filter)
     def left_mv_stmt_1 = """select t1.o_orderdate, t1.o_shippriority, t1.o_orderkey 
             from (select o_orderkey, o_custkey, o_orderstatus, o_orderdate, o_shippriority from orders_negative group by o_orderkey, o_custkey, o_orderstatus, o_orderdate, o_shippriority) as t1

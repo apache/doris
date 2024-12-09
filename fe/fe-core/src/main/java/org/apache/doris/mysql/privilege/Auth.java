@@ -554,6 +554,10 @@ public class Auth implements Writable {
         }
     }
 
+    public void dropUser(UserIdentity userIdent, boolean ignoreIfNonExists)  throws DdlException {
+        dropUserInternal(userIdent, ignoreIfNonExists, false);
+    }
+
     // drop user
     public void dropUser(DropUserStmt stmt) throws DdlException {
         dropUserInternal(stmt.getUserIdentity(), stmt.isSetIfExists(), false);
@@ -682,7 +686,7 @@ public class Auth implements Writable {
         writeLock();
         try {
             if (!isReplay) {
-                checkTablePatternExist(tblPattern);
+                checkTablePatternExist(tblPattern, privs);
             }
             if (role == null) {
                 if (!doesUserExist(userIdent)) {
@@ -702,8 +706,12 @@ public class Auth implements Writable {
         }
     }
 
-    private void checkTablePatternExist(TablePattern tablePattern) throws DdlException {
+    private void checkTablePatternExist(TablePattern tablePattern, PrivBitSet privs) throws DdlException {
         Objects.requireNonNull(tablePattern, "tablePattern can not be null");
+        Objects.requireNonNull(privs, "privs can not be null");
+        if (privs.containsPrivs(Privilege.CREATE_PRIV)) {
+            return;
+        }
         PrivLevel privLevel = tablePattern.getPrivLevel();
         if (privLevel == PrivLevel.GLOBAL) {
             return;
@@ -1013,6 +1021,10 @@ public class Auth implements Writable {
     // create role
     public void createRole(CreateRoleStmt stmt) throws DdlException {
         createRoleInternal(stmt.getRole(), stmt.isSetIfNotExists(), stmt.getComment(), false);
+    }
+
+    public void createRole(String role, boolean ignoreIfExists, String comment) throws DdlException {
+        createRoleInternal(role, ignoreIfExists, comment, false);
     }
 
     public void alterRole(AlterRoleStmt stmt) throws DdlException {

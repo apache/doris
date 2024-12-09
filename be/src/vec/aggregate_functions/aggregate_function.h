@@ -36,6 +36,7 @@
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class IColumn;
@@ -43,7 +44,7 @@ class IDataType;
 
 struct AggregateFunctionAttr {
     bool enable_decimal256 {false};
-    std::vector<std::pair<std::string, bool>> column_infos;
+    std::vector<std::string> column_names;
 };
 
 template <bool nullable, typename ColVecType>
@@ -598,3 +599,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

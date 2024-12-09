@@ -32,13 +32,18 @@ struct TExportTaskRequest {
 
 struct TTabletStat {
     1: required i64 tablet_id
-    // local data size
+    // local data size = local inverted index file size + local segment file size
     2: optional i64 data_size
     3: optional i64 row_count
     4: optional i64 total_version_count
+    // remote data size = remote inverted index file size + remote segment file size
     5: optional i64 remote_data_size
     6: optional i64 visible_version_count
     7: optional i64 visible_version
+    8: optional i64 local_index_size = 0      // .idx
+    9: optional i64 local_segment_size = 0    // .dat
+    10: optional i64 remote_index_size = 0    // .idx
+    11: optional i64 remote_segment_size = 0  // .dat
 }
 
 struct TTabletStatResult {
@@ -265,8 +270,8 @@ struct TWorkloadGroupInfo {
   9: optional i32 scan_thread_num
   10: optional i32 max_remote_scan_thread_num
   11: optional i32 min_remote_scan_thread_num
-  12: optional i32 spill_threshold_low_watermark
-  13: optional i32 spill_threshold_high_watermark
+  12: optional i32 memory_low_watermark
+  13: optional i32 memory_high_watermark
   14: optional i64 read_bytes_per_second
   15: optional i64 remote_read_bytes_per_second
   16: optional string tag

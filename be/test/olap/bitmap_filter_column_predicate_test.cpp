@@ -42,7 +42,7 @@ public:
     template <PrimitiveType type>
     BitmapFilterColumnPredicate<type> create_predicate(
             const std::shared_ptr<BitmapFilterFunc<type>>& filter) {
-        return BitmapFilterColumnPredicate<type>(0, filter, 0);
+        return BitmapFilterColumnPredicate<type>(0, filter);
     }
 
     const std::string kTestDir = "./ut_dir/bitmap_filter_column_predicate_test";
@@ -97,11 +97,11 @@ TEST_F(BitmapFilterColumnPredicateTest, evaluate_and) {
     BitmapValue bitmap_value;
     bitmap_value.add(0);
     bitmap_value.add(102);
-    filter->insert(&bitmap_value);
+    filter->insert_many({&bitmap_value});
     EXPECT_FALSE(predicate.evaluate_and({min, max}));
 
     bitmap_value.add(2);
-    filter->insert(&bitmap_value);
+    filter->insert_many({&bitmap_value});
     EXPECT_TRUE(predicate.evaluate_and({min, max}));
 
     delete min;
@@ -126,7 +126,7 @@ TEST_F(BitmapFilterColumnPredicateTest, evaluate_column) {
             {1, 2, 3, 5, 8, 16, 32, 64, 65, 127, 128, 129, 256, 512});
     const std::vector<int32_t> values({512, 256, 999, 3, 32, 44, 32, 127, 127, 63, 63, 64, 100, 7});
     bitmap_value.add_many(filter_values.data(), filter_values.size());
-    filter->insert(&bitmap_value);
+    filter->insert_many({&bitmap_value});
 
     auto column = vectorized::PredicateColumnType<TYPE_INT>::create();
     column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
@@ -160,7 +160,7 @@ TEST_F(BitmapFilterColumnPredicateTest, evaluate_column_nullable) {
             {1, 2, 3, 5, 8, 16, 32, 64, 65, 127, 128, 129, 256, 512});
     const std::vector<int32_t> values({512, 256, 999, 3, 32, 44, 32, 127, 127, 63, 63, 64, 100, 7});
     bitmap_value.add_many(filter_values.data(), filter_values.size());
-    filter->insert(&bitmap_value);
+    filter->insert_many({&bitmap_value});
 
     auto column = vectorized::PredicateColumnType<TYPE_INT>::create();
     column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());

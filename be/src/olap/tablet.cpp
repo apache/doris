@@ -1692,6 +1692,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // tablet may not have cooldowned data, but the storage policy is set
         tablet_info->__set_cooldown_term(_cooldown_conf.term);
     }
+    tablet_info->__set_local_index_size(_tablet_meta->tablet_local_index_size());
+    tablet_info->__set_local_segment_size(_tablet_meta->tablet_local_segment_size());
+    tablet_info->__set_remote_index_size(_tablet_meta->tablet_remote_index_size());
+    tablet_info->__set_remote_segment_size(_tablet_meta->tablet_remote_segment_size());
 }
 
 void Tablet::report_error(const Status& st) {
@@ -2490,7 +2494,7 @@ CalcDeleteBitmapExecutor* Tablet::calc_delete_bitmap_executor() {
 
 Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                                  const RowsetIdUnorderedSet& cur_rowset_ids) {
+                                  const RowsetIdUnorderedSet& cur_rowset_ids, int64_t lock_id) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
 
@@ -2542,10 +2546,10 @@ void Tablet::set_skip_compaction(bool skip, CompactionType compaction_type, int6
 
 bool Tablet::should_skip_compaction(CompactionType compaction_type, int64_t now) {
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION && _skip_cumu_compaction &&
-        now < _skip_cumu_compaction_ts + 120) {
+        now < _skip_cumu_compaction_ts + config::skip_tablet_compaction_second) {
         return true;
     } else if (compaction_type == CompactionType::BASE_COMPACTION && _skip_base_compaction &&
-               now < _skip_base_compaction_ts + 120) {
+               now < _skip_base_compaction_ts + config::skip_tablet_compaction_second) {
         return true;
     }
     return false;

@@ -34,6 +34,7 @@
 #include "pipeline/common/set_utils.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/join/process_hash_table_probe.h"
+#include "util/stack_util.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/core/block.h"
@@ -107,7 +108,7 @@ public:
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
     [[nodiscard]] virtual Dependency* is_blocked_by(PipelineTask* task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
-    void set_ready();
+    virtual void set_ready();
     void set_ready_to_read() {
         DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
@@ -571,14 +572,12 @@ public:
 
     int64_t current_row_position = 0;
     BlockRowPos partition_by_end;
-    vectorized::VExprContextSPtrs partition_by_eq_expr_ctxs;
     int64_t input_total_rows = 0;
     BlockRowPos all_block_end;
     std::vector<vectorized::Block> input_blocks;
     bool input_eos = false;
     BlockRowPos found_partition_end;
     std::vector<int64_t> origin_cols;
-    vectorized::VExprContextSPtrs order_by_eq_expr_ctxs;
     std::vector<int64_t> input_block_first_row_positions;
     std::vector<std::vector<vectorized::MutableColumnPtr>> agg_input_columns;
 

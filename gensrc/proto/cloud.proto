@@ -544,6 +544,10 @@ message TabletCompactionJobPB {
     optional int64 delete_bitmap_lock_initiator = 24;
     optional int64 full_compaction_cnt = 25;  // prepare
     optional bool check_input_versions_range = 26;
+    optional int64 index_size_input_rowsets = 27;
+    optional int64 segment_size_input_rowsets = 28;
+    optional int64 index_size_output_rowsets = 29;
+    optional int64 segment_size_output_rowsets = 30;
 }
 
 message TabletSchemaChangeJobPB {
@@ -563,6 +567,8 @@ message TabletSchemaChangeJobPB {
     optional int64 output_cumulative_point = 12;
     optional bool is_inverted_index_change = 13 [default = false];
     optional int64 delete_bitmap_lock_initiator = 14;
+    optional int64 index_size_output_rowsets = 15;
+    optional int64 segment_size_output_rowsets = 16;
 }
 
 message TabletJobInfoPB {
@@ -576,7 +582,7 @@ message TabletJobInfoPB {
 //==============================================================================
 message TabletStatsPB {
     optional TabletIndexPB idx = 1;
-    optional int64 data_size = 2;
+    optional int64 data_size = 2; // data_size = index_size + segment_size
     optional int64 num_rows = 3;
     optional int64 num_rowsets = 4;
     optional int64 num_segments = 5;
@@ -588,6 +594,8 @@ message TabletStatsPB {
     optional int64 last_cumu_compaction_time_ms = 11;
     optional int64 full_compaction_cnt = 12;
     optional int64 last_full_compaction_time_ms = 13;
+    optional int64 index_size = 14;
+    optional int64 segment_size = 15; 
 }
 
 message ObjectFilePB {

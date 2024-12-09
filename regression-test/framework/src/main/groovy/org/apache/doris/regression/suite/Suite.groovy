@@ -770,6 +770,8 @@ class Suite implements GroovyInterceptable {
         runAction(new WaitForAction(context), actionSupplier)
         if (ObjectUtils.isNotEmpty(insertSql)){
             sql insertSql
+        } else {
+            sql "SYNC"
         }
         if (cleanOperator==true){
             if (ObjectUtils.isEmpty(tbName)) throw new RuntimeException("tbName cloud not be null")
@@ -1578,8 +1580,8 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def getMVJobState = { tableName, rollUpName  ->
-        def jobStateResult = sql """ SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' and IndexName = '${rollUpName}' ORDER BY CreateTime DESC limit 1"""
+    def getMVJobState = { tableName  ->
+        def jobStateResult = sql """ SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC limit 1"""
         if (jobStateResult == null || jobStateResult.isEmpty()) {
             logger.info("show alter table roll is empty" + jobStateResult)
             return "NOT_READY"
@@ -1590,14 +1592,14 @@ class Suite implements GroovyInterceptable {
         }
         return "FINISHED";
     }
-    def waitForRollUpJob =  (tbName, rollUpName, timeoutMillisecond) -> {
+    def waitForRollUpJob =  (tbName, timeoutMillisecond) -> {
 
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + timeoutMillisecond
 
         String result
         while (timeoutTimestamp > System.currentTimeMillis()){
-            result = getMVJobState(tbName, rollUpName)
+            result = getMVJobState(tbName)
             if (result == "FINISHED") {
                 sleep(200)
                 return
@@ -1641,6 +1643,10 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    boolean isClusterKeyEnabled() {
+        return getFeConfig("random_add_cluster_keys_for_mow").equals("true")
+    }
+
     boolean enableStoragevault() {
         if (Strings.isNullOrEmpty(context.config.metaServiceHttpAddress)
                 || Strings.isNullOrEmpty(context.config.instanceId)
@@ -1680,7 +1686,7 @@ class Suite implements GroovyInterceptable {
     }
 
     void setFeConfig(String key, Object value) {
-        sql "ADMIN SET ALL FRONTEND CONFIG ('${key}' = '${value}')"
+        sql "ADMIN SET ALL FRONTENDS CONFIG ('${key}' = '${value}')"
     }
 
     void setFeConfigTemporary(Map<String, Object> tempConfig, Closure actionSupplier) {
@@ -1872,9 +1878,34 @@ class Suite implements GroovyInterceptable {
         sql "analyze table ${db}.${mv_name} with sync;"
     }
 
+    def create_async_partition_mv = { db, mv_name, mv_sql, partition_col ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${db}.${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${db}.${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL 
+        PARTITION BY ${partition_col} 
+        DISTRIBUTED BY RANDOM BUCKETS 2 
+        PROPERTIES ('replication_num' = '1')  
+        AS ${mv_sql}
+        """
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        sql "analyze table ${db}.${mv_name} with sync;"
+    }
+
     // mv not part in rewrite process
-    def mv_not_part_in = { query_sql, mv_name ->
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name)
+    void mv_not_part_in(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name + ", sync_cbo_rewrite = " + sync_cbo_rewrite)
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean isContain = result.contains("${mv_name}")
+                    Assert.assertFalse(isContain)
+                }
+            }
+        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
@@ -1886,8 +1917,20 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv all not part in rewrite process
-    def mv_all_not_part_in = { query_sql, mv_names ->
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
+    void mv_all_not_part_in(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " + sync_cbo_rewrite)
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean isContain = false;
+                    for (String mv_name : mv_names) {
+                        isContain = isContain || result.contains("${mv_name}")
+                    }
+                    Assert.assertFalse(isContain)
+                }
+            }
+        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
@@ -1958,9 +2001,8 @@ class Suite implements GroovyInterceptable {
             check { result ->
                 boolean success = true;
                 for (String mv_name : mv_names) {
-                    success = success && result.contains("${mv_name} chose")
+                    Assert.assertEquals(true, result.contains("${mv_name} chose"))
                 }
-                Assert.assertEquals(true, success)
             }
         }
     }

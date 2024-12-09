@@ -24,6 +24,10 @@ import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
@@ -50,6 +54,7 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.system.Backend;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -147,6 +152,9 @@ public class StatementContext implements Closeable {
     // placeholder params for prepared statement
     private List<Placeholder> placeholders;
 
+    // tables used for plan replayer
+    private Map<List<String>, TableIf> tables = null;
+
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
     // and value is the new string used for replacement.
@@ -173,6 +181,10 @@ public class StatementContext implements Closeable {
     private String disableJoinReorderReason;
 
     private Backend groupCommitMergeBackend;
+
+    private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+
+    private boolean privChecked;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -204,6 +216,30 @@ public class StatementContext implements Closeable {
         } else {
             this.sqlCacheContext = null;
         }
+    }
+
+    public Map<List<String>, TableIf> getTables() {
+        if (tables == null) {
+            tables = Maps.newHashMap();
+        }
+        return tables;
+    }
+
+    public void setTables(Map<List<String>, TableIf> tables) {
+        this.tables = tables;
+    }
+
+    /** get table by table name, try to get from information from dumpfile first */
+    public TableIf getTableInMinidumpCache(List<String> tableQualifier) {
+        if (!getConnectContext().getSessionVariable().isPlayNereidsDump()) {
+            return null;
+        }
+        Preconditions.checkState(tables != null, "tables should not be null");
+        TableIf table = tables.getOrDefault(tableQualifier, null);
+        if (getConnectContext().getSessionVariable().isPlayNereidsDump() && table == null) {
+            throw new AnalysisException("Minidump cache can not find table:" + tableQualifier);
+        }
+        return table;
     }
 
     public void setConnectContext(ConnectContext connectContext) {
@@ -508,6 +544,32 @@ public class StatementContext implements Closeable {
         this.plannerHooks.add(plannerHook);
     }
 
+    /**
+     * Load snapshot information of mvcc
+     *
+     * @param tables Tables used in queries
+     */
+    public void loadSnapshots(Map<List<String>, TableIf> tables) {
+        if (tables == null) {
+            return;
+        }
+        for (TableIf tableIf : tables.values()) {
+            if (tableIf instanceof MvccTable) {
+                snapshots.put(new MvccTableInfo(tableIf), ((MvccTable) tableIf).loadSnapshot());
+            }
+        }
+    }
+
+    /**
+     * Obtain snapshot information of mvcc
+     *
+     * @param mvccTable mvccTable
+     * @return MvccSnapshot
+     */
+    public MvccSnapshot getSnapshot(MvccTable mvccTable) {
+        return snapshots.get(new MvccTableInfo(mvccTable));
+    }
+
     private static class CloseableResource implements Closeable {
         public final String resourceName;
         public final String threadName;
@@ -579,5 +641,13 @@ public class StatementContext implements Closeable {
     public void setGroupCommitMergeBackend(
             Backend groupCommitMergeBackend) {
         this.groupCommitMergeBackend = groupCommitMergeBackend;
+    }
+
+    public boolean isPrivChecked() {
+        return privChecked;
+    }
+
+    public void setPrivChecked(boolean privChecked) {
+        this.privChecked = privChecked;
     }
 }
