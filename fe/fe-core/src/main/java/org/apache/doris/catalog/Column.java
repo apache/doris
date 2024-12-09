@@ -428,12 +428,6 @@ public class Column implements Writable, GsonPostProcessable {
                 || aggregationType == AggregateType.NONE) && nameEquals(VERSION_COL, true);
     }
 
-    public boolean isSkipBitmapColumn() {
-        return !visible && (aggregationType == AggregateType.REPLACE
-                || aggregationType == AggregateType.NONE || aggregationType == null)
-                && nameEquals(SKIP_BITMAP_COL, true);
-    }
-
     // now we only support BloomFilter on (same behavior with BE):
     // smallint/int/bigint/largeint
     // string/varchar/char/variant
