@@ -547,7 +547,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         return new HashMap<>();
     }
 
-    private List<Split> getSplitByTableSession(TableBatchReadSession tableBatchReadSession) throws java.io.IOException {
+    private List<Split> getSplitByTableSession(TableBatchReadSession tableBatchReadSession) throws IOException {
         List<Split> result = new ArrayList<>();
         String scanSessionSerialize =  serializeSession(tableBatchReadSession);
         InputSplitAssigner assigner = tableBatchReadSession.getInputSplitAssigner();
