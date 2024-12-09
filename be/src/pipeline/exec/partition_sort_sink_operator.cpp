@@ -70,7 +70,9 @@ PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, int ope
           _topn_phase(tnode.partition_sort_node.ptopn_phase),
           _has_global_limit(tnode.partition_sort_node.has_global_limit),
           _top_n_algorithm(tnode.partition_sort_node.top_n_algorithm),
-          _partition_inner_limit(tnode.partition_sort_node.partition_inner_limit) {}
+          _partition_inner_limit(tnode.partition_sort_node.partition_inner_limit) {
+    _spillable = true;
+}
 
 Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));

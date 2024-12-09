@@ -148,6 +148,7 @@ PartitionedAggSinkOperatorX::PartitionedAggSinkOperatorX(ObjectPool* pool, int o
         : DataSinkOperatorX<PartitionedAggSinkLocalState>(operator_id, tnode.node_id) {
     _agg_sink_operator = std::make_unique<AggSinkOperatorX>(pool, operator_id, tnode, descs,
                                                             require_bucket_distribution);
+    _spillable = true;
 }
 
 Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -338,6 +339,11 @@ Status PartitionedAggSinkLocalState::revoke_memory(
 
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
             std::move(spill_runnable));
+}
+
+bool PartitionedAggSinkOperatorX::is_spilled(RuntimeState* state) const {
+    auto& local_state = get_local_state(state);
+    return local_state._shared_state->is_spilled;
 }
 
 } // namespace doris::pipeline

@@ -270,6 +270,7 @@ private:
     uint32_t _schedule_time = 0;
     std::unique_ptr<vectorized::Block> _block;
     std::unique_ptr<vectorized::Block> _pending_block;
+    bool _pending_eos = false;
 
     PipelineFragmentContext* _fragment_context = nullptr;
     MultiCoreTaskQueue* _task_queue = nullptr;
