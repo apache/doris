@@ -59,7 +59,7 @@ protected:
 
         construct_column(schema_pb.add_column(), 0, "DATE", "date_column");
         construct_column(schema_pb.add_column(), 1, "DATETIME", "datetime_column");
-
+        schema_pb.set_bf_fpp(0.05);
         _tablet_schema.reset(new TabletSchema);
         _tablet_schema->init_from_pb(schema_pb);
 

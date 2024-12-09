@@ -37,6 +37,7 @@
 #include "vec/io/var_int.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -98,7 +99,7 @@ struct AggregateFunctionGroupArrayIntersectData {
         value = std::make_unique<NullableNumericOrDateSetType>();
     }
 
-    void process_col_data(auto& column_data, size_t offset, size_t arr_size, bool& init, Set& set) {
+    void process_col_data(auto& column_data, size_t offset, size_t arr_size, Set& set) {
         const bool is_column_data_nullable = column_data.is_nullable();
 
         const ColumnNullable* col_null = nullptr;
@@ -174,7 +175,6 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         auto& data = this->data(place);
-        auto& init = data.init;
         auto& set = data.value;
 
         const bool col_is_nullable = (*columns[0]).is_nullable();
@@ -191,7 +191,7 @@ public:
         const auto arr_size = offsets[row_num] - offset;
         const auto& column_data = column.get_data();
 
-        data.process_col_data(column_data, offset, arr_size, init, set);
+        data.process_col_data(column_data, offset, arr_size, set);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -541,3 +541,5 @@ public:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

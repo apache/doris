@@ -21,6 +21,8 @@ package org.apache.doris.common.jni.vec;
 import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.vec.ColumnType.Type;
 
+import org.apache.log4j.Logger;
+
 import java.util.Collections;
 import java.util.Map;
 
@@ -28,6 +30,7 @@ import java.util.Map;
  * Store a batch of data as vector table.
  */
 public class VectorTable {
+    public static final Logger LOG = Logger.getLogger(VectorTable.class);
     private final VectorColumn[] columns;
     private final ColumnType[] columnTypes;
     private final String[] fields;
@@ -199,6 +202,10 @@ public class VectorTable {
         return columns.length;
     }
 
+    public boolean isConstColumn(int idx) {
+        return columns[idx].isConst();
+    }
+
     public long getMetaAddress() {
         if (!onlyReadable) {
             meta.reset();
@@ -229,6 +236,18 @@ public class VectorTable {
     // for test only.
     public String dump(int rowLimit) {
         StringBuilder sb = new StringBuilder();
+        for (int col = 0; col < columns.length; col++) {
+            ColumnType.Type typeValue = columns[col].getColumnPrimitiveType();
+            sb.append(typeValue.name());
+            sb.append("(rows: " + columns[col].numRows());
+            sb.append(")(const: ");
+            sb.append(columns[col].isConst() ? "true) " : "false) ");
+            if (col != 0) {
+                sb.append(",    ");
+            }
+        }
+        sb.append("\n");
+
         for (int i = 0; i < rowLimit && i < getNumRows(); i++) {
             for (int j = 0; j < columns.length; j++) {
                 if (j != 0) {

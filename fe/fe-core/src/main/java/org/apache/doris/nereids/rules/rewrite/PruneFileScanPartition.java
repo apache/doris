@@ -59,7 +59,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                     ExternalTable tbl = scan.getTable();
 
                     SelectedPartitions selectedPartitions;
-                    if (tbl.supportPartitionPruned()) {
+                    if (tbl.supportInternalPartitionPruned()) {
                         selectedPartitions = pruneExternalPartitions(tbl, filter, scan, ctx.cascadesContext);
                     } else {
                         // set isPruned so that it won't go pass the partition prune again
@@ -91,7 +91,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
         List<String> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
-                partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx, PartitionTableType.HIVE));
+                partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx, PartitionTableType.EXTERNAL));
 
         for (String name : prunedPartitions) {
             selectedPartitionItems.put(name, nameToPartitionItem.get(name));

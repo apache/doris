@@ -25,6 +25,10 @@ import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 
+import com.google.common.collect.Lists;
+
+import java.util.List;
+
 /**
  * TrySimplifyPredicateWithMarkJoinSlot
  */
@@ -56,19 +60,15 @@ public class TrySimplifyPredicateWithMarkJoinSlot extends AbstractExpressionRewr
          * we change 'predicate(with mark slot) and predicate(no mark slot)' -> predicate(with mark slot) and true
          * to evaluate the predicate
          */
-        Expression left = and.left();
-        Expression newLeft = left.accept(this, context);
-
-        if (newLeft.getInputSlots().stream().noneMatch(MarkJoinSlotReference.class::isInstance)) {
-            newLeft = BooleanLiteral.TRUE;
+        List<Expression> newChildren = Lists.newArrayListWithCapacity(and.children().size());
+        for (Expression child : and.children()) {
+            Expression newChild = child.accept(this, context);
+            if (newChild.getInputSlots().stream().noneMatch(MarkJoinSlotReference.class::isInstance)) {
+                newChild = BooleanLiteral.TRUE;
+            }
+            newChildren.add(newChild);
         }
-
-        Expression right = and.right();
-        Expression newRight = right.accept(this, context);
-        if (newRight.getInputSlots().stream().noneMatch(MarkJoinSlotReference.class::isInstance)) {
-            newRight = BooleanLiteral.TRUE;
-        }
-        Expression expr = new And(newLeft, newRight);
+        Expression expr = new And(newChildren);
         return expr;
     }
 
@@ -94,19 +94,17 @@ public class TrySimplifyPredicateWithMarkJoinSlot extends AbstractExpressionRewr
          * we change 'predicate(with mark slot) or predicate(no mark slot)' -> predicate(with mark slot) or false
          * to evaluate the predicate
          */
-        Expression left = or.left();
-        Expression newLeft = left.accept(this, context);
 
-        if (newLeft.getInputSlots().stream().noneMatch(MarkJoinSlotReference.class::isInstance)) {
-            newLeft = BooleanLiteral.FALSE;
+        List<Expression> newChildren = Lists.newArrayListWithCapacity(or.children().size());
+        for (Expression child : or.children()) {
+            Expression newChild = child.accept(this, context);
+            if (newChild.getInputSlots().stream().noneMatch(MarkJoinSlotReference.class::isInstance)) {
+                newChild = BooleanLiteral.FALSE;
+            }
+            newChildren.add(newChild);
         }
 
-        Expression right = or.right();
-        Expression newRight = right.accept(this, context);
-        if (newRight.getInputSlots().stream().noneMatch(MarkJoinSlotReference.class::isInstance)) {
-            newRight = BooleanLiteral.FALSE;
-        }
-        Expression expr = new Or(newLeft, newRight);
+        Expression expr = new Or(newChildren);
         return expr;
     }
 

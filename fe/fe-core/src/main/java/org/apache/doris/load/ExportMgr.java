@@ -38,7 +38,7 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
@@ -108,26 +108,24 @@ public class ExportMgr {
                 }
             }
             unprotectAddJob(job);
-            // delete existing files
-            if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
-                if (job.getBrokerDesc() == null) {
-                    throw new AnalysisException("Local file system does not support delete existing files");
-                }
-                String fullPath = job.getExportPath();
-                BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
-                        job.getBrokerDesc());
-            }
             Env.getCurrentEnv().getEditLog().logExportCreate(job);
-            // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
-            job.getCopiedTaskExecutors().forEach(executor -> {
-                Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
-            });
-            LOG.info("add export job. {}", job);
-
         } finally {
             writeUnlock();
         }
-
+        // delete existing files
+        if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
+            if (job.getBrokerDesc() == null) {
+                throw new AnalysisException("Local file system does not support delete existing files");
+            }
+            String fullPath = job.getExportPath();
+            BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
+                    job.getBrokerDesc());
+        }
+        // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
+        for (int i = 0; i < job.getCopiedTaskExecutors().size(); i++) {
+            Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(job.getCopiedTaskExecutors().get(i));
+        }
+        LOG.info("add export job. {}", job);
     }
 
     public void cancelExportJob(CancelExportStmt stmt) throws DdlException, AnalysisException {
@@ -162,7 +160,9 @@ public class ExportMgr {
         }
     }
 
-    private List<ExportJob> getWaitingCancelJobs(String label, String state, BinaryOperator operator)
+    private List<ExportJob> getWaitingCancelJobs(
+            String label, String state,
+            Expression operator)
             throws AnalysisException {
         Predicate<ExportJob> jobFilter = buildCancelJobFilter(label, state, operator);
         readLock();
@@ -174,7 +174,9 @@ public class ExportMgr {
     }
 
     @VisibleForTesting
-    public static Predicate<ExportJob> buildCancelJobFilter(String label, String state, BinaryOperator operator)
+    public static Predicate<ExportJob> buildCancelJobFilter(
+            String label, String state,
+            Expression operator)
             throws AnalysisException {
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
                 CaseSensibility.LABEL.getCaseSensibility());
@@ -201,7 +203,10 @@ public class ExportMgr {
     /**
      * used for Nereids planner
      */
-    public void cancelExportJob(String label, String state, BinaryOperator operator, String dbName)
+    public void cancelExportJob(
+            String label,
+            String state,
+            Expression operator, String dbName)
             throws DdlException, AnalysisException {
         // List of export jobs waiting to be cancelled
         List<ExportJob> matchExportJobs = getWaitingCancelJobs(label, state, operator);

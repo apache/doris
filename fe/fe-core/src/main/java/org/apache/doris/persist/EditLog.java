@@ -349,13 +349,21 @@ public class EditLog {
                 }
                 case OperationType.OP_BATCH_DROP_ROLLUP: {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
-                    for (Map.Entry<Long, String> entry : batchDropInfo.getIndexNameMap().entrySet()) {
-                        long indexId = entry.getKey();
-                        String indexName = entry.getValue();
-                        DropInfo info = new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
-                                        batchDropInfo.getTableName(), indexId, indexName, false, false, 0);
-                        env.getMaterializedViewHandler().replayDropRollup(info, env);
-                        env.getBinlogManager().addDropRollup(info, logId);
+                    if (batchDropInfo.hasIndexNameMap()) {
+                        for (Map.Entry<Long, String> entry : batchDropInfo.getIndexNameMap().entrySet()) {
+                            long indexId = entry.getKey();
+                            String indexName = entry.getValue();
+                            DropInfo info = new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
+                                            batchDropInfo.getTableName(), indexId, indexName, false, false, 0);
+                            env.getMaterializedViewHandler().replayDropRollup(info, env);
+                            env.getBinlogManager().addDropRollup(info, logId);
+                        }
+                    } else {
+                        for (Long indexId : batchDropInfo.getIndexIdSet()) {
+                            DropInfo info = new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
+                                    batchDropInfo.getTableName(), indexId, "", false, false, 0);
+                            env.getMaterializedViewHandler().replayDropRollup(info, env);
+                        }
                     }
                     break;
                 }

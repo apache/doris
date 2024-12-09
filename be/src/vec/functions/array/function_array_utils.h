@@ -16,6 +16,7 @@
 // under the License.
 #pragma once
 
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
@@ -55,7 +56,10 @@ public:
     const ColumnArray* array_col = nullptr;
     const ColumnArray::Offsets64* offsets_ptr = nullptr;
     const UInt8* nested_nullmap_data = nullptr;
-    const IColumn* nested_col = nullptr;
+    ColumnPtr nested_col = nullptr;
+    DataTypePtr nested_type = nullptr;
+    // wrap the nested column as variant column
+    bool output_as_variant = false;
 
     ColumnArrayMutableData to_mutable_data() const {
         ColumnArrayMutableData dst;

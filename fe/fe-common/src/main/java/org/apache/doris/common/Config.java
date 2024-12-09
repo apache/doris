@@ -425,6 +425,10 @@ public class Config extends ConfigBase {
                     + "`/proc/sys/net/core/somaxconn` at the same time"})
     public static int mysql_nio_backlog_num = 1024;
 
+    @ConfField(description = {"是否启用 mysql 连接中的 TCP keep alive，默认禁用",
+            "Whether to enable TCP Keep-Alive for MySQL connections, disabled by default"})
+    public static boolean mysql_nio_enable_keep_alive = false;
+
     @ConfField(description = {"thrift client 的连接超时时间，单位是毫秒。0 表示不设置超时时间。",
             "The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
     public static int thrift_client_timeout_ms = 0;

@@ -35,6 +35,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 enum class STATISTICS_FUNCTION_KIND : uint8_t { SKEW_POP, KURT_POP };
 
@@ -53,6 +54,7 @@ template <typename T, std::size_t _level>
 struct StatFuncOneArg {
     using Type = T;
     using Data = VarMoments<Float64, _level>;
+    using DataType = Float64;
 };
 
 template <typename StatFunc, bool NullableInput>
@@ -63,6 +65,7 @@ class AggregateFunctionVarianceSimple
 public:
     using InputCol = ColumnVector<typename StatFunc::Type>;
     using ResultCol = ColumnVector<Float64>;
+    using InputType = typename StatFunc::DataType;
 
     explicit AggregateFunctionVarianceSimple(STATISTICS_FUNCTION_KIND kind_,
                                              const DataTypes& argument_types_)
@@ -88,14 +91,16 @@ public:
             if (column_with_nullable.is_null_at(row_num)) {
                 return;
             } else {
-                this->data(place).add(assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(
-                                              column_with_nullable.get_nested_column())
-                                              .get_data()[row_num]);
+                this->data(place).add(
+                        (InputType)assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(
+                                column_with_nullable.get_nested_column())
+                                .get_data()[row_num]);
             }
 
         } else {
             this->data(place).add(
-                    assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                    (InputType)assert_cast<const InputCol&, TypeCheckOnRelease::DISABLE>(
+                            *columns[0])
                             .get_data()[row_num]);
         }
     }
@@ -161,3 +166,4 @@ private:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"
