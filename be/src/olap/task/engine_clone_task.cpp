@@ -415,7 +415,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         }
 
         std::string address = get_host_port(src.host, src.http_port);
-        if (is_support_batch_download(address).ok()) {
+        if (config::enable_batch_download && is_support_batch_download(address).ok()) {
             // download files via batch api.
             LOG_INFO("remote BE supports batch download, use batch file download")
                     .tag("address", address)
@@ -429,9 +429,15 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                 continue; // Try another BE
             }
         } else {
-            LOG_INFO("remote BE does not support batch download, use single file download")
-                    .tag("address", address)
-                    .tag("remote_dir", remote_dir);
+            if (config::enable_batch_download) {
+                LOG_INFO("remote BE does not support batch download, use single file download")
+                        .tag("address", address)
+                        .tag("remote_dir", remote_dir);
+            } else {
+                LOG_INFO("batch download is disabled, use single file download")
+                        .tag("address", address)
+                        .tag("remote_dir", remote_dir);
+            }
 
             std::string remote_url_prefix;
             {
