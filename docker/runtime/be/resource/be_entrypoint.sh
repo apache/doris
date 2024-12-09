@@ -107,6 +107,17 @@ show_backends(){
     echo "$backends"
 }
 
+enable_query_and_load(){
+    local svc=$1
+    set_enable_query_and_load=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM MODIFY BACKEND \"$MY_SELF:$HEARTBEAT_PORT\" SET (\"disable_query\" = \"false\",\"disable_load\"=\"false\");" 2>&1`
+    log_stderr "[info] use root no password set enable query and load result $set_enable_query_and_load ."
+    if echo $set_enable_query_and_load | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "[info] use username and password that configured to enable query and load."
+        set_enable_query_and_load=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM MODIFY BACKEND \"$MY_SELF:$HEARTBEAT_PORT\" SET (\"disable_query\" = \"false\",\"disable_load\"=\"false\");"`
+    fi
+    log_stderr "[info] set enable query and load return $set_enable_query_and_load"
+}
+
 # get all registered fe in cluster, for check the fe have `MASTER`.
 function show_frontends()
 {
@@ -157,6 +168,7 @@ add_self()
         memlist=`show_backends $svc`
         if echo "$memlist" | grep -q -w "$MY_SELF" &>/dev/null ; then
             log_stderr "[info] Check myself ($MY_SELF:$HEARTBEAT_PORT) exist in FE, start be directly ..."
+            enable_query_and_load $svc
             break;
         fi
 
