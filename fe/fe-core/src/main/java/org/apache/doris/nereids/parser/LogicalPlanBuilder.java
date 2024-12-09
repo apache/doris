@@ -246,6 +246,7 @@ import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateRepositoryContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateTableContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateViewContext;
+import org.apache.doris.nereids.DorisParser.ShowDataSkewContext;
 import org.apache.doris.nereids.DorisParser.ShowDatabaseIdContext;
 import org.apache.doris.nereids.DorisParser.ShowDeleteContext;
 import org.apache.doris.nereids.DorisParser.ShowDiagnoseTabletContext;
@@ -548,6 +549,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
@@ -4965,6 +4967,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? Maps.newHashMap(visitPropertyClause(ctx.properties))
                 : Maps.newHashMap();
         return new AdminCheckTabletsCommand(tabletIdLists, properties);
+    }
+
+    @Override
+    public LogicalPlan visitShowDataSkew(ShowDataSkewContext ctx) {
+        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
+        return new ShowDataSkewCommand(tableRefInfo);
     }
 }
 
