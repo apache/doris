@@ -265,7 +265,11 @@ public class ExecutionProfile {
                 String name = param.isSetIsFragmentLevel() && param.is_fragment_level ? "Fragment Level Profile: "
                         + suffix : "Pipeline :" + pipelineIdx + " " + suffix;
                 RuntimeProfile profile = new RuntimeProfile(name);
-                taskProfile.add(profile);
+                // The taskprofile is used to save the profile of the pipeline, without
+                // considering the FragmentLevel.
+                if (!(param.isSetIsFragmentLevel() && param.is_fragment_level)) {
+                    taskProfile.add(profile);
+                }
                 if (param.isSetProfile()) {
                     profile.update(param.profile);
                 }
