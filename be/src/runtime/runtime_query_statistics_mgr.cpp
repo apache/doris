@@ -225,9 +225,9 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
     int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
 
     // block's schema come from SchemaBackendActiveTasksScanner::_s_tbls_columns
-    // before 2.1.6, there are 12 columns in "backend_active_tasks" table.
-    // after 2.1.7, 2 new columns added.
-    // check this to make it compatible with version before 2.1.6
+    // before 2.1.7, there are 12 columns in "backend_active_tasks" table.
+    // after 2.1.8, 2 new columns added.
+    // check this to make it compatible with version before 2.1.7
     bool need_local_and_remote_bytes = (block->columns() > 12);
     for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
         int col_idx = 0;

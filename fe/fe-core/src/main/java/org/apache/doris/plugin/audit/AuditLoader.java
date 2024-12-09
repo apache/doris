@@ -151,10 +151,10 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(event.queryTime).append("\t");
         logBuffer.append(event.scanBytes).append("\t");
         logBuffer.append(event.scanRows).append("\t");
-        logBuffer.append(event.scanBytesFromLocalStorage).append("\t");
-        logBuffer.append(event.scanBytesFromRemoteStorage).append("\t");
         logBuffer.append(event.shuffleSendBytes).append("\t");
         logBuffer.append(event.shuffleSendRows).append("\t");
+        logBuffer.append(event.scanBytesFromLocalStorage).append("\t");
+        logBuffer.append(event.scanBytesFromRemoteStorage).append("\t");
         logBuffer.append(event.returnRows).append("\t");
         logBuffer.append(event.shuffleSendRows).append("\t");
         logBuffer.append(event.shuffleSendBytes).append("\t");
