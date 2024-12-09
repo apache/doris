@@ -138,7 +138,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 result = TableIf.TableType.HMS_EXTERNAL_TABLE;
 
                 // mock initSchemaAndUpdateTime and do nothing
-                tbl.initSchemaAndUpdateTime();
+                tbl.initSchemaAndUpdateTime(null);
                 minTimes = 0;
 
                 tbl.getDatabase();

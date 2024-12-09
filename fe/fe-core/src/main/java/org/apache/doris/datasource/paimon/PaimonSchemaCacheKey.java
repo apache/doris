@@ -17,34 +17,16 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 
-import java.util.Objects;
-import java.util.StringJoiner;
+import com.google.common.base.Objects;
 
-public class PaimonSchemaCacheKey {
-    private final CatalogIf catalog;
-    private final String dbName;
-    private final String tableName;
+public class PaimonSchemaCacheKey extends SchemaCacheKey {
     private final long schemaId;
 
-    public PaimonSchemaCacheKey(CatalogIf catalog, String dbName, String tableName, long schemaId) {
-        this.catalog = catalog;
-        this.dbName = dbName;
-        this.tableName = tableName;
+    public PaimonSchemaCacheKey(String dbName, String tableName, long schemaId) {
+        super(dbName, tableName);
         this.schemaId = schemaId;
-    }
-
-    public CatalogIf getCatalog() {
-        return catalog;
-    }
-
-    public String getDbName() {
-        return dbName;
-    }
-
-    public String getTableName() {
-        return tableName;
     }
 
     public long getSchemaId() {
@@ -56,28 +38,18 @@ public class PaimonSchemaCacheKey {
         if (this == o) {
             return true;
         }
-        if (o == null || getClass() != o.getClass()) {
+        if (!(o instanceof PaimonSchemaCacheKey)) {
+            return false;
+        }
+        if (!super.equals(o)) {
             return false;
         }
         PaimonSchemaCacheKey that = (PaimonSchemaCacheKey) o;
-        return catalog.getId() == that.catalog.getId()
-                && Objects.equals(dbName, that.dbName)
-                && Objects.equals(tableName, that.tableName)
-                && Objects.equals(schemaId, that.schemaId);
+        return schemaId == that.schemaId;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(catalog.getId(), dbName, tableName, schemaId);
-    }
-
-    @Override
-    public String toString() {
-        return new StringJoiner(", ", PaimonSchemaCacheKey.class.getSimpleName() + "[", "]")
-                .add("catalog=" + catalog)
-                .add("dbName='" + dbName + "'")
-                .add("tableName='" + tableName + "'")
-                .add("schemaId='" + schemaId + "'")
-                .toString();
+        return Objects.hashCode(super.hashCode(), schemaId);
     }
 }
