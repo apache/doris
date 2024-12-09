@@ -192,7 +192,9 @@ public class ExpressionUtils {
         return optionalAnd(ImmutableList.copyOf(collection));
     }
 
-    // and expression, will remove duplicate expression, boolean literal
+    /**
+     *  AND expression, also remove duplicate expression, boolean literal
+     */
     public static Expression and(Collection<Expression> expressions) {
         Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
@@ -213,7 +215,9 @@ public class ExpressionUtils {
         }
     }
 
-    // and expression, will remove duplicate expression, boolean literal
+    /**
+     *  AND expression, also remove duplicate expression, boolean literal
+     */
     public static Expression and(Expression... expressions) {
         return and(Lists.newArrayList(expressions));
     }
@@ -226,12 +230,16 @@ public class ExpressionUtils {
         }
     }
 
-    // or expression, will remove duplicate expression, boolean literal
+    /**
+     *  OR expression, also remove duplicate expression, boolean literal
+     */
     public static Expression or(Expression... expressions) {
         return or(Lists.newArrayList(expressions));
     }
 
-    // or expression, will remove duplicate expression, boolean literal
+    /**
+     *  OR expression, also remove duplicate expression, boolean literal
+     */
     public static Expression or(Collection<Expression> expressions) {
         Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
