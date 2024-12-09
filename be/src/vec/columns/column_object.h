@@ -98,7 +98,7 @@ public:
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
-    const static size_t MAX_SUBCOLUMNS = 200;
+    const size_t MAX_SUBCOLUMNS = 200;
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
     // merge and encode them into a shared column in root column. Only affects in flush block to segments.
     // Otherwise read mode should be as default mode.
@@ -181,6 +181,13 @@ public:
 
         void add_new_column_part(DataTypePtr type);
 
+        // Serialize the i-th row of the column into the sparse column.
+        void serialize_to_sparse_column(ColumnString* key, std::string_view path,
+                                        ColumnString* value, size_t row, bool& is_null);
+
+        // Deserialize the i-th row of the column from the sparse column.
+        void deserialize_from_sparse_column(const ColumnString* value, size_t row) {}
+
         friend class ColumnObject;
 
     private:
@@ -244,12 +251,19 @@ private:
     const bool is_nullable;
     Subcolumns subcolumns;
     size_t num_rows;
-    // sparse columns will be merge and encoded as ColumnMap<String, String>
-    WrappedPtr sparse_column;
+
+    // The rapidjson document format of Subcolumns tree structure
+    // the leaves is null.In order to display whole document, copy
+    // this structure and fill with Subcolumns sub items
+    mutable std::shared_ptr<rapidjson::Document> doc_structure;
 
     using SubColumnWithName = std::pair<PathInData, const Subcolumn*>;
     // Cached search results for previous row (keyed as index in JSON object) - used as a hint.
     mutable std::vector<SubColumnWithName> _prev_positions;
+
+    // It's filled when the number of subcolumns reaches the limit.
+    // It has type Map(String, String) and stores a map (path, binary serialized subcolumn value) for each row.
+    WrappedPtr serialized_sparse_column;
 
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
@@ -280,18 +294,11 @@ public:
     Status serialize_one_row_to_json_format(int64_t row, rapidjson::StringBuffer* output,
                                             bool* is_null) const;
 
-    // merge multiple sub sparse columns
-    Status merge_sparse_columns(const std::map<String, Subcolumn>& remaing_subcolumns);
+    // Fill the `serialized_sparse_column`
+    Status serialize_sparse_columns(std::map<std::string_view, Subcolumn>&& remaing_subcolumns);
 
     // ensure root node is a certain type
     void ensure_root_node_type(const DataTypePtr& type);
-
-    std::pair<ColumnString*, ColumnString*> get_sparse_data_paths_and_values() {
-        auto& column_map = assert_cast<ColumnMap&>(*sparse_column);
-        auto& key = assert_cast<ColumnString&>(column_map.get_keys());
-        auto& value = assert_cast<ColumnString&>(column_map.get_values());
-        return {&key, &value};
-    }
 
     // create jsonb root if missing
     // notice: should only using in VariantRootColumnIterator
@@ -354,7 +361,9 @@ public:
 
     Subcolumns& get_subcolumns() { return subcolumns; }
 
-    ColumnPtr get_sparse_column() { return sparse_column->convert_to_full_column_if_const(); }
+    ColumnPtr get_sparse_column() {
+        return serialized_sparse_column->convert_to_full_column_if_const();
+    }
 
     PathsInData getKeys() const;
 
@@ -556,6 +565,20 @@ public:
                                "replace_column_data" + get_name());
     }
 
+    std::pair<ColumnString*, ColumnString*> get_sparse_data_paths_and_values() {
+        auto& column_map = assert_cast<ColumnMap&>(*serialized_sparse_column);
+        auto& key = assert_cast<ColumnString&>(column_map.get_keys());
+        auto& value = assert_cast<ColumnString&>(column_map.get_values());
+        return {&key, &value};
+    }
+
+    std::pair<const ColumnString*, const ColumnString*> get_sparse_data_paths_and_values() const {
+        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
+        const auto& key = assert_cast<const ColumnString&>(column_map.get_keys());
+        const auto& value = assert_cast<const ColumnString&>(column_map.get_values());
+        return {&key, &value};
+    }
+
 private:
     // May throw execption
     void try_insert(const Field& field);
@@ -570,6 +593,24 @@ private:
 
     // unnest nested type columns, and flat them into finlized array subcolumns
     void unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const;
+
+    ColumnArray::Offsets64& ALWAYS_INLINE serialized_sparse_column_offsets() {
+        auto& column_map = assert_cast<ColumnMap&>(*serialized_sparse_column);
+        return column_map.get_offsets();
+    }
+
+    const ColumnArray::Offsets64& ALWAYS_INLINE serialized_sparse_column_offsets() const {
+        const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
+        return column_map.get_offsets();
+    }
+
+    void insert_from_sparse_column_and_fill_remaing_dense_column(
+            const ColumnObject& src,
+            std::vector<std::pair<std::string_view, Subcolumn>>&&
+                    sorted_src_subcolumn_for_sparse_column,
+            size_t start, size_t length);
+
+    bool try_add_new_subcolumn(const PathInData& path);
 };
 
 } // namespace doris::vectorized
