@@ -64,6 +64,13 @@ public class MCProperties extends BaseProperties {
     public static final String DEFAULT_READ_TIMEOUT = "120"; // 120s
     public static final String DEFAULT_RETRY_COUNT = "4"; // 4 times
 
+    //withCrossPartition(true):
+    //      Very friendly to scenarios where there are many partitions but each partition is very small.
+    //withCrossPartition(false):
+    //      Very debug friendly.
+    public static final String SPLIT_CROSS_PARTITION = "mc.split_cross_partition";
+    public static final String DEFAULT_SPLIT_CROSS_PARTITION = "true";
+
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
     }
