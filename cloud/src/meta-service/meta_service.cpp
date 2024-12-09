@@ -2150,32 +2150,6 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         }
     }
 
-    bool require_tablet_stats =
-            request->has_require_compaction_stats() ? request->require_compaction_stats() : false;
-    if (require_tablet_stats) {
-        // this request is from fe when it commits txn for MOW table, we send the compaction stats
-        // along with the GetDeleteBitmapUpdateLockResponse which will be sent to BE later to let
-        // BE eliminate unnecessary sync_rowsets() calls if possible
-        for (const auto& tablet_index : request->tablet_indexes()) {
-            TabletIndexPB idx(tablet_index);
-            TabletStatsPB tablet_stat;
-            internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, false);
-            if (code != MetaServiceCode::OK) {
-                response->clear_base_compaction_cnts();
-                response->clear_cumulative_compaction_cnts();
-                response->clear_cumulative_points();
-                LOG_WARNING(
-                        "failed to get tablet stats when get_delete_bitmap_update_lock, "
-                        "lock_id={}, initiator={}, tablet_id={}",
-                        request->lock_id(), request->initiator(), tablet_index.tablet_id());
-                return;
-            }
-            response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
-            response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
-            response->add_cumulative_points(tablet_stat.cumulative_point());
-        }
-    }
-
     lock_info.set_lock_id(request->lock_id());
     lock_info.set_expiration(now + request->expiration());
     bool found = false;
@@ -2204,6 +2178,60 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         ss << "failed to get_delete_bitmap_update_lock, err=" << err;
         msg = ss.str();
         return;
+    }
+
+    bool require_tablet_stats =
+            request->has_require_compaction_stats() ? request->require_compaction_stats() : false;
+    if (require_tablet_stats) {
+        // this request is from fe when it commits txn for MOW table, we send the compaction stats
+        // along with the GetDeleteBitmapUpdateLockResponse which will be sent to BE later to let
+        // BE eliminate unnecessary sync_rowsets() calls if possible
+
+        // 1. hold the delete bitmap update lock in MS(update lock_info.lock_id to current load's txn id)
+        // 2. read tablets' stats
+        // 3. check whether we still hold the delete bitmap update lock
+        // these steps can be done in different fdb txns
+        for (const auto& tablet_index : request->tablet_indexes()) {
+            TabletIndexPB idx(tablet_index);
+            TabletStatsPB tablet_stat;
+            int64_t retry = 0;
+            internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, false);
+            while (retry++ < 3 && code == MetaServiceCode::KV_TXN_TOO_OLD) {
+                code = MetaServiceCode::OK;
+                err = txn_kv_->create_txn(&txn);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::CREATE>(err);
+                    ss << "failed to init txn when get tablet stats, retry=" << retry;
+                    msg = ss.str();
+                    return;
+                }
+                internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat,
+                                          false);
+                LOG(INFO) << "retry get tablet stats, tablet=" << idx.tablet_id()
+                          << ", retry=" << retry;
+            }
+            if (code != MetaServiceCode::OK) {
+                response->clear_base_compaction_cnts();
+                response->clear_cumulative_compaction_cnts();
+                response->clear_cumulative_points();
+                LOG_WARNING(
+                        "failed to get tablet stats when get_delete_bitmap_update_lock, "
+                        "lock_id={}, initiator={}, tablet_id={}",
+                        request->lock_id(), request->initiator(), tablet_index.tablet_id());
+                return;
+            }
+            response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
+            response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
+            response->add_cumulative_points(tablet_stat.cumulative_point());
+        }
+
+        if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id, request->lock_id(),
+                                      request->initiator())) {
+            LOG(WARNING) << "failed to check delete bitmap lock after get tablet stats, table_id="
+                         << table_id << " request lock_id=" << request->lock_id()
+                         << " request initiator=" << request->initiator() << " msg" << msg;
+            return;
+        }
     }
 }
 
