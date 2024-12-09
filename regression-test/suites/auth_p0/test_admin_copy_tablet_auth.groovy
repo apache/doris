@@ -23,7 +23,7 @@ suite("test_admin_copy_tablet_auth","p0,auth") {
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "ADMIN COPY TABLET 10010 PROPERTIES('backend_id' = '10001');"
         } catch (Exception e) {
