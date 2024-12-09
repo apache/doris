@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.window;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -62,5 +63,12 @@ public abstract class FirstOrLastValue extends WindowFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (2 == arity() && !child(1).isConstant()) {
+            throw new AnalysisException("The second parameter of " + getName() + " must be constant");
+        }
     }
 }
