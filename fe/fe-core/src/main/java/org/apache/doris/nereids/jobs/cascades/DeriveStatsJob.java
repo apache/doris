@@ -107,10 +107,11 @@ public class DeriveStatsJob extends Job {
         } else {
             ConnectContext connectContext = context.getCascadesContext().getConnectContext();
             SessionVariable sessionVariable = connectContext.getSessionVariable();
-            boolean isHboEnabled = false;
+            boolean isHboEnabled = sessionVariable.isEnableHboOptimization();
+            boolean isHboTrackerOpened = sessionVariable.isEnableHboTracker();
             StatsCalculator statsCalculator;
-            if (isHboEnabled) {
-                statsCalculator = new StatsCalculator(groupExpression,
+            if (isHboEnabled && isHboTrackerOpened) {
+                statsCalculator = new HistoryBasedPlanStatisticsCalculator(groupExpression,
                         sessionVariable.getForbidUnknownColStats(),
                         connectContext.getTotalColumnStatisticMap(),
                         sessionVariable.isPlayNereidsDump(),
@@ -118,7 +119,7 @@ public class DeriveStatsJob extends Job {
                         context.getCascadesContext());
                 statsCalculator.estimate();
             } else {
-                statsCalculator = new HistoryBasedPlanStatisticsCalculator(groupExpression,
+                statsCalculator = new StatsCalculator(groupExpression,
                         sessionVariable.getForbidUnknownColStats(),
                         connectContext.getTotalColumnStatisticMap(),
                         sessionVariable.isPlayNereidsDump(),

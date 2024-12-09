@@ -1389,12 +1389,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_LEFT_ZIG_ZAG)
     private boolean enableLeftZigZag = false;
 
-    public boolean isEnableHboOptimzation() {
-        return enableHboOptimzation;
+    public boolean isEnableHboOptimization() {
+        return enableHboOptimization;
     }
 
     @VariableMgr.VarAttr(name = ENABLE_HBO_OPTIMIZATION)
-    private boolean enableHboOptimzation = false;
+    private boolean enableHboOptimization = false;
 
     public boolean isEnableHboTracker() {
         return enableHboTracker;
