@@ -212,6 +212,28 @@ public:
         (*field)->setOmitTermFreqAndPositions(
                 !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
                   INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::create_field_v3", {
+            if (_index_file_writer->get_storage_format() != InvertedIndexStorageFormatPB::V3) {
+                return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "debug point: InvertedIndexColumnWriterImpl::create_field_v3 error");
+            }
+        })
+        if (_index_file_writer->get_storage_format() >= InvertedIndexStorageFormatPB::V3) {
+            (*field)->setIndexVersion(IndexVersion::kV3);
+            // Only effective in v3
+            std::string dict_compression =
+                    get_parser_dict_compression_from_properties(_index_meta->properties());
+            DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::create_field_dic_compression", {
+                if (dict_compression != INVERTED_INDEX_PARSER_TRUE) {
+                    return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "debug point: "
+                            "InvertedIndexColumnWriterImpl::create_field_dic_compression error");
+                }
+            })
+            if (dict_compression == INVERTED_INDEX_PARSER_TRUE) {
+                (*field)->updateFlag(FlagBits::DICT_COMPRESS);
+            }
+        }
         return Status::OK();
     }
 

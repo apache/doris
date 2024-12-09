@@ -72,10 +72,9 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
         _cur_writer_idx = 0;
         RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, 0, num_rows));
     } else if (is_key) {
-        // TODO for cluster key, always create new segment writer because the primary keys are
-        // sorted in SegmentWriter::_generate_primary_key_index, will cause too many segments
         if (_segment_writers[_cur_writer_idx]->num_rows_written() > max_rows_per_segment ||
-            has_cluster_key) {
+            (has_cluster_key && _segment_writers[_cur_writer_idx]->primary_keys_size() >
+                                        config::mow_primary_key_index_max_size_in_memory)) {
             // segment is full, need flush columns and create new segment writer
             RETURN_IF_ERROR(_flush_columns(_segment_writers[_cur_writer_idx].get(), true));
 
@@ -181,6 +180,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     writer_options.enable_unique_key_merge_on_write = context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &context;
     writer_options.max_rows_per_segment = context.max_rows_per_segment;
+    // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
     *writer = std::make_unique<segment_v2::SegmentWriter>(
             segment_file_writer.get(), seg_id, context.tablet_schema, context.tablet,
             context.data_dir, writer_options, inverted_index_file_writer.get());

@@ -226,7 +226,7 @@ under the License.
         <avro.version>1.11.4</avro.version>
         <parquet.version>1.13.1</parquet.version>
         <spark.version>3.4.3</spark.version>
-        <hudi.version>0.14.1</hudi.version>
+        <hudi.version>0.15.0</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
         <gcs.dependency.scope>compile</gcs.dependency.scope>
@@ -321,7 +321,6 @@ under the License.
         <iceberg.version>1.4.3</iceberg.version>
         <maxcompute.version>0.49.0-public</maxcompute.version>
         <arrow.version>17.0.0</arrow.version>
-        <!-- hudi -->
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
@@ -1662,7 +1661,7 @@ under the License.
             <dependency>
                 <groupId>io.airlift</groupId>
                 <artifactId>concurrent</artifactId>
-                <version>${airlift.version}</version>
+                <version>${airlift.concurrent.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>

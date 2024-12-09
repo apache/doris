@@ -52,7 +52,7 @@ public class DropInfo implements Writable {
 
     public DropInfo(long dbId, long tableId, String tableName, boolean isView, boolean forceDrop,
             long recycleTime) {
-        this(dbId, tableId, tableName, -1, "", isView, forceDrop, recycleTime);
+        this(dbId, tableId, tableName, -1L, "", isView, forceDrop, recycleTime);
     }
 
     public DropInfo(long dbId, long tableId, String tableName, long indexId, String indexName, boolean isView,

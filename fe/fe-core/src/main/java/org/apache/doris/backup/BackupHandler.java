@@ -281,9 +281,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     // handle drop repository stmt
     public void dropRepository(DropRepositoryStmt stmt) throws DdlException {
+        dropRepository(stmt.getRepoName());
+    }
+
+    // handle drop repository stmt
+    public void dropRepository(String repoName) throws DdlException {
         tryLock();
         try {
-            Repository repo = repoMgr.getRepo(stmt.getRepoName());
+            Repository repo = repoMgr.getRepo(repoName);
             if (repo == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
             }

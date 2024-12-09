@@ -53,6 +53,7 @@ struct TColumnDesc {
   6: optional bool isAllowNull
   7: optional string columnKey
   8: optional list<TColumnDesc> children
+  9: optional string defaultValue
 }
 
 // A column definition; used by CREATE TABLE and DESCRIBE <table> statements. A column
@@ -350,6 +351,7 @@ struct TTableStatus {
     11: optional i64 rows;
     12: optional i64 avg_row_length
     13: optional i64 data_length;
+    14: optional i64 index_length;
 }
 
 struct TListTableStatusResult {

@@ -685,8 +685,8 @@ ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
             continue;
         }
 
-        if (auto* nullable = assert_cast<const ColumnNullable*>(elem.column.get())) {
-            const ColumnPtr& null_map_column = nullable->get_null_map_column_ptr();
+        if (const auto* nullable_column = assert_cast<const ColumnNullable*>(elem.column.get())) {
+            const ColumnPtr& null_map_column = nullable_column->get_null_map_column_ptr();
             const NullMap& src_null_map =
                     assert_cast<const ColumnUInt8&>(*null_map_column).get_data();
 

@@ -67,7 +67,7 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->register_producer_runtime_filter(p._runtime_filter_descs[i],
-                                                                &_runtime_filters[i], false));
+                                                                &_runtime_filters[i]));
     }
     return Status::OK();
 }

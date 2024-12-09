@@ -240,6 +240,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
+    public long getIndexLength() {
+        return 0;
+    }
+
+    @Override
     public long getCreateTime() {
         return 0;
     }
@@ -394,7 +399,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * @param snapshot if not support mvcc, ignore this
      * @return partitionName ==> PartitionItem
      */
-    protected Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+    public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
         return Collections.emptyMap();
     }
 
