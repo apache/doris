@@ -94,8 +94,24 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         qt_predicate_pushdown_in1 """ select count(*)  from orc_all_types where boolean_col in (null); """
         qt_predicate_pushdown_in2 """ select count(*)  from orc_all_types where boolean_col in (null, 0); """
         qt_predicate_pushdown_in3 """ select count(*)  from orc_all_types where boolean_col in (null, 1); """
-        // TODO: check why this query result is wrong
-        // qt_predicate_pushdown_is_null """ select count(*)  from orc_all_types where boolean_col is null; """
+
+        def test_col_is_null = { String col ->
+            "qt_orc_all_types_${col}_is_null" """ select count(*)  from orc_all_types where ${col} is null; """
+        }
+        test_col_is_null("tinyint_col")
+        test_col_is_null("smallint_col")
+        test_col_is_null("int_col")
+        test_col_is_null("bigint_col")
+        test_col_is_null("boolean_col")
+        test_col_is_null("float_col")
+        test_col_is_null("double_col")
+        test_col_is_null("string_col")
+        test_col_is_null("binary_col")
+        test_col_is_null("timestamp_col")
+        test_col_is_null("decimal_col")
+        test_col_is_null("char_col")
+        test_col_is_null("varchar_col")
+        test_col_is_null("date_col")
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")

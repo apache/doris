@@ -143,8 +143,47 @@ tablets	tinyint_col	179	182	182	187	183	181	177	183	177	187	183	202	202	186	528	
 -- !predicate_pushdown_in3 --
 1597
 
--- !predicate_pushdown_is_null --
+-- !orc_all_types_tinyint_col_is_null --
+366
+
+-- !orc_all_types_smallint_col_is_null --
+359
+
+-- !orc_all_types_int_col_is_null --
+361
+
+-- !orc_all_types_bigint_col_is_null --
+377
+
+-- !orc_all_types_boolean_col_is_null --
+369
+
+-- !orc_all_types_float_col_is_null --
+340
+
+-- !orc_all_types_double_col_is_null --
+395
+
+-- !orc_all_types_string_col_is_null --
+347
+
+-- !orc_all_types_binary_col_is_null --
+362
+
+-- !orc_all_types_timestamp_col_is_null --
+339
+
+-- !orc_all_types_decimal_col_is_null --
+367
+
+-- !orc_all_types_char_col_is_null --
 0
+
+-- !orc_all_types_varchar_col_is_null --
+0
+
+-- !orc_all_types_date_col_is_null --
+378
 
 -- !select_top50 --
 4	55	999742610	400899305488827731	false	6.5976813E8	7.8723304616937395E17	\N	base tennis pit vertical friday	2022-08-19T07:29:58	\N	tablets	smallint_col	2019-02-07	[7.53124931825377e+17]	["NbSSBtwzpxNSkkwga"]	tablets	smallint_col
@@ -342,8 +381,47 @@ tablets	tinyint_col	179	182	182	187	183	181	177	183	177	187	183	202	202	186	528	
 -- !predicate_pushdown_in3 --
 1597
 
--- !predicate_pushdown_is_null --
+-- !orc_all_types_tinyint_col_is_null --
+366
+
+-- !orc_all_types_smallint_col_is_null --
+359
+
+-- !orc_all_types_int_col_is_null --
+361
+
+-- !orc_all_types_bigint_col_is_null --
+377
+
+-- !orc_all_types_boolean_col_is_null --
+369
+
+-- !orc_all_types_float_col_is_null --
+340
+
+-- !orc_all_types_double_col_is_null --
+395
+
+-- !orc_all_types_string_col_is_null --
+347
+
+-- !orc_all_types_binary_col_is_null --
+362
+
+-- !orc_all_types_timestamp_col_is_null --
+339
+
+-- !orc_all_types_decimal_col_is_null --
+367
+
+-- !orc_all_types_char_col_is_null --
 0
+
+-- !orc_all_types_varchar_col_is_null --
+0
+
+-- !orc_all_types_date_col_is_null --
+378
 
 -- !select_top50 --
 4	55	999742610	400899305488827731	false	6.5976813E8	7.8723304616937395E17	\N	base tennis pit vertical friday	2022-08-19T07:29:58	\N	tablets	smallint_col	2019-02-07	[7.53124931825377e+17]	["NbSSBtwzpxNSkkwga"]	tablets	smallint_col
