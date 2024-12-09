@@ -121,7 +121,8 @@ suite("regression_test_variant_rowstore", "variant_type"){
         PROPERTIES (
             "enable_unique_key_merge_on_write" = "true",
             "store_row_column"="true",
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "inverted_index_storage_format"= "v2"
         );
     """
     sql """insert into table_rs_invalid_json values (1, '1|[""]')"""

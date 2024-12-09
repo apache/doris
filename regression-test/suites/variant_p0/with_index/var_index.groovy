@@ -26,7 +26,7 @@ suite("regression_test_variant_var_index", "p0"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V2");
     """
 
     sql """insert into var_index values(1, '{"a" : 123, "b" : "xxxyyy", "c" : 111999111}')"""

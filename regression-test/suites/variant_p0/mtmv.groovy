@@ -61,8 +61,7 @@ suite("regression_test_variant_mtmv"){
           `repo` VARIANT NULL,
           `payload` VARIANT NULL,
           `public` BOOLEAN NULL,
-          `created_at` DATETIME NULL,
-          INDEX idx_payload (`payload`) USING INVERTED PROPERTIES("parser" = "english", "lower_case" = "true") COMMENT 'inverted index for payload'
+          `created_at` DATETIME NULL
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
