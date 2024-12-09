@@ -122,6 +122,14 @@ public:
         return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE;
     }
 
+    // For HASH_SHUFFLE, BUCKET_HASH_SHUFFLE, and ADAPTIVE_PASSTHROUGH,
+    // data is processed and shuffled on the sink.
+    // Compared to PASSTHROUGH, this is a relatively heavy operation.
+    static bool heavy_operations_on_the_sink(ExchangeType idx) {
+        return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE ||
+               idx == ExchangeType::ADAPTIVE_PASSTHROUGH;
+    }
+
     bool need_to_local_exchange(const DataDistribution target_data_distribution) const {
         if (target_data_distribution.distribution_type != ExchangeType::BUCKET_HASH_SHUFFLE &&
             target_data_distribution.distribution_type != ExchangeType::HASH_SHUFFLE) {

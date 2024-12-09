@@ -95,6 +95,8 @@ suite("agg_variety") {
     (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
     """
 
+
+
     sql """
     drop table if exists partsupp
     """
@@ -123,6 +125,10 @@ suite("agg_variety") {
     sql """analyze table orders with sync;"""
     sql """analyze table lineitem with sync;"""
     sql """analyze table partsupp with sync;"""
+
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
     // query dimension is less then mv
     def mv1_0 = """

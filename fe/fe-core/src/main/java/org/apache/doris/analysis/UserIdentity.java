@@ -185,6 +185,10 @@ public class UserIdentity implements Writable, GsonPostProcessable {
         return user.equals(Auth.ADMIN_USER);
     }
 
+    public boolean isSystemUser() {
+        return isRootUser() || isAdminUser();
+    }
+
     public TUserIdentity toThrift() {
         Preconditions.checkState(isAnalyzed);
         TUserIdentity tUserIdent = new TUserIdentity();

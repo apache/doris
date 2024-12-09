@@ -284,6 +284,7 @@ public class InsertUtils {
                             ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
                         } else {
                             boolean hasMissingColExceptAutoIncKey = false;
+                            boolean hasMissingAutoIncKey = false;
                             for (Column col : olapTable.getFullSchema()) {
                                 Optional<String> insertCol = unboundLogicalSink.getColNames().stream()
                                         .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
@@ -294,9 +295,18 @@ public class InsertUtils {
                                 if (!(col.isAutoInc() && col.isKey()) && !insertCol.isPresent() && col.isVisible()) {
                                     hasMissingColExceptAutoIncKey = true;
                                 }
+                                if (col.isAutoInc() && col.isKey() && !insertCol.isPresent()) {
+                                    hasMissingAutoIncKey = true;
+                                }
                             }
                             if (!hasMissingColExceptAutoIncKey) {
                                 ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
+                            } else {
+                                if (hasMissingAutoIncKey) {
+                                    // becuase of the uniqueness of genetaed value of auto-increment column,
+                                    // we convert this load to upsert when is misses auto-increment key column
+                                    ((UnboundTableSink<? extends Plan>) unboundLogicalSink).setPartialUpdate(false);
+                                }
                             }
                         }
                     }

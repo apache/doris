@@ -96,6 +96,7 @@ public:
     Status append_row(const RowType& row);
 
     Status append_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    Status partial_update_preconditions_check(size_t row_pos);
     Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
                                              size_t num_rows);
 
@@ -180,6 +181,7 @@ private:
             vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
+    bool _is_mow() const;
 
 private:
     uint32_t _segment_id;

@@ -36,6 +36,7 @@ suite ("agg_have_dup_base") {
             distributed BY hash(k1) buckets 3
             properties("replication_num" = "1");
         """
+    sql """alter table agg_have_dup_base modify column k1 set stats ('row_count'='5');"""
 
     sql "insert into agg_have_dup_base select 1,1,1,'a';"
     sql "insert into agg_have_dup_base select 2,2,2,'b';"

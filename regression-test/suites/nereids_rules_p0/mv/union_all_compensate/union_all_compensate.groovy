@@ -179,6 +179,9 @@ suite("union_all_compensate") {
     mv_rewrite_fail(query1_0, "test_agg_mv")
     order_qt_query1_1_after "${query1_0}"
 
+    sql """alter table test_table1 modify column num set stats ('row_count'='20');"""
+    sql """alter table test_table2 modify column num set stats ('row_count'='16');"""
+
 
     // Aggregate, if query group by expression doesn't use the partition column, but the invalid partition is in the
     // grace_period, should not compensate union all, but should rewritten successfully
