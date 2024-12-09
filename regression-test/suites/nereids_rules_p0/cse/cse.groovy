@@ -34,6 +34,58 @@ suite("cse") {
     sql """
         SELECT c0, c0 FROM (SELECT ARRAY_MAP(x-> if(left(x, 5), x, left(x, 5)), `c2`) as `c0` FROM array_cse) t
     """
-    
+    sql """
+    drop table if exists cse;
+    CREATE TABLE `cse` (
+    `k1` int NOT NULL,
+    d   datev2,
+    i  int
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "min_load_replica_num" = "-1",
+    "is_being_synced" = "false",
+    "storage_medium" = "hdd",
+    "storage_format" = "V2",
+    "inverted_index_storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false",
+    "enable_single_replica_compaction" = "false",
+    "group_commit_interval_ms" = "10000",
+    "group_commit_data_bytes" = "134217728"
+    ); 
+
+    insert into cse values (1, '20240101', 100);
+    """
+
+    explain {
+        sql """
+            physical plan
+            select sum(    
+                case when k1 between i and 
+                    cast(from_unixtime(
+                    unix_timestamp(date_add(
+                                from_unixtime(unix_timestamp(cast(d as string), 'yyyyMMdd')),
+                                INTERVAL 5 DAY)), 'yyyyMMdd') as int) 
+                THEN 1
+                ELSE 0
+                end) as c1,
+                sum(
+                        case when k1 between i and 
+                                    cast(from_unixtime(
+                                    unix_timestamp(date_add(
+                                            from_unixtime(unix_timestamp(cast(d as string), 'yyyyMMdd')),
+                                            INTERVAL 2 DAY)), 'yyyyMMdd') as int) 
+                            THEN 1
+                            ELSE 0
+                            end) as c2
+            from cse
+            group by d;
+            """
+        contains("l1([k1#0, d#1, i#2, (k1 >= i)#9, cast(d as TEXT)#10, unix_timestamp(cast(d as TEXT)#10, '%Y%m%d') AS `unix_timestamp(cast(d as TEXT), '%Y%m%d')`#11])")
+    }
+
 }
 
