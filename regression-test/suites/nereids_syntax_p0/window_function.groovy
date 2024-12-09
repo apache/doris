@@ -279,4 +279,15 @@ suite("window_function") {
                 )t
             )a where rn=1
     """
+
+    // test first value second param is not constant
+    test {
+        sql "select first_value(c1,c1) over() from window_test"
+        exception "The second parameter of first_value must be constant"
+    }
+
+    test {
+        sql "select last_value(c1,c1) over() from window_test"
+        exception "The second parameter of first_value must be constant"
+    }
 }

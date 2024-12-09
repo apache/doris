@@ -316,8 +316,13 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
      */
     @Override
     public FirstOrLastValue visitFirstValue(FirstValue firstValue, Void ctx) {
-        if (firstValue.arity() == 2 && firstValue.child(1).equals(BooleanLiteral.TRUE)) {
-            return firstValue;
+        if (2 == firstValue.arity()) {
+            if (!firstValue.child(1).isConstant()) {
+                throw new AnalysisException("The second parameter of first_value must be constant");
+            }
+            if (firstValue.child(1).equals(BooleanLiteral.TRUE)) {
+                return firstValue;
+            }
         }
         Optional<WindowFrame> windowFrame = windowExpression.getWindowFrame();
         if (windowFrame.isPresent()) {
@@ -341,6 +346,14 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
                 FrameBoundary.newPrecedingBoundary(), FrameBoundary.newCurrentRowBoundary()));
         }
         return firstValue;
+    }
+
+    @Override
+    public FirstOrLastValue visitLastValue(LastValue lastValue, Void ctx) {
+        if (2 == lastValue.arity() && !lastValue.child(1).isConstant()) {
+            throw new AnalysisException("The second parameter of lasst_value must be constant");
+        }
+        return lastValue;
     }
 
     /**
