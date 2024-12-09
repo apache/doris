@@ -47,6 +47,9 @@ export DORIS_HOME
 exit_flag=0
 need_collect_log=false
 
+# monitor keyword 'Reach limit of connections'
+_monitor_regression_log &
+
 # shellcheck disable=SC2317
 run() {
     set -e
@@ -68,7 +71,6 @@ run() {
     sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
     if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh --stop; then echo; fi
     if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka; then echo; else echo "ERROR: start kafka docker failed"; fi
-    _monitor_connection &
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
     if "${teamcity_build_checkoutDir}"/run-regression-test.sh \

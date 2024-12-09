@@ -510,7 +510,7 @@ function set_doris_session_variables_from_file() {
     fi
 }
 
-_monitor_connection() {
+_monitor_regression_log() {
     # Path to the log directory
     local LOG_DIR="${DORIS_HOME}"/regression-test/log/
 
