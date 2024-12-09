@@ -51,7 +51,7 @@ import org.apache.doris.nereids.parser.PartitionTableInfo;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -537,8 +537,8 @@ public class CreateTableInfo {
             Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
             boolean disableInvertedIndexV1ForVariant = false;
             try {
-                disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
-                            new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
+                disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexStorageFormat(
+                            new HashMap<>(properties)) == TInvertedIndexStorageFormat.V1
                                 && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());

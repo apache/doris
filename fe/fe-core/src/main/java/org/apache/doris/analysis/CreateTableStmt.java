@@ -562,8 +562,8 @@ public class CreateTableStmt extends DdlStmt {
         if (CollectionUtils.isNotEmpty(indexDefs)) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexType, List<String>>> distinctCol = new HashSet<>();
-            boolean disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
-                        new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
+            boolean disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexStorageFormat(
+                        new HashMap<>(properties)) == TInvertedIndexStorageFormat.V1
                             && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();

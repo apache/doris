@@ -2586,8 +2586,8 @@ public class SchemaChangeHandler extends AlterHandler {
                                 + " ) already exist.");
             }
         }
-        boolean disableInvertedIndexV1ForVariant = olapTable.getInvertedIndexFileStorageFormat()
-                        == TInvertedIndexFileStorageFormat.V1 && ConnectContext.get().getSessionVariable()
+        boolean disableInvertedIndexV1ForVariant = olapTable.getInvertedIndexStorageFormat()
+                        == TInvertedIndexStorageFormat.V1 && ConnectContext.get().getSessionVariable()
                                                                         .getDisableInvertedIndexV1ForVaraint();
         for (String col : indexDef.getColumns()) {
             Column column = olapTable.getColumn(col);
