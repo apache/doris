@@ -780,7 +780,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "单个 broker scanner 的最大并发数。", "Maximal concurrency of broker scanners."})
-    public static int max_broker_concurrency = 24;
+    public static int max_broker_concurrency = 100;
 
     // TODO(cmy): Disable by default because current checksum logic has some bugs.
     @ConfField(mutable = true, masterOnly = true, description = {
