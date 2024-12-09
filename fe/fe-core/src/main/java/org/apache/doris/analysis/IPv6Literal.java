@@ -101,7 +101,7 @@ public class IPv6Literal extends LiteralExpr {
 
     @Override
     public String getStringValue() {
-        return this.value;
+        return "\"" + this.value + "\"";
     }
 
     @Override

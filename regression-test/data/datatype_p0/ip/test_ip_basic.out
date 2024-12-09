@@ -373,3 +373,7 @@ ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff	4
 -- !sql --
 1	false	127.0.0.1	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 
+-- !sql --
+1	5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b	0.0.0.1
+2	::	127.0.0.1
+
