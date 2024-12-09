@@ -56,9 +56,11 @@ static bvar::Adder<uint64_t> g_index_reader_pk_pages("doris_pk", "index_reader_p
 static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_pk_bytes_per_second(
         "doris_pk", "index_reader_pk_pages_per_second", &g_index_reader_pk_pages, 60);
 
-static bvar::Adder<uint64_t> g_index_reader_memory_bytes("doris_index_reader_memory_bytes");
-
 using strings::Substitute;
+
+int64_t IndexedColumnReader::get_metadata_size() const {
+    return sizeof(IndexedColumnReader) + _meta.ByteSizeLong();
+}
 
 Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
     _use_page_cache = use_page_cache;
@@ -94,7 +96,7 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
     }
     _num_values = _meta.num_values();
 
-    g_index_reader_memory_bytes << sizeof(*this);
+    update_metadata_size();
     return Status::OK();
 }
 
@@ -138,9 +140,7 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
     return st;
 }
 
-IndexedColumnReader::~IndexedColumnReader() {
-    g_index_reader_memory_bytes << -sizeof(*this);
-}
+IndexedColumnReader::~IndexedColumnReader() = default;
 
 ///////////////////////////////////////////////////////////////////////////////
 

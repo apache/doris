@@ -73,7 +73,6 @@ namespace doris {
 
 namespace segment_v2 {
 
-bvar::Adder<size_t> g_total_segment_num("doris_total_segment_num");
 class InvertedIndexIterator;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
@@ -93,12 +92,13 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
         : _segment_id(segment_id),
           _meta_mem_usage(0),
           _rowset_id(rowset_id),
-          _tablet_schema(tablet_schema) {
-    g_total_segment_num << 1;
-}
+          _tablet_schema(tablet_schema) {}
 
-Segment::~Segment() {
-    g_total_segment_num << -1;
+Segment::~Segment() = default;
+
+int64_t Segment::get_metadata_size() const {
+    return sizeof(Segment) + (_footer_pb ? _footer_pb->ByteSizeLong() : 0) +
+           (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0);
 }
 
 Status Segment::_open() {
@@ -119,6 +119,8 @@ Status Segment::_open() {
     }
     _meta_mem_usage += sizeof(*this);
     _meta_mem_usage += _tablet_schema->num_columns() * config::estimated_mem_per_column_reader;
+
+    update_metadata_size();
 
     // 1024 comes from SegmentWriterOptions
     _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
