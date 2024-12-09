@@ -107,7 +107,4 @@ resolve_password_from_secret
 collect_env_info
 disable_query_and_load $ENV_FE_ADDR
 
-
-echo "===================================end===================================="
-
 $DORIS_HOME/bin/stop_be.sh --grace
