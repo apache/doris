@@ -191,14 +191,14 @@ Status Compaction::merge_input_rowsets() {
         SCOPED_TIMER(_merge_rowsets_latency_timer);
         // 1. Merge segment files and write bkd inverted index
         if (_is_vertical) {
-            if (!_tablet->tablet_schema()->cluster_key_idxes().empty()) {
+            if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
                 RETURN_IF_ERROR(update_delete_bitmap());
             }
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), *_cur_tablet_schema,
                                                  input_rs_readers, _output_rs_writer.get(),
                                                  get_avg_segment_rows(), way_num, &_stats);
         } else {
-            if (!_tablet->tablet_schema()->cluster_key_idxes().empty()) {
+            if (!_tablet->tablet_schema()->cluster_key_uids().empty()) {
                 return Status::InternalError(
                         "mow table with cluster keys does not support non vertical compaction");
             }
@@ -966,7 +966,7 @@ Status CompactionMixin::modify_rowsets() {
         }
         std::unique_ptr<std::map<RowsetSharedPtr, RowLocationPairList>> location_map;
         if (config::enable_rowid_conversion_correctness_check &&
-            tablet()->tablet_schema()->cluster_key_idxes().empty()) {
+            tablet()->tablet_schema()->cluster_key_uids().empty()) {
             location_map = std::make_unique<std::map<RowsetSharedPtr, RowLocationPairList>>();
             LOG(INFO) << "Location Map inited succ for tablet:" << _tablet->tablet_id();
         }
@@ -983,7 +983,7 @@ Status CompactionMixin::modify_rowsets() {
         if (missed_rows) {
             missed_rows_size = missed_rows->size();
             std::size_t merged_missed_rows_size = _stats.merged_rows;
-            if (!_tablet->tablet_meta()->tablet_schema()->cluster_key_idxes().empty()) {
+            if (!_tablet->tablet_meta()->tablet_schema()->cluster_key_uids().empty()) {
                 merged_missed_rows_size += _stats.filtered_rows;
             }
             if (_tablet->tablet_state() == TABLET_RUNNING &&

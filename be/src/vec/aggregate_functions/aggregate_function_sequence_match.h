@@ -89,10 +89,10 @@ public:
 
     size_t get_arg_count() const { return arg_count; }
 
-    void init(const std::string pattern, size_t arg_count) {
+    void init(const std::string pattern_, size_t arg_count_) {
         if (!init_flag) {
-            this->pattern = pattern;
-            this->arg_count = arg_count;
+            this->pattern = pattern_;
+            this->arg_count = arg_count_;
             parse_pattern();
             init_flag = true;
         }
@@ -629,8 +629,7 @@ public:
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
         const std::string pattern = this->data(rhs).get_pattern();
-        size_t arg_count = this->data(rhs).get_arg_count();
-        this->data(place).init(pattern, arg_count);
+        this->data(place).init(pattern, this->data(rhs).get_arg_count());
         this->data(place).merge(this->data(rhs));
     }
 
@@ -642,8 +641,7 @@ public:
                      Arena*) const override {
         this->data(place).read(buf);
         const std::string pattern = this->data(place).get_pattern();
-        size_t arg_count = this->data(place).get_arg_count();
-        this->data(place).init(pattern, arg_count);
+        this->data(place).init(pattern, this->data(place).get_arg_count());
     }
 
 private:

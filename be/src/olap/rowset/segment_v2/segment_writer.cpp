@@ -103,7 +103,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                 << ", table_id=" << _tablet_schema->table_id()
                 << ", num_key_columns=" << _num_sort_key_columns
                 << ", num_short_key_columns=" << _num_short_key_columns
-                << ", cluster_key_columns=" << _tablet_schema->cluster_key_idxes().size();
+                << ", cluster_key_columns=" << _tablet_schema->cluster_key_uids().size();
     }
     for (size_t cid = 0; cid < _num_sort_key_columns; ++cid) {
         const auto& column = _tablet_schema->column(cid);
@@ -125,8 +125,8 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
             // cluster keys
             _key_coders.clear();
             _key_index_size.clear();
-            _num_sort_key_columns = _tablet_schema->cluster_key_idxes().size();
-            for (auto cid : _tablet_schema->cluster_key_idxes()) {
+            _num_sort_key_columns = _tablet_schema->cluster_key_uids().size();
+            for (auto cid : _tablet_schema->cluster_key_uids()) {
                 const auto& column = _tablet_schema->column_by_uid(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
                 _key_index_size.push_back(column.index_length());
@@ -545,6 +545,39 @@ Status SegmentWriter::probe_key_for_mow(
     return Status::OK();
 }
 
+Status SegmentWriter::partial_update_preconditions_check(size_t row_pos) {
+    if (!_is_mow()) {
+        auto msg = fmt::format(
+                "Can only do partial update on merge-on-write unique table, but found: "
+                "keys_type={}, _opts.enable_unique_key_merge_on_write={}, tablet_id={}",
+                _tablet_schema->keys_type(), _opts.enable_unique_key_merge_on_write,
+                _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    if (_opts.rowset_ctx->partial_update_info == nullptr) {
+        auto msg =
+                fmt::format("partial_update_info should not be nullptr, please check, tablet_id={}",
+                            _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    if (!_opts.rowset_ctx->partial_update_info->is_fixed_partial_update()) {
+        auto msg = fmt::format(
+                "in fixed partial update code, but update_mode={}, please check, tablet_id={}",
+                _opts.rowset_ctx->partial_update_info->update_mode(), _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    if (row_pos != 0) {
+        auto msg = fmt::format("row_pos should be 0, but found {}, tablet_id={}", row_pos,
+                               _tablet->tablet_id());
+        DCHECK(false) << msg;
+        return Status::InternalError<false>(msg);
+    }
+    return Status::OK();
+}
+
 // for partial update, we should do following steps to fill content of block:
 // 1. set block data to data convertor, and get all key_column's converted slice
 // 2. get pk of input block, and read missing columns
@@ -562,11 +595,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                             block->columns(), _tablet_schema->num_key_columns(),
                             _tablet_schema->num_columns()));
     }
-    DCHECK(_is_mow());
-
-    DCHECK(_opts.rowset_ctx->partial_update_info);
-    DCHECK(_opts.rowset_ctx->partial_update_info->is_fixed_partial_update());
-    DCHECK(row_pos == 0);
+    RETURN_IF_ERROR(partial_update_preconditions_check(row_pos));
 
     // find missing column cids
     const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
@@ -788,7 +817,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                                                         seq_column, num_rows, true));
             // 2. generate short key index (use cluster key)
             key_columns.clear();
-            for (const auto& cid : _tablet_schema->cluster_key_idxes()) {
+            for (const auto& cid : _tablet_schema->cluster_key_uids()) {
                 // find cluster key index in tablet schema
                 auto cluster_key_index = _tablet_schema->field_index(cid);
                 if (cluster_key_index == -1) {
@@ -1290,7 +1319,7 @@ inline bool SegmentWriter::_is_mow() {
 }
 
 inline bool SegmentWriter::_is_mow_with_cluster_key() {
-    return _is_mow() && !_tablet_schema->cluster_key_idxes().empty();
+    return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
 } // namespace segment_v2
 } // namespace doris
