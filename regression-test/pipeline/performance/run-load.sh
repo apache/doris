@@ -626,7 +626,7 @@ exit_flag=0
 
         echo "## load data by INSERT INTO SELECT"
         insert_into_select_time=0
-        insert_into_select_rows=10000000
+        insert_into_select_rows=8000000
         start=$(date +%s%3N)
         if ${clt} -e"insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"; then
             end=$(date +%s%3N)
