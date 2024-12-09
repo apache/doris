@@ -116,6 +116,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
@@ -609,5 +610,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowDataSkewCommand(ShowDataSkewCommand showDataSkewCommand, C context) {
         return visitCommand(showDataSkewCommand, context);
+    }
+
+    default R visitShowTableCreationCommand(ShowTableCreationCommand showTableCreationCommand, C context) {
+        return visitCommand(showTableCreationCommand, context);
     }
 }
