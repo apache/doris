@@ -25,7 +25,7 @@
 namespace doris {
 
 RowsetId next_rowset_id() {
-    return ExecEnv::GetInstance()->storage_engine().next_rowset_id();
+    return ExecEnv::GetInstance()->get_storage_engine()->next_rowset_id();
 }
 
 UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid)
