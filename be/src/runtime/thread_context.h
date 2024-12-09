@@ -225,8 +225,8 @@ public:
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the hook is triggered to cause the crash.
     std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr;
-    [[nodiscard]] MemTrackerLimiter* thread_mem_tracker() const {
-        return thread_mem_tracker_mgr->limiter_mem_tracker_raw();
+    [[nodiscard]] std::shared_ptr<MemTrackerLimiter> thread_mem_tracker() const {
+        return thread_mem_tracker_mgr->limiter_mem_tracker();
     }
 
     QueryThreadContext query_thread_context();

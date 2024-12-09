@@ -22,6 +22,7 @@
 
 #include "olap/olap_common.h"
 #include "olap/utils.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -33,17 +34,24 @@ namespace doris {
 class RowIdConversion {
 public:
     RowIdConversion() = default;
-    ~RowIdConversion() = default;
+    ~RowIdConversion() { RELEASE_THREAD_MEM_TRACKER(_seg_rowid_map_mem_used); }
 
     // resize segment rowid map to its rows num
     void init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& num_rows) {
+        size_t delta_std_pair_cap = 0;
         for (size_t i = 0; i < num_rows.size(); i++) {
             uint32_t id = _segments_rowid_map.size();
             _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {src_rowset_id, i}, id);
             _id_to_segment_map.emplace_back(src_rowset_id, i);
-            _segments_rowid_map.emplace_back(std::vector<std::pair<uint32_t, uint32_t>>(
-                    num_rows[i], std::pair<uint32_t, uint32_t>(UINT32_MAX, UINT32_MAX)));
+            std::vector<std::pair<uint32_t, uint32_t>> vec(
+                    num_rows[i], std::pair<uint32_t, uint32_t>(UINT32_MAX, UINT32_MAX));
+            delta_std_pair_cap += vec.capacity();
+            _segments_rowid_map.emplace_back(std::move(vec));
         }
+        //NOTE: manually count _segments_rowid_map's memory here, because _segments_rowid_map could be used by indexCompaction.
+        // indexCompaction is a thridparty code, it's too complex to modify it.
+        // refer compact_column.
+        track_mem_usage(delta_std_pair_cap);
     }
 
     // set dst rowset id
@@ -110,11 +118,26 @@ public:
     }
 
 private:
+    void track_mem_usage(size_t delta_std_pair_cap) {
+        _std_pair_cap += delta_std_pair_cap;
+
+        size_t new_size =
+                _std_pair_cap * sizeof(std::pair<uint32_t, uint32_t>) +
+                _segments_rowid_map.capacity() * sizeof(std::vector<std::pair<uint32_t, uint32_t>>);
+
+        RELEASE_THREAD_MEM_TRACKER(_seg_rowid_map_mem_used);
+        CONSUME_THREAD_MEM_TRACKER(new_size);
+        _seg_rowid_map_mem_used = new_size;
+    }
+
+private:
     // the first level vector: index indicates src segment.
     // the second level vector: index indicates row id of source segment,
     // value indicates row id of destination segment.
     // <UINT32_MAX, UINT32_MAX> indicates current row not exist.
     std::vector<std::vector<std::pair<uint32_t, uint32_t>>> _segments_rowid_map;
+    size_t _seg_rowid_map_mem_used {0};
+    size_t _std_pair_cap {0};
 
     // Map source segment to 0 to n
     std::map<std::pair<RowsetId, uint32_t>, uint32_t> _segment_to_id_map;

@@ -197,6 +197,14 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     return Status::OK();
 }
 
+Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::init(rowset_writer_context));
+    if (_segcompaction_worker) {
+        _segcompaction_worker->init_mem_tracker(rowset_writer_context.txn_id);
+    }
+    return Status::OK();
+}
+
 Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment,
                                                     int32_t segment_id) {
     DCHECK(_rowset_meta->is_local());
