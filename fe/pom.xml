@@ -1641,11 +1641,6 @@ under the License.
                         <artifactId>re2j</artifactId>
                         <groupId>io.trino</groupId>
                     </exclusion>
-                    <!-- trino-main brings in 9.7.0 (vs 8.11.1) -->
-                    <exclusion>
-                        <groupId>org.apache.lucene</groupId>
-                        <artifactId>lucene-analyzers-common</artifactId>
-                    </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
