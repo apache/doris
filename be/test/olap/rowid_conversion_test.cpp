@@ -495,10 +495,12 @@ TEST_F(TestRowIdConversion, Basic) {
     RowIdConversion rowid_conversion;
     src_rowset.init(0);
     std::vector<uint32_t> rs0_segment_num_rows = {4, 3};
-    rowid_conversion.init_segment_map(src_rowset, rs0_segment_num_rows);
+    auto st = rowid_conversion.init_segment_map(src_rowset, rs0_segment_num_rows);
+    EXPECT_EQ(st.ok(), true);
     src_rowset.init(1);
     std::vector<uint32_t> rs1_segment_num_rows = {4};
-    rowid_conversion.init_segment_map(src_rowset, rs1_segment_num_rows);
+    st = rowid_conversion.init_segment_map(src_rowset, rs1_segment_num_rows);
+    EXPECT_EQ(st.ok(), true);
     rowid_conversion.set_dst_rowset_id(dst_rowset);
 
     std::vector<uint32_t> dst_segment_num_rows = {4, 3, 4};
