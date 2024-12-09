@@ -1397,10 +1397,12 @@ static Status cancel_channel_and_check_intolerable_failure(Status status,
     Status index_st = ich.check_intolerable_failure();
     if (!index_st.ok()) {
         status = std::move(index_st);
-    } else if (Status st = ich.check_tablet_received_rows_consistency(); !st.ok()) {
-        status = std::move(st);
-    } else if (Status st = ich.check_tablet_filtered_rows_consistency(); !st.ok()) {
-        status = std::move(st);
+    } else if (Status received_st = ich.check_tablet_received_rows_consistency();
+               !received_st.ok()) {
+        status = std::move(received_st);
+    } else if (Status filtered_st = ich.check_tablet_filtered_rows_consistency();
+               !filtered_st.ok()) {
+        status = std::move(filtered_st);
     }
     return status;
 }
