@@ -510,6 +510,30 @@ function set_doris_session_variables_from_file() {
     fi
 }
 
+_monitor_connection() {
+    # Path to the log directory
+    local LOG_DIR="${DORIS_HOME}"/regression-test/log/
+
+    # keyword to search for in the log files
+    local KEYWORD="Reach limit of connections"
+
+    local query_port
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+
+    echo "INFO: start monitoring the log files in ${LOG_DIR} for the keyword '${KEYWORD}'"
+
+    # Monitor the log directory for new files and changes
+    while true; do
+        for file in "${LOG_DIR}"/*; do
+            if grep -q "${KEYWORD}" "${file}"; then
+                echo "WARNING: find 'Reach limit of connections' in ${file}, run 'show processlist;' to check the connections"
+                mysql -h127.0.0.1 -P"${query_port}" -uroot -e'show processlist;'
+            fi
+            sleep 0.5s
+        done
+    done
+}
+
 archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     local archive_name="$1"

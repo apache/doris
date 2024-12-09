@@ -13,7 +13,7 @@ fi
 EOF
 ############################# run.sh content ########################################
 # shellcheck source=/dev/null
-# check_tpcds_table_rows, restart_doris, set_session_variable, check_tpcds_result
+# check_tpcds_table_rows, restart_doris, set_session_variable, check_tpcds_result, _monitor_connection
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 # shellcheck source=/dev/null
 # create_an_issue_comment
@@ -68,6 +68,7 @@ run() {
     sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
     if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh --stop; then echo; fi
     if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka; then echo; else echo "ERROR: start kafka docker failed"; fi
+    _monitor_connection &
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
     if "${teamcity_build_checkoutDir}"/run-regression-test.sh \
