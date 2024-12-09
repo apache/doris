@@ -164,22 +164,24 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         defaultProject = props.get(MCProperties.PROJECT);
         quota = props.getOrDefault(MCProperties.QUOTA, MCProperties.DEFAULT_QUOTA);
 
+        boolean splitCrossPartition =
+                Boolean.parseBoolean(props.getOrDefault(MCProperties.SPLIT_CROSS_PARTITION,
+                MCProperties.DEFAULT_SPLIT_CROSS_PARTITION));
 
         splitStrategy = props.getOrDefault(MCProperties.SPLIT_STRATEGY, MCProperties.DEFAULT_SPLIT_STRATEGY);
         if (splitStrategy.equals(MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
             splitByteSize = Long.parseLong(props.getOrDefault(MCProperties.SPLIT_BYTE_SIZE,
                     MCProperties.DEFAULT_SPLIT_BYTE_SIZE));
-
             splitOptions = SplitOptions.newBuilder()
                     .SplitByByteSize(splitByteSize)
-                    .withCrossPartition(false)
+                    .withCrossPartition(splitCrossPartition)
                     .build();
         } else {
             splitRowCount = Long.parseLong(props.getOrDefault(MCProperties.SPLIT_ROW_COUNT,
                     MCProperties.DEFAULT_SPLIT_ROW_COUNT));
             splitOptions = SplitOptions.newBuilder()
                     .SplitByRowOffset()
-                    .withCrossPartition(false)
+                    .withCrossPartition(splitCrossPartition)
                     .build();
         }
 
