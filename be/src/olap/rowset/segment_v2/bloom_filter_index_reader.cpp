@@ -70,6 +70,7 @@ Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
     auto column = data_type->create_column();
 
     RETURN_IF_ERROR(_bloom_filter_iter.seek_to_ordinal(ordinal));
+    DCHECK(current_bloom_filter_index() == ordinal);
     size_t num_read = num_to_read;
     RETURN_IF_ERROR(_bloom_filter_iter.next_batch(&num_read, column));
     DCHECK(num_to_read == num_read);

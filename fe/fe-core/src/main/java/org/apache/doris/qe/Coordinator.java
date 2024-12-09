@@ -1886,17 +1886,11 @@ public class Coordinator implements CoordInterface {
                             return scanNode.getId().asInt() == planNodeId;
                         }).findFirst();
 
-                        /**
-                         * Ignore storage data distribution iff:
-                         * 1. `parallelExecInstanceNum * numBackends` is larger than scan ranges.
-                         * 2. Use Nereids planner.
-                         */
                         boolean sharedScan = true;
                         int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                 leftMostNode.getNumInstances());
-                        boolean ignoreStorageDataDistribution = node.isPresent()
-                                && fragment.useSerialSource(context);
-                        if (node.isPresent() && ignoreStorageDataDistribution) {
+                        boolean ignoreStorageDataDistribution = fragment.useSerialSource(context);
+                        if (ignoreStorageDataDistribution) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
@@ -2766,17 +2760,18 @@ public class Coordinator implements CoordInterface {
                                 .addAll(nodeScanRange.getValue());
                     }
                 }
-                params.instanceExecParams.add(instanceParam);
+                List<FInstanceExecParam> instanceExecParams = new ArrayList<>();
+                instanceExecParams.add(instanceParam);
                 for (int i = 1; i < parallelExecInstanceNum; i++) {
-                    params.instanceExecParams.add(new FInstanceExecParam(
+                    instanceExecParams.add(new FInstanceExecParam(
                             null, addressScanRange.getKey(), 0, params));
                 }
                 int index = 0;
                 for (Pair<Integer, Map<Integer, List<TScanRangeParams>>> nodeScanRangeMap : scanRange) {
-                    params.instanceExecParams.get(index % params.instanceExecParams.size())
-                            .addBucketSeq(nodeScanRangeMap.first);
+                    instanceExecParams.get(index % instanceExecParams.size()).addBucketSeq(nodeScanRangeMap.first);
                     index++;
                 }
+                params.instanceExecParams.addAll(instanceExecParams);
             } else {
                 int expectedInstanceNum = 1;
                 if (parallelExecInstanceNum > 1) {

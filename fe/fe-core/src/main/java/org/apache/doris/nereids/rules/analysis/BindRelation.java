@@ -171,7 +171,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
         TableIf table = null;
-        table = ConnectContext.get().getTableInMinidumpCache(tableQualifier);
+        table = ConnectContext.get().getStatementContext().getTableInMinidumpCache(tableQualifier);
         if (table == null) {
             if (customTableResolver.isPresent()) {
                 table = customTableResolver.get().apply(tableQualifier);
@@ -182,7 +182,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (table == null) {
             table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
-        ConnectContext.get().getTables().put(tableQualifier, table);
+        ConnectContext.get().getStatementContext().getTables().put(tableQualifier, table);
 
         // TODO: should generate different Scan sub class according to table's type
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
@@ -201,13 +201,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (customTableResolver.isPresent()) {
             table = customTableResolver.get().apply(tableQualifier);
         }
-        table = ConnectContext.get().getTableInMinidumpCache(tableQualifier);
+        table = ConnectContext.get().getStatementContext().getTableInMinidumpCache(tableQualifier);
         // In some cases even if we have already called the "cascadesContext.getTableByName",
         // it also gets the null. So, we just check it in the catalog again for safety.
         if (table == null) {
             table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
-        ConnectContext.get().getTables().put(tableQualifier, table);
+        ConnectContext.get().getStatementContext().getTables().put(tableQualifier, table);
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
@@ -242,6 +242,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample());
             }
+        }
+        if (!tabletIds.isEmpty()) {
+            // This tabletIds is set manually, so need to set specifiedTabletIds
+            scan = scan.withManuallySpecifiedTabletIds(tabletIds);
         }
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
             // it's a random distribution agg table
@@ -435,7 +439,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName,
-                                ((HMSExternalTable) table).getAllPartitions(),
                                 unboundRelation.getTableSample(),
                                 unboundRelation.getTableSnapshot());
                     }

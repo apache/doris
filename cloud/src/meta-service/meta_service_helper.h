@@ -118,6 +118,12 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
                   << " status=" << res->status().ShortDebugString()
                   << " tablet=" << res->tablet_id()
                   << " delete_bitmap_count=" << res->segment_delete_bitmaps_size();
+    } else if constexpr (std::is_same_v<Response, GetDeleteBitmapUpdateLockResponse>) {
+        if (res->status().code() != MetaServiceCode::OK) {
+            res->clear_base_compaction_cnts();
+            res->clear_cumulative_compaction_cnts();
+            res->clear_cumulative_points();
+        }
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
                          std::is_same_v<Response, GetStageResponse>) {
         std::string debug_string = res->DebugString();
@@ -248,4 +254,5 @@ void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
 bool is_dropped_tablet(Transaction* txn, const std::string& instance_id, int64_t index_id,
                        int64_t partition_id);
 
+std::size_t get_segments_key_bounds_bytes(const doris::RowsetMetaCloudPB& rowset_meta);
 } // namespace doris::cloud

@@ -124,6 +124,10 @@ suite("partition_mv_rewrite_dimension_2_5") {
     (3, null, 1, 99.5, 'yy'); 
     """
 
+    sql """alter table orders_2_5 modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table lineitem_2_5 modify column l_comment set stats ('row_count'='7');"""
+    sql """alter table partsupp_2_5 modify column ps_comment set stats ('row_count'='3');"""
+
     sql """analyze table orders_2_5 with sync;"""
     sql """analyze table lineitem_2_5 with sync;"""
     sql """analyze table partsupp_2_5 with sync;"""

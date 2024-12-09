@@ -41,6 +41,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -204,3 +205,5 @@ AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& 
                                                     const SortDescription& sort_desc,
                                                     RuntimeState* state);
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.BarrierLog;
+import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.thrift.TBinlog;
@@ -649,6 +650,9 @@ public class DBBinlog {
                 case REPLACE_TABLE:
                     raw = ReplaceTableOperationLog.fromJson(data);
                     break;
+                case DROP_ROLLUP:
+                    raw = DropInfo.fromJson(data);
+                    break;
                 case BARRIER:
                     raw = BarrierLog.fromJson(data);
                     break;
@@ -692,6 +696,11 @@ public class DBBinlog {
             ReplaceTableOperationLog record = (ReplaceTableOperationLog) raw;
             if (!record.isSwapTable()) {
                 droppedTables.add(Pair.of(record.getOrigTblId(), commitSeq));
+            }
+        } else if (binlogType == TBinlogType.DROP_ROLLUP && raw instanceof DropInfo) {
+            long indexId = ((DropInfo) raw).getIndexId();
+            if (indexId > 0) {
+                droppedIndexes.add(Pair.of(indexId, commitSeq));
             }
         } else if (binlogType == TBinlogType.BARRIER && raw instanceof BarrierLog) {
             BarrierLog log = (BarrierLog) raw;

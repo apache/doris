@@ -888,16 +888,17 @@ struct StringSpace {
                          ColumnString::Offsets& res_offsets) {
         res_offsets.resize(data.size());
         size_t input_size = res_offsets.size();
-        std::vector<char, Allocator_<char>> buffer;
+        // sample to get approximate best reserve size
+        if (input_size > 4) {
+            res_data.reserve(((data[0] + data[input_size >> 1] + data[input_size >> 2] +
+                               data[input_size - 1]) >>
+                              2) *
+                             input_size);
+        }
         for (size_t i = 0; i < input_size; ++i) {
-            buffer.clear();
-            if (data[i] > 0) {
-                buffer.resize(data[i]);
-                for (size_t j = 0; j < data[i]; ++j) {
-                    buffer[i] = ' ';
-                }
-                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                            res_data, res_offsets);
+            if (data[i] > 0) [[likely]] {
+                res_data.resize_fill(res_data.size() + data[i], ' ');
+                res_offsets[i] = res_data.size();
             } else {
                 StringOP::push_empty_string(i, res_data, res_offsets);
             }

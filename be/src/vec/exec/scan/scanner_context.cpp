@@ -65,7 +65,10 @@ ScannerContext::ScannerContext(
            _output_row_descriptor->tuple_descriptors().size() == 1);
     _query_id = _state->get_query_ctx()->query_id();
     ctx_id = UniqueId::gen_uid().to_string();
-    _scanners.enqueue_bulk(scanners.begin(), scanners.size());
+    if (!_scanners.enqueue_bulk(scanners.begin(), scanners.size())) [[unlikely]] {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Exception occurs during scanners initialization.");
+    };
     if (limit < 0) {
         limit = -1;
     }
@@ -236,7 +239,6 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
         _scanner_memory_used_counter->set(_block_memory_usage);
         // A free block is reused, so the memory usage should be decreased
         // The caller of get_free_block will increase the memory usage
-        update_peak_memory_usage(-block->allocated_bytes());
     } else if (_block_memory_usage < _max_bytes_in_queue || force) {
         _newly_create_free_blocks_num->update(1);
         block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
@@ -251,9 +253,9 @@ void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
         _block_memory_usage += block_size_to_reuse;
         _scanner_memory_used_counter->set(_block_memory_usage);
         block->clear_column_data();
-        if (_free_blocks.enqueue(std::move(block))) {
-            update_peak_memory_usage(block_size_to_reuse);
-        }
+        // Free blocks is used to improve memory efficiency. Failure during pushing back
+        // free block will not incur any bad result so just ignore the return value.
+        _free_blocks.enqueue(std::move(block));
     }
 }
 
@@ -324,7 +326,6 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                 _estimated_block_size = block_size;
             }
             _block_memory_usage -= block_size;
-            update_peak_memory_usage(-current_block->allocated_bytes());
             // consume current block
             block->swap(*current_block);
             return_free_block(std::move(current_block));
@@ -538,10 +539,6 @@ void ScannerContext::_set_scanner_done() {
 
 void ScannerContext::update_peak_running_scanner(int num) {
     _local_state->_peak_running_scanner->add(num);
-}
-
-void ScannerContext::update_peak_memory_usage(int64_t usage) {
-    _local_state->_scanner_peak_memory_usage->add(usage);
 }
 
 } // namespace doris::vectorized

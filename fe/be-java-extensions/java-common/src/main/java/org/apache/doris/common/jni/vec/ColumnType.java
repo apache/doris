@@ -207,16 +207,16 @@ public class ColumnType {
     public int metaSize() {
         switch (type) {
             case UNSUPPORTED:
-                // set nullMap address as 0.
-                return 1;
+                // const flag / set nullMap address as 0.
+                return 2;
             case ARRAY:
             case MAP:
             case STRUCT:
-                // array & map : [nullMap | offsets | ... ]
-                // struct : [nullMap | ... ]
-                int size = 2;
+                // array & map : [const | nullMap | offsets | ... ]
+                // struct : [const | nullMap | ... ]
+                int size = 3;
                 if (type == Type.STRUCT) {
-                    size = 1;
+                    size = 2;
                 }
                 for (ColumnType c : childTypes) {
                     size += c.metaSize();
@@ -226,11 +226,11 @@ public class ColumnType {
             case BINARY:
             case CHAR:
             case VARCHAR:
-                // [nullMap | offsets | data ]
-                return 3;
+                // [const | nullMap | offsets | data ]
+                return 4;
             default:
-                // [nullMap | data]
-                return 2;
+                // [const | nullMap | data]
+                return 3;
         }
     }
 

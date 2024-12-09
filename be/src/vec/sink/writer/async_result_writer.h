@@ -76,7 +76,7 @@ protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;
 
-    std::unique_ptr<Block> _get_free_block(Block*, int rows);
+    std::unique_ptr<Block> _get_free_block(Block*, size_t rows);
 
     void _return_free_block(std::unique_ptr<Block>);
 
