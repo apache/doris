@@ -65,14 +65,6 @@ suite ("multiple_ssb_between") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`LO_ORDERDATE`, `LO_ORDERKEY`)
         COMMENT "OLAP"
-        PARTITION BY RANGE(`LO_ORDERDATE`)
-        (PARTITION p1992 VALUES [("-2147483648"), ("19930101")),
-        PARTITION p1993 VALUES [("19930101"), ("19940101")),
-        PARTITION p1994 VALUES [("19940101"), ("19950101")),
-        PARTITION p1995 VALUES [("19950101"), ("19960101")),
-        PARTITION p1996 VALUES [("19960101"), ("19970101")),
-        PARTITION p1997 VALUES [("19970101"), ("19980101")),
-        PARTITION p1998 VALUES [("19980101"), ("19990101")))
         DISTRIBUTED BY HASH(`LO_ORDERKEY`) BUCKETS 48
         PROPERTIES (
         "replication_num" = "1",
@@ -153,17 +145,22 @@ suite ("multiple_ssb_between") {
     sql """INSERT INTO lineorder_flat (LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE, C_NAME, C_ADDRESS, C_CITY, C_NATION, C_REGION, C_PHONE, C_MKTSEGMENT, S_NAME, S_ADDRESS, S_CITY, S_NATION, S_REGION, S_PHONE, P_NAME, P_MFGR, P_CATEGORY, P_BRAND, P_COLOR,P_TYPE,P_SIZE,P_CONTAINER) VALUES (1 , 1 , 1 , 1 , 1 , 1 , '1' , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , '2023-06-09' , 'shipmode' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' , 'phone' , 'mktsegment' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' ,'phone', 'name', 'MFGR#1', 'category', 'brand', 'color', 'type', 4 ,'container');"""
 
     qt_select_star "select * from lineorder_flat order by 1,2, P_MFGR;"
+
+    sql "analyze table lineorder_flat with sync;"
+    sql """set enable_stats=true;"""
+
+    sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
     
-    explain {
-        sql("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
+    mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat
                 WHERE
                     LO_ORDERDATE >= 19930101
                     AND LO_ORDERDATE <= 19931231
                     AND LO_DISCOUNT BETWEEN 1 AND 3
-                    AND LO_QUANTITY < 25;""")
-        contains "(lineorder_q_1_1)"
-    }
+                    AND LO_QUANTITY < 25;""",
+                    "lineorder_q_1_1"
+    )
+
     qt_select_q_1_1 """SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat
                 WHERE
@@ -172,16 +169,16 @@ suite ("multiple_ssb_between") {
                     AND LO_DISCOUNT BETWEEN 1 AND 3
                     AND LO_QUANTITY < 25;"""
 
-    explain {
-        sql("""SELECT
+    mv_rewrite_success("""SELECT
                 SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
                 P_BRAND
             FROM lineorder_flat
             WHERE P_CATEGORY = 'MFGR#12' AND S_REGION = 'AMERICA'
             GROUP BY (LO_ORDERDATE DIV 10000), P_BRAND
-            ORDER BY YEAR, P_BRAND;""")
-        contains "(lineorder_q_2_1)"
-    }
+            ORDER BY YEAR, P_BRAND;""",
+        "lineorder_q_2_1"
+    )
+
     qt_select_q_2_1 """SELECT
                     SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
                     P_BRAND
@@ -190,8 +187,7 @@ suite ("multiple_ssb_between") {
                 GROUP BY YEAR, P_BRAND
                 ORDER BY YEAR, P_BRAND;"""
 
-    explain {
-        sql("""SELECT
+    mv_rewrite_success("""SELECT
                 C_NATION,
                 S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,
                 SUM(LO_REVENUE) AS revenue
@@ -202,9 +198,9 @@ suite ("multiple_ssb_between") {
                 AND LO_ORDERDATE >= 19920101
                 AND LO_ORDERDATE <= 19971231
             GROUP BY C_NATION, S_NATION, YEAR
-            ORDER BY YEAR ASC, revenue DESC;""")
-        contains "(lineorder_q_3_1)"
-    }
+            ORDER BY YEAR ASC, revenue DESC;""",
+        "lineorder_q_3_1")
+    
     qt_select_q_3_1 """SELECT
                         C_NATION,
                         S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,
@@ -218,8 +214,7 @@ suite ("multiple_ssb_between") {
                     GROUP BY C_NATION, S_NATION, YEAR
                     ORDER BY YEAR ASC, revenue DESC;"""
 
-    explain {
-        sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+    mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
                 C_NATION,
                 SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
                 FROM lineorder_flat
@@ -228,9 +223,9 @@ suite ("multiple_ssb_between") {
                 AND S_REGION = 'AMERICA'
                 AND P_MFGR IN ('MFGR#1', 'MFGR#2')
                 GROUP BY YEAR, C_NATION
-                ORDER BY YEAR ASC, C_NATION ASC;""")
-        contains "(lineorder_q_4_1)"
-    }
+                ORDER BY YEAR ASC, C_NATION ASC;""",
+                "lineorder_q_4_1")
+    
     qt_select_q_4_1 """SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
                 C_NATION,
                 SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit

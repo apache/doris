@@ -45,6 +45,7 @@ suite ("test_dup_mv_year") {
     qt_select_mv "select k1,year(k2) from d_table order by k1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1,year(k2) from d_table order by k1;", "k12y")
 
     createMV "create materialized view k13y as select k1,year(k3) from d_table;"

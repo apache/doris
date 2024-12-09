@@ -45,6 +45,7 @@ suite ("testIncorrectRewriteCountDistinct") {
     qt_select_mv "select user_name, count(distinct tag_id) from user_tags group by user_name order by user_name;"
 
     sql """set enable_stats=true;"""
+    sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
     mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
 
     mv_rewrite_fail("select user_name, count(distinct tag_id) from user_tags group by user_name;", "user_tags_mv")

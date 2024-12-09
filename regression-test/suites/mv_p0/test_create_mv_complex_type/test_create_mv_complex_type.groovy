@@ -37,6 +37,8 @@ suite ("create_mv_complex_type") {
 
     sql """insert into base_table select 1, 100000, 1.0, '{"jsonk1": 123}', [100, 200], {"k1": 10}, {1, 2};"""
 
+    sql """alter table base_table modify column c_int set stats ('row_count'='1');"""
+
     def success = false
 
     // 1. special column - mv dup key

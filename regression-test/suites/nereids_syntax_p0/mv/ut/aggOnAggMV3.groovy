@@ -55,6 +55,7 @@ suite ("aggOnAggMV3") {
     order_qt_select_mv "select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;"
 
     sql """set enable_stats=true;"""
+    sql """alter table aggOnAggMV3 modify column time_col set stats ('row_count'='5');"""
     mv_rewrite_fail("select * from aggOnAggMV3 order by empid;", "aggOnAggMV3_mv")
 
     mv_rewrite_success("select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;",

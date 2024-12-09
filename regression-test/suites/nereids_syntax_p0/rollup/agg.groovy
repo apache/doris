@@ -41,6 +41,7 @@ suite("agg") {
             AGGREGATE KEY (siteid,citycode,username)
             DISTRIBUTED BY HASH(siteid) BUCKETS 5 properties("replication_num" = "1");
         """
+    sql """alter table test_rollup_agg1 modify column siteid set stats ('row_count'='3');"""
     sql """ALTER TABLE ${tbName} ADD ROLLUP rollup_city(citycode, pv);"""
     int max_try_secs = 60
     while (max_try_secs--) {
