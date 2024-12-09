@@ -1394,13 +1394,12 @@ static Status cancel_channel_and_check_intolerable_failure(Status status,
     nch.cancel(err_msg);
 
     // check if index has intolerable failure
-    Status index_st = ich.check_intolerable_failure();
-    if (!index_st.ok()) {
+    if (Status index_st = ich.check_intolerable_failure(); !index_st.ok()) {
         status = std::move(index_st);
-    } else if (Status st = ich.check_tablet_received_rows_consistency(); !st.ok()) {
-        status = std::move(st);
-    } else if (Status st = ich.check_tablet_filtered_rows_consistency(); !st.ok()) {
-        status = std::move(st);
+    } else if (Status receive_st = ich.check_tablet_received_rows_consistency(); !receive_st.ok()) {
+        status = std::move(receive_st);
+    } else if (Status filter_st = ich.check_tablet_filtered_rows_consistency(); !filter_st.ok()) {
+        status = std::move(filter_st);
     }
     return status;
 }
