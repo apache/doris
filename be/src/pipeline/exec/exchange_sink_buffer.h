@@ -169,13 +169,61 @@ private:
     bool _eos;
 };
 
-// Each ExchangeSinkOperator have one ExchangeSinkBuffer
-class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
+// ExchangeSinkBuffer can either be shared among multiple ExchangeSinkLocalState instances
+// or be individually owned by each ExchangeSinkLocalState.
+// The following describes the scenario where ExchangeSinkBuffer is shared among multiple ExchangeSinkLocalState instances.
+// Of course, individual ownership can be seen as a special case where only one ExchangeSinkLocalState shares the buffer.
+
+// A sink buffer contains multiple rpc_channels.
+// Each rpc_channel corresponds to a target instance on the receiving side.
+// Data is sent using a ping-pong mode within each rpc_channel,
+// meaning that at most one RPC can exist in a single rpc_channel at a time.
+// The next RPC can only be sent after the previous one has completed.
+//
+// Each exchange sink sends data to all target instances on the receiving side.
+// If the concurrency is 3, a single rpc_channel will be used simultaneously by three exchange sinks.
+
+/*                                                                                                                                                                                                                                                                                                                          
+                          +-----------+          +-----------+        +-----------+      
+                          |dest ins id|          |dest ins id|        |dest ins id|      
+                          |           |          |           |        |           |      
+                          +----+------+          +-----+-----+        +------+----+      
+                               |                       |                     |           
+                               |                       |                     |           
+                      +----------------+      +----------------+     +----------------+  
+                      |                |      |                |     |                |  
+ sink buffer -------- |   rpc_channel  |      |  rpc_channel   |     |  rpc_channel   |  
+                      |                |      |                |     |                |  
+                      +-------+--------+      +----------------+     +----------------+  
+                              |                        |                      |          
+                              |------------------------+----------------------+          
+                              |                        |                      |          
+                              |                        |                      |          
+                     +-----------------+       +-------+---------+    +-------+---------+
+                     |                 |       |                 |    |                 |
+                     |  exchange sink  |       |  exchange sink  |    |  exchange sink  |
+                     |                 |       |                 |    |                 |
+                     +-----------------+       +-----------------+    +-----------------+
+*/
+
+#ifdef BE_TEST
+void transmit_blockv2(PBackendService_Stub& stub,
+                      std::unique_ptr<AutoReleaseClosure<PTransmitDataParams,
+                                                         ExchangeSendCallback<PTransmitDataResult>>>
+                              closure);
+#endif
+class ExchangeSinkBuffer : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
-                       RuntimeState* state, ExchangeSinkLocalState* parent);
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, RuntimeState* state,
+                       const std::vector<InstanceLoId>& sender_ins_ids);
+
+#ifdef BE_TEST
+    ExchangeSinkBuffer(RuntimeState* state, int64_t sinknum)
+            : HasTaskExecutionCtx(state), _exchange_sink_num(sinknum) {};
+#endif
     ~ExchangeSinkBuffer() override = default;
-    void register_sink(TUniqueId);
+
+    void construct_request(TUniqueId);
 
     Status add_block(TransmitInfo&& request);
     Status add_block(BroadcastTransmitInfo&& request);
@@ -183,17 +231,18 @@ public:
     void update_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
-    void set_dependency(std::shared_ptr<Dependency> queue_dependency,
-                        std::shared_ptr<Dependency> finish_dependency) {
-        _queue_dependency = queue_dependency;
-        _finish_dependency = finish_dependency;
+    void set_dependency(InstanceLoId sender_ins_id, std::shared_ptr<Dependency> queue_dependency,
+                        ExchangeSinkLocalState* local_state) {
+        DCHECK(_queue_deps.contains(sender_ins_id));
+        DCHECK(_parents.contains(sender_ins_id));
+        _queue_deps[sender_ins_id] = queue_dependency;
+        _parents[sender_ins_id] = local_state;
     }
-
-    void set_broadcast_dependency(std::shared_ptr<Dependency> broadcast_dependency) {
-        _broadcast_dependency = broadcast_dependency;
-    }
-
+#ifdef BE_TEST
+public:
+#else
 private:
+#endif
     friend class ExchangeSinkLocalState;
 
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
@@ -214,7 +263,10 @@ private:
     // One channel is corresponding to a downstream instance.
     phmap::flat_hash_map<InstanceLoId, bool> _rpc_channel_is_idle;
 
-    phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
+    // There could be multiple situations that cause an rpc_channel to be turned off,
+    // such as receiving the eof, manual cancellation by the user, or all sinks reaching eos.
+    // Therefore, it is necessary to prevent an rpc_channel from being turned off multiple times.
+    phmap::flat_hash_map<InstanceLoId, bool> _rpc_channel_is_turn_off;
     struct RpcInstanceStatistics {
         RpcInstanceStatistics(InstanceLoId id) : inst_lo_id(id) {}
         InstanceLoId inst_lo_id;
@@ -226,32 +278,43 @@ private:
     std::vector<std::shared_ptr<RpcInstanceStatistics>> _instance_to_rpc_stats_vec;
     phmap::flat_hash_map<InstanceLoId, RpcInstanceStatistics*> _instance_to_rpc_stats;
 
-    std::atomic<bool> _is_finishing;
+    // It is set to true only when an RPC fails. Currently, we do not have an error retry mechanism.
+    // If an RPC error occurs, the query will be canceled.
+    std::atomic<bool> _is_failed;
     PUniqueId _query_id;
     PlanNodeId _dest_node_id;
-    // Sender instance id, unique within a fragment. StreamSender save the variable
-    int _sender_id;
-    int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
     RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;
 
     Status _send_rpc(InstanceLoId);
-    // must hold the _instance_to_package_queue_mutex[id] mutex to opera
-    void _construct_request(InstanceLoId id, PUniqueId);
+
+#ifndef BE_TEST
     inline void _ended(InstanceLoId id);
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
-    inline bool _is_receiver_eof(InstanceLoId id);
     inline void _turn_off_channel(InstanceLoId id, std::unique_lock<std::mutex>& with_lock);
+
+#else
+    virtual void _ended(InstanceLoId id);
+    virtual void _failed(InstanceLoId id, const std::string& err);
+    virtual void _set_receiver_eof(InstanceLoId id);
+    virtual void _turn_off_channel(InstanceLoId id, std::unique_lock<std::mutex>& with_lock);
+#endif
+
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
-    std::shared_ptr<Dependency> _queue_dependency = nullptr;
-    std::shared_ptr<Dependency> _finish_dependency = nullptr;
-    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
-    ExchangeSinkLocalState* _parent = nullptr;
+
+    // _running_sink_count is used to track how many sinks have not finished yet.
+    // It is only decremented when eos is reached.
+    phmap::flat_hash_map<InstanceLoId, int64_t> _running_sink_count;
+    // _queue_deps is used for memory control.
+    phmap::flat_hash_map<InstanceLoId, std::shared_ptr<Dependency>> _queue_deps;
+    // The ExchangeSinkLocalState in _parents is only used in _turn_off_channel.
+    phmap::flat_hash_map<InstanceLoId, ExchangeSinkLocalState*> _parents;
+    const int64_t _exchange_sink_num;
 };
 
 } // namespace pipeline
