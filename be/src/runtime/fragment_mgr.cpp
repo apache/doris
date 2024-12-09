@@ -395,12 +395,20 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
 
     if (!req.runtime_state->get_error_log_file_path().empty()) {
-        params.__set_tracking_url(
-                to_load_error_http_path(req.runtime_state->get_error_log_file_path()));
+        std::string error_log_url =
+                to_load_error_http_path(req.runtime_state->get_error_log_file_path());
+        LOG(INFO) << "error log file path: " << error_log_url
+                  << ", query id: " << print_id(req.query_id)
+                  << ", fragment instance id: " << print_id(req.fragment_instance_id);
+        params.__set_tracking_url(error_log_url);
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
             if (!rs->get_error_log_file_path().empty()) {
-                params.__set_tracking_url(to_load_error_http_path(rs->get_error_log_file_path()));
+                std::string error_log_url = to_load_error_http_path(rs->get_error_log_file_path());
+                LOG(INFO) << "error log file path: " << error_log_url
+                          << ", query id: " << print_id(req.query_id)
+                          << ", fragment instance id: " << print_id(rs->fragment_instance_id());
+                params.__set_tracking_url(error_log_url);
             }
             if (rs->wal_id() > 0) {
                 params.__set_txn_id(rs->wal_id());
