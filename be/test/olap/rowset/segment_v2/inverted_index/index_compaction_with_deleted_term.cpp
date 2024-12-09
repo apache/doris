@@ -244,7 +244,7 @@ static RowsetSharedPtr do_compaction(std::vector<RowsetSharedPtr> rowsets,
     }
 
     Merger::Statistics stats;
-    stats.rowid_conversion = &compaction._rowid_conversion;
+    stats.rowid_conversion = compaction._rowid_conversion.get();
     Status st = Merger::vertical_merge_rowsets(
             tablet, compaction.compaction_type(), compaction._cur_tablet_schema, input_rs_readers,
             compaction._output_rs_writer.get(), 100000, 5, &stats);
