@@ -654,7 +654,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _num_rows_written += rowset->num_rows();
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
-    _num_segment += cast_set<int32_t>(rowset->num_segments());
+    _num_segment += static_cast<int32_t>(rowset->num_segments());
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
 
@@ -1044,7 +1044,7 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
         if (segment_id >= _segment_num_rows.size()) {
             _segment_num_rows.resize(segment_id + 1);
         }
-        _segment_num_rows[segid_offset] = cast_set<uint32_t>(segstat.row_num);
+        _segment_num_rows[segid_offset] = static_cast<uint32_t>(segstat.row_num);
     }
     VLOG_DEBUG << "_segid_statistics_map add new record. segment_id:" << segment_id
                << " row_num:" << segstat.row_num << " data_size:" << segstat.data_size

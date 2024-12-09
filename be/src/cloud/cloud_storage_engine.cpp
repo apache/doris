@@ -168,7 +168,7 @@ Status CloudStorageEngine::open() {
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
     // Use file cache disks number
     _memtable_flush_executor->init(
-            cast_set<int32_t>(io::FileCacheFactory::instance()->get_cache_instance_size()));
+            static_cast<int32_t>(io::FileCacheFactory::instance()->get_cache_instance_size()));
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
@@ -534,7 +534,7 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
             std::accumulate(submitted_cumu_compactions.begin(), submitted_cumu_compactions.end(), 0,
                             [](int a, auto& b) { return a + b.second.size(); });
     int num_base =
-            cast_set<int>(submitted_base_compactions.size() + submitted_full_compactions.size());
+            static_cast<int>(submitted_base_compactions.size() + submitted_full_compactions.size());
     int n = thread_per_disk - num_cumu - num_base;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         // We need to reserve at least one thread for cumulative compaction,
@@ -812,7 +812,7 @@ Status CloudStorageEngine::get_compaction_status_json(std::string* result) {
     // cumu
     std::string_view cumu = "CumulativeCompaction";
     rapidjson::Value cumu_key;
-    cumu_key.SetString(cumu.data(), cast_set<uint32_t>(cumu.length()), root.GetAllocator());
+    cumu_key.SetString(cumu.data(), static_cast<uint32_t>(cumu.length()), root.GetAllocator());
     rapidjson::Document cumu_arr;
     cumu_arr.SetArray();
     for (auto& [tablet_id, v] : _submitted_cumu_compactions) {
@@ -824,7 +824,7 @@ Status CloudStorageEngine::get_compaction_status_json(std::string* result) {
     // base
     std::string_view base = "BaseCompaction";
     rapidjson::Value base_key;
-    base_key.SetString(base.data(), cast_set<uint32_t>(base.length()), root.GetAllocator());
+    base_key.SetString(base.data(), static_cast<uint32_t>(base.length()), root.GetAllocator());
     rapidjson::Document base_arr;
     base_arr.SetArray();
     for (auto& [tablet_id, _] : _submitted_base_compactions) {
