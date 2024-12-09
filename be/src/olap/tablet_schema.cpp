@@ -41,8 +41,6 @@
 #include "olap/tablet_column_object_pool.h"
 #include "olap/types.h"
 #include "olap/utils.h"
-#include "runtime/memory/lru_cache_policy.h"
-#include "runtime/thread_context.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_state_union.h"
@@ -975,10 +973,10 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
-    _cluster_key_idxes.clear();
+    _cluster_key_uids.clear();
     clear_column_cache_handlers();
-    for (const auto& i : schema.cluster_key_idxes()) {
-        _cluster_key_idxes.push_back(i);
+    for (const auto& i : schema.cluster_key_uids()) {
+        _cluster_key_uids.push_back(i);
     }
     for (auto& column_pb : schema.column()) {
         TabletColumnPtr column;
@@ -1126,10 +1124,10 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sequence_col_idx = -1;
     _version_col_idx = -1;
     _skip_bitmap_col_idx = -1;
-    _cluster_key_idxes.clear();
+    _cluster_key_uids.clear();
     clear_column_cache_handlers();
-    for (const auto& i : ori_tablet_schema._cluster_key_idxes) {
-        _cluster_key_idxes.push_back(i);
+    for (const auto& i : ori_tablet_schema._cluster_key_uids) {
+        _cluster_key_uids.push_back(i);
     }
     for (auto& column : index->columns) {
         if (column->is_key()) {
@@ -1237,8 +1235,8 @@ void TabletSchema::reserve_extracted_columns() {
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
-    for (const auto& i : _cluster_key_idxes) {
-        tablet_schema_pb->add_cluster_key_idxes(i);
+    for (const auto& i : _cluster_key_uids) {
+        tablet_schema_pb->add_cluster_key_uids(i);
     }
     tablet_schema_pb->set_keys_type(_keys_type);
     for (const auto& col : _cols) {

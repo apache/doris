@@ -298,6 +298,8 @@ DECLARE_mInt32(max_download_speed_kbps);
 DECLARE_mInt32(download_low_speed_limit_kbps);
 // download low speed time(seconds)
 DECLARE_mInt32(download_low_speed_time);
+// whether to download small files in batch.
+DECLARE_mBool(enable_batch_download);
 
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
@@ -1236,6 +1238,9 @@ DECLARE_mBool(enable_missing_rows_correctness_check);
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
+// When the size of primary keys in memory exceeds this value, finish current segment
+// and create a new segment, used in compaction.
+DECLARE_mInt64(mow_primary_key_index_max_size_in_memory);
 // When the version is not continuous for MOW table in publish phase and the gap between
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log

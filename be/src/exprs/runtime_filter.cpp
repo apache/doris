@@ -740,6 +740,12 @@ public:
         return Status::OK();
     }
 
+    void set_enable_fixed_len_to_uint32_v2() {
+        if (is_bloomfilter()) {
+            _context->bloom_filter_func->set_enable_fixed_len_to_uint32_v2();
+        }
+    }
+
     // used by shuffle runtime filter
     // assign this filter by protobuf
     Status assign(const PBloomFilter* bloom_filter, butil::IOBufAsZeroCopyInputStream* data,
@@ -1357,6 +1363,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     _expr_order = desc->expr_order;
     vectorized::VExprContextSPtr build_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
+    _enable_fixed_len_to_uint32_v2 = options->__isset.enable_fixed_len_to_uint32_v2 &&
+                                     options->enable_fixed_len_to_uint32_v2;
 
     RuntimeFilterParams params;
     params.filter_id = _filter_id;
@@ -1407,7 +1415,11 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     }
 
     _wrapper = std::make_shared<RuntimePredicateWrapper>(&params);
-    return _wrapper->init(&params);
+    RETURN_IF_ERROR(_wrapper->init(&params));
+    if (_enable_fixed_len_to_uint32_v2) {
+        _wrapper->set_enable_fixed_len_to_uint32_v2();
+    }
+    return Status::OK();
 }
 
 Status IRuntimeFilter::serialize(PMergeFilterRequest* request, void** data, int* len) {
@@ -1532,7 +1544,7 @@ std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
             "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, ignored: {}, "
             "build_bf_cardinality: {}, dependency: {}, synced_size: {}, has_local_target: {}, "
-            "has_remote_target: {},error_msg: [{}]",
+            "has_remote_target: {}, error_msg: [{}]",
             _filter_id, to_string(_runtime_filter_type), _is_broadcast_join,
             _wrapper->_context->ignored, _wrapper->get_build_bf_cardinality(),
             _dependency ? _dependency->debug_string() : "none", _synced_size, _has_local_target,
@@ -1604,6 +1616,9 @@ void IRuntimeFilter::update_filter(std::shared_ptr<RuntimePredicateWrapper> wrap
         wrapper->_column_return_type = _wrapper->_column_return_type;
     }
     _wrapper = wrapper;
+    if (_enable_fixed_len_to_uint32_v2) {
+        _wrapper->set_enable_fixed_len_to_uint32_v2();
+    }
     update_runtime_filter_type_to_profile(local_merge_time);
     signal();
 }

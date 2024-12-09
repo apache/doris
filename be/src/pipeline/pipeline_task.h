@@ -135,11 +135,12 @@ public:
     int task_id() const { return _index; };
     bool is_finalized() const { return _finalized; }
 
-    void clear_blocking_state(bool wake_up_by_downstream = false) {
+    void set_wake_up_by_downstream() { _wake_up_by_downstream = true; }
+
+    void clear_blocking_state() {
         _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
-        _wake_up_by_downstream = _wake_up_by_downstream || wake_up_by_downstream;
         if (!_finalized) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {

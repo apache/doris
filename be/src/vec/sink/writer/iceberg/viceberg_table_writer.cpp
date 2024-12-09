@@ -31,6 +31,7 @@
 
 namespace doris {
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 VIcebergTableWriter::VIcebergTableWriter(const TDataSink& t_sink,
                                          const VExprContextSPtrs& output_expr_ctxs,
