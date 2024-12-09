@@ -27,6 +27,7 @@
 #include "olap/tablet.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class HttpRequest;
 
 class ExecEnv;
@@ -52,4 +53,5 @@ private:
     CloudStorageEngine& _engine;
     DeleteBitmapActionType _delete_bitmap_action_type;
 };
+#include "common/compile_check_end.h"
 } // namespace doris

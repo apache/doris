@@ -57,6 +57,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGro
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
+import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculate;
+import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculateCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapIntersectCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapUnionCount;
@@ -124,7 +126,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(HllUnion.class, "hll_raw_agg", "hll_union"),
             agg(HllUnionAgg.class, "hll_union_agg"),
             agg(IntersectCount.class, "intersect_count"),
-            agg(LinearHistogram.class, FunctionSet.LINEAR_HISTOGRAM),
+            agg(Kurt.class, "kurt", "kurt_pop", "kurtosis"),
+            agg(LinearHistogram.class, "linear_histogram"),
             agg(MapAgg.class, "map_agg"),
             agg(Max.class, "max"),
             agg(MaxBy.class, "max_by"),
@@ -135,6 +138,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(MultiDistinctSum.class, "multi_distinct_sum"),
             agg(MultiDistinctSum0.class, "multi_distinct_sum0"),
             agg(Ndv.class, "approx_count_distinct", "ndv"),
+            agg(OrthogonalBitmapExprCalculate.class, "orthogonal_bitmap_expr_calculate"),
+            agg(OrthogonalBitmapExprCalculateCount.class, "orthogonal_bitmap_expr_calculate_count"),
             agg(OrthogonalBitmapIntersect.class, "orthogonal_bitmap_intersect"),
             agg(OrthogonalBitmapIntersectCount.class, "orthogonal_bitmap_intersect_count"),
             agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
@@ -148,6 +153,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(Retention.class, "retention"),
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),
+            agg(Skew.class, "skew", "skew_pop", "skewness"),
             agg(Stddev.class, "stddev_pop", "stddev"),
             agg(StddevSamp.class, "stddev_samp"),
             agg(Sum.class, "sum"),
@@ -157,9 +163,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(TopNWeighted.class, "topn_weighted"),
             agg(Variance.class, "var_pop", "variance_pop", "variance"),
             agg(VarianceSamp.class, "var_samp", "variance_samp"),
-            agg(WindowFunnel.class, "window_funnel"),
-            agg(Skew.class, "skew", "skew_pop", "skewness"),
-            agg(Kurt.class, "kurt", "kurt_pop", "kurtosis")
+            agg(WindowFunnel.class, "window_funnel")
     );
 
     public final Set<String> aggFuncNames = aggregateFunctions.stream()
