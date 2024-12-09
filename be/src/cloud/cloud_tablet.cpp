@@ -50,6 +50,7 @@
 #include "vec/common/schema_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
@@ -380,7 +381,7 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
     _tablet_meta->modify_rs_metas({}, rs_metas, false);
 }
 
-int CloudTablet::delete_expired_stale_rowsets() {
+uint64_t CloudTablet::delete_expired_stale_rowsets() {
     std::vector<RowsetSharedPtr> expired_rowsets;
     int64_t expired_stale_sweep_endtime =
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
@@ -539,7 +540,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
 
     return RowsetFactory::create_rowset_writer(_engine, context, false)
             .transform([&](auto&& writer) {
-                writer->set_segment_start_id(rowset.num_segments());
+                writer->set_segment_start_id(cast_set<int32_t>(rowset.num_segments()));
                 return writer;
             });
 }
@@ -617,7 +618,8 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
         }
         rapidjson::Value value;
         std::string version_str = rowset->get_rowset_info_str();
-        value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
+        value.SetString(version_str.c_str(), cast_set<uint32_t>(version_str.length()),
+                        versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
         last_version = ver.second;
     }
@@ -630,7 +632,7 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     for (auto& rowset : stale_rowsets) {
         rapidjson::Value value;
         std::string version_str = rowset->get_rowset_info_str();
-        value.SetString(version_str.c_str(), version_str.length(),
+        value.SetString(version_str.c_str(), cast_set<uint32_t>(version_str.length()),
                         stale_versions_arr.GetAllocator());
         stale_versions_arr.PushBack(value, stale_versions_arr.GetAllocator());
     }
@@ -919,4 +921,5 @@ void CloudTablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     // but it may be used in the future.
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris
