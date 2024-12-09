@@ -386,6 +386,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
                 "(ISNULL(TA > 10) and TA < 20 or TA > 50 and TA < 60 or TA > 100) AND TA > 10 and TA < 120");
         assertRewrite("ISNULL (TA > 10) or TA > 10 and TA < 20 or TA > 50 and TA < 60 or TA > 100 and TA < 120",
                 "ISNULL (TA > 10) or TA > 10 and TA < 20 or TA > 50 and TA < 60 or TA > 100 and TA < 120");
+        assertRewrite("TA = 4 or (TA > 4 and TB is null)", "(TA = 4 or (TA > 4 and TB is null)) and TA >= 4");
         assertRewrite("TA in (10, 50, 100) or TA in (20, 40)", "TA in (10, 20, 40, 50, 100)");
         assertRewrite("TA in (10, 50, 100) or TA >= 70",
                 "(TA in (10, 50, 100) or TA >= 70) AND TA >= 10");

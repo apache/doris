@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.MutableState;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
@@ -106,6 +107,10 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
     /** rewrite */
     public static Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
+        if (expr.getMutableState(MutableState.KEY_SIMPLIFY_RANGE).isPresent()) {
+            return expr;
+        }
+        expr.setMutableState(MutableState.KEY_SIMPLIFY_RANGE, 1);
         ValueDesc valueDesc = expr.accept(new RangeInference(), context);
         Expression result = valueDesc.toExpression();
         Map<Expression, MinMaxValue> exprMinMaxValues = valueDesc.getExprMinMaxValues();
