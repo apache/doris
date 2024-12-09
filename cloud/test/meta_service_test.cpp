@@ -578,6 +578,7 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         vault.set_alter_name(new_vault_name);
         ObjectStoreInfoPB obj;
         obj_info.set_ak("new_ak");
+        obj_info.set_sk("new_sk");
         vault.mutable_obj_info()->MergeFrom(obj);
         vault.set_name(vault_name);
         req.mutable_vault()->CopyFrom(vault);
