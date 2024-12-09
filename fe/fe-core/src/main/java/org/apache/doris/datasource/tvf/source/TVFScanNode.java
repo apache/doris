@@ -139,8 +139,7 @@ public class TVFScanNode extends FileQueryScanNode {
 
         // Push down count optimization.
         boolean needSplit = true;
-        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
-                && noNeedSplitForCountPushDown()) {
+        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT) {
             int parallelNum = sessionVariable.getParallelExecInstanceNum();
             int totalFileNum = fileStatuses.size();
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);

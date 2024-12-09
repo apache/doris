@@ -288,8 +288,7 @@ public class HiveScanNode extends FileQueryScanNode {
          */
         boolean needSplit = true;
         if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
-                && hiveTransaction != null
-                && noNeedSplitForCountPushDown()) {
+                && hiveTransaction != null) {
             int totalFileNum = 0;
             for (FileCacheValue fileCacheValue : fileCaches) {
                 if (fileCacheValue.getFiles() != null) {
