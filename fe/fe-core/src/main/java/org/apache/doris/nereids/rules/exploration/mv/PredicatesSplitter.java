@@ -28,8 +28,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.Lists;
-
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -104,9 +102,9 @@ public class PredicatesSplitter {
 
     public Predicates.SplitPredicate getSplitPredicate() {
         return Predicates.SplitPredicate.of(
-                equalPredicates.isEmpty() ? null : ExpressionUtils.and(Lists.newArrayList(equalPredicates)),
-                rangePredicates.isEmpty() ? null : ExpressionUtils.and(Lists.newArrayList(rangePredicates)),
-                residualPredicates.isEmpty() ? null : ExpressionUtils.and(Lists.newArrayList(residualPredicates)));
+                equalPredicates.isEmpty() ? null : ExpressionUtils.and(equalPredicates),
+                rangePredicates.isEmpty() ? null : ExpressionUtils.and(rangePredicates),
+                residualPredicates.isEmpty() ? null : ExpressionUtils.and(residualPredicates));
     }
 
     private static boolean containOnlyColumnRef(Expression expression, boolean allowCast) {

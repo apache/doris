@@ -236,8 +236,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     unboundRelation.getNameParts());
             TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv());
             if (predicates.getPredicates().containsKey(table)) {
-                return new LogicalFilter<>(ImmutableSet.of(
-                        ExpressionUtils.or(Lists.newArrayList(predicates.getPredicates().get(table)))),
+                return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(predicates.getPredicates().get(table))),
                         unboundRelation);
             }
             return unboundRelation;
@@ -280,8 +279,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             if (predicates.getPredicates() != null) {
                 if (predicates.getPredicates().containsKey(table)) {
                     return new LogicalFilter<>(
-                            ImmutableSet.of(ExpressionUtils.or(
-                                    Lists.newArrayList(predicates.getPredicates().get(table)))),
+                            ImmutableSet.of(ExpressionUtils.or(predicates.getPredicates().get(table))),
                             catalogRelation);
                 }
             }
@@ -329,8 +327,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     if (!partitionHasDataItems.isEmpty()) {
                         Set<Expression> partitionExpressions =
                                 constructPredicates(partitionHasDataItems, partitionSlot);
-                        return new LogicalFilter<>(
-                                ImmutableSet.of(ExpressionUtils.or(Lists.newArrayList(partitionExpressions))),
+                        return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(partitionExpressions)),
                                 catalogRelation);
                     }
                 }

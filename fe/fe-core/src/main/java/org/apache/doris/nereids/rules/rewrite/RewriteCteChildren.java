@@ -42,7 +42,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.HashSet;
@@ -191,12 +190,11 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             }
             if (matchCount >= filterSize) {
                 mightBeJoined.add(f);
-                conjuncts.add(ExpressionUtils.or(Lists.newArrayList(mightBeJoined)));
+                conjuncts.add(ExpressionUtils.or(mightBeJoined));
             }
         }
         if (!conjuncts.isEmpty()) {
-            LogicalPlan filter = new LogicalFilter<>(
-                    ImmutableSet.of(ExpressionUtils.and(Lists.newArrayList(conjuncts))), child);
+            LogicalPlan filter = new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.and(conjuncts)), child);
             return pushPlanUnderAnchor(filter);
         }
         return child;

@@ -165,7 +165,7 @@ public class ExpressionUtils {
         if (expressions.isEmpty()) {
             return Optional.empty();
         } else {
-            return Optional.of(and(expressions));
+            return Optional.of(ExpressionUtils.and(expressions));
         }
     }
 
@@ -192,11 +192,23 @@ public class ExpressionUtils {
         return optionalAnd(ImmutableList.copyOf(collection));
     }
 
-    public static Expression and(List<Expression> expressions) {
-        if (expressions.size() == 1) {
-            return expressions.get(0);
+    public static Expression and(Collection<Expression> expressions) {
+        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
+        for (Expression expression : expressions) {
+            if (expression.equals(BooleanLiteral.FALSE)) {
+                return BooleanLiteral.FALSE;
+            } else if (!expression.equals(BooleanLiteral.TRUE)) {
+                distinctExpressions.add(expression);
+            }
+        }
+
+        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        if (exprList.isEmpty()) {
+            return BooleanLiteral.TRUE;
+        } else if (exprList.size() == 1) {
+            return exprList.get(0);
         } else {
-            return new And(expressions);
+            return new And(exprList);
         }
     }
 
@@ -208,7 +220,7 @@ public class ExpressionUtils {
         if (expressions.isEmpty()) {
             return Optional.empty();
         } else {
-            return Optional.of(or(expressions));
+            return Optional.of(ExpressionUtils.or(expressions));
         }
     }
 
@@ -216,11 +228,23 @@ public class ExpressionUtils {
         return or(Lists.newArrayList(expressions));
     }
 
-    public static Expression or(List<Expression> expressions) {
-        if (expressions.size() == 1) {
-            return expressions.get(0);
+    public static Expression or(Collection<Expression> expressions) {
+        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
+        for (Expression expression : expressions) {
+            if (expression.equals(BooleanLiteral.TRUE)) {
+                return BooleanLiteral.TRUE;
+            } else if (!expression.equals(BooleanLiteral.FALSE)) {
+                distinctExpressions.add(expression);
+            }
+        }
+
+        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        if (exprList.isEmpty()) {
+            return BooleanLiteral.FALSE;
+        } else if (exprList.size() == 1) {
+            return exprList.get(0);
         } else {
-            return new Or(expressions);
+            return new Or(exprList);
         }
     }
 

@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.Set;
 
@@ -56,7 +55,7 @@ public class EliminateMarkJoin extends OneRewriteRuleFactory {
     private boolean canSimplifyMarkJoin(Set<Expression> predicates, ExpressionRewriteContext rewriteContext) {
         return ExpressionUtils
                 .canInferNotNullForMarkSlot(TrySimplifyPredicateWithMarkJoinSlot.INSTANCE
-                        .rewrite(ExpressionUtils.and(Lists.newArrayList(predicates)), rewriteContext), rewriteContext);
+                        .rewrite(ExpressionUtils.and(predicates), rewriteContext), rewriteContext);
     }
 
     private LogicalJoin<Plan, Plan> eliminateMarkJoin(LogicalJoin<Plan, Plan> join) {

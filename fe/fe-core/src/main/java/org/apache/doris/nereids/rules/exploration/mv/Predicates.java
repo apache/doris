@@ -31,7 +31,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
@@ -164,7 +163,7 @@ public class Predicates {
         }
         // try to normalize the different expressions
         Set<Expression> normalizedExpressions =
-                normalizeExpression(ExpressionUtils.and(Lists.newArrayList(differentExpressions)), cascadesContext);
+                normalizeExpression(ExpressionUtils.and(differentExpressions), cascadesContext);
         if (!queryRangeSet.containsAll(normalizedExpressions)) {
             // normalized expressions is not in query, can not compensate
             return null;
