@@ -153,9 +153,11 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
             LOG(INFO) << fmt::format("read s3 file {} succeed after {} times with {} ms sleeping",
                                      _path.native(), retry_count, total_sleep_time);
         }
-        if (io_ctx && io_ctx->file_cache_stats) {
-            io_ctx->file_cache_stats->bytes_read_from_remote += bytes_req;
-        }
+        // ATTN: Do not open it, may casuing stack-use-after-scope.
+        // Will be refactored in future
+        // if (io_ctx && io_ctx->file_cache_stats) {
+        //     io_ctx->file_cache_stats->bytes_read_from_remote += bytes_req;
+        // }
         return Status::OK();
     }
     return Status::InternalError("failed to read from s3, exceeded maximum retries");
