@@ -24,6 +24,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.Ticker;
+import com.github.benmanes.caffeine.cache.Weigher;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Duration;
@@ -48,25 +49,47 @@ public class CacheFactory {
 
     private OptionalLong expireAfterWriteSec;
     private OptionalLong refreshAfterWriteSec;
-    private long maxSize;
+
+    private long maxSize = -1;
     private boolean enableStats;
     // Ticker is used to provide a time source for the cache.
     // Only used for test, to provide a fake time source.
     // If not provided, the system time is used.
     private Ticker ticker;
 
+    private long maxWeight = -1;
+
+    private Weigher weigher = null;
+
     public CacheFactory(
-            OptionalLong expireAfterWriteSec,
-            OptionalLong refreshAfterWriteSec,
-            long maxSize,
-            boolean enableStats,
-            Ticker ticker) {
+        OptionalLong expireAfterWriteSec,
+        OptionalLong refreshAfterWriteSec,
+        long maxSize,
+        boolean enableStats,
+        Ticker ticker) {
         this.expireAfterWriteSec = expireAfterWriteSec;
         this.refreshAfterWriteSec = refreshAfterWriteSec;
         this.maxSize = maxSize;
         this.enableStats = enableStats;
         this.ticker = ticker;
     }
+
+    public CacheFactory(
+        OptionalLong expireAfterWriteSec,
+        OptionalLong refreshAfterWriteSec,
+        boolean enableStats,
+        long maxWeight,
+        Weigher weigher,
+        Ticker ticker) {
+        this.expireAfterWriteSec = expireAfterWriteSec;
+        this.refreshAfterWriteSec = refreshAfterWriteSec;
+        this.enableStats = enableStats;
+        this.maxWeight = maxWeight;
+        this.weigher = weigher;
+        this.ticker = ticker;
+    }
+
+
 
     // Build a loading cache, without executor, it will use fork-join pool for refresh
     public <K, V> LoadingCache<K, V> buildCache(CacheLoader<K, V> cacheLoader) {
@@ -76,7 +99,7 @@ public class CacheFactory {
 
     // Build a loading cache, with executor, it will use given executor for refresh
     public <K, V> LoadingCache<K, V> buildCache(CacheLoader<K, V> cacheLoader,
-            RemovalListener<K, V> removalListener, ExecutorService executor) {
+                                                RemovalListener<K, V> removalListener, ExecutorService executor) {
         Caffeine<Object, Object> builder = buildWithParams();
         builder.executor(executor);
         if (removalListener != null) {
@@ -87,7 +110,7 @@ public class CacheFactory {
 
     // Build an async loading cache
     public <K, V> AsyncLoadingCache<K, V> buildAsyncCache(AsyncCacheLoader<K, V> cacheLoader,
-            ExecutorService executor) {
+                                                          ExecutorService executor) {
         Caffeine<Object, Object> builder = buildWithParams();
         builder.executor(executor);
         return builder.buildAsync(cacheLoader);
@@ -96,8 +119,6 @@ public class CacheFactory {
     @NotNull
     private Caffeine<Object, Object> buildWithParams() {
         Caffeine<Object, Object> builder = Caffeine.newBuilder();
-        builder.maximumSize(maxSize);
-
         if (expireAfterWriteSec.isPresent()) {
             builder.expireAfterWrite(Duration.ofSeconds(expireAfterWriteSec.getAsLong()));
         }
@@ -107,6 +128,12 @@ public class CacheFactory {
 
         if (enableStats) {
             builder.recordStats();
+        }
+
+        if (weigher != null) {
+            builder.weigher(weigher).maximumWeight(maxWeight);
+        } else {
+            builder.maximumSize(maxSize);
         }
 
         if (ticker != null) {

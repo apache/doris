@@ -775,4 +775,22 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             throw new RuntimeException("failed to drop partition for " + dbName + "." + tableName, e);
         }
     }
+
+    @Override
+    public int getNumPartitionsByFilter(String dbName, String tableName, String filter) {
+        try (ThriftHMSClient client = getClient()) {
+            return client.client.getNumPartitionsByFilter(dbName, tableName, filter);
+        } catch (Exception e) {
+            throw new RuntimeException("failed to get num partitions by filter for " + dbName + "." + tableName, e);
+        }
+    }
+
+    @Override
+    public List<Partition> listPartitionsByFilter(String dbName, String tableName, String filter, short maxParts) {
+        try (ThriftHMSClient client = getClient()) {
+            return client.client.listPartitionsByFilter(dbName, tableName, filter, maxParts);
+        } catch (Exception e) {
+            throw new RuntimeException("failed to list partitions by filter for " + dbName + "." + tableName, e);
+        }
+    }
 }

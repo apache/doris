@@ -321,6 +321,15 @@ public class TestHMSCachedClient implements HMSCachedClient {
         }
     }
 
+    @Override
+    public int getNumPartitionsByFilter(String dbName, String tableName, String filter) {
+        return 0;
+    }
+    @Override
+    public List<Partition> listPartitionsByFilter(String dbName, String tableName, String filter, short maxParts) {
+        return new ArrayList<>();
+    }
+
     public List<Partition> getPartitionList(String dbName, String tableName) {
         SimpleTableInfo key = new SimpleTableInfo(dbName, tableName);
         List<Partition> partitionList = this.partitions.get(key);

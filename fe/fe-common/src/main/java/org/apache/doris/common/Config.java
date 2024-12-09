@@ -2100,6 +2100,22 @@ public class Config extends ConfigBase {
             "Max cache number of database and table instance in external catalog."})
     public static long max_meta_object_cache_num = 1000;
 
+    /**
+     * Max cache num of hive partition count.
+     * Decrease this value if FE's memory is small
+     */
+    @ConfField(description = {"Hive Metastore 表级别分区计数缓存的最大数量。",
+        "Max cache number of partition count at table level in Hive Metastore."})
+    public static long max_hive_partition_count_cache_num = 10000;
+
+    @ConfField(description = {"过滤的Hive分区表缓存的最大数量",
+        "Max cache number of filter hive partition table"})
+    public static long max_filter_hive_partition_table_cache_num = 1000;
+
+    @ConfField(mutable = true, description = {"单个hive表不使用谓词下推的最大分区数量",
+        "max partition num for single hive table without filter"})
+    public static int max_partition_num_for_single_hive_table_without_filter = 3000;
+
     @ConfField(description = {"Hive分区表缓存的最大数量",
             "Max cache number of hive partition table"})
     public static long max_hive_partition_table_cache_num = 1000;

@@ -579,6 +579,15 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
         throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
+    @Override
+    public int getNumPartitionsByFilter(String dbName, String tableName, String filter) {
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
+    }
+    @Override
+    public List<Partition> listPartitionsByFilter(String dbName, String tableName, String filter, short maxParts) {
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
+    }
+
     public void dropTable(String dbName, String tblName) {
         throw new NotImplementedException("PostgreSQL dropTable not implemented");
     }

@@ -1682,8 +1682,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
   @Override
   public List<Partition> listPartitionsByFilter(String catName, String db_name, String tbl_name,
                                                 String filter, int max_parts) throws TException {
-    List<Partition> parts =client.get_partitions_by_filter(prependCatalogToDbName(
-        catName, db_name, conf), tbl_name, filter, shrinkMaxtoShort(max_parts));
+    List<Partition> parts =client.get_partitions_by_filter(db_name, tbl_name, filter, shrinkMaxtoShort(max_parts));
     return deepCopyPartitions(filterHook.filterPartitions(parts));
   }
 
@@ -2065,7 +2064,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
   @Override
   public int getNumPartitionsByFilter(String db_name, String tbl_name,
                                       String filter) throws TException {
-    return getNumPartitionsByFilter(getDefaultCatalog(conf), db_name, tbl_name, filter);
+    return client.get_num_partitions_by_filter(db_name, tbl_name, filter);
   }
 
   @Override

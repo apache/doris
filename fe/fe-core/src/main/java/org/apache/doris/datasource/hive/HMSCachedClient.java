@@ -114,6 +114,10 @@ public interface HMSCachedClient {
 
     void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData);
 
+    int getNumPartitionsByFilter(String dbName, String tableName, String filter);
+
+    List<Partition> listPartitionsByFilter(String dbName, String tableName, String filter, short maxParts);
+
     default void setHadoopAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
         // Ignored by default
     }
