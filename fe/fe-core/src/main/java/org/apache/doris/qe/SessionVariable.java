@@ -4038,6 +4038,21 @@ public class SessionVariable implements Serializable, Writable {
         this.enableStrictConsistencyDml = value;
     }
 
+    /**
+     *
+     * @return true iff set success
+     */
+    public boolean setVarOnce(String varName, String value) {
+        try {
+            setIsSingleSetVar(true);
+            VariableMgr.setVar(this, new SetVar(varName, new StringLiteral(value)));
+            return true;
+        } catch (DdlException e) {
+            LOG.warn("set onece {} = {} failed", varName, value);
+            return false;
+        }
+    }
+
     public void disableStrictConsistencyDmlOnce() throws DdlException {
         if (!enableStrictConsistencyDml) {
             return;
