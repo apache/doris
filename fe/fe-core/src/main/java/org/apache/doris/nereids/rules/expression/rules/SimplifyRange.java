@@ -427,7 +427,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         public abstract Map<Expression, MinMaxValue> getExprMinMaxValues();
 
         protected boolean isExprNeedAddMinMax(Expression expr) {
-            return expr instanceof SlotReference;
+            return (expr instanceof SlotReference) && ((SlotReference) expr).getColumn().isPresent();
         }
 
         public static ValueDesc range(ExpressionRewriteContext context, ComparisonPredicate predicate) {
@@ -772,7 +772,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
             if (sourceValues.isEmpty()) {
                 return Maps.newHashMap();
             }
-            Map<Expression, MinMaxValue> result = sourceValues.get(0).getExprMinMaxValues();
+            Map<Expression, MinMaxValue> result = Maps.newHashMap(sourceValues.get(0).getExprMinMaxValues());
             int nextExprOrderIndex = result.values().stream().mapToInt(k -> k.exprOrderIndex).max().orElse(0);
             for (int i = 1; i < sourceValues.size(); i++) {
                 // process in sourceValues[i]

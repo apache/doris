@@ -17,15 +17,18 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -189,7 +192,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA + TC = 1 and TA + TC = 3", "(TA + TC) is null and null");
         assertRewriteNotNull("TA + TC in (1) and TA + TC in (3)", "FALSE");
         assertRewrite("TA + TC in (1) and TA + TC in (3)", "(TA + TC) is null and null");
-        assertRewrite("TA + TC in (1) and TA + TC in (1)", "(TA + TC) = (1)");
+        assertRewrite("TA + TC in (1) and TA + TC in (1)", "(TA + TC) in (1)");
         assertRewriteNotNull("(TA + TC > 3 and TA + TC < 1) and TB < 5", "FALSE");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) and TB < 5", "(TA + TC) is null and null and TB < 5");
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or TB < 5", "((TA + TC) is null and null) OR TB < 5");
@@ -438,8 +441,12 @@ public class SimplifyRangeTest extends ExpressionRewrite {
             children.add(newChild);
         }
         if (expression instanceof UnboundSlot) {
+            ExprId exprId = StatementScopeIdGenerator.newExprId();
             String name = ((UnboundSlot) expression).getName();
-            mem.putIfAbsent(name, new SlotReference(name, getType(name.charAt(0))));
+            List<String> qualifier = ImmutableList.of();
+            DataType dataType = getType(name.charAt(0));
+            Column column = new Column(name, dataType.toCatalogDataType());
+            mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, true, qualifier, null, column));
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;
