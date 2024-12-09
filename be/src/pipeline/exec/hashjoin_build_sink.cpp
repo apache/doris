@@ -135,26 +135,17 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
-    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled()) {
+    if (!_runtime_filter_slots || _runtime_filters.empty() || state->is_cancelled() ||
+        !p.get_local_state(state)._eos) {
         return Base::close(state, exec_status);
     }
 
     try {
-        if (state->get_task()->wake_up_by_downstream()) {
-            if (_should_build_hash_table) {
-                // partitial ignore rf to make global rf work
-                RETURN_IF_ERROR(
-                        _runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
-                RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
-            } else {
-                // do not publish filter coz local rf not inited and useless
-                return Base::close(state, exec_status);
-            }
+        if (state->get_task()->wake_up_early()) {
+            // partitial ignore rf to make global rf work or ignore useless rf
+            RETURN_IF_ERROR(_runtime_filter_slots->send_filter_size(state, 0, _finish_dependency));
+            RETURN_IF_ERROR(_runtime_filter_slots->ignore_all_filters());
         } else if (_should_build_hash_table) {
-            if (p._shared_hashtable_controller &&
-                !p._shared_hash_table_context->complete_build_stage) {
-                return Status::InternalError("close before sink meet eos");
-            }
             auto* block = _shared_state->build_block.get();
             uint64_t hash_table_size = block ? block->rows() : 0;
             {
@@ -166,26 +157,25 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                 SCOPED_TIMER(_runtime_filter_compute_timer);
                 _runtime_filter_slots->insert(block);
             }
-        } else if ((p._shared_hashtable_controller && !p._shared_hash_table_context->signaled) ||
-                   (p._shared_hash_table_context &&
-                    !p._shared_hash_table_context->complete_build_stage)) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "build_sink::close meet error state");
-        } else {
-            RETURN_IF_ERROR(
-                    _runtime_filter_slots->copy_from_shared_context(p._shared_hash_table_context));
         }
 
         SCOPED_TIMER(_publish_runtime_filter_timer);
         RETURN_IF_ERROR(_runtime_filter_slots->publish(state, !_should_build_hash_table));
     } catch (Exception& e) {
+        bool blocked_by_complete_build_stage = p._shared_hashtable_controller &&
+                                               !p._shared_hash_table_context->complete_build_stage;
+        bool blocked_by_shared_hash_table_signal = !_should_build_hash_table &&
+                                                   p._shared_hashtable_controller &&
+                                                   !p._shared_hash_table_context->signaled;
+
         return Status::InternalError(
-                "rf process meet error: {}, wake_up_by_downstream: {}, should_build_hash_table: "
-                "{}, _finish_dependency: {}, complete_build_stage: {}, shared_hash_table_signaled: "
+                "rf process meet error: {}, wake_up_early: {}, should_build_hash_table: "
+                "{}, _finish_dependency: {}, blocked_by_complete_build_stage: {}, "
+                "blocked_by_shared_hash_table_signal: "
                 "{}",
-                e.to_string(), state->get_task()->wake_up_by_downstream(), _should_build_hash_table,
-                _finish_dependency->debug_string(),
-                p._shared_hash_table_context && !p._shared_hash_table_context->complete_build_stage,
-                p._shared_hashtable_controller && !p._shared_hash_table_context->signaled);
+                e.to_string(), state->get_task()->wake_up_early(), _should_build_hash_table,
+                _finish_dependency->debug_string(), blocked_by_complete_build_stage,
+                blocked_by_shared_hash_table_signal);
     }
     return Base::close(state, exec_status);
 }
@@ -479,7 +469,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
-    local_state._eos = eos;
     if (local_state._should_build_hash_table) {
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from probe side.
@@ -556,6 +545,9 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             return _shared_hash_table_context->status;
         }
 
+        RETURN_IF_ERROR(local_state._runtime_filter_slots->copy_from_shared_context(
+                _shared_hash_table_context));
+
         local_state.profile()->add_info_string(
                 "SharedHashTableFrom",
                 print_id(
@@ -581,6 +573,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     }
 
     if (eos) {
+        local_state._eos = true;
         local_state.init_short_circuit_for_probe();
         // Since the comparison of null values is meaningless, null aware left anti/semi join should not output null
         // when the build side is not empty.
