@@ -50,6 +50,7 @@ import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AddConstraintContext;
+import org.apache.doris.nereids.DorisParser.AdminCancelRebalanceDiskContext;
 import org.apache.doris.nereids.DorisParser.AdminCheckTabletsContext;
 import org.apache.doris.nereids.DorisParser.AdminCompactTableContext;
 import org.apache.doris.nereids.DorisParser.AdminDiagnoseTabletContext;
@@ -4721,9 +4722,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.ON() != null) {
             List<String> backendList = Lists.newArrayList();
             ctx.backends.forEach(backend -> backendList.add(stripQuotes(backend.getText())));
-            return new AdminRebalanceDiskCommand(backendList);
+            return new AdminRebalanceDiskCommand(false, backendList);
         }
-        return new AdminRebalanceDiskCommand();
+        return new AdminRebalanceDiskCommand(false);
+    }
+
+    @Override
+    public LogicalPlan visitAdminCancelRebalanceDisk(AdminCancelRebalanceDiskContext ctx) {
+        if (ctx.ON() != null) {
+            List<String> backendList = Lists.newArrayList();
+            ctx.backends.forEach(backend -> backendList.add(stripQuotes(backend.getText())));
+            return new AdminRebalanceDiskCommand(true, backendList);
+        }
+        return new AdminRebalanceDiskCommand(true);
     }
 
     @Override

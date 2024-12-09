@@ -321,6 +321,10 @@ public class TabletScheduler extends MasterDaemon {
         diskRebalancer.addPrioBackends(backends, timeoutS);
     }
 
+    public synchronized void cancelRebalanceDisk(List<Backend> backends) {
+        diskRebalancer.removePrioBackends(backends);
+    }
+
     public synchronized void cancelRebalanceDisk(AdminCancelRebalanceDiskStmt stmt) {
         diskRebalancer.removePrioBackends(stmt.getBackends());
     }

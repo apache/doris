@@ -46,14 +46,17 @@ public class AdminRebalanceDiskCommand extends Command implements NoForward {
     private static final Logger LOG = LogManager.getLogger(AdminRebalanceDiskCommand.class);
     private final long timeoutS = 24 * 3600; // default 24 hours
     private List<String> backends;
+    private final boolean cancelRebalanceDisk;
 
-    public AdminRebalanceDiskCommand() {
+    public AdminRebalanceDiskCommand(boolean cancelRebalanceDisk) {
         super(PlanType.ADMIN_REBALANCE_DISK_COMMAND);
+        this.cancelRebalanceDisk = cancelRebalanceDisk;
     }
 
-    public AdminRebalanceDiskCommand(List<String> backends) {
+    public AdminRebalanceDiskCommand(boolean cancelRebalanceDisk, List<String> backends) {
         super(PlanType.ADMIN_REBALANCE_DISK_COMMAND);
         this.backends = backends;
+        this.cancelRebalanceDisk = cancelRebalanceDisk;
     }
 
     private List<Backend> getNeedRebalanceDiskBackends(List<String> backends) throws AnalysisException {
@@ -91,6 +94,10 @@ public class AdminRebalanceDiskCommand extends Command implements NoForward {
         List<Backend> needRebalanceDiskBackends = getNeedRebalanceDiskBackends(backends);
         if (needRebalanceDiskBackends.isEmpty()) {
             LOG.info("The matching be is empty, no be to rebalance disk.");
+            return;
+        }
+        if (cancelRebalanceDisk) {
+            Env.getCurrentEnv().getTabletScheduler().cancelRebalanceDisk(needRebalanceDiskBackends);
             return;
         }
         Env.getCurrentEnv().getTabletScheduler().rebalanceDisk(needRebalanceDiskBackends, timeoutS);

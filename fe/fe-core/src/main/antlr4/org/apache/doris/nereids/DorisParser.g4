@@ -492,7 +492,9 @@ unsupportedCancelStatement
 supportedAdminStatement
     : ADMIN SHOW REPLICA DISTRIBUTION FROM baseTableRef                             #adminShowReplicaDistribution
     | ADMIN REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
-                (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                              #adminRebalanceDisk
+        (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                             #adminRebalanceDisk
+    | ADMIN CANCEL REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
+        (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                             #adminCancelRebalanceDisk
     | ADMIN DIAGNOSE TABLET tabletId=INTEGER_VALUE                                  #adminDiagnoseTablet
     | ADMIN SHOW REPLICA STATUS FROM baseTableRef (WHERE STATUS EQ|NEQ STRING_LITERAL)?   #adminShowReplicaStatus
     | ADMIN COMPACT TABLE baseTableRef (WHERE TYPE EQ STRING_LITERAL)?              #adminCompactTable
@@ -517,12 +519,7 @@ unsupportedAdminStatement
     | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
     | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
     | ADMIN SET (FRONTEND | (ALL FRONTENDS)) CONFIG
-        (LEFT_PAREN propertyItemList RIGHT_PAREN)? ALL?                             #adminSetFrontendConfig
-    | ADMIN CHECK tabletList properties=propertyClause?                             #adminCheckTablets
-    | ADMIN REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
-        (COMMA backends+=STRING_LITERAL) RIGHT_PAREN)?                              #adminRebalanceDisk
-    | ADMIN CANCEL REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
-        (COMMA backends+=STRING_LITERAL) RIGHT_PAREN)?                              #adminCancelRebalanceDisk
+        (LEFT_PAREN propertyItemList RIGHT_PAREN)? ALL?                             #adminSetFrontendConfig                            #adminCleanTrash
     | ADMIN SET TABLE name=multipartIdentifier
         PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
