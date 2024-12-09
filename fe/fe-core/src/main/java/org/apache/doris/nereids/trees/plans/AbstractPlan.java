@@ -113,6 +113,23 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         return true;
     }
 
+    public String toHboString() {
+        return "NOT implemented";
+    }
+
+    public String hboTreeString() {
+        StringBuilder builder = new StringBuilder();
+        builder.append(this.toHboString());
+        if (this.children().isEmpty()) {
+            return builder.toString();
+        } else {
+            for (Plan plan : children) {
+                builder.append(plan.toString());
+            }
+            return builder.toString();
+        }
+    }
+
     /**
      * Get tree like string describing query plan.
      *

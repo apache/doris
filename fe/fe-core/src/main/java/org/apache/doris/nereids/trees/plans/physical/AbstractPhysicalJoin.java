@@ -266,6 +266,17 @@ public abstract class AbstractPhysicalJoin<
     }
 
     @Override
+    public String toHboString() {
+        List<Object> args = Lists.newArrayList(
+                "type", joinType,
+                "hashCondition", hashJoinConjuncts,
+                "otherCondition", otherJoinConjuncts,
+                "markCondition", markJoinConjuncts);
+        return Utils.toSqlString(this.getClass().getSimpleName() + getGroupIdWithPrefix(),
+                args.toArray());
+    }
+
+    @Override
     public String toString() {
         List<Object> args = Lists.newArrayList(
                 "stats", statistics,

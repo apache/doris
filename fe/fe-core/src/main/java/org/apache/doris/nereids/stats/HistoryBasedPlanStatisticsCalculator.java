@@ -21,11 +21,16 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeWithHash;
 import org.apache.doris.plugin.AuditEvent;
@@ -63,11 +68,10 @@ public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         super(groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump,
                 cteIdToStats, context);
-        WorkloadRuntimeStatusMgr mgr = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr();
-        List<AuditEvent> auditEventList = mgr.getQueryNeedAudit();
-        // TODO: choose which audit event
-        AuditEvent event = auditEventList.get(0);
-        this.queryId = event.queryId;
+        //WorkloadRuntimeStatusMgr mgr = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr();
+        //List<AuditEvent> auditEventList = mgr.getQueryNeedAudit();
+        //AuditEvent event = auditEventList.get(0);
+        this.queryId = "123";//event.queryId;
         this.historyBasedPlanStatisticsProvider = requireNonNull(context.getStatementContext().getHistoryBasedPlanStatisticsTracker().getHistoryBasedPlanStatisticsProvider(),
                 "historyBasedPlanStatisticsProvider is null");
         this.historyBasedStatisticsCacheManager = requireNonNull(context.getStatementContext().getHistoryBasedPlanStatisticsTracker().getHistoryBasedStatisticsCacheManager(),
@@ -82,7 +86,7 @@ public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
     @Override
     protected Statistics computeFilter(Filter filter) {
         Statistics childStats = groupExpression.childStatistics(0);
-        return getHistoricalStatistics((PlanNode) filter, childStats);
+        return getHistoricalStatistics((AbstractPlan) filter, childStats);
     }
 
     @Override
@@ -90,36 +94,49 @@ public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
         Statistics legacyStats = JoinEstimation.estimate(
                 groupExpression.childStatistics(0),
                 groupExpression.childStatistics(1), join);
-        return getHistoricalStatistics((PlanNode) join, legacyStats);
+        return getHistoricalStatistics((AbstractPlan) join, legacyStats);
     }
 
     @Override
     protected Statistics computeAggregate(Aggregate<? extends Plan> aggregate) {
         Statistics childStats = groupExpression.childStatistics(0);
-        return getHistoricalStatistics((PlanNode) aggregate, childStats);
+        return getHistoricalStatistics((AbstractPlan) aggregate, childStats);
     }
 
-    private Statistics getHistoricalStatistics(PlanNode planNode, Statistics delegateStats)
+    private Statistics getHistoricalStatistics(AbstractPlan planNode, Statistics delegateStats)
     {
-        String hash = "test"; // todo: based on plan toString
-        PlanNodeWithHash planNodeWithHash = new PlanNodeWithHash((PlanNode) planNode, Optional.of(hash));
-        HistoricalPlanStatistics planStatistics = historyBasedStatisticsCacheManager
+        boolean isEnableHbo = false;
+        if (!isEnableHbo) {
+            return delegateStats;
+        } else {
+            String hash;
+            if (planNode instanceof AbstractPhysicalPlan) {
+                hash = planNode.hboTreeString();
+            } else if (planNode instanceof AbstractLogicalPlan) {
+                hash = planNode.hboTreeString();
+            } else {
+                throw new IllegalStateException("hbo get neither physical plan nor logical plan");
+            }
+            PlanNodeWithHash planNodeWithHash = new PlanNodeWithHash(null, Optional.of(hash));
+            HistoricalPlanStatistics planStatistics = historyBasedStatisticsCacheManager
                     .getStatisticsCache(queryId, historyBasedPlanStatisticsProvider, 1000)
                     .getUnchecked(planNodeWithHash);
 
-        Optional<List<PlanStatistics>> inputTableStatistics = getPlanNodeInputTableStatistics(planNode, true);
-        // TODO: get current inputTableStatistics
-        Optional<HistoricalPlanStatisticsEntry> historicalPlanStatisticsEntry = getSelectedHistoricalPlanStatisticsEntry
-                (planStatistics, inputTableStatistics.get(), 0.1);
-        if (historicalPlanStatisticsEntry.isPresent()) {
-            PlanStatistics predictedPlanStatistics = historicalPlanStatisticsEntry.get().getPlanStatistics();
-            // todo: choose which one is the output rows count
-            delegateStats.withRowCountAndEnforceValid(predictedPlanStatistics.getPushRows());
+            Optional<List<PlanStatistics>> inputTableStatistics = getPlanNodeInputTableStatistics(planNode, true);
+            // TODO: get current inputTableStatistics
+            Optional<HistoricalPlanStatisticsEntry> historicalPlanStatisticsEntry
+                    = getSelectedHistoricalPlanStatisticsEntry
+                    (planStatistics, inputTableStatistics.get(), 0.1);
+            if (historicalPlanStatisticsEntry.isPresent()) {
+                PlanStatistics predictedPlanStatistics = historicalPlanStatisticsEntry.get().getPlanStatistics();
+                // todo: choose which one is the output rows count
+                delegateStats.withRowCountAndEnforceValid(predictedPlanStatistics.getPushRows());
+            }
+            return delegateStats;
         }
-        return delegateStats;
     }
 
-    private Optional<List<PlanStatistics>> getPlanNodeInputTableStatistics(PlanNode plan, boolean cacheOnly)
+    private Optional<List<PlanStatistics>> getPlanNodeInputTableStatistics(AbstractPlan plan, boolean cacheOnly)
     {
         return Optional.empty(); //getInputTableStatistics(plan, cacheOnly);
     }

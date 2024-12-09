@@ -52,6 +52,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -420,9 +421,8 @@ public class NereidsPlanner extends Planner {
         for (Object child : root.children()) {
             collectExecStatsIds((PhysicalPlan) child, fragment);
         }
-        if (root.needCollectExecStats()) {
-            // todo: make sure the plan id is valid
-            int nodeId = ((PlanNode) root).getId().asInt();
+        if (root.needCollectExecStats() && root instanceof AbstractPlan) {
+            int nodeId = ((AbstractPlan) root).getId();
             fragment.getCollectExecStatsIds().add(nodeId);
             cascadesContext.getNeedStatsPlanIdNodeMap().put(nodeId, root);
         }

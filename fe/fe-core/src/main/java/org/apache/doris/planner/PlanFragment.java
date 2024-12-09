@@ -177,6 +177,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.transferQueryStatisticsWithEveryBatch = false;
         this.builderRuntimeFilterIds = new HashSet<>();
         this.targetRuntimeFilterIds = new HashSet<>();
+        this.collectExecStatsIds = new ArrayList<>();
         this.hasBucketShuffleJoin = buildHasBucketShuffleJoin();
         setParallelExecNumIfExists();
         setFragmentInPlanTree(planRoot);
