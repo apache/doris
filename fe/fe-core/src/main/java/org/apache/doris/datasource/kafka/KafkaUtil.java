@@ -222,10 +222,11 @@ public class KafkaUtil {
     private static InternalService.PProxyResult getInfoRequest(InternalService.PProxyRequest request, int timeout)
                                                         throws LoadException {
         int retryTimes = 0;
+        long startTime = System.currentTimeMillis();
         TNetworkAddress address = null;
         Future<InternalService.PProxyResult> future = null;
         InternalService.PProxyResult result = null;
-        while (retryTimes < 3) {
+        while (retryTimes < 20) {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get info. No alive backends");
@@ -238,20 +239,36 @@ public class KafkaUtil {
                 future = BackendServiceProxy.getInstance().getInfo(address, request);
                 result = future.get(Config.max_get_kafka_meta_timeout_second, TimeUnit.SECONDS);
             } catch (Exception e) {
-                LOG.warn("failed to get info request to " + address + " err " + e.getMessage());
+                backoff();
                 retryTimes++;
+                LOG.warn("failed to get info request to "
+                        + address + " err " + result.getStatus().getErrorMsgsList()
+                        + "retry times: " + retryTimes + "cost: " + (System.currentTimeMillis() - startTime));
                 continue;
             }
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
-                LOG.warn("failed to get info request to "
-                        + address + " err " + result.getStatus().getErrorMsgsList());
+                backoff();
                 retryTimes++;
+                LOG.warn("failed to get info request to "
+                        + address + " err " + result.getStatus().getErrorMsgsList()
+                        + "retry times: " + retryTimes + "cost: " + (System.currentTimeMillis() - startTime));
             } else {
                 return result;
             }
         }
 
-        throw new LoadException("Failed to get info");
+        throw new LoadException("Failed to get info, cost: " + (System.currentTimeMillis() - startTime));
+    }
+
+    private static void backoff() {
+        // sleep random [0.5, 2] s
+        // introduce random sleep to keep job stable when restart or upgrade.
+        int randomSleepMs = 500 + (int) (Math.random() * (2000 - 500));
+        try {
+            Thread.sleep(randomSleepMs);
+        } catch (InterruptedException exception) {
+            LOG.info("ignore InterruptedException: ", exception);
+        }
     }
 }
