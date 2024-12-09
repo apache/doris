@@ -288,6 +288,6 @@ suite("window_function") {
 
     test {
         sql "select last_value(c1,c1) over() from window_test"
-        exception "The second parameter of first_value must be constant"
+        exception "The second parameter of last_value must be constant"
     }
 }

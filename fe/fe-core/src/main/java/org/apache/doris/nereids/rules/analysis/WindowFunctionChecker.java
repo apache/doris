@@ -351,7 +351,7 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
     @Override
     public FirstOrLastValue visitLastValue(LastValue lastValue, Void ctx) {
         if (2 == lastValue.arity() && !lastValue.child(1).isConstant()) {
-            throw new AnalysisException("The second parameter of lasst_value must be constant");
+            throw new AnalysisException("The second parameter of last_value must be constant");
         }
         return lastValue;
     }
