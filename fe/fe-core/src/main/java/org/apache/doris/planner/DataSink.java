@@ -40,6 +40,7 @@ public abstract class DataSink {
     // Fragment that this DataSink belongs to. Set by the PlanFragment enclosing this sink.
     protected PlanFragment fragment;
     protected boolean isMerge = false;
+
     /**
      * Return an explain string for the DataSink. Each line of the explain will be
      * prefixed
