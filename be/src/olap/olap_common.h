@@ -35,6 +35,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "common/config.h"
 #include "io/io_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_fwd.h"
@@ -394,6 +395,8 @@ using ColumnId = uint32_t;
 using UniqueIdSet = std::set<uint32_t>;
 // Column unique Id -> column id map
 using UniqueIdToColumnIdMap = std::map<ColumnId, ColumnId>;
+struct RowsetId;
+RowsetId next_rowset_id();
 
 // 8 bit rowset id version
 // 56 bit, inc number from 1
@@ -412,7 +415,12 @@ struct RowsetId {
             auto [_, ec] = std::from_chars(rowset_id_str.data(),
                                            rowset_id_str.data() + rowset_id_str.length(), high);
             if (ec != std::errc {}) [[unlikely]] {
-                LOG(FATAL) << "failed to init rowset id: " << rowset_id_str;
+                if (config::force_regenerate_rowsetid_on_start_error) {
+                    LOG(WARNING) << "failed to init rowset id: " << rowset_id_str;
+                    high = next_rowset_id().hi;
+                } else {
+                    LOG(FATAL) << "failed to init rowset id: " << rowset_id_str;
+                }
             }
             init(1, high, 0, 0);
         } else {
