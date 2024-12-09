@@ -250,6 +250,7 @@ public class AuditEvent {
 
         public AuditEventBuilder setCommandType(String commandType) {
             auditEvent.commandType = commandType;
+            return this;
         }
 
         public AuditEventBuilder setScanBytesFromLocalStorage(long scanBytesFromLocalStorage) {
