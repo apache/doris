@@ -48,7 +48,7 @@ class VNodeChannel;
 // <row_idx, partition_id, tablet_id>
 class RowPartTabletIds {
 public:
-    std::vector<int64_t> row_ids;
+    std::vector<uint32_t> row_ids;
     std::vector<int64_t> partition_ids;
     std::vector<int64_t> tablet_ids;
 
