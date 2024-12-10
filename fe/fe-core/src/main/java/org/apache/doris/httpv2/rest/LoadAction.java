@@ -381,8 +381,10 @@ public class LoadAction extends RestBaseController {
         BeSelectionPolicy policy = null;
         String qualifiedUser = ConnectContext.get().getQualifiedUser();
         Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
+        boolean allowResourceTagDowngrade = Env.getCurrentEnv().getAuth().isAllowResourceTagDowngrade(qualifiedUser);
         policy = new BeSelectionPolicy.Builder()
                 .addTags(userTags)
+                .setAllowResourceTagDowngrade(allowResourceTagDowngrade)
                 .setEnableRoundRobin(true)
                 .needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();

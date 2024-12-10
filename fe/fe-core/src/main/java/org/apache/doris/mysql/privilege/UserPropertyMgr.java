@@ -146,6 +146,14 @@ public class UserPropertyMgr implements Writable {
         return tags;
     }
 
+    public boolean isAllowResourceTagDowngrade(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return false;
+        }
+        return existProperty.isAllowResourceTagDowngrade();
+    }
+
     public Pair<String, DppConfig> getLoadClusterInfo(String qualifiedUser, String cluster) throws DdlException {
         Pair<String, DppConfig> loadClusterInfo = null;
 

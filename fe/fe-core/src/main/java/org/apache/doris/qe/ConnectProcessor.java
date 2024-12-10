@@ -687,7 +687,8 @@ public abstract class ConnectProcessor {
         }
 
         // set resource tag
-        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser));
+        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser),
+                Env.getCurrentEnv().getAuth().isAllowResourceTagDowngrade(ctx.qualifiedUser));
 
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;

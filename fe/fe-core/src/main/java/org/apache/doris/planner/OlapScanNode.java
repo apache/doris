@@ -857,6 +857,24 @@ public class OlapScanNode extends ScanNode {
             boolean tabletIsNull = true;
             boolean collectedStat = false;
             List<String> errs = Lists.newArrayList();
+
+            // when resource tag has no alive replica and allowResourceTagDowngrade = true,
+            // resource tag should be disabled, we should find at least one alive replica
+            boolean shouldSkipResourceTag = false;
+            boolean isAllowRgDowngrade = false;
+            ConnectContext context = ConnectContext.get();
+            if (context != null) {
+                isAllowRgDowngrade = context.isAllowResourceTagDowngrade();
+            }
+            if (needCheckTags && isAllowRgDowngrade && !checkTagHasAvailReplica(allowedTags, replicas)) {
+                shouldSkipResourceTag = true;
+                if (ConnectContext.get() != null && LOG.isDebugEnabled()) {
+                    LOG.debug("query {} skip resource tag for table {}.",
+                            DebugUtil.printId(ConnectContext.get().queryId()),
+                            olapTable != null ? olapTable.getId() : -1);
+                }
+            }
+
             for (Replica replica : replicas) {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
                 if (backend == null || !backend.isAlive()) {
@@ -865,7 +883,7 @@ public class OlapScanNode extends ScanNode {
                                 replica.getId());
                     }
                     errs.add("replica " + replica.getId() + "'s backend " + replica.getBackendId()
-                            + " does not exist or not alive");
+                            + " with tag " + backend.getLocationTag() + " does not exist or not alive");
                     continue;
                 }
                 if (userSetBackendBlacklist != null && userSetBackendBlacklist.contains(backend.getId())) {
@@ -881,7 +899,8 @@ public class OlapScanNode extends ScanNode {
                 if (!backend.isMixNode()) {
                     continue;
                 }
-                if (needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(backend.getLocationTag())) {
+                if (!shouldSkipResourceTag && needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(
+                        backend.getLocationTag())) {
                     String err = String.format(
                             "Replica on backend %d with tag %s," + " which is not in user's resource tags: %s",
                             backend.getId(), backend.getLocationTag(), allowedTags);
@@ -913,6 +932,10 @@ public class OlapScanNode extends ScanNode {
                 }
             }
             if (tabletIsNull) {
+                if (needCheckTags && !isAllowRgDowngrade) {
+                    errs.add("If user specified tag has no queryable replica, "
+                            + "you can set property 'allow_resource_tag_downgrade'='true' to skip resource tag.");
+                }
                 throw new UserException("tablet " + tabletId + " has no queryable replicas. err: "
                         + Joiner.on(", ").join(errs));
             }
@@ -929,6 +952,29 @@ public class OlapScanNode extends ScanNode {
             desc.setCardinality(0);
         } else {
             desc.setCardinality(cardinality);
+        }
+    }
+
+    private boolean checkTagHasAvailReplica(Set<Tag> allowedTags, List<Replica> replicas) {
+        try {
+            for (Replica replica : replicas) {
+                long backendId = replica.getBackendId();
+                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+
+                if (backend == null || !backend.isAlive()) {
+                    continue;
+                }
+                if (!backend.isMixNode()) {
+                    continue;
+                }
+                if (!allowedTags.isEmpty() && allowedTags.contains(backend.getLocationTag())) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable t) {
+            LOG.warn("error happens when check resource tag has avail replica ", t);
+            return true;
         }
     }
 
