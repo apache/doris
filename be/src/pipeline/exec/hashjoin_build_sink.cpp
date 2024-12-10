@@ -26,6 +26,7 @@
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
 #include "util/pretty_printer.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/utils/template_helpers.hpp"
@@ -153,12 +154,18 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
 
         if (build_block_rows > 0) {
             auto block = _build_side_mutable_block.to_block();
+            std::vector<uint16_t> converted_columns;
             Defer defer([&]() {
+                for (auto i : converted_columns) {
+                    auto& data = block.get_by_position(i);
+                    data.column = vectorized::remove_nullable(data.column);
+                    data.type = vectorized::remove_nullable(data.type);
+                }
                 _build_side_mutable_block = vectorized::MutableBlock(std::move(block));
             });
             vectorized::ColumnUInt8::MutablePtr null_map_val;
             if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
-                _convert_block_to_null(block);
+                converted_columns = _convert_block_to_null(block);
                 // first row is mocked
                 for (int i = 0; i < block.columns(); i++) {
                     auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
