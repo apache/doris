@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -578,6 +579,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         Map<Expression, Expression> targetToTargetReplacementMappingQueryBased =
                 flattenExpressionMap.get(0);
 
+        // viewExprParamToDateTruncMap is {slot#0 : date_trunc(slot#0, 'day')}
+        Map<Expression, DateTrunc> viewExprParamToDateTruncMap = new HashMap<>();
+        targetToTargetReplacementMappingQueryBased.keySet().forEach(expr -> {
+            if (expr instanceof DateTrunc) {
+                viewExprParamToDateTruncMap.put(expr.child(0), (DateTrunc) expr);
+            }
+        });
+
         List<Expression> rewrittenExpressions = new ArrayList<>();
         for (int exprIndex = 0; exprIndex < sourceShuttledExpressions.size(); exprIndex++) {
             Expression expressionShuttledToRewrite = sourceShuttledExpressions.get(exprIndex);
@@ -599,37 +608,36 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 // if contains any slot to rewrite, which means can not be rewritten by target,
                 // expressionShuttledToRewrite is slot#0 > '2024-01-01' but mv plan output is date_trunc(slot#0, 'day')
                 // which would try to rewrite
-                // viewExpressionParamToDateTruncMap is {slot#0 : date_trunc(slot#0, 'day')}
-                Map<Expression, DateTrunc> viewExpressionParamToDateTruncMap = new HashMap<>();
-                targetToTargetReplacementMappingQueryBased.keySet().forEach(expr -> {
-                    if (expr instanceof DateTrunc) {
-                        viewExpressionParamToDateTruncMap.put(expr.child(0), (DateTrunc) expr);
-                    }
-                });
-                Expression queryUsedExpr = expressionShuttledToRewrite.child(0);
+                Expression queryShuttledExprParam = expressionShuttledToRewrite.child(0);
 
-                if (!queryExprToInfoMap.containsKey(sourceExpressionsToWrite.get(exprIndex))
-                        || !viewExpressionParamToDateTruncMap.containsKey(queryUsedExpr)) {
-                    // mv date_trunc expression can not offer expression for query,
-                    // can not try to rewrite by date_trunc, bail out
+                Expression queryOriginalExpr = sourceExpressionsToWrite.get(exprIndex);
+                if (!queryExprToInfoMap.containsKey(queryOriginalExpr)
+                        || !viewExprParamToDateTruncMap.containsKey(queryShuttledExprParam)) {
+                    // query expr contains expression info or mv out contains date_trunc expression,
+                    // if not, can not try to rewritten by view date_trunc, bail out
                     return ImmutableList.of();
                 }
-
                 Map<Expression, Expression> datetruncMap = new HashMap<>();
-                Literal queryLiteral = queryExprToInfoMap.get(expressionShuttledToRewrite) == null
-                        ? null : queryExprToInfoMap.get(expressionShuttledToRewrite).literal;
-                datetruncMap.put(queryUsedExpr, queryLiteral);
-                Expression replacedWithLiteral = ExpressionUtils.replace(
-                        viewExpressionParamToDateTruncMap.get(queryUsedExpr), datetruncMap);
-                Expression foldedExpressionWithLiteral = FoldConstantRuleOnFE.evaluate(replacedWithLiteral,
+                Literal queryUsedLiteral = queryExprToInfoMap.get(queryOriginalExpr).literal;
+                if (!(queryUsedLiteral instanceof DateLiteral)) {
+                    return ImmutableList.of();
+                }
+                datetruncMap.put(queryShuttledExprParam, queryUsedLiteral);
+                Expression dateTruncWithLiteral = ExpressionUtils.replace(
+                        viewExprParamToDateTruncMap.get(queryShuttledExprParam), datetruncMap);
+                Expression foldedExpressionWithLiteral = FoldConstantRuleOnFE.evaluate(dateTruncWithLiteral,
                         new ExpressionRewriteContext(cascadesContext));
-                if (foldedExpressionWithLiteral.equals(queryLiteral)) {
-                    // after date_trunc simplify if equals to original expression, could rewritten by mv
+                if (!(foldedExpressionWithLiteral instanceof DateLiteral)) {
+                    return ImmutableList.of();
+                }
+                if (((DateLiteral) foldedExpressionWithLiteral).getDouble() == queryUsedLiteral.getDouble()) {
+                    // after date_trunc simplify if equals to original expression, expr could be rewritten by mv
                     replacedExpression = ExpressionUtils.replace(expressionShuttledToRewrite,
                             targetToTargetReplacementMappingQueryBased,
-                            viewExpressionParamToDateTruncMap);
+                            viewExprParamToDateTruncMap);
                 }
                 if (replacedExpression.anyMatch(slotsToRewrite::contains)) {
+                    // has expression not rewritten successfully, bail out
                     return ImmutableList.of();
                 }
             }

@@ -313,6 +313,9 @@ public class Predicates {
             return Objects.equals(this, INVALID_INSTANCE);
         }
 
+        /**
+         * Get expression list in predicates
+         */
         public List<Expression> toList() {
             if (isInvalid()) {
                 return ImmutableList.of();

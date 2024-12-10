@@ -468,8 +468,10 @@ public class ExpressionUtils {
      * For example.
      * <pre>
      * input expression: a > 1
-     * replaceMap: a -> b + c
-     *
+     * replaceMap: d -> b + c, transferMap: a -> d
+     * firstly try to get mapping expression from replaceMap by a, if can not then
+     * get mapping d from transferMap by a
+     * and get mapping b + c from replaceMap by d
      * output:
      * b + c > 1
      * </pre>
