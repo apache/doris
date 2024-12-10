@@ -4658,7 +4658,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         for (const auto& [partition_id, _] : tablet_idxes) {
             req.add_partition_ids(partition_id);
         }
-        req.set_expiration(0);
+        req.set_expiration(10);
         req.set_lock_id(999999);
         req.set_initiator(-1);
         req.set_require_compaction_stats(true);
@@ -4717,7 +4717,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         for (const auto& [partition_id, _] : tablet_idxes) {
             req.add_partition_ids(partition_id);
         }
-        req.set_expiration(0);
+        req.set_expiration(10);
         req.set_lock_id(999999);
         req.set_initiator(-1);
         req.set_require_compaction_stats(true);
@@ -4733,6 +4733,137 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         meta_service->get_delete_bitmap_update_lock(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    }
+}
+
+TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
+    auto meta_service = get_meta_service();
+
+    {
+        // 2.3 abnormal path, meeting error when reading tablets' stats
+        std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal3";
+        [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+            SyncPoint::get_instance()->disable_processing();
+            SyncPoint::get_instance()->clear_all_call_backs();
+        });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = instance_id;
+            ret->second = true;
+        });
+
+        MetaServiceCode injected_error_code {MetaServiceCode::TABLET_NOT_FOUND};
+        sp->set_call_back("internal_get_tablet_stats.inject_error", [&](auto&& args) {
+            auto* code = try_any_cast<MetaServiceCode*>(args[0]);
+            auto* msg = try_any_cast<std::string*>(args[1]);
+            *code = injected_error_code;
+            *msg = "injected error";
+        });
+
+        sp->enable_processing();
+
+        // store tablet stats
+        int64_t db_id = 1000;
+        int64_t table_id = 2001;
+        int64_t index_id = 3001;
+        // [(partition_id, tablet_id)]
+        std::vector<std::array<int64_t, 2>> tablet_idxes {
+                {70001, 12345}, {80001, 3456}, {90001, 6789}};
+
+        add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+
+        brpc::Controller cntl;
+        GetDeleteBitmapUpdateLockRequest req;
+        GetDeleteBitmapUpdateLockResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_table_id(table_id);
+        for (const auto& [partition_id, _] : tablet_idxes) {
+            req.add_partition_ids(partition_id);
+        }
+        req.set_expiration(10);
+        req.set_lock_id(999999);
+        req.set_initiator(-1);
+        req.set_require_compaction_stats(true);
+        for (const auto& [partition_id, tablet_id] : tablet_idxes) {
+            TabletIndexPB* idx = req.add_tablet_indexes();
+            idx->set_db_id(db_id);
+            idx->set_table_id(table_id);
+            idx->set_index_id(index_id);
+            idx->set_partition_id(partition_id);
+            idx->set_tablet_id(tablet_id);
+        }
+
+        meta_service->get_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), injected_error_code);
+    }
+
+    {
+        // 2.4 abnormal path, meeting TXN_TOO_OLD error when reading tablets' stats
+        // this should not fail if lock is not expired
+        std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal4";
+        [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+            SyncPoint::get_instance()->disable_processing();
+            SyncPoint::get_instance()->clear_all_call_backs();
+        });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = instance_id;
+            ret->second = true;
+        });
+
+        int counter = 0;
+        sp->set_call_back("internal_get_tablet_stats.inject_error", [&](auto&& args) {
+            if (counter++ % 4 == 0) {
+                auto* code = try_any_cast<MetaServiceCode*>(args[0]);
+                auto* msg = try_any_cast<std::string*>(args[1]);
+                *code = MetaServiceCode::KV_TXN_TOO_OLD;
+                *msg = "injected KV_TXN_TOO_OLD error";
+            }
+        });
+
+        sp->enable_processing();
+
+        // store tablet stats
+        int64_t db_id = 1000;
+        int64_t table_id = 2001;
+        int64_t index_id = 3001;
+        // [(partition_id, tablet_id)]
+        std::vector<std::array<int64_t, 2>> tablet_idxes;
+        for (int i = 0; i < 20; i++) {
+            int64_t partition_id = 70000 + i;
+            int64_t tablet_id = 80000 + i;
+            tablet_idxes.push_back({partition_id, tablet_id});
+        }
+
+        add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+
+        brpc::Controller cntl;
+        GetDeleteBitmapUpdateLockRequest req;
+        GetDeleteBitmapUpdateLockResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_table_id(table_id);
+        for (const auto& [partition_id, _] : tablet_idxes) {
+            req.add_partition_ids(partition_id);
+        }
+        req.set_expiration(10);
+        req.set_lock_id(999999);
+        req.set_initiator(-1);
+        req.set_require_compaction_stats(true);
+        for (const auto& [partition_id, tablet_id] : tablet_idxes) {
+            TabletIndexPB* idx = req.add_tablet_indexes();
+            idx->set_db_id(db_id);
+            idx->set_table_id(table_id);
+            idx->set_index_id(index_id);
+            idx->set_partition_id(partition_id);
+            idx->set_tablet_id(tablet_id);
+        }
+
+        meta_service->get_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
 }
 
