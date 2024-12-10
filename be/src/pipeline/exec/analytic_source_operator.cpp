@@ -16,9 +16,14 @@
 // under the License.
 
 #include "analytic_source_operator.h"
+#include <glog/logging.h>
 
+#include <sstream>
 #include <string>
 
+
+#include "pipeline/common/analytic_utils.h"
+#include "vec/core/field.h"
 #include "pipeline/exec/operator.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/exprs/vectorized_agg_fn.h"
@@ -193,15 +198,54 @@ Status AnalyticLocalState::open(RuntimeState* state) {
                                                std::placeholders::_1);
 
     } else if (p._has_range_window) {
-        if (!p._has_window_end) { //haven't set end, so same as PARTITION, [unbounded preceding, unbounded following]
-            _executor.get_next = std::bind<Status>(&AnalyticLocalState::_get_next_for_partition,
+        if (p._has_window_start && p._has_window_end) {
+            // DCHECK(_shared_state->order_by_context != nullptr);
+            auto data_type =p._order_by_eq_expr_ctxs[0]->root()->data_type();
+            // auto data_type = _shared_state->order_by_context->root()->data_type();
+            DCHECK(data_type != nullptr);
+            TAnalyticWindowBoundary b1 = p._window.window_start;
+            if (b1.__isset.range_offset_predicate) { //[offset     ,   ]
+                // _range_start_offset = b1.rows_offset_value;
+                _range_preceding_field = data_type->get_field(b1.range_offset_predicate.nodes[0]);
+                LOG(INFO)<<"asd _range_preceding_field: "<<_range_preceding_field.get_type_name();
+                if (b1.type == TAnalyticWindowBoundaryType::PRECEDING) {
+                    // _range_start_offset *= -1; //preceding--> negative
+                }                              //current_row  0
+            } else {                           //following    positive
+                // DCHECK_EQ(b1.type, TAnalyticWindowBoundaryType::CURRENT_ROW); //[current row,   ]
+                // _range_start_offset = 1;
+            }
+            
+
+            TAnalyticWindowBoundary b2 = p._window.window_end;
+            if (b2.__isset.range_offset_predicate) { //[       , offset]
+                // _range_end_offset = b2.rows_offset_value;
+                _range_following_field = data_type->get_field(b2.range_offset_predicate.nodes[0]);
+                LOG(INFO)<<"asd _range_following_field: "<<_range_following_field.get_type_name();
+                if (b2.type == TAnalyticWindowBoundaryType::PRECEDING) {
+                    // _range_end_offset *= -1;
+                }
+            } else {
+                // DCHECK_EQ(b2.type, TAnalyticWindowBoundaryType::CURRENT_ROW); //[   ,current row]
+                // _range_end_offset = 1;
+            }
+
+            _is_range_between_flag = true;
+            auto col = data_type->create_column();
+            const vectorized::IColumn* column = col.get();
+            APPLY_FOR_TYPES(doris::vectorized::compareValuesWithOffset)
+            _executor.get_next = std::bind<Status>(&AnalyticLocalState::_get_next_for_range_between,
                                                    this, std::placeholders::_1);
-
         } else {
-            _executor.get_next = std::bind<Status>(&AnalyticLocalState::_get_next_for_range, this,
-                                                   std::placeholders::_1);
-        }
+            if (!p._has_window_end) { //haven't set end, so same as PARTITION, [unbounded preceding, unbounded following]
+                _executor.get_next = std::bind<Status>(&AnalyticLocalState::_get_next_for_partition,
+                                                       this, std::placeholders::_1);
 
+            } else {
+                _executor.get_next = std::bind<Status>(&AnalyticLocalState::_get_next_for_range,
+                                                       this, std::placeholders::_1);
+            }
+        }
     } else {
         if (!p._has_window_start &&
             !p._has_window_end) { //haven't set start and end, same as PARTITION
@@ -313,9 +357,14 @@ void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
                 std::min<int64_t>(get_result_end - current_block_row_pos, current_block_rows);
         _shared_state->current_row_position += (_window_end_position - get_result_start);
     } else if (_parent->cast<AnalyticSourceOperatorX>()._fn_scope == AnalyticFnScope::RANGE) {
-        _window_end_position =
+        if (_is_range_between_flag) {
+            _window_end_position++;
+            _shared_state->current_row_position++;
+        } else {
+            _window_end_position =
                 std::min<int64_t>(_order_by_end.pos - current_block_row_pos, current_block_rows);
-        _shared_state->current_row_position += (_window_end_position - get_result_start);
+            _shared_state->current_row_position += (_window_end_position - get_result_start);
+        }
     } else {
         _window_end_position++;
         _shared_state->current_row_position++;
@@ -401,6 +450,86 @@ Status AnalyticLocalState::_get_next_for_range(size_t current_block_rows) {
     return Status::OK();
 }
 
+Status AnalyticLocalState::_get_next_for_range_between(size_t current_block_rows) {
+    SCOPED_TIMER(_get_next_timer);
+    while (_shared_state->current_row_position < _shared_state->partition_by_end.pos &&
+           _window_end_position < current_block_rows) {
+        if (_shared_state->current_row_position >= _order_by_end.pos) {
+            _update_order_by_range(); // update _order_by_start/end pos
+        }
+        int64_t current_block_row_pos =
+                _shared_state->input_block_first_row_positions[_output_block_index];
+        int64_t reference_row = _shared_state->current_row_position - current_block_row_pos;
+        LOG(INFO)<<"asd reference_row: current_row_position "<<reference_row<<" "<<_shared_state->current_row_position;
+        LOG(INFO)<<"asd _update_order_by_range2 before: "<<_range_start_offset.debug_string()<<" "<<_range_end_offset.debug_string();
+        _update_order_by_range2();
+        LOG(INFO)<<"asd _update_order_by_range2 after: "<<_range_start_offset.debug_string()<<" "<<_range_end_offset.debug_string();
+        LOG(INFO)<<"asd _execute_for_win_func "<<_partition_by_start.pos<<" "<<_shared_state->partition_by_end.pos<<" "<<_range_start_offset.pos<<" "<<_range_end_offset.pos<<" current_block_rows: "<<current_block_rows;
+        _execute_for_win_func(_partition_by_start.pos, _shared_state->partition_by_end.pos,
+                                _range_start_offset.pos, _range_end_offset.pos);
+        _insert_result_info(current_block_rows);
+        _reset_agg_status();
+    }
+    return Status::OK();
+}
+
+void AnalyticLocalState::_update_order_by_range2() {
+    //[_partition_by_start,    _partition_by_end]
+    //find  order_column[ _output_block_index: reference_row] :  upper and lower
+    DCHECK(_parent->cast<AnalyticSourceOperatorX>()._order_by_exprs_size == 1);
+    auto idx = _shared_state->ordey_by_column_idxs[0];
+    int64_t current_block_row_pos =
+            _shared_state->input_block_first_row_positions[_output_block_index];
+    int64_t reference_row = _shared_state->current_row_position - current_block_row_pos;
+    vectorized::ColumnPtr reference_column =
+            _shared_state->input_blocks[_output_block_index].get_by_position(idx).column;
+    while (_range_start_offset < _shared_state->partition_by_end) {
+        vectorized::ColumnPtr compared_column =
+            _shared_state->input_blocks[_range_start_offset.block_num].get_by_position(idx).column;
+        auto compared_row =  _range_start_offset.row_num;   
+        // return compared_value < reference_value ? -1 : compared_value == reference_value ? 0 : 1;
+        if (compare_values_with_offset_func(compared_column, compared_row, reference_column, reference_row, _range_preceding_field, true) == -1) {
+            // this compared_row < reference_row + field in order by column, so advance
+            _range_start_offset = advanceRowNumber(_range_start_offset);
+        } else {
+            break;
+        }
+    }
+
+    while (_range_end_offset < _shared_state->partition_by_end) {
+        vectorized::ColumnPtr compared_column =
+            _shared_state->input_blocks[_range_end_offset.block_num].get_by_position(idx).column;
+        auto compared_row =  _range_end_offset.row_num; 
+        if (compare_values_with_offset_func(compared_column, compared_row, reference_column, reference_row, _range_following_field, false) == 1) {
+            break;
+        } else {
+            // the compared_row <= reference_row + field , so advance
+            _range_end_offset = advanceRowNumber(_range_end_offset);
+        }
+    }
+
+    _range_start_offset.pos =
+            _shared_state->input_block_first_row_positions[_range_start_offset.block_num] +
+            _range_start_offset.row_num;
+    _range_end_offset.pos = _shared_state->input_block_first_row_positions[_range_end_offset.block_num] +
+                        _range_end_offset.row_num;
+}
+
+BlockRowPos AnalyticLocalState::advanceRowNumber(BlockRowPos input) {
+    auto block_num = input.block_num;
+    DCHECK_GE(block_num, 0);
+    DCHECK_LE(block_num, _shared_state->input_blocks.size() - 1);
+    if (input.row_num == _shared_state->input_blocks[input.block_num].rows()) {
+        input.block_num++;
+        input.row_num = 0;
+    } else {
+        input.row_num++;
+    }
+    input.pos++;
+    BlockRowPos output = input;
+    return output;
+}
+
 void AnalyticLocalState::_update_order_by_range() {
     _order_by_start = _order_by_end;
     _order_by_end = _shared_state->partition_by_end;
@@ -437,6 +566,7 @@ bool AnalyticLocalState::init_next_partition(BlockRowPos found_partition_end) {
         ((_shared_state->partition_by_end.pos == 0) ||
          (_shared_state->partition_by_end.pos != found_partition_end.pos))) {
         _partition_by_start = _shared_state->partition_by_end;
+        _range_start_offset = _shared_state->partition_by_end;
         _shared_state->partition_by_end = found_partition_end;
         _shared_state->current_row_position = _partition_by_start.pos;
         _reset_agg_status();
@@ -481,15 +611,21 @@ AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNo
           _has_window_start(tnode.analytic_node.window.__isset.window_start),
           _has_window_end(tnode.analytic_node.window.__isset.window_end),
           _partition_exprs_size(tnode.analytic_node.partition_exprs.size()),
-          _order_by_exprs_size(tnode.analytic_node.order_by_exprs.size()) {
+          _order_by_exprs_size(tnode.analytic_node.order_by_exprs.size()),
+          _buffered_tuple_id(tnode.analytic_node.__isset.buffered_tuple_id
+                                     ? tnode.analytic_node.buffered_tuple_id
+                                     : 0) {
     _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     _fn_scope = AnalyticFnScope::PARTITION;
+    std::stringstream ss;
+    tnode.analytic_node.window.printTo(ss);
+    LOG(INFO)<<"asd window: "<<ss.str();
     if (tnode.analytic_node.__isset.window &&
         tnode.analytic_node.window.type == TAnalyticWindowType::RANGE) {
-        DCHECK(!_window.__isset.window_start) << "RANGE windows must have UNBOUNDED PRECEDING";
-        DCHECK(!_window.__isset.window_end ||
-               _window.window_end.type == TAnalyticWindowBoundaryType::CURRENT_ROW)
-                << "RANGE window end bound must be CURRENT ROW or UNBOUNDED FOLLOWING";
+        // DCHECK(!_window.__isset.window_start) << "RANGE windows must have UNBOUNDED PRECEDING";
+        // DCHECK(!_window.__isset.window_end ||
+        //        _window.window_end.type == TAnalyticWindowBoundaryType::CURRENT_ROW)
+        //         << "RANGE window end bound must be CURRENT ROW or UNBOUNDED FOLLOWING";
 
         if (_window.__isset
                     .window_end) { //haven't set end, so same as PARTITION, [unbounded preceding, unbounded following]
@@ -517,6 +653,8 @@ Status AnalyticSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
         _agg_functions.emplace_back(evaluator);
     }
 
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(analytic_node.order_by_exprs,
+                                                         _order_by_eq_expr_ctxs));
     return Status::OK();
 }
 
@@ -609,6 +747,15 @@ Status AnalyticSourceOperatorX::open(RuntimeState* state) {
     }
     for (auto* agg_function : _agg_functions) {
         RETURN_IF_ERROR(agg_function->open(state));
+    }
+    if (!_order_by_eq_expr_ctxs.empty()) {
+        vector<TTupleId> tuple_ids;
+        tuple_ids.push_back(_child->row_desc().tuple_descriptors()[0]->id());
+        tuple_ids.push_back(_buffered_tuple_id);
+        RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids, vector<bool>(2, false));
+        RETURN_IF_ERROR(
+                vectorized::VExpr::prepare(_order_by_eq_expr_ctxs, state, cmp_row_desc));
+        RETURN_IF_ERROR(vectorized::VExpr::open(_order_by_eq_expr_ctxs, state));
     }
     return Status::OK();
 }

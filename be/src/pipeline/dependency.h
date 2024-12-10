@@ -553,6 +553,12 @@ struct BlockRowPos {
     int64_t block_num {}; //the pos at which block
     int64_t row_num {};   //the pos at which row
     int64_t pos {};       //pos = all blocks size + row_num
+    bool operator<(const BlockRowPos& other) const {
+        if (block_num != other.block_num) {
+            return block_num < other.block_num;
+        }
+        return row_num < other.row_num;
+    }
     std::string debug_string() const {
         std::string res = "\t block_num: ";
         res += std::to_string(block_num);
@@ -580,6 +586,7 @@ public:
     std::vector<int64_t> origin_cols;
     std::vector<int64_t> input_block_first_row_positions;
     std::vector<std::vector<vectorized::MutableColumnPtr>> agg_input_columns;
+    vectorized::VExprContextSPtr order_by_context;
 
     // TODO: maybe global?
     std::vector<int64_t> partition_by_column_idxs;

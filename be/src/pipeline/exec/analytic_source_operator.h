@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "common/status.h"
+#include "vec/core/field.h"
 #include "operator.h"
 
 namespace doris {
@@ -49,12 +50,14 @@ private:
     Status _get_next_for_rows(size_t rows);
     Status _get_next_for_range(size_t rows);
     Status _get_next_for_partition(size_t rows);
+    Status _get_next_for_range_between(size_t rows);
 
     void _execute_for_win_func(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                int64_t frame_end);
     void _insert_result_info(int64_t current_block_rows);
 
     void _update_order_by_range();
+    void _update_order_by_range2();
     bool _refresh_need_more_input() {
         auto need_more_input = _whether_need_next_partition(_shared_state->found_partition_end);
         if (need_more_input) {
@@ -69,6 +72,7 @@ private:
     BlockRowPos _get_partition_by_end();
     BlockRowPos _compare_row_to_find_end(int64_t idx, BlockRowPos start, BlockRowPos end,
                                          bool need_check_first = false);
+    BlockRowPos advanceRowNumber(BlockRowPos arg);
     bool _whether_need_next_partition(BlockRowPos& found_partition_end);
 
     void _reset_agg_status();
@@ -84,6 +88,12 @@ private:
 
     int64_t _rows_start_offset;
     int64_t _rows_end_offset;
+
+    vectorized::Field _range_preceding_field;
+    vectorized::Field _range_following_field;
+    BlockRowPos _range_start_offset;
+    BlockRowPos _range_end_offset;
+    bool _is_range_between_flag = false;
     vectorized::AggregateDataPtr _fn_place_ptr;
     size_t _agg_functions_size;
     bool _agg_functions_created;
@@ -106,8 +116,15 @@ private:
     struct executor {
         vectorized_get_next get_next;
     };
-
     executor _executor;
+
+    // Comparison function for RANGE OFFSET frames. We choose the appropriate
+    // overload once, based on the type of the ORDER BY column. Choosing it for
+    // each row would be slow.
+    std::function<int(const vectorized::IColumn* compared_column, size_t compared_row,
+                      const vectorized::IColumn* reference_column, size_t reference_row,
+                      const vectorized::Field& offset, bool offset_is_preceding)>
+            compare_values_with_offset_func;
 };
 
 class AnalyticSourceOperatorX final : public OperatorX<AnalyticLocalState> {
@@ -152,6 +169,8 @@ private:
     std::vector<bool> _change_to_nullable_flags;
     const size_t _partition_exprs_size;
     const size_t _order_by_exprs_size;
+    vectorized::VExprContextSPtrs _order_by_eq_expr_ctxs;
+    const TTupleId _buffered_tuple_id;
 };
 
 } // namespace pipeline

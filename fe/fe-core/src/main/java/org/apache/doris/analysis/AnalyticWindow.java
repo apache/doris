@@ -190,7 +190,9 @@ public class AnalyticWindow {
                 result.setRowsOffsetValue(offsetValue.longValue());
             }
 
-            // TODO: range windows need range_offset_predicate
+            if (windowType == Type.RANGE && expr != null) {
+                result.setRangeOffsetPredicate(expr.treeToThrift());
+            }
             return result;
         }
 

@@ -163,12 +163,15 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         // case 3
         // this case will be removed when RANGE with offset boundaries is supported
         if (windowFrame.getFrameUnits() == FrameUnitsType.RANGE) {
-            if (left.hasOffset() || right.hasOffset()
-                    || (left.getFrameBoundType() == FrameBoundType.CURRENT_ROW
-                    && right.getFrameBoundType() == FrameBoundType.CURRENT_ROW)) {
-                throw new AnalysisException("WindowFrame with RANGE must use both UNBOUNDED boundary or "
-                    + "one UNBOUNDED boundary and one CURRENT ROW");
-            }
+            // should check the order by column type, and only one column
+
+            // if (left.hasOffset() || right.hasOffset()
+            // || (left.getFrameBoundType() == FrameBoundType.CURRENT_ROW
+            // && right.getFrameBoundType() == FrameBoundType.CURRENT_ROW)) {
+            // throw new AnalysisException("WindowFrame with RANGE must use both UNBOUNDED
+            // boundary or "
+            // + "one UNBOUNDED boundary and one CURRENT ROW");
+            // }
         }
 
         // case 4
