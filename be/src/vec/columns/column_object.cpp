@@ -36,6 +36,7 @@
 #include <memory>
 #include <optional>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -1091,7 +1092,7 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
         }
     }
     num_rows += length;
-    finalize(FinalizeMode::READ_MODE);
+    finalize();
 #ifndef NDEBUG
     check_consistency();
 #endif
@@ -1419,7 +1420,7 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
 
 Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* output) const {
     if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
+        const_cast<ColumnObject*>(this)->finalize();
     }
     rapidjson::StringBuffer buf;
     if (is_scalar_variant()) {
@@ -1435,7 +1436,7 @@ Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* outpu
 
 Status ColumnObject::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
     if (!is_finalized()) {
-        const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
+        const_cast<ColumnObject*>(this)->finalize();
     }
     if (is_scalar_variant()) {
         auto type = get_root_type();
@@ -1504,99 +1505,13 @@ Status ColumnObject::serialize_one_row_to_json_format(int64_t row, rapidjson::St
     return Status::OK();
 }
 
-Status ColumnObject::merge_sparse_to_root_column() {
-    CHECK(is_finalized());
-    if (sparse_columns.empty()) {
-        return Status::OK();
+size_t ColumnObject::Subcolumn::get_non_null_value_size() const {
+    size_t res = 0;
+    for (const auto& part : data) {
+        const auto& null_data = assert_cast<const ColumnNullable&>(*part).get_null_map_data();
+        res += simd::count_zero_num((int8_t*)null_data.data(), null_data.size());
     }
-    ColumnPtr src = subcolumns.get_mutable_root()->data.get_finalized_column_ptr();
-    MutableColumnPtr mresult = src->clone_empty();
-    const ColumnNullable* src_null = assert_cast<const ColumnNullable*>(src.get());
-    const ColumnString* src_column_ptr =
-            assert_cast<const ColumnString*>(&src_null->get_nested_column());
-    rapidjson::StringBuffer buffer;
-    doc_structure = std::make_shared<rapidjson::Document>();
-    rapidjson::Document::AllocatorType& allocator = doc_structure->GetAllocator();
-    get_json_by_column_tree(*doc_structure, allocator, sparse_columns.get_root());
-
-#ifndef NDEBUG
-    VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
-#endif
-
-    ColumnNullable* result_column_nullable =
-            assert_cast<ColumnNullable*>(mresult->assume_mutable().get());
-    ColumnString* result_column_ptr =
-            assert_cast<ColumnString*>(&result_column_nullable->get_nested_column());
-    result_column_nullable->reserve(num_rows);
-    // parse each row to jsonb
-    for (size_t i = 0; i < num_rows; ++i) {
-        // root is not null, store original value, eg. the root is scalar type like '[1]'
-        if (!src_null->empty() && !src_null->is_null_at(i)) {
-            result_column_ptr->insert_data(src_column_ptr->get_data_at(i).data,
-                                           src_column_ptr->get_data_at(i).size);
-            result_column_nullable->get_null_map_data().push_back(0);
-            continue;
-        }
-
-        // parse and encode sparse columns
-        buffer.Clear();
-        rapidjson::Value root(rapidjson::kNullType);
-        if (!doc_structure->IsNull()) {
-            root.CopyFrom(*doc_structure, doc_structure->GetAllocator());
-        }
-        size_t null_count = 0;
-        Arena mem_pool;
-        for (const auto& subcolumn : sparse_columns) {
-            auto& column = subcolumn->data.get_finalized_column_ptr();
-            if (assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*column).is_null_at(
-                        i)) {
-                ++null_count;
-                continue;
-            }
-            bool succ = find_and_set_leave_value(
-                    column, subcolumn->path, subcolumn->data.get_least_common_type_serde(),
-                    subcolumn->data.get_least_common_type(),
-                    subcolumn->data.least_common_type.get_base_type_id(), root,
-                    doc_structure->GetAllocator(), mem_pool, i);
-            if (succ && subcolumn->path.empty() && !root.IsObject()) {
-                // root was modified, only handle root node
-                break;
-            }
-        }
-
-        // all null values, store null to sparse root
-        if (null_count == sparse_columns.size()) {
-            result_column_ptr->insert_default();
-            result_column_nullable->get_null_map_data().push_back(1);
-            continue;
-        }
-
-        // encode sparse columns into jsonb format
-        compact_null_values(root, doc_structure->GetAllocator());
-        // parse as jsonb value and put back to rootnode
-        // TODO, we could convert to jsonb directly from rapidjson::Value for better performance, instead of parsing
-        JsonbParser parser;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-        root.Accept(writer);
-        bool res = parser.parse(buffer.GetString(), buffer.GetSize());
-        if (!res) {
-            return Status::InvalidArgument(
-                    "parse json failed, doc: {}"
-                    ", row_num:{}"
-                    ", error:{}",
-                    std::string(buffer.GetString(), buffer.GetSize()), i,
-                    JsonbErrMsg::getErrMsg(parser.getErrorCode()));
-        }
-        result_column_ptr->insert_data(parser.getWriter().getOutput()->getBuffer(),
-                                       parser.getWriter().getOutput()->getSize());
-        result_column_nullable->get_null_map_data().push_back(0);
-    }
-    subcolumns.get_mutable_root()->data.get_finalized_column().clear();
-    // assign merged column, do insert_range_from to make a copy, instead of replace the ptr itselft
-    // to make sure the root column ptr is not changed
-    subcolumns.get_mutable_root()->data.get_finalized_column().insert_range_from(
-            *mresult->get_ptr(), 0, num_rows);
-    return Status::OK();
+    return res;
 }
 
 void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const {
@@ -1634,13 +1549,50 @@ void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) co
     }
 }
 
-void ColumnObject::finalize(FinalizeMode mode) {
+Status ColumnObject::finalize(FinalizeMode mode) {
     Subcolumns new_subcolumns;
     // finalize root first
     if (mode == FinalizeMode::WRITE_MODE || !is_null_root()) {
         new_subcolumns.create_root(subcolumns.get_root()->data);
         new_subcolumns.get_mutable_root()->data.finalize(mode);
     }
+
+    // pick sparse columns
+    std::set<String> selected_subcolumns;
+    std::set<String> remaining_subcolumns;
+    if (subcolumns.size() > MAX_SUBCOLUMNS) {
+        // pick subcolumns sort by size of none null values
+        std::unordered_map<String, size_t> none_null_value_sizes;
+        // 1. get the none null value sizes
+        for (auto&& entry : subcolumns) {
+            if (entry->data.is_root) {
+                continue;
+            }
+            size_t size = entry->data.get_non_null_value_size();
+            none_null_value_sizes[entry->path.get_path()] = size;
+        }
+        // 2. sort by the size
+        std::vector<std::pair<String, size_t>> sorted_by_size(none_null_value_sizes.begin(),
+                                                              none_null_value_sizes.end());
+        std::sort(sorted_by_size.begin(), sorted_by_size.end(),
+                  [](const auto& a, const auto& b) { return a.second > b.second; });
+
+        // 3. pick MAX_SUBCOLUMNS selected subcolumns
+        std::set<String> selected_subcolumns;
+        for (size_t i = 0; i < std::min(MAX_SUBCOLUMNS, sorted_by_size.size()); ++i) {
+            selected_subcolumns.insert(sorted_by_size[i].first);
+        }
+
+        // 4. put remaining subcolumns to remaining_subcolumns
+        std::vector<String> remaining_subcolumns;
+        for (const auto& entry : sorted_by_size) {
+            if (selected_subcolumns.find(entry.first) == selected_subcolumns.end()) {
+                remaining_subcolumns.push_back(entry.first);
+            }
+        }
+    }
+
+    // finalize all subcolumns
     for (auto&& entry : subcolumns) {
         const auto& least_common_type = entry->data.get_least_common_type();
         /// Do not add subcolumns, which consists only from NULLs
@@ -1661,24 +1613,34 @@ void ColumnObject::finalize(FinalizeMode mode) {
         if (entry->data.is_root) {
             continue;
         }
-
-        // Check and spilit sparse subcolumns, not support nested array at present
-        if (mode == FinalizeMode::WRITE_MODE && (entry->data.check_if_sparse_column(num_rows)) &&
-            !entry->path.has_nested_part()) {
-            // TODO seperate ambiguous path
-            sparse_columns.add(entry->path, entry->data);
-            continue;
-        }
-
-        new_subcolumns.add(entry->path, entry->data);
     }
+
+    // add selected subcolumns to new_subcolumns
+    for (auto&& entry : subcolumns) {
+        if (selected_subcolumns.find(entry->path.get_path()) != selected_subcolumns.end()) {
+            new_subcolumns.add(entry->path, entry->data);
+        }
+    }
+
+    std::map<String, Subcolumn> remaing_subcolumns;
+    // merge remaining subcolumns to sparse_column
+    for (auto&& entry : subcolumns) {
+        if (remaining_subcolumns.find(entry->path.get_path()) != selected_subcolumns.end()) {
+            remaing_subcolumns.emplace(entry->path.get_path(), entry->data);
+        }
+    }
+
+    // merge and encode sparse column
+    RETURN_IF_ERROR(merge_sparse_columns(remaing_subcolumns));
+
     std::swap(subcolumns, new_subcolumns);
     doc_structure = nullptr;
     _prev_positions.clear();
+    return Status::OK();
 }
 
 void ColumnObject::finalize() {
-    finalize(FinalizeMode::READ_MODE);
+    static_cast<void>(finalize(FinalizeMode::READ_MODE));
 }
 
 void ColumnObject::ensure_root_node_type(const DataTypePtr& expected_root_type) {

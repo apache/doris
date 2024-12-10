@@ -38,6 +38,7 @@
 #include "olap/tablet_schema.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_ref.h"
@@ -97,6 +98,7 @@ public:
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
+    const static size_t MAX_SUBCOLUMNS = 200;
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
     // merge and encode them into a shared column in root column. Only affects in flush block to segments.
     // Otherwise read mode should be as default mode.
@@ -123,6 +125,8 @@ public:
         const DataTypePtr& get_least_common_typeBase() const {
             return least_common_type.get_base();
         }
+
+        size_t get_non_null_value_size() const;
 
         const DataTypeSerDeSPtr& get_least_common_type_serde() const {
             return least_common_type.get_serde();
@@ -240,12 +244,8 @@ private:
     const bool is_nullable;
     Subcolumns subcolumns;
     size_t num_rows;
-    // sparse columns will be merge and encoded into root column
-    Subcolumns sparse_columns;
-    // The rapidjson document format of Subcolumns tree structure
-    // the leaves is null.In order to display whole document, copy
-    // this structure and fill with Subcolumns sub items
-    mutable std::shared_ptr<rapidjson::Document> doc_structure;
+    // sparse columns will be merge and encoded as ColumnMap<String, String>
+    WrappedPtr sparse_column;
 
     using SubColumnWithName = std::pair<PathInData, const Subcolumn*>;
     // Cached search results for previous row (keyed as index in JSON object) - used as a hint.
@@ -280,11 +280,18 @@ public:
     Status serialize_one_row_to_json_format(int64_t row, rapidjson::StringBuffer* output,
                                             bool* is_null) const;
 
-    // merge multiple sub sparse columns into root
-    Status merge_sparse_to_root_column();
+    // merge multiple sub sparse columns
+    Status merge_sparse_columns(const std::map<String, Subcolumn>& remaing_subcolumns);
 
     // ensure root node is a certain type
     void ensure_root_node_type(const DataTypePtr& type);
+
+    std::pair<ColumnString*, ColumnString*> get_sparse_data_paths_and_values() {
+        auto& column_map = assert_cast<ColumnMap&>(*sparse_column);
+        auto& key = assert_cast<ColumnString&>(column_map.get_keys());
+        auto& value = assert_cast<ColumnString&>(column_map.get_values());
+        return {&key, &value};
+    }
 
     // create jsonb root if missing
     // notice: should only using in VariantRootColumnIterator
@@ -345,14 +352,14 @@ public:
 
     const Subcolumns& get_subcolumns() const { return subcolumns; }
 
-    const Subcolumns& get_sparse_subcolumns() const { return sparse_columns; }
-
     Subcolumns& get_subcolumns() { return subcolumns; }
+
+    ColumnPtr get_sparse_column() { return sparse_column->convert_to_full_column_if_const(); }
 
     PathsInData getKeys() const;
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
-    void finalize(FinalizeMode mode);
+    Status finalize(FinalizeMode mode);
 
     /// Finalizes all subcolumns.
     void finalize() override;
@@ -361,7 +368,7 @@ public:
 
     MutableColumnPtr clone_finalized() const {
         auto finalized = IColumn::mutate(get_ptr());
-        static_cast<ColumnObject*>(finalized.get())->finalize(FinalizeMode::READ_MODE);
+        static_cast<ColumnObject*>(finalized.get())->finalize();
         return finalized;
     }
 

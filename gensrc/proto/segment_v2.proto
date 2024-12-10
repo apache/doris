@@ -159,6 +159,12 @@ message ColumnPathInfo {
     optional uint32 parrent_column_unique_id = 4;
 }
 
+message VariantStatisticsPB {
+    // in the order of subcolumns in variant
+    repeated uint32 subcolumn_non_null_size = 1;
+    map<string, uint32> sparse_column_non_null_size = 2;
+} 
+
 message ColumnMetaPB {
     // column id in table schema
     optional uint32 column_id = 1;
@@ -192,11 +198,12 @@ message ColumnMetaPB {
     optional int32 precision = 15; // ColumnMessage.precision
     optional int32 frac = 16; // ColumnMessag
 
-    repeated ColumnMetaPB sparse_columns = 17; // sparse column within a variant column
+    repeated ColumnMetaPB sparse_columns = 17; // deprecated
 
     optional bool result_is_nullable = 18; // used on agg_state type
     optional string function_name = 19; // used on agg_state type
     optional int32 be_exec_version = 20; // used on agg_state type
+    optional VariantStatisticsPB variant_statistics = 21; // only used in variant type
 }
 
 message PrimaryKeyIndexMetaPB {

@@ -422,18 +422,6 @@ Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& da
             _flush_schema->append_column(tablet_column);
             _olap_data_convertor->clear_source_content();
         }
-        // sparse_columns
-        for (const auto& entry : vectorized::schema_util::get_sorted_subcolumns(
-                     object_column.get_sparse_subcolumns())) {
-            TabletColumn sparse_tablet_column = generate_column_info(entry);
-            _flush_schema->mutable_column_by_uid(parent_column->unique_id())
-                    .append_sparse_column(sparse_tablet_column);
-
-            // add sparse column to footer
-            auto* column_pb = _footer.mutable_columns(i);
-            init_column_meta(column_pb->add_sparse_columns(), -1, sparse_tablet_column,
-                             _flush_schema);
-        }
     }
 
     // Update rowset schema, tablet's tablet schema will be updated when build Rowset

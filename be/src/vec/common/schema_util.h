@@ -126,4 +126,7 @@ std::string dump_column(DataTypePtr type, const ColumnPtr& col);
 bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
                            int32_t new_col_idx, int32_t old_col_idx);
 
+// create ColumnMap<String, String>
+TabletColumn create_sparse_column(int32_t parent_unique_id);
+
 } // namespace  doris::vectorized::schema_util

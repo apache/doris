@@ -24,10 +24,24 @@
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
 
-namespace doris::segment_v2 {
+namespace doris {
+
+namespace vectorized {
+class ColumnObject;
+class OlapBlockDataConvertor;
+} // namespace vectorized
+namespace segment_v2 {
 
 class ColumnWriter;
 class ScalarColumnWriter;
+
+struct VariantStatistics {
+    constexpr static size_t MAX_SHARED_DATA_STATISTICS_SIZE = 10000;
+    std::vector<size_t> _subcolumns_non_null_size;
+    std::map<StringRef, size_t> _sparse_column_non_null_size;
+
+    void to_pb(VariantStatisticsPB* stats) const;
+};
 
 class VariantColumnWriterImpl {
 public:
@@ -54,15 +68,30 @@ private:
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                                  const TabletColumn& parent_column,
                                  const TabletSchemaSPtr& tablet_schema);
+    Status _process_root_column(vectorized::ColumnObject* ptr,
+                                vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
+                                int& column_id);
+    Status _process_sparse_column(vectorized::ColumnObject* ptr,
+                                  vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
+                                  int& column_id);
+    Status _process_subcolumns(vectorized::ColumnObject* ptr,
+                               vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
+                               int& column_id);
     // prepare a column for finalize
     doris::vectorized::MutableColumnPtr _column;
     doris::vectorized::MutableColumnPtr _null_column;
     ColumnWriterOptions _opts;
     const TabletColumn* _tablet_column = nullptr;
     bool _is_finalized = false;
-    // for sparse column and root column
+    // for root column
     std::unique_ptr<ColumnWriter> _root_writer;
+    // for sparse column
+    std::unique_ptr<ColumnWriter> _sparse_column_writer;
     std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
     std::vector<ColumnWriterOptions> _subcolumn_opts;
+
+    // staticstics which will be persisted in the footer
+    VariantStatistics _statistics;
 };
-} // namespace doris::segment_v2
+} // namespace segment_v2
+} // namespace doris

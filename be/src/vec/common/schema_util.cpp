@@ -542,14 +542,6 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
     });
 }
 
-Status encode_variant_sparse_subcolumns(ColumnObject& column) {
-    // Make sure the root node is jsonb storage type
-    auto expected_root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
-    column.ensure_root_node_type(expected_root_type);
-    RETURN_IF_ERROR(column.merge_sparse_to_root_column());
-    return Status::OK();
-}
-
 // sort by paths in lexicographical order
 vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
         const vectorized::ColumnObject::Subcolumns& subcolumns) {
@@ -612,6 +604,21 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     bool old_schema_has_inverted_index = old_schema->inverted_index(column_old);
 
     return new_schema_has_inverted_index != old_schema_has_inverted_index;
+}
+
+TabletColumn create_sparse_column(int32_t parent_unique_id) {
+    TColumn tcolumn;
+    tcolumn.column_name = ".sparse";
+    tcolumn.col_unique_id = parent_unique_id;
+    tcolumn.column_type = TColumnType {};
+    tcolumn.column_type.type = TPrimitiveType::MAP;
+
+    TColumn child_tcolumn;
+    tcolumn.column_type = TColumnType {};
+    tcolumn.column_type.type = TPrimitiveType::STRING;
+    tcolumn.children_column.push_back(child_tcolumn);
+    tcolumn.children_column.push_back(child_tcolumn);
+    return TabletColumn {tcolumn};
 }
 
 } // namespace doris::vectorized::schema_util
