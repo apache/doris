@@ -1216,6 +1216,8 @@ DEFINE_mString(doris_cgroup_cpu_path, "");
 DEFINE_mBool(enable_be_proc_monitor, "false");
 DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
 
+DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
+
 DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
