@@ -31,8 +31,6 @@ public interface MutableState {
 
     String KEY_OR_TO_IN = "or_to_in";
 
-    String KEY_SIMPLIFY_RANGE = "simplify_range";
-
     <T> Optional<T> get(String key);
 
     MutableState set(String key, Object value);

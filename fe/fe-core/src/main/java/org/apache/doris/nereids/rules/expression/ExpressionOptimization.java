@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
+import org.apache.doris.nereids.rules.expression.rules.OrAddMinMax;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
@@ -58,6 +59,13 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     BetweenToEqual.INSTANCE
             )
     );
+
+    public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES_OR_ADD_RANGE = ImmutableList.of(
+            bottomUp(
+                    OrAddMinMax.INSTANCE
+            )
+    );
+
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);
 
     public ExpressionOptimization() {

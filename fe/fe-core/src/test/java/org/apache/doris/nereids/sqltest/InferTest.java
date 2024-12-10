@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.sqltest;
 
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Test;
+
+import java.util.stream.Collectors;
 
 public class InferTest extends SqlTestBase {
     @Test
@@ -52,7 +55,10 @@ public class InferTest extends SqlTestBase {
                         logicalFilter().when(
                                 f -> f.getPredicate().toString().equals("(id#2 >= 4)")),
                         logicalFilter().when(
-                                f -> f.getPredicate().toString().equals("AND[(id#0 >= 4),OR[(id#0 = 4),(id#0 > 4)]]"))
+                                f -> ExpressionUtils.and(f.getConjuncts().stream()
+                                        .sorted((a, b) -> a.toString().compareTo(b.toString()))
+                                        .collect(Collectors.toList()))
+                                        .toString().equals("AND[(id#0 >= 4),OR[(id#0 = 4),(id#0 > 4)]]"))
                     )
 
                 );
