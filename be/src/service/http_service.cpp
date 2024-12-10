@@ -28,11 +28,7 @@
 #include "common/status.h"
 #include "http/action/adjust_log_level.h"
 #include "http/action/adjust_tracing_dump.h"
-<<<<<<< HEAD
-=======
 #include "http/action/batch_download_action.h"
-#include "http/action/be_proc_thread_action.h"
->>>>>>> 63cc1af7d3 ([feat](clone) Speed clone tablet via batch small file downloading (#45061))
 #include "http/action/calc_file_crc_action.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
