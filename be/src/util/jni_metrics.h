@@ -35,7 +35,6 @@ public:
 private:
     Status _init();
 
-private:
     static const char* _s_hook_name;
     bool _is_init = false;
     MetricRegistry* _registry = nullptr;

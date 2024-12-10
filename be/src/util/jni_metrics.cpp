@@ -20,6 +20,7 @@
 #include <memory>
 #include <utility>
 
+#include "common/status.h"
 #include "util/jni-util.h"
 #include "util/metrics.h"
 
