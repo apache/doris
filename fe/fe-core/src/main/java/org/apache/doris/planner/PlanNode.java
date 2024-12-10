@@ -998,7 +998,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         // [prefix  ]expr1,
         // [prefix  ]expr2,
         // [prefix  ]expr3
-        return Joiner.on(",\n").join(exprs.stream()
+        return Joiner.on("\n").join(exprs.stream()
                 .map(expr -> prefix + "  " + expr.toSql()).collect(Collectors.toList()));
     }
 
