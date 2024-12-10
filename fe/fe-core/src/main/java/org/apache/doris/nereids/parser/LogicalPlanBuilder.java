@@ -55,6 +55,7 @@ import org.apache.doris.nereids.DorisParser.AdminCompactTableContext;
 import org.apache.doris.nereids.DorisParser.AdminDiagnoseTabletContext;
 import org.apache.doris.nereids.DorisParser.AdminShowReplicaDistributionContext;
 import org.apache.doris.nereids.DorisParser.AdminShowReplicaStatusContext;
+import org.apache.doris.nereids.DorisParser.AdminShowTabletStorageFormatContext;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
@@ -271,7 +272,9 @@ import org.apache.doris.nereids.DorisParser.ShowRolesContext;
 import org.apache.doris.nereids.DorisParser.ShowSmallFilesContext;
 import org.apache.doris.nereids.DorisParser.ShowSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.ShowStorageEnginesContext;
+import org.apache.doris.nereids.DorisParser.ShowTableCreationContext;
 import org.apache.doris.nereids.DorisParser.ShowTableIdContext;
+import org.apache.doris.nereids.DorisParser.ShowTabletStorageFormatContext;
 import org.apache.doris.nereids.DorisParser.ShowTabletsBelongContext;
 import org.apache.doris.nereids.DorisParser.ShowTrashContext;
 import org.apache.doris.nereids.DorisParser.ShowTriggersContext;
@@ -574,7 +577,9 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
@@ -1402,7 +1407,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public List<Pair<LogicalPlan, StatementContext>> visitMultiStatements(MultiStatementsContext ctx) {
         List<Pair<LogicalPlan, StatementContext>> logicalPlans = Lists.newArrayList();
-        for (org.apache.doris.nereids.DorisParser.StatementContext statement : ctx.statement()) {
+        for (DorisParser.StatementContext statement : ctx.statement()) {
             StatementContext statementContext = new StatementContext();
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
@@ -1527,7 +1532,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * ******************************************************************************************** */
 
     /**
-     * process lateral view, add a {@link org.apache.doris.nereids.trees.plans.logical.LogicalGenerate} on plan.
+     * process lateral view, add a {@link LogicalGenerate} on plan.
      */
     protected LogicalPlan withGenerate(LogicalPlan plan, LateralViewContext ctx) {
         if (ctx.LATERAL() == null) {
@@ -4984,6 +4989,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowDataSkew(ShowDataSkewContext ctx) {
         TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
         return new ShowDataSkewCommand(tableRefInfo);
+    }
+
+    @Override
+    public LogicalPlan visitShowTableCreation(ShowTableCreationContext ctx) {
+        String dbName = null;
+        String wild = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            dbName = nameParts.get(0); // only one entry possible
+        }
+        if (ctx.STRING_LITERAL() != null) {
+            wild = ctx.STRING_LITERAL().getText();
+        }
+        return new ShowTableCreationCommand(dbName, wild);
+    }
+
+    @Override
+    public LogicalPlan visitAdminShowTabletStorageFormat(AdminShowTabletStorageFormatContext ctx) {
+        return new ShowTabletStorageFormatCommand(ctx.VERBOSE() != null);
+    }
+
+    @Override
+    public LogicalPlan visitShowTabletStorageFormat(ShowTabletStorageFormatContext ctx) {
+        return new ShowTabletStorageFormatCommand(ctx.VERBOSE() != null);
     }
 }
 
