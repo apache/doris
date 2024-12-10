@@ -234,13 +234,11 @@ Status OperatorXBase::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void OperatorXBase::update_exec_stats(RuntimeState* state) {
+void PipelineXLocalStateBase::update_exec_stats(RuntimeState* state) {
     QueryContext* ctx = state->get_query_ctx();
-
-    if (ctx != nullptr && ctx->need_record_exec_stats(_node_id)) {
-        // todo: what's the input/output rows?
-        ctx->update_push_rows_stats(_node_id, get_query_statistics_ptr()->get_returned_rows()); // push means output rows
-        ctx->update_pull_rows_stats(_node_id, get_query_statistics_ptr()->get_scan_rows()); // pull means input rows
+    if (ctx != nullptr && ctx->need_record_exec_stats(_parent->node_id())) {
+        ctx->update_push_rows_stats(_parent->node_id(), get_query_statistics_ptr()->get_returned_rows()); // push means output rows
+        ctx->update_pull_rows_stats(_parent->node_id(), get_query_statistics_ptr()->get_scan_rows()); // pull means input rows
         //ctx->update_pred_filter_stats(_node_id, state->num_rows_load_unselected());
         // todo: update rows after runtime filter
         //if (_bloom_filter_eval_context.join_runtime_filter_input_counter != nullptr &&
@@ -253,7 +251,6 @@ void OperatorXBase::update_exec_stats(RuntimeState* state) {
 }
 
 Status OperatorXBase::close(RuntimeState* state) {
-    this->update_exec_stats(state);
     if (_child && !is_source()) {
         RETURN_IF_ERROR(_child->close(state));
     }
@@ -535,6 +532,7 @@ Status PipelineXLocalState<SharedStateArg>::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
+    update_exec_stats(state);
     if constexpr (!std::is_same_v<SharedStateArg, FakeSharedState>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
     }
