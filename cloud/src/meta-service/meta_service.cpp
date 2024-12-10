@@ -1701,6 +1701,7 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
         msg = "failed to parse DeleteBitmapUpdateLockPB";
         return false;
     }
+    TEST_SYNC_POINT_CALLBACK("check_delete_bitmap_lock.set_lock_info", &lock_info);
     if (lock_info.lock_id() != lock_id) {
         ss << "lock id not match, locked by lock_id=" << lock_info.lock_id();
         msg = ss.str();
