@@ -291,7 +291,7 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         if (!conjuncts.isEmpty()) {
-            output.append(prefix + "predicates: " + getExplainString(conjuncts) + "\n");
+            output.append(prefix + "predicates:\n" + getExplainString(conjuncts, prefix) + "\n");
         }
 
         return output.toString();

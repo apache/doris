@@ -327,20 +327,21 @@ public class EsScanNode extends ExternalScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix).append("TABLE: ").append(table.getName()).append("\n");
+        output.append(prefix).append("table: ").append(table.getName()).append("\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
             return output.toString();
         }
 
         if (null != sortColumn) {
-            output.append(prefix).append("SORT COLUMN: ").append(sortColumn).append("\n");
+            output.append(prefix).append("sort column: ").append(sortColumn).append("\n");
         }
 
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("LOCAL_PREDICATES: ").append(getExplainString(conjuncts)).append("\n");
+            output.append(prefix).append("local predicates:\n")
+                    .append(getExplainString(conjuncts, prefix)).append("\n");
         }
-        output.append(prefix).append("REMOTE_PREDICATES: ").append(queryBuilder.toJson()).append("\n");
+        output.append(prefix).append("remote predicates: ").append(queryBuilder.toJson()).append("\n");
         String indexName = table.getIndexName();
         String typeName = table.getMappingType();
         output.append(prefix).append(String.format("ES index/type: %s/%s", indexName, typeName)).append("\n");
@@ -348,7 +349,7 @@ public class EsScanNode extends ExternalScanNode {
             String topnFilterSources = String.join(",",
                     topnFilterSortNodes.stream()
                             .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
-            output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
+            output.append(prefix).append("topn opt:").append(topnFilterSources).append("\n");
         }
         return output.toString();
     }

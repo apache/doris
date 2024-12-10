@@ -244,16 +244,18 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         }
 
         if (!joinConjuncts.isEmpty()) {
-            output.append(detailPrefix).append("join conjuncts: ").append(getExplainString(joinConjuncts)).append("\n");
+            output.append(detailPrefix).append("join conjuncts:\n")
+                    .append(getExplainString(joinConjuncts, detailPrefix)).append("\n");
         }
 
         if (markJoinConjuncts != null && !markJoinConjuncts.isEmpty()) {
-            output.append(detailPrefix).append("mark join predicates: ")
-                    .append(getExplainString(markJoinConjuncts)).append("\n");
+            output.append(detailPrefix).append("mark join predicates:\n")
+                    .append(getExplainString(markJoinConjuncts, detailPrefix)).append("\n");
         }
 
         if (!conjuncts.isEmpty()) {
-            output.append(detailPrefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
+            output.append(detailPrefix).append("predicates:\n")
+                    .append(getExplainString(conjuncts, detailPrefix)).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(detailPrefix).append("runtime filters: ");

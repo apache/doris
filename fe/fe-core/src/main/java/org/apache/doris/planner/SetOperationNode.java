@@ -426,7 +426,8 @@ public abstract class SetOperationNode extends PlanNode {
         // A SetOperationNode may have predicates if a union is set operation inside an inline view,
         // and the enclosing select stmt has predicates referring to the inline view.
         if (CollectionUtils.isNotEmpty(conjuncts)) {
-            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
+            output.append(prefix).append("predicates:\n")
+                    .append(getExplainString(conjuncts, prefix)).append("\n");
         }
         if (CollectionUtils.isNotEmpty(constExprLists)) {
             output.append(prefix).append("constant exprs: ").append("\n");

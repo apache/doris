@@ -1404,8 +1404,8 @@ public class OlapScanNode extends ScanNode {
         }
 
         if (!CollectionUtils.isEmpty(rewrittenProjectList)) {
-            output.append(prefix).append("rewrittenProjectList: ").append(
-                    getExplainString(rewrittenProjectList)).append("\n");
+            output.append(prefix).append("rewrittenProjectList:\n").append(
+                    getExplainString(rewrittenProjectList, prefix)).append("\n");
         }
 
         return output.toString();

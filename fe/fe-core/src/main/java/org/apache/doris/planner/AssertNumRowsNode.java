@@ -96,7 +96,8 @@ public class AssertNumRowsNode extends PlanNode {
                 .append(assertion).append(" ").append(desiredNumOfRows).append("\n");
 
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
+            output.append(prefix).append("predicates:\n")
+                    .append(getExplainString(conjuncts, prefix)).append("\n");
         }
 
         return output.toString();

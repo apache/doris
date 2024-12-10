@@ -157,23 +157,23 @@ public class DataStreamSink extends DataSink {
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
-        strBuilder.append(prefix).append("STREAM DATA SINK\n");
-        strBuilder.append(prefix).append("  EXCHANGE ID: ").append(exchNodeId);
+        strBuilder.append(prefix).append("stream data sink\n");
+        strBuilder.append(prefix).append("  exchange id: ").append(exchNodeId);
         if (outputPartition != null) {
             strBuilder.append("\n").append(prefix).append("  ").append(outputPartition.getExplainString(explainLevel));
         }
         if (!conjuncts.isEmpty()) {
             Expr expr = PlanNode.convertConjunctsToAndCompoundPredicate(conjuncts);
-            strBuilder.append(prefix).append("  CONJUNCTS: ").append(expr.toSql()).append("\n");
+            strBuilder.append(prefix).append("  conjuncts: ").append(expr.toSql()).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             strBuilder.append(prefix).append("  runtime filters: ");
             strBuilder.append(getRuntimeFilterExplainString(false, false));
         }
         if (!CollectionUtils.isEmpty(projections)) {
-            strBuilder.append(prefix).append("  PROJECTIONS: ")
-                    .append(PlanNode.getExplainString(projections)).append("\n");
-            strBuilder.append(prefix).append("  PROJECTION TUPLE: ").append(outputTupleDesc.getId());
+            strBuilder.append(prefix).append("  projections:\n")
+                    .append(PlanNode.getExplainString(projections, prefix)).append("\n");
+            strBuilder.append(prefix).append("  projection tuple: ").append(outputTupleDesc.getId());
             strBuilder.append("\n");
         }
 

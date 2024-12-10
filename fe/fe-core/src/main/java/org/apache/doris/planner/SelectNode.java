@@ -105,7 +105,8 @@ public class SelectNode extends PlanNode {
         }
         StringBuilder output = new StringBuilder();
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
+            output.append(prefix).append("predicates:\n")
+                    .append(getExplainString(conjuncts, prefix)).append("\n");
         }
         return output.toString();
     }

@@ -94,7 +94,8 @@ public abstract class FileScanNode extends ExternalScanNode {
         StringBuilder output = new StringBuilder();
         output.append(prefix).append("table: ").append(desc.getTable().getName()).append("\n");
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
+            output.append(prefix).append("predicates:\n")
+                    .append(getExplainString(conjuncts, prefix)).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");
