@@ -44,6 +44,7 @@ public class BeSelectionPolicy {
     public boolean needLoadAvailable = false;
     // Resource tag. Empty means no need to consider resource tag.
     public Set<Tag> resourceTags = Sets.newHashSet();
+    public boolean allowResourceTagDowngrade = false;
     // storage medium. null means no need to consider storage medium.
     public TStorageMedium storageMedium = null;
     // Check if disk usage reaches limit. false means no need to check.
@@ -92,6 +93,11 @@ public class BeSelectionPolicy {
             return this;
         }
 
+        public Builder setAllowResourceTagDowngrade(boolean allowResourceTagDowngrade) {
+            policy.allowResourceTagDowngrade = allowResourceTagDowngrade;
+            return this;
+        }
+
         public Builder setStorageMedium(TStorageMedium medium) {
             policy.storageMedium = medium;
             return this;
@@ -137,7 +143,7 @@ public class BeSelectionPolicy {
         }
     }
 
-    private boolean isMatch(Backend backend) {
+    private boolean isMatch(Backend backend, boolean needResourceTagAvail) {
         // Compute node is only used when preferComputeNode is set.
         if (!preferComputeNode && backend.isComputeNode()) {
             if (LOG.isDebugEnabled()) {
@@ -146,10 +152,11 @@ public class BeSelectionPolicy {
             return false;
         }
 
-        if (needScheduleAvailable && !backend.isScheduleAvailable() || needQueryAvailable && !backend.isQueryAvailable()
-                || needLoadAvailable && !backend.isLoadAvailable() || !resourceTags.isEmpty() && !resourceTags.contains(
-                backend.getLocationTag()) || storageMedium != null && !backend.hasSpecifiedStorageMedium(
-                storageMedium)) {
+        if (needScheduleAvailable && !backend.isScheduleAvailable()
+                || needQueryAvailable && !backend.isQueryAvailable()
+                || needLoadAvailable && !backend.isLoadAvailable()
+                || (needResourceTagAvail && !resourceTags.isEmpty() && !resourceTags.contains(backend.getLocationTag()))
+                || storageMedium != null && !backend.hasSpecifiedStorageMedium(storageMedium)) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Backend [{}] is not match by Other rules, policy: [{}]", backend.getHost(), this);
             }
@@ -176,7 +183,16 @@ public class BeSelectionPolicy {
     }
 
     public List<Backend> getCandidateBackends(Collection<Backend> backends) {
-        List<Backend> filterBackends = backends.stream().filter(this::isMatch).collect(Collectors.toList());
+        boolean needResourceTagAvail = !this.allowResourceTagDowngrade || backends.stream()
+                .filter(backend -> resourceTags.contains(backend.getLocationTag()) && backend.isAlive())
+                .count() != 0;
+        List<Backend> filterBackends = new ArrayList<>();
+        for (Backend be : backends) {
+            if (this.isMatch(be, needResourceTagAvail)) {
+                filterBackends.add(be);
+            }
+        }
+
         List<Backend> preLocationFilterBackends = filterBackends.stream()
                 .filter(iterm -> preferredLocations.contains(iterm.getHost())).collect(Collectors.toList());
         // If preLocations were chosen, use the preLocation backends. Otherwise we just ignore this filter.
@@ -221,8 +237,9 @@ public class BeSelectionPolicy {
 
     @Override
     public String toString() {
-        return String.format("computeNode=%s | query=%s | load=%s | schedule=%s | tags=%s | medium=%s",
+        return String.format("computeNode=%s | query=%s | load=%s | schedule=%s | tags=%s(%s) | medium=%s",
                 preferComputeNode, needQueryAvailable, needLoadAvailable, needScheduleAvailable,
-                resourceTags.stream().map(tag -> tag.toString()).collect(Collectors.joining(",")), storageMedium);
+                resourceTags.stream().map(tag -> tag.toString()).collect(Collectors.joining(",")),
+                this.allowResourceTagDowngrade, storageMedium);
     }
 }
