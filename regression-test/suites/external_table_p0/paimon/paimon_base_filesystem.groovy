@@ -17,9 +17,8 @@
 
 suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_docker_doris") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
-    // if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-    if (true) {
-        // temporary comment out, will add back when env is ready
+
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return
     }
 
@@ -76,9 +75,9 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
             create catalog if not exists ${catalog_obs} properties (
                 "type" = "paimon",
                 "warehouse" = "obs://doris-build/piamon",
-                "oss.access_key"="${hwYunAk}",
-                "oss.secret_key"="${hwYunSk}",
-                "oss.endpoint"="obs.cn-north-4.myhuaweicloud.com"
+                "obs.access_key"="${hwYunAk}",
+                "obs.secret_key"="${hwYunSk}",
+                "obs.endpoint"="obs.cn-north-4.myhuaweicloud.com"
             );
         """
         logger.info("catalog " + catalog_cos + " created")
