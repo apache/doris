@@ -53,6 +53,7 @@
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
+#include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/table/table_format_reader.h"
 
 namespace cctz {
@@ -546,8 +547,8 @@ Status IcebergParquetReader::init_reader(
     _col_id_name_map = col_id_name_map;
     _file_col_names = file_col_names;
     _colname_to_value_range = colname_to_value_range;
-    auto parquet_meta_kv = parquet_reader->get_metadata_key_values();
-    RETURN_IF_ERROR(_gen_col_name_maps(parquet_meta_kv));
+    FieldDescriptor field_desc = parquet_reader->get_file_metadata_schema();
+    RETURN_IF_ERROR(_gen_col_name_maps(field_desc));
     _gen_file_col_names();
     _gen_new_colname_to_value_range();
     parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
@@ -672,39 +673,20 @@ Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete
  * 1. col1_new -> col1
  * 2. col1 -> col1_new
  */
-Status IcebergParquetReader::_gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv) {
-    for (int i = 0; i < parquet_meta_kv.size(); ++i) {
-        tparquet::KeyValue kv = parquet_meta_kv[i];
-        if (kv.key == "iceberg.schema") {
-            _has_iceberg_schema = true;
-            std::string schema = kv.value;
-            rapidjson::Document json;
-            json.Parse(schema.c_str());
-
-            if (json.HasMember("fields")) {
-                rapidjson::Value& fields = json["fields"];
-                if (fields.IsArray()) {
-                    for (int j = 0; j < fields.Size(); j++) {
-                        rapidjson::Value& e = fields[j];
-                        rapidjson::Value& id = e["id"];
-                        rapidjson::Value& name = e["name"];
-                        std::string name_string = name.GetString();
-                        transform(name_string.begin(), name_string.end(), name_string.begin(),
-                                  ::tolower);
-                        auto iter = _col_id_name_map.find(id.GetInt());
-                        if (iter != _col_id_name_map.end()) {
-                            _table_col_to_file_col.emplace(iter->second, name_string);
-                            _file_col_to_table_col.emplace(name_string, iter->second);
-                            if (name_string != iter->second) {
-                                _has_schema_change = true;
-                            }
-                        } else {
-                            _has_schema_change = true;
-                        }
-                    }
+Status IcebergParquetReader::_gen_col_name_maps(const FieldDescriptor& field_desc) {
+    if (field_desc.has_parquet_field_id()) {
+        for (const auto& pair : _col_id_name_map) {
+            auto name_slice = field_desc.get_column_name_from_field_id(pair.first);
+            if (name_slice.get_size() == 0) {
+                _has_schema_change = true;
+            } else {
+                auto name_string = name_slice.to_string();
+                _table_col_to_file_col.emplace(pair.second, name_string);
+                _file_col_to_table_col.emplace(name_string, pair.second);
+                if (name_string != pair.second) {
+                    _has_schema_change = true;
                 }
             }
-            break;
         }
     }
     return Status::OK();

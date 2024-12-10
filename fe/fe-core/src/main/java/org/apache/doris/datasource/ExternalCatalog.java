@@ -39,6 +39,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -143,6 +144,7 @@ public abstract class ExternalCatalog
 
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
+    protected PreExecutionAuthenticator preExecutionAuthenticator;
 
     public ExternalCatalog() {
     }
@@ -912,5 +914,9 @@ public abstract class ExternalCatalog
 
     public String getQualifiedName(String dbName) {
         return String.join(".", name, dbName);
+    }
+
+    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
+        return preExecutionAuthenticator;
     }
 }
