@@ -404,6 +404,13 @@ void Daemon::wg_weighted_memory_ratio_refresh_thread() {
     }
 }
 
+void Daemon::calculate_workload_group_metrics_thread() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(config::workload_group_metrics_interval_ms))) {
+        ExecEnv::GetInstance()->workload_group_mgr()->refresh_workload_group_metrics();
+    }
+}
+
 void Daemon::start() {
     Status st;
     st = Thread::create(
@@ -446,6 +453,12 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "wg_weighted_memory_ratio_refresh_thread",
             [this]() { this->wg_weighted_memory_ratio_refresh_thread(); },
+            &_threads.emplace_back());
+    CHECK(st.ok()) << st;
+
+    st = Thread::create(
+            "Daemon", "workload_group_metrics",
+            [this]() { this->calculate_workload_group_metrics_thread(); },
             &_threads.emplace_back());
     CHECK(st.ok()) << st;
 }

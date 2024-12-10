@@ -131,7 +131,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             cpu_time_stop_watch.start();
             Defer defer {[&]() {
                 if (state && state->get_query_ctx()) {
-                    state->get_query_ctx()->update_wg_cpu_adder(cpu_time_stop_watch.elapsed_time());
+                    state->get_query_ctx()->update_cpu_time(cpu_time_stop_watch.elapsed_time());
                 }
             }};
             if (!_eos && _data_queue.empty() && _writer_status.ok()) {

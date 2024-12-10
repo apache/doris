@@ -35,6 +35,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/workload_group/workload_group_metrics.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
@@ -71,18 +72,11 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_
           _need_create_query_thread_pool(need_create_query_thread_pool) {
     std::vector<DataDirInfo>& data_dir_list = io::BeConfDataDirReader::be_config_data_dir_list;
     for (const auto& data_dir : data_dir_list) {
-        _scan_io_throttle_map[data_dir.path] =
-                std::make_shared<IOThrottle>(_name, data_dir.bvar_name + "_read_bytes");
+        _scan_io_throttle_map[data_dir.path] = std::make_shared<IOThrottle>(data_dir.bvar_name);
     }
-    _remote_scan_io_throttle = std::make_shared<IOThrottle>(_name, "remote_read_bytes");
-    _mem_used_status = std::make_unique<bvar::Status<int64_t>>(_name, "memory_used", 0);
-    _cpu_usage_adder = std::make_unique<bvar::Adder<uint64_t>>(_name, "cpu_usage_adder");
-    _cpu_usage_per_second = std::make_unique<bvar::PerSecond<bvar::Adder<uint64_t>>>(
-            _name, "cpu_usage", _cpu_usage_adder.get(), 10);
-    _total_local_scan_io_adder =
-            std::make_unique<bvar::Adder<size_t>>(_name, "total_local_read_bytes");
-    _total_local_scan_io_per_second = std::make_unique<bvar::PerSecond<bvar::Adder<size_t>>>(
-            _name, "total_local_read_bytes_per_second", _total_local_scan_io_adder.get(), 1);
+    _remote_scan_io_throttle = std::make_shared<IOThrottle>();
+
+    _wg_metrics = std::make_shared<WorkloadGroupMetrics>(this);
 }
 
 std::string WorkloadGroup::debug_string() const {
@@ -162,7 +156,7 @@ int64_t WorkloadGroup::make_memory_tracker_snapshots(
         }
     }
     refresh_memory(used_memory);
-    _mem_used_status->set_value(used_memory);
+    _wg_metrics->update_memory_used_bytes(used_memory);
     return used_memory;
 }
 
@@ -638,16 +632,20 @@ std::shared_ptr<IOThrottle> WorkloadGroup::get_remote_scan_io_throttle() {
     return _remote_scan_io_throttle;
 }
 
-void WorkloadGroup::update_cpu_adder(int64_t delta_cpu_time) {
-    (*_cpu_usage_adder) << (uint64_t)delta_cpu_time;
+void WorkloadGroup::update_cpu_time(int64_t delta_cpu_time) {
+    _wg_metrics->update_cpu_time_nanos(delta_cpu_time);
 }
 
-void WorkloadGroup::update_total_local_scan_io_adder(size_t scan_bytes) {
-    (*_total_local_scan_io_adder) << scan_bytes;
+void WorkloadGroup::update_local_scan_io(std::string path, size_t scan_bytes) {
+    _wg_metrics->update_local_scan_io_bytes(path, (uint64_t)scan_bytes);
 }
 
-int64_t WorkloadGroup::get_remote_scan_bytes_per_second() {
-    return _remote_scan_io_throttle->get_bvar_io_per_second();
+void WorkloadGroup::update_remote_scan_io(size_t scan_bytes) {
+    _wg_metrics->update_remote_scan_io_bytes((uint64_t)scan_bytes);
+}
+
+int64_t WorkloadGroup::get_mem_used() {
+    return _total_mem_used;
 }
 
 void WorkloadGroup::try_stop_schedulers() {

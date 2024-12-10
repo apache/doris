@@ -46,6 +46,7 @@ private:
     void cache_prune_stale_thread();
     void report_runtime_query_statistics_thread();
     void wg_weighted_memory_ratio_refresh_thread();
+    void calculate_workload_group_metrics_thread();
 
     CountDownLatch _stop_background_threads_latch;
     std::vector<scoped_refptr<Thread>> _threads;
