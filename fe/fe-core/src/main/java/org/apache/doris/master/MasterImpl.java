@@ -681,9 +681,9 @@ public class MasterImpl {
             CalcDeleteBitmapTask calcDeleteBitmapTask = (CalcDeleteBitmapTask) task;
             if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
                 calcDeleteBitmapTask.countDownToZero(request.getTaskStatus().getStatusCode(),
-                        "backend: " + task.getBackendId() + ", error_tablet_size: "
-                                + request.getErrorTabletIdsSize() + ", err_msg: "
-                                + request.getTaskStatus().getErrorMsgs().toString());
+                        "backend: " + task.getBackendId() + ", error_tablet_size: " + request.getErrorTabletIdsSize()
+                                + ", error_tablets: " + request.getErrorTabletIds()
+                                + ", err_msg: " + request.getTaskStatus().getErrorMsgs().toString());
             } else if (request.isSetRespPartitions()
                     && calcDeleteBitmapTask.isFinishRequestStale(request.getRespPartitions())) {
                 LOG.warn("get staled response from backend: {}, report version: {}. calcDeleteBitmapTask's"

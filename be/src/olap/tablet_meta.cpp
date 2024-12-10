@@ -57,6 +57,7 @@ using std::unordered_map;
 using std::vector;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 TabletMetaSharedPtr TabletMeta::create(
@@ -106,7 +107,7 @@ TabletMeta::TabletMeta()
           _delete_bitmap(new DeleteBitmap(_tablet_id)) {}
 
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id,
-                       int64_t replica_id, int32_t schema_hash, uint64_t shard_id,
+                       int64_t replica_id, int32_t schema_hash, int32_t shard_id,
                        const TTabletSchema& tablet_schema, uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                        TabletUid tablet_uid, TTabletType::type tabletType,
@@ -203,6 +204,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     case TInvertedIndexFileStorageFormat::V2:
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
         break;
+    case TInvertedIndexFileStorageFormat::V3:
+        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+        break;
     default:
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
         break;
@@ -216,8 +220,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_sort_type(SortType::LEXICAL);
     }
     schema->set_sort_col_num(tablet_schema.sort_col_num);
-    for (const auto& i : tablet_schema.cluster_key_idxes) {
-        schema->add_cluster_key_idxes(i);
+    for (const auto& i : tablet_schema.cluster_key_uids) {
+        schema->add_cluster_key_uids(i);
     }
     tablet_meta_pb.set_in_restore_mode(false);
 
@@ -571,7 +575,8 @@ void TabletMeta::serialize(string* meta_binary) {
 
 Status TabletMeta::deserialize(std::string_view meta_binary) {
     TabletMetaPB tablet_meta_pb;
-    bool parsed = tablet_meta_pb.ParseFromArray(meta_binary.data(), meta_binary.size());
+    bool parsed = tablet_meta_pb.ParseFromArray(meta_binary.data(),
+                                                static_cast<int32_t>(meta_binary.size()));
     if (!parsed) {
         return Status::Error<INIT_FAILED>("parse tablet meta failed");
     }
@@ -664,7 +669,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         int seg_maps_size = tablet_meta_pb.delete_bitmap().segment_delete_bitmaps_size();
         CHECK(rst_ids_size == seg_ids_size && seg_ids_size == seg_maps_size &&
               seg_maps_size == versions_size);
-        for (size_t i = 0; i < rst_ids_size; ++i) {
+        for (int i = 0; i < rst_ids_size; ++i) {
             RowsetId rst_id;
             rst_id.init(tablet_meta_pb.delete_bitmap().rowset_ids(i));
             auto seg_id = tablet_meta_pb.delete_bitmap().segment_ids(i);
@@ -779,12 +784,6 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             time_series_compaction_empty_rowsets_threshold());
     tablet_meta_pb->set_time_series_compaction_level_threshold(
             time_series_compaction_level_threshold());
-}
-
-int64_t TabletMeta::mem_size() const {
-    auto size = sizeof(TabletMeta);
-    size += _schema->mem_size();
-    return size;
 }
 
 void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) {
@@ -1312,4 +1311,5 @@ std::string tablet_state_name(TabletState state) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

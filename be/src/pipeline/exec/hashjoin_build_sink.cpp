@@ -166,15 +166,26 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                 SCOPED_TIMER(_runtime_filter_compute_timer);
                 _runtime_filter_slots->insert(block);
             }
+        } else if ((p._shared_hashtable_controller && !p._shared_hash_table_context->signaled) ||
+                   (p._shared_hash_table_context &&
+                    !p._shared_hash_table_context->complete_build_stage)) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "build_sink::close meet error state");
+        } else {
+            RETURN_IF_ERROR(
+                    _runtime_filter_slots->copy_from_shared_context(p._shared_hash_table_context));
         }
 
         SCOPED_TIMER(_publish_runtime_filter_timer);
         RETURN_IF_ERROR(_runtime_filter_slots->publish(state, !_should_build_hash_table));
     } catch (Exception& e) {
         return Status::InternalError(
-                "rf process meet error: {}, wake_up_by_downstream: {}, should_build_hash_table: {}",
-                e.to_string(), state->get_task()->wake_up_by_downstream(),
-                _should_build_hash_table);
+                "rf process meet error: {}, wake_up_by_downstream: {}, should_build_hash_table: "
+                "{}, _finish_dependency: {}, complete_build_stage: {}, shared_hash_table_signaled: "
+                "{}",
+                e.to_string(), state->get_task()->wake_up_by_downstream(), _should_build_hash_table,
+                _finish_dependency->debug_string(),
+                p._shared_hash_table_context && !p._shared_hash_table_context->complete_build_stage,
+                p._shared_hashtable_controller && !p._shared_hash_table_context->signaled);
     }
     return Base::close(state, exec_status);
 }
@@ -544,9 +555,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         if (!_shared_hash_table_context->status.ok()) {
             return _shared_hash_table_context->status;
         }
-
-        RETURN_IF_ERROR(local_state._runtime_filter_slots->copy_from_shared_context(
-                _shared_hash_table_context));
 
         local_state.profile()->add_info_string(
                 "SharedHashTableFrom",

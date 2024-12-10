@@ -235,7 +235,7 @@ public:
         if (first_init) {
             DCHECK(argument_size > 1);
             const auto& col =
-                    assert_cast<const ColVecData&, TypeCheckOnRelease::DISABLE>(*columns[2]);
+                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[2]);
             std::string expr = col.get_data_at(row_num).to_string();
             bitmap_expr_cal.bitmap_calculation_init(expr);
             first_init = false;

@@ -32,6 +32,7 @@ class RowDescriptor;
 class TExpr;
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs& output_expr_ctxs,
                                      std::shared_ptr<pipeline::Dependency> dep,
@@ -225,7 +226,7 @@ void AsyncResultWriter::_return_free_block(std::unique_ptr<Block> b) {
 }
 
 std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Block* block,
-                                                          int rows) {
+                                                          size_t rows) {
     std::unique_ptr<Block> b;
     if (!_free_blocks.try_dequeue(b)) {
         b = block->create_same_struct_block(rows, true);

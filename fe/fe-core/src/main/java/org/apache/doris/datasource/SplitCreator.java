@@ -23,6 +23,6 @@ import org.apache.doris.spi.Split;
 import java.util.List;
 
 public interface SplitCreator {
-    Split create(LocationPath path, long start, long length, long fileLength,
+    Split create(LocationPath path, long start, long length, long fileLength, long fileSplitSize,
             long modificationTime, String[] hosts, List<String> partitionValues);
 }

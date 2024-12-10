@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <functional>
 #include <string>
+#include <unordered_set>
 
 #include "common/status.h"
 #include "http/http_headers.h"
@@ -80,6 +81,8 @@ public:
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
+
+    void set_speed_limit();
 
     // TODO(zc): support set header
     // void set_header(const std::string& key, const std::string& value) {
@@ -141,6 +144,8 @@ public:
     // helper function to download a file, you can call this function to download
     // a file to local_path
     Status download(const std::string& local_path);
+    Status download_multi_files(const std::string& local_dir,
+                                const std::unordered_set<std::string>& expected_files);
 
     Status execute_post_request(const std::string& payload, std::string* response);
 

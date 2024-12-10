@@ -376,7 +376,7 @@ Status BaseTablet::calc_delete_bitmap_between_segments(
         seq_col_length = _tablet_meta->tablet_schema()->column(seq_col_idx).length() + 1;
     }
     size_t rowid_length = 0;
-    if (!_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+    if (!_tablet_meta->tablet_schema()->cluster_key_uids().empty()) {
         rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
     }
 
@@ -438,7 +438,6 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     StringRef value = string_column->get_data_at(0);
     values = value.to_string();
     if (write_to_cache) {
-        StringRef value = string_column->get_data_at(0);
         RowCache::instance()->insert({tablet_id(), encoded_key}, Slice {value.data, value.size});
     }
     return Status::OK();
@@ -461,7 +460,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         seq_col_length = schema->column(schema->sequence_col_idx()).length() + 1;
     }
     size_t rowid_length = 0;
-    if (with_rowid && !schema->cluster_key_idxes().empty()) {
+    if (with_rowid && !schema->cluster_key_uids().empty()) {
         rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
     }
     Slice key_without_seq =
@@ -476,12 +475,12 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         int num_segments = cast_set<int>(rs->num_segments());
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
         std::vector<uint32_t> picked_segments;
-        for (int i = num_segments - 1; i >= 0; i--) {
-            if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
-                key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
+        for (int j = num_segments - 1; j >= 0; j--) {
+            if (key_without_seq.compare(segments_key_bounds[j].max_key()) > 0 ||
+                key_without_seq.compare(segments_key_bounds[j].min_key()) < 0) {
                 continue;
             }
-            picked_segments.emplace_back(i);
+            picked_segments.emplace_back(j);
         }
         if (picked_segments.empty()) {
             continue;
@@ -654,7 +653,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             Slice key = Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
             RowLocation loc;
             // calculate row id
-            if (!_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
+            if (!_tablet_meta->tablet_schema()->cluster_key_uids().empty()) {
                 size_t seq_col_length = 0;
                 if (_tablet_meta->tablet_schema()->has_sequence_col()) {
                     seq_col_length =
@@ -778,11 +777,11 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 
     if (config::enable_merge_on_write_correctness_check) {
         RowsetIdUnorderedSet rowsetids;
-        for (const auto& rowset : specified_rowsets) {
-            rowsetids.emplace(rowset->rowset_id());
+        for (const auto& specified_rowset : specified_rowsets) {
+            rowsetids.emplace(specified_rowset->rowset_id());
             VLOG_NOTICE << "[tabletID:" << tablet_id() << "]"
                         << "[add_sentinel_mark_to_delete_bitmap][end_version:" << end_version << "]"
-                        << "add:" << rowset->rowset_id();
+                        << "add:" << specified_rowset->rowset_id();
         }
         add_sentinel_mark_to_delete_bitmap(delete_bitmap.get(), rowsetids);
     }
@@ -892,11 +891,11 @@ Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
     std::vector<std::string> default_values;
     default_values.resize(cids.size());
     for (int i = 0; i < cids.size(); ++i) {
-        const TabletColumn& column = tablet_schema.column(cids[i]);
+        const TabletColumn& tablet_column = tablet_schema.column(cids[i]);
         vectorized::DataTypePtr type =
-                vectorized::DataTypeFactory::instance().create_data_type(column);
-        col_uid_to_idx[column.unique_id()] = i;
-        default_values[i] = column.default_value();
+                vectorized::DataTypeFactory::instance().create_data_type(tablet_column);
+        col_uid_to_idx[tablet_column.unique_id()] = i;
+        default_values[i] = tablet_column.default_value();
         serdes[i] = type->get_serde();
     }
     vectorized::JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx, block,
@@ -1326,12 +1325,12 @@ Status BaseTablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap
                 required_rowsets_arr.PushBack(value, required_rowsets_arr.GetAllocator());
             }
         } else {
-            std::vector<RowsetSharedPtr> rowsets;
+            std::vector<RowsetSharedPtr> tablet_rowsets;
             {
                 std::shared_lock meta_rlock(_meta_lock);
-                rowsets = get_rowset_by_ids(&rowset_ids);
+                tablet_rowsets = get_rowset_by_ids(&rowset_ids);
             }
-            for (const auto& rowset : rowsets) {
+            for (const auto& rowset : tablet_rowsets) {
                 rapidjson::Value value;
                 std::string version_str = rowset->get_rowset_info_str();
                 value.SetString(version_str.c_str(),
@@ -1439,12 +1438,12 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
                 txn_info->partial_update_info->max_version_in_flush_phase;
         DCHECK(max_version_in_flush_phase != -1);
         std::vector<RowsetSharedPtr> remained_rowsets;
-        for (const auto& rowset : specified_rowsets) {
-            if (rowset->end_version() <= max_version_in_flush_phase &&
-                rowset->produced_by_compaction()) {
-                rowsets_skip_alignment.emplace_back(rowset);
+        for (const auto& specified_rowset : specified_rowsets) {
+            if (specified_rowset->end_version() <= max_version_in_flush_phase &&
+                specified_rowset->produced_by_compaction()) {
+                rowsets_skip_alignment.emplace_back(specified_rowset);
             } else {
-                remained_rowsets.emplace_back(rowset);
+                remained_rowsets.emplace_back(specified_rowset);
             }
         }
         if (!rowsets_skip_alignment.empty()) {
@@ -1604,10 +1603,6 @@ Status BaseTablet::check_rowid_conversion(
         VLOG_DEBUG << "check_rowid_conversion, location_map is empty";
         return Status::OK();
     }
-    if (!tablet_schema()->cluster_key_idxes().empty()) {
-        VLOG_DEBUG << "skip check_rowid_conversion for mow tables with cluster keys";
-        return Status::OK();
-    }
     std::vector<segment_v2::SegmentSharedPtr> dst_segments;
 
     RETURN_IF_ERROR(
@@ -1762,7 +1757,7 @@ std::vector<RowsetSharedPtr> BaseTablet::get_snapshot_rowset(bool include_stale_
 
 void BaseTablet::calc_consecutive_empty_rowsets(
         std::vector<RowsetSharedPtr>* empty_rowsets,
-        const std::vector<RowsetSharedPtr>& candidate_rowsets, int limit) {
+        const std::vector<RowsetSharedPtr>& candidate_rowsets, int64_t limit) {
     int len = cast_set<int>(candidate_rowsets.size());
     for (int i = 0; i < len - 1; ++i) {
         auto rowset = candidate_rowsets[i];
