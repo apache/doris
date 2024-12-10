@@ -116,8 +116,16 @@ public class ExportMgr {
                     job.getBrokerDesc());
         }
         // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
-        for (int i = 0; i < job.getCopiedTaskExecutors().size(); i++) {
-            Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(job.getCopiedTaskExecutors().get(i));
+        try {
+            for (int i = 0; i < job.getCopiedTaskExecutors().size(); i++) {
+                Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(job.getCopiedTaskExecutors().get(i));
+            }
+        } catch (Exception e) {
+            // If there happens exceptions in `addMemoryTask`
+            // we must update the state of export job to `CANCELLED`
+            // because we have added this export in `ExportMgr`
+            job.updateExportJobState(ExportJobState.CANCELLED, 0L, null,
+                    ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
         }
         LOG.info("add export job. {}", job);
     }
