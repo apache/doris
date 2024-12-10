@@ -703,7 +703,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                         auto index_file = InvertedIndexDescriptor::get_index_file_path_v1(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(
                                         segment_file_path),
-                                index_id, "");
+                                index_id, index->get_index_suffix());
                         auto snapshot_segment_index_file_path =
                                 fmt::format("{}/{}_{}_{}.binlog-index", schema_full_path, rowset_id,
                                             segment_index, index_id);
