@@ -463,6 +463,10 @@ Status StorageEngine::_check_file_descriptor_number() {
                      << ", use default configuration instead.";
         return Status::OK();
     }
+    if (doris::config::skip_check_ulimit) {
+        LOG(INFO) << "the ‘ulimit’ value check is skipped";
+        return Status::OK();
+    }
     if (l.rlim_cur < config::min_file_descriptor_number) {
         LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
                    << ". Please use (ulimit -n) to set a value equal or greater than "

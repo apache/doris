@@ -114,6 +114,9 @@ DEFINE_mBool(enable_use_cgroup_memory_info, "true");
 // it will be set to physical memory size.
 DEFINE_String(mem_limit, "90%");
 
+// if true, skip check storage_engine ulimit value
+DEFINE_mBool(skip_check_ulimit, "false");
+
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
