@@ -503,6 +503,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
+        return initSchemaAndUpdateTime();
+    }
+
+    public Optional<SchemaCacheValue> initSchemaAndUpdateTime() {
         org.apache.hadoop.hive.metastore.api.Table table = ((HMSExternalCatalog) catalog).getClient()
                 .getTable(dbName, name);
         // try to use transient_lastDdlTime from hms client
