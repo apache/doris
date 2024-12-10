@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "common/status.h"
 #include "jni.h"
 #include "util/metrics.h"
 
