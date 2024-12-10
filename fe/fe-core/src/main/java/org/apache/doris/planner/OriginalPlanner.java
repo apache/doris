@@ -80,10 +80,6 @@ public class OriginalPlanner extends Planner {
         this.analyzer = analyzer;
     }
 
-    public boolean isBlockQuery() {
-        return isBlockQuery;
-    }
-
     public PlannerContext getPlannerContext() {
         return plannerContext;
     }
@@ -274,17 +270,6 @@ public class OriginalPlanner extends Planner {
 
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
-            if (queryStmt.getSortInfo() != null || selectStmt.getAggInfo() != null) {
-                isBlockQuery = true;
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("this is block query");
-                }
-            } else {
-                isBlockQuery = false;
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("this isn't block query");
-                }
-            }
             // Check SelectStatement if optimization condition satisfied
             if (selectStmt.isPointQueryShortCircuit()) {
                 // Optimize for point query like: SELECT * FROM t1 WHERE pk1 = 1 and pk2 = 2
