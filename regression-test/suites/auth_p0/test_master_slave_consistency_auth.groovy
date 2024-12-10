@@ -315,7 +315,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
 
         // resource group
-        connect(user, ="${pwd}", url_tmp1) {
+        connect(user, "${pwd}", url_tmp1) {
             def res = sql """SHOW RESOURCES;"""
             assertTrue(res == [])
         }
