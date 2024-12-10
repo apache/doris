@@ -857,8 +857,8 @@ public class HashJoinNode extends JoinNodeBase {
                     .append(getExplainString(conjuncts, detailPrefix)).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
-            output.append(detailPrefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(true));
+            output.append(detailPrefix).append("runtime filters:\n");
+            output.append(getRuntimeFilterExplainString(true, detailPrefix));
         }
         output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         if (outputTupleDesc != null) {

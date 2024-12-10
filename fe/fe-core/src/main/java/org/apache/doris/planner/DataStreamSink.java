@@ -157,7 +157,7 @@ public class DataStreamSink extends DataSink {
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
-        strBuilder.append(prefix).append("stream data sink\n");
+        strBuilder.append(prefix).append("STREAM_DATA_SINK\n");
         strBuilder.append(prefix).append("  exchange id: ").append(exchNodeId);
         if (outputPartition != null) {
             strBuilder.append("\n").append(prefix).append("  ").append(outputPartition.getExplainString(explainLevel));

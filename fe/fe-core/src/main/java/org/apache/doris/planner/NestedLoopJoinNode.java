@@ -259,7 +259,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(detailPrefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(true));
+            output.append(getRuntimeFilterExplainString(true, detailPrefix));
         }
         output.append(detailPrefix).append("is output left side only: ").append(isOutputLeftSideOnly).append("\n");
         output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");

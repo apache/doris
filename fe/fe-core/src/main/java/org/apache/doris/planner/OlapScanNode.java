@@ -1374,8 +1374,8 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
-            output.append(prefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(false));
+            output.append(prefix).append("runtime filters:\n");
+            output.append(getRuntimeFilterExplainString(false, prefix));
         }
 
         String selectedPartitions = getSelectedPartitionIds().stream().sorted()

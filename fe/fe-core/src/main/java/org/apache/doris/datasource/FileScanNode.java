@@ -98,8 +98,8 @@ public abstract class FileScanNode extends ExternalScanNode {
                     .append(getExplainString(conjuncts, prefix)).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
-            output.append(prefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(false));
+            output.append(prefix).append("runtime filters:\n");
+            output.append(getRuntimeFilterExplainString(false, prefix));
         }
 
         output.append(prefix);

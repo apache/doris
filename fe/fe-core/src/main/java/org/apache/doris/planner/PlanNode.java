@@ -1206,19 +1206,24 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         runtimeFilters.clear();
     }
 
-    protected String getRuntimeFilterExplainString(boolean isBuildNode, boolean isBrief) {
+    protected String getRuntimeFilterExplainString(boolean isBuildNode, boolean isBrief, String prefix) {
         if (runtimeFilters.isEmpty()) {
             return "";
         }
         List<String> filtersStr = new ArrayList<>();
         for (RuntimeFilter filter : runtimeFilters) {
-            filtersStr.add(filter.getExplainString(isBuildNode, isBrief, getId()));
+            filtersStr.add(prefix + "  " + filter.getExplainString(isBuildNode, isBrief, getId()));
         }
-        return Joiner.on(", ").join(filtersStr) + "\n";
+        return Joiner.on("\n").join(filtersStr) + "\n";
     }
 
+    protected String getRuntimeFilterExplainString(boolean isBuildNode, String prefix) {
+        return getRuntimeFilterExplainString(isBuildNode, false, prefix);
+    }
+
+    // For test only
     protected String getRuntimeFilterExplainString(boolean isBuildNode) {
-        return getRuntimeFilterExplainString(isBuildNode, false);
+        return getRuntimeFilterExplainString(isBuildNode, false, "");
     }
 
     /**
