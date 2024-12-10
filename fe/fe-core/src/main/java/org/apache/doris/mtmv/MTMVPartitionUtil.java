@@ -212,7 +212,7 @@ public class MTMVPartitionUtil {
     public static boolean isMTMVSync(MTMVRefreshContext context, Set<BaseTableInfo> tables, Set<String> excludeTables)
             throws AnalysisException {
         MTMV mtmv = context.getMtmv();
-        Set<String> partitionNames = mtmv.getPartitionNames();
+        Set<String> partitionNames = mtmv.getPartitionNamesNotCopy();
         for (String partitionName : partitionNames) {
             if (!isMTMVPartitionSync(context, partitionName, tables,
                     excludeTables)) {

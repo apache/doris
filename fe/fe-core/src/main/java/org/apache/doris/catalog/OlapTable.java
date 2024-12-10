@@ -1398,6 +1398,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return Sets.newHashSet(nameToPartition.keySet());
     }
 
+    public Set<String> getPartitionNamesNotCopy() {
+        return nameToPartition.keySet();
+    }
+
     // for those elements equal in partiton ids, get their names.
     public List<String> getEqualPartitionNames(List<Long> partitionIds1, List<Long> partitionIds2) {
         List<String> names = new ArrayList<String>();
