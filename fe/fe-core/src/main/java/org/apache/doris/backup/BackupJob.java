@@ -624,7 +624,6 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
         // snapshot partitions
         for (Partition partition : partitions) {
-            LOG.info("walter add partition to backup job {}, id {}", partition.getName(), partition.getId());
             long visibleVersion = partition.getVisibleVersion();
             List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.VISIBLE);
             for (MaterializedIndex index : indexes) {
