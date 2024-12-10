@@ -156,6 +156,8 @@ public:
         _query_statistics = query_statistics;
     }
 
+    int64_t limit() const { return _limit; }
+
 protected:
     void _discard_conjuncts() {
         for (auto& conjunct : _conjuncts) {

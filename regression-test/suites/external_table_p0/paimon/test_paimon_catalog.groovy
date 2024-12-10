@@ -181,6 +181,13 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             def c108= """ select id from tb_with_upper_case where id = 1 """
             def c109= """ select id from tb_with_upper_case where id < 1 """
 
+            def c110 = """select count(*) from deletion_vector_orc;"""
+            def c111 = """select count(*) from deletion_vector_parquet;"""
+            def c112 = """select count(*) from deletion_vector_orc where id > 2;"""
+            def c113 = """select count(*) from deletion_vector_parquet where id > 2;"""
+            def c114 = """select * from deletion_vector_orc where id > 2;"""
+            def c115 = """select * from deletion_vector_parquet where id > 2;"""
+
             String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
             String catalog_name = "ctl_test_paimon_catalog"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -289,6 +296,13 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
                 qt_c107 c107
                 qt_c108 c108
                 qt_c109 c109
+
+                qt_c110 c110
+                qt_c111 c111
+                qt_c112 c112
+                qt_c113 c113
+                qt_c114 c114
+                qt_c115 c115
             }
 
             test_cases("false", "false")

@@ -121,7 +121,7 @@ protected:
             abs_path = path;
         } else {
             // path with no schema
-            abs_path = _root_path / path;
+            abs_path = _prefix / path;
         }
         return Status::OK();
     }
