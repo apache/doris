@@ -788,6 +788,9 @@ Status VFileScanner::_get_next_reader() {
                     _should_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
                                                      : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
+            // ATTN: the push down agg type may be set back to NONE,
+            // see IcebergTableReader::init_row_filters for example.
+            parquet_reader->set_push_down_agg_type(_get_push_down_agg_type());
             {
                 SCOPED_TIMER(_open_reader_timer);
                 RETURN_IF_ERROR(parquet_reader->open());
@@ -853,6 +856,7 @@ Status VFileScanner::_get_next_reader() {
                     _profile, _state, *_params, range, _state->query_options().batch_size,
                     _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat,
                     unsupported_pushdown_types);
+            orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
