@@ -817,10 +817,13 @@ void Tablet::delete_expired_stale_rowset() {
         auto old_meta_size = _tablet_meta->all_stale_rs_metas().size();
 
         // do delete operation
+        std::vector<std::string> version_to_delete;
         auto to_delete_iter = stale_version_path_map.begin();
         while (to_delete_iter != stale_version_path_map.end()) {
             std::vector<TimestampedVersionSharedPtr>& to_delete_version =
                     to_delete_iter->second->timestamped_versions();
+            int64_t start_version = -1;
+            int64_t end_version = -1;
             for (auto& timestampedVersion : to_delete_version) {
                 auto it = _stale_rs_version_map.find(timestampedVersion->version());
                 if (it != _stale_rs_version_map.end()) {
@@ -841,10 +844,17 @@ void Tablet::delete_expired_stale_rowset() {
                                  << timestampedVersion->version().second
                                  << "] not find in stale rs version map";
                 }
+                if (start_version < 0) {
+                    start_version = timestampedVersion->version().first;
+                }
+                end_version = timestampedVersion->version().second;
                 _delete_stale_rowset_by_version(timestampedVersion->version());
             }
+            Version version(start_version, end_version);
+            version_to_delete.emplace_back(version.to_string());
             to_delete_iter++;
         }
+        _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue(version_to_delete);
 
         bool reconstructed = _reconstruct_version_tracker_if_necessary();
 
