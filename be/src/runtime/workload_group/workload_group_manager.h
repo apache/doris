@@ -76,6 +76,8 @@ public:
         return _workload_groups[INTERNAL_WORKLOAD_GROUP_ID];
     }
 
+    void refresh_workload_group_metrics();
+
 private:
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, WorkloadGroupPtr> _workload_groups;
