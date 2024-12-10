@@ -223,7 +223,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       req_count += 1
       @logger.warn("Will do retry #{req_count} after #{sleep_for} secs.")
       timer_task = RetryTimerTask.new(@retry_queue, @count_block_queue, [documents, http_headers, event_num, req_count])
-      @count_block_queue.add(0)
+      @count_block_queue.put(0)
       @timer.schedule(timer_task, sleep_for*1000)
    end
 

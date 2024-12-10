@@ -28,6 +28,6 @@ class RetryTimerTask < java.util.TimerTask
 
    def run
       @retry_queue << @event
-      @count_block_queue.pull
+      @count_block_queue.poll
    end
 end
