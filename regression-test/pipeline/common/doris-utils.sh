@@ -512,7 +512,7 @@ function set_doris_session_variables_from_file() {
 
 _monitor_regression_log() {
     # Path to the log directory
-    local LOG_DIR="${DORIS_HOME}"/regression-test/log/
+    local LOG_DIR="${DORIS_HOME}"/regression-test/log
 
     # keyword to search for in the log files
     local KEYWORD="Reach limit of connections"
@@ -522,16 +522,24 @@ _monitor_regression_log() {
 
     echo "INFO: start monitoring the log files in ${LOG_DIR} for the keyword '${KEYWORD}'"
 
-    # Monitor the log directory for new files and changes
-    while true; do
-        for file in "${LOG_DIR}"/*; do
-            if grep -q "${KEYWORD}" "${file}"; then
-                echo "WARNING: find 'Reach limit of connections' in ${file}, run 'show processlist;' to check the connections"
-                mysql -h127.0.0.1 -P"${query_port}" -uroot -e'show processlist;'
-            fi
-            sleep 0.5s
-        done
+    local start_row=1
+    # Monitor the log directory for new files and changes, only one file
+    # shellcheck disable=SC2034
+    inotifywait -m -e modify "${LOG_DIR}" | while read -r directory events filename; do
+        total_rows=$(wc -l "${directory}${filename}" | awk '{print $1}')
+        if [[ ${start_row} -ge ${total_rows} ]]; then
+            start_row=${total_rows}
+        fi
+        # shellcheck disable=SC2250
+        if sed -n "${start_row},\$p" "${directory}${filename}" | grep -q "${KEYWORD}"; then
+            start_row=$(grep -n "${KEYWORD}" "${directory}${filename}" | tail -n1 | cut -d: -f1)
+            echo "WARNING: find 'Reach limit of connections' in ${directory}${filename}, run 'show processlist;' to check the connections"
+            mysql -h127.0.0.1 -P"${query_port}" -uroot -e'show processlist;'
+        fi
+        start_row=$((start_row + 1))
+        # echo "start_row ${start_row}"
     done
+
 }
 
 archive_doris_logs() {

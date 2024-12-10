@@ -47,7 +47,7 @@ export DORIS_HOME
 exit_flag=0
 need_collect_log=false
 
-# monitor keyword 'Reach limit of connections'
+# monitoring the log files in "${DORIS_HOME}"/regression-test/log/ for keyword 'Reach limit of connections'
 _monitor_regression_log &
 
 # shellcheck disable=SC2317
