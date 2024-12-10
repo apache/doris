@@ -16,11 +16,12 @@
 // under the License.
 
 #pragma once
+#include <atomic>
+
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
-#include <atomic>
 
 namespace doris {
 namespace vectorized {
