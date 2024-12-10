@@ -146,6 +146,11 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     private void cycleTimerJobScheduler(T job, long startTimeWindowMs) {
         List<Long> delaySeconds = job.getJobConfig().getTriggerDelayTimes(System.currentTimeMillis(),
                 startTimeWindowMs, latestBatchSchedulerTimerTaskTimeMs);
+        if (CollectionUtils.isEmpty(delaySeconds)) {
+            log.info("skip job {} scheduler timer job, delay seconds is empty", job.getJobName());
+            return;
+        }
+        log.info("job {} scheduler timer job, delay seconds size is {}", job.getJobName(), delaySeconds.size());
         if (CollectionUtils.isNotEmpty(delaySeconds)) {
             delaySeconds.forEach(delaySecond -> {
                 TimerJobSchedulerTask<T> timerJobSchedulerTask = new TimerJobSchedulerTask<>(timerJobDisruptor, job);
@@ -168,7 +173,9 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
         for (AbstractTask task : tasks) {
             if (!taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
                     job.getJobConfig())) {
-                throw new JobException(job.formatMsgWhenExecuteQueueFull(task.getTaskId()));
+                String errorMsg = job.formatMsgWhenExecuteQueueFull(task.getTaskId());
+                task.onFail(errorMsg);
+                throw new JobException(errorMsg);
 
             }
             log.info("dispatch instant job, job id is {}, job name is {}, task id is {}", job.getJobId(),
@@ -186,6 +193,8 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
             this.latestBatchSchedulerTimerTaskTimeMs = System.currentTimeMillis();
         }
         this.latestBatchSchedulerTimerTaskTimeMs += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
+        log.info("execute timer job ids within last ten minutes window, last time window is {}",
+                TimeUtils.longToTimeString(lastTimeWindowMs));
         if (jobMap.isEmpty()) {
             return;
         }
@@ -207,6 +216,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
         }
         try {
             Env.getCurrentEnv().getJobManager().unregisterJob(job.getJobId());
+            log.info("clear finish job, job id is {}, job name is {}", job.getJobId(), job.getJobName());
         } catch (JobException e) {
             log.error("clear finish job error, job id is {}", job.getJobId(), e);
         }

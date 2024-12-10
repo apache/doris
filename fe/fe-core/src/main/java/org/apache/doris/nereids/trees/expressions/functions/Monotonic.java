@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 /** monotonicity of expressions */
 public interface Monotonic extends ExpressionTrait {
@@ -32,5 +31,5 @@ public interface Monotonic extends ExpressionTrait {
     // return the function with the arguments replaced by literal
     // e.g. date_trunc(dt, 'day'), dt in range ['2020-01-01 10:00:00', '2020-01-03 10:00:00']
     // return date_trunc('2020-01-01 10:00:00', 'day')
-    Expression withConstantArgs(Literal literal);
+    Expression withConstantArgs(Expression literal);
 }

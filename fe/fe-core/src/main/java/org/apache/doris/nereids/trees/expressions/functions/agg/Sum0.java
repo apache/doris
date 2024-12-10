@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForSum;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
@@ -53,8 +52,8 @@ import java.util.List;
  * AggregateFunction 'sum0'. sum0 returns the sum of the values which go into it like sum.
  * It differs in that when no non null values are applied zero is returned instead of null.
  */
-public class Sum0 extends AggregateFunction
-        implements UnaryExpression, AlwaysNotNullable, ExplicitlyCastableSignature, ComputePrecisionForSum,
+public class Sum0 extends NotNullableAggregateFunction
+        implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecisionForSum,
         SupportWindowAnalytic, RollUpTrait {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(

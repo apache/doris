@@ -788,13 +788,13 @@ public:
         for (int i = 0; i < args; i += 2) {
             const auto* null_map = nullmaps[i];
             if (null_map) {
-                const bool not_null_num =
+                auto not_null_num =
                         simd::count_zero_num((int8_t*)null_map->get_data().data(), size);
                 if (not_null_num < size) {
                     return Status::InternalError(
                             "function {} can not input null value , JSON documents may not contain "
-                            "NULL member names.",
-                            name);
+                            "NULL member names. input size is {}:{}",
+                            name, size, not_null_num);
                 }
             }
         }

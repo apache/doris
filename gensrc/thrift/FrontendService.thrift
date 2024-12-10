@@ -53,6 +53,7 @@ struct TColumnDesc {
   6: optional bool isAllowNull
   7: optional string columnKey
   8: optional list<TColumnDesc> children
+  9: optional string defaultValue
 }
 
 // A column definition; used by CREATE TABLE and DESCRIBE <table> statements. A column
@@ -350,6 +351,7 @@ struct TTableStatus {
     11: optional i64 rows;
     12: optional i64 avg_row_length
     13: optional i64 data_length;
+    14: optional i64 index_length;
 }
 
 struct TListTableStatusResult {
@@ -1191,6 +1193,12 @@ enum TBinlogType {
   RENAME_COLUMN = 15,
   MODIFY_COMMENT = 16,
   MODIFY_VIEW_DEF = 17,
+  REPLACE_TABLE = 18,
+  MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 19,
+  INDEX_CHANGE_JOB = 20,
+  RENAME_ROLLUP = 21,
+  RENAME_PARTITION = 22,
+  DROP_ROLLUP = 23,
 
   // Keep some IDs for allocation so that when new binlog types are added in the
   // future, the changes can be picked back to the old versions without breaking
@@ -1207,13 +1215,7 @@ enum TBinlogType {
   //    MODIFY_XXX = 17,
   //    MIN_UNKNOWN = 18,
   //    UNKNOWN_3 = 19,
-  MIN_UNKNOWN = 18,
-  UNKNOWN_3 = 19,
-  UNKNOWN_4 = 20,
-  UNKNOWN_5 = 21,
-  UNKNOWN_6 = 22,
-  UNKNOWN_7 = 23,
-  UNKNOWN_8 = 24,
+  MIN_UNKNOWN = 24,
   UNKNOWN_9 = 25,
   UNKNOWN_10 = 26,
   UNKNOWN_11 = 27,

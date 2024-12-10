@@ -17,6 +17,9 @@
 // under the License.
 
 suite("test_partial_update_with_inverted_index", "p0") {
+    if (isClusterKeyEnabled()) {
+        return
+    }
 
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database

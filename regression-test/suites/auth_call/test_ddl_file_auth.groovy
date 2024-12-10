@@ -69,17 +69,19 @@ suite("test_ddl_file_auth","p0,auth_call") {
 
     sql """grant admin_priv on *.*.* to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
-        sql """CREATE FILE "${fileName}" IN ${dbName}
+        checkNereidsExecute("""CREATE FILE "${fileName}" IN ${dbName}
                 PROPERTIES
                 (
                     "url" = "${dataFilePath}",
                     "catalog" = "internal"
-                );"""
+                );""")
         sql """use ${dbName}"""
+        checkNereidsExecute("SHOW FILE;")
+        checkNereidsExecute("SHOW FILE FROM ${dbName};")
         def res = sql """SHOW FILE FROM ${dbName};"""
         assertTrue(res.size() == 1)
 
-        sql """DROP FILE "${fileName}" from ${dbName} properties("catalog" = "internal");"""
+        checkNereidsExecute("""DROP FILE "${fileName}" from ${dbName} properties("catalog" = "internal");""")
         res = sql """SHOW FILE FROM ${dbName};"""
         assertTrue(res.size() == 0)
     }

@@ -53,7 +53,7 @@ public:
     ExchangerBase(int running_sink_operators, int num_sources, int num_partitions,
                   int free_block_limit)
             : _running_sink_operators(running_sink_operators),
-              _running_source_operators(num_partitions),
+              _running_source_operators(num_sources),
               _num_partitions(num_partitions),
               _num_senders(running_sink_operators),
               _num_sources(num_sources),
@@ -110,7 +110,11 @@ struct BlockQueue {
             : eos(other.eos.load()), data_queue(std::move(other.data_queue)) {}
     inline bool enqueue(BlockType const& item) {
         if (!eos) {
-            data_queue.enqueue(item);
+            if (!data_queue.enqueue(item)) [[unlikely]] {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Exception occurs in data queue [size = {}] of local exchange.",
+                                data_queue.size_approx());
+            }
             return true;
         }
         return false;
@@ -118,7 +122,11 @@ struct BlockQueue {
 
     inline bool enqueue(BlockType&& item) {
         if (!eos) {
-            data_queue.enqueue(std::move(item));
+            if (!data_queue.enqueue(std::move(item))) [[unlikely]] {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Exception occurs in data queue [size = {}] of local exchange.",
+                                data_queue.size_approx());
+            }
             return true;
         }
         return false;
@@ -186,6 +194,8 @@ struct BlockWrapper {
                         shared_state->exchanger->_free_block_limit *
                                 shared_state->exchanger->_num_sources) {
                 data_block.clear_column_data();
+                // Free blocks is used to improve memory efficiency. Failure during pushing back
+                // free block will not incur any bad result so just ignore the return value.
                 shared_state->exchanger->_free_blocks.enqueue(std::move(data_block));
             }
         }
@@ -202,10 +212,13 @@ struct BlockWrapper {
 class ShuffleExchanger : public Exchanger<PartitionedBlock> {
 public:
     ENABLE_FACTORY_CREATOR(ShuffleExchanger);
-    ShuffleExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
-            : Exchanger<PartitionedBlock>(running_sink_operators, num_partitions,
+    ShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
+                     int free_block_limit)
+            : Exchanger<PartitionedBlock>(running_sink_operators, num_sources, num_partitions,
                                           free_block_limit) {
-        _data_queue.resize(num_partitions);
+        DCHECK_GT(num_partitions, 0);
+        DCHECK_GT(num_sources, 0);
+        _data_queue.resize(num_sources);
     }
     ~ShuffleExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
@@ -217,10 +230,6 @@ public:
     ExchangeType get_type() const override { return ExchangeType::HASH_SHUFFLE; }
 
 protected:
-    ShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
-                     int free_block_limit)
-            : Exchanger<PartitionedBlock>(running_sink_operators, num_sources, num_partitions,
-                                          free_block_limit) {}
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                        vectorized::Block* block, LocalExchangeSinkLocalState& local_state);
 };
@@ -232,7 +241,6 @@ class BucketShuffleExchanger final : public ShuffleExchanger {
             : ShuffleExchanger(running_sink_operators, num_sources, num_partitions,
                                free_block_limit) {
         DCHECK_GT(num_partitions, 0);
-        _data_queue.resize(std::max(num_partitions, num_sources));
     }
     ~BucketShuffleExchanger() override = default;
     ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }

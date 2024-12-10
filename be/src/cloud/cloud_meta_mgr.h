@@ -27,6 +27,7 @@
 #include "util/s3_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class DeleteBitmap;
 class StreamLoadContext;
@@ -58,7 +59,7 @@ public:
     Status get_tablet_meta(int64_t tablet_id, std::shared_ptr<TabletMeta>* tablet_meta);
 
     Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false,
-                               bool sync_delete_bitmap = true);
+                               bool sync_delete_bitmap = true, bool full_sync = false);
 
     Status prepare_rowset(const RowsetMeta& rs_meta,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
@@ -116,11 +117,13 @@ private:
 
     Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
-                                     const TabletIndexPB& idx, DeleteBitmap* delete_bitmap);
+                                     const TabletIndexPB& idx, DeleteBitmap* delete_bitmap,
+                                     bool full_sync = false);
     void check_table_size_correctness(const RowsetMeta& rs_meta);
     int64_t get_segment_file_size(const RowsetMeta& rs_meta);
     int64_t get_inverted_index_file_szie(const RowsetMeta& rs_meta);
 };
 
 } // namespace cloud
+#include "common/compile_check_end.h"
 } // namespace doris

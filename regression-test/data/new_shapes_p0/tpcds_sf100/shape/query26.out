@@ -24,7 +24,7 @@ PhysicalResultSink
 ----------------------------filter((date_dim.d_year = 2001))
 ------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalProject
-------------------------filter(((promotion.p_channel_email = 'N') OR (promotion.p_channel_event = 'N')))
+------------------------filter(OR[(promotion.p_channel_email = 'N'),(promotion.p_channel_event = 'N')])
 --------------------------PhysicalOlapScan[promotion]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[item]

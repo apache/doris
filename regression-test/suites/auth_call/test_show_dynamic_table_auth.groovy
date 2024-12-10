@@ -58,8 +58,14 @@ suite("test_show_dynamic_table_auth","p0,auth_call") {
     }
     sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        
+        checkNereidsExecute("SHOW DYNAMIC PARTITION TABLES from ${dbName};");
+
         def res = sql """SHOW DYNAMIC PARTITION TABLES from ${dbName};"""
         assertTrue(res.size() == 1)
+
+        sql """ use  ${dbName};"""
+        checkNereidsExecute("SHOW DYNAMIC PARTITION TABLES;");
     }
 
     sql """drop database if exists ${dbName}"""

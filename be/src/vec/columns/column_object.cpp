@@ -82,6 +82,7 @@
 #endif
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 namespace {
 
 DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable) {
@@ -644,8 +645,8 @@ void ColumnObject::resize(size_t n) {
     num_rows = n;
 }
 
-bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
-    if (num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
+bool ColumnObject::Subcolumn::check_if_sparse_column(size_t arg_num_rows) {
+    if (arg_num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
         return false;
     }
     std::vector<double> defaults_ratio;
@@ -653,7 +654,7 @@ bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
         defaults_ratio.push_back(data[i]->get_ratio_of_default_rows());
     }
     double default_ratio = std::accumulate(defaults_ratio.begin(), defaults_ratio.end(), 0.0) /
-                           defaults_ratio.size();
+                           static_cast<double>(defaults_ratio.size());
     return default_ratio >= config::variant_ratio_of_defaults_as_sparse_column;
 }
 
@@ -1294,7 +1295,11 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
     if (!json.IsObject()) {
         return nullptr;
     }
-    rapidjson::Value name(current_key.data(), current_key.size());
+    /*! RapidJSON uses 32-bit array/string indices even on 64-bit platforms,
+    instead of using \c size_t. Users may override the SizeType by defining
+    \ref RAPIDJSON_NO_SIZETYPEDEFINE.
+    */
+    rapidjson::Value name(current_key.data(), cast_set<unsigned>(current_key.size()));
     auto it = json.FindMember(name);
     if (it == json.MemberEnd()) {
         return nullptr;
@@ -1312,7 +1317,7 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
 // 3. empty root jsonb value(not null)
 // 4. type is nothing
 bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type,
-                     TypeIndex base_type_id, int row, const PathInData& path) {
+                     TypeIndex base_type_id, size_t row, const PathInData& path) {
     // skip nulls
     if (nullable && nullable->is_null_at(row)) {
         return true;
@@ -1348,7 +1353,7 @@ Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                                 const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
                                 TypeIndex base_type_index, rapidjson::Value& root,
                                 rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                int row) {
+                                size_t row) {
 #ifndef NDEBUG
     // sanitize type and column
     if (column->get_name() != type->create_column()->get_name()) {
@@ -1416,7 +1421,7 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
     }
 }
 
-Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* output) const {
+Status ColumnObject::serialize_one_row_to_string(size_t row, std::string* output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
@@ -1432,7 +1437,7 @@ Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* outpu
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
+Status ColumnObject::serialize_one_row_to_string(size_t row, BufferWritable& output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
@@ -1447,7 +1452,7 @@ Status ColumnObject::serialize_one_row_to_string(int64_t row, BufferWritable& ou
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_json_format(int64_t row, rapidjson::StringBuffer* output,
+Status ColumnObject::serialize_one_row_to_json_format(size_t row, rapidjson::StringBuffer* output,
                                                       bool* is_null) const {
     CHECK(is_finalized());
     if (subcolumns.empty()) {
@@ -1598,7 +1603,7 @@ Status ColumnObject::merge_sparse_to_root_column() {
     return Status::OK();
 }
 
-void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const {
+void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& arg_subcolumns) const {
     entry->data.finalize();
     auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
     auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
@@ -1629,7 +1634,7 @@ void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) co
         auto type = make_nullable(
                 std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
         Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
-        subcolumns.add(path_builder.build(), subcolumn);
+        arg_subcolumns.add(path_builder.build(), subcolumn);
     }
 }
 

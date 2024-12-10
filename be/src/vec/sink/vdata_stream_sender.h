@@ -56,7 +56,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class ObjectPool;
 class RuntimeState;
-class MemTracker;
 class RowDescriptor;
 class TDataSink;
 class TDataStreamSink;
@@ -77,6 +76,9 @@ namespace vectorized {
 class BlockSerializer {
 public:
     BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool is_local = true);
+#ifdef BE_TEST
+    BlockSerializer() : _batch_size(0) {};
+#endif
     Status next_serialized_block(Block* src, PBlock* dest, size_t num_receivers, bool* serialized,
                                  bool eos, const std::vector<uint32_t>* rows = nullptr);
     Status serialize_block(PBlock* dest, size_t num_receivers = 1);
@@ -166,10 +168,9 @@ public:
         return Status::OK();
     }
 
-    void register_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) {
-        _buffer = buffer;
-        _buffer->register_sink(_fragment_instance_id);
-    }
+    void set_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) { _buffer = buffer; }
+
+    InstanceLoId dest_ins_id() const { return _fragment_instance_id.lo; }
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
             InstanceLoId id, bool eos) {

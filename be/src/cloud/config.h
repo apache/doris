@@ -20,6 +20,7 @@
 #include "common/config.h"
 
 namespace doris::config {
+#include "common/compile_check_begin.h"
 
 DECLARE_String(deploy_mode);
 // deprecated do not configure directly
@@ -34,7 +35,7 @@ static inline bool is_cloud_mode() {
 // If meta services are deployed behind a load balancer, set this config to "host:port" of the load balancer.
 // Here is a set of configs to configure the connection behaviors:
 // - meta_service_connection_pooled: distribute the long connections to different RS of the VIP.
-// - meta_service_connection_age_base_minutes: expire the connection after a random time during [base, 2*base],
+// - meta_service_connection_age_base_seconds: expire the connection after a random time during [base, 2*base],
 //      so that the BE has a chance to connect to a new RS. (When you add a new RS, the BE will connect to it)
 // - meta_service_idle_connection_timeout_ms: rebuild the idle connections after the timeout exceeds. Some LB
 // vendors will reset the connection if it is idle for a long time.
@@ -50,7 +51,7 @@ DECLARE_mInt64(meta_service_connection_pool_size);
 // has a chance to connect to a new RS. Set zero to disable it.
 //
 // Only works when meta_service_endpoint is set to a single host.
-DECLARE_mInt32(meta_service_connection_age_base_minutes);
+DECLARE_mInt32(meta_service_connection_age_base_seconds);
 // Rebuild the idle connections after the timeout exceeds. Set zero to disable it.
 //
 // Only works when meta_service_endpoint is set to a single host.
@@ -110,4 +111,5 @@ DECLARE_mBool(enable_use_cloud_unique_id_from_fe);
 
 DECLARE_Bool(enable_cloud_tablet_report);
 
+#include "common/compile_check_end.h"
 } // namespace doris::config

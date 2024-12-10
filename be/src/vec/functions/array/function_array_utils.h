@@ -16,6 +16,7 @@
 // under the License.
 #pragma once
 
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
@@ -29,6 +30,7 @@ class IColumn;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct ColumnArrayMutableData {
 public:
@@ -54,7 +56,10 @@ public:
     const ColumnArray* array_col = nullptr;
     const ColumnArray::Offsets64* offsets_ptr = nullptr;
     const UInt8* nested_nullmap_data = nullptr;
-    const IColumn* nested_col = nullptr;
+    ColumnPtr nested_col = nullptr;
+    DataTypePtr nested_type = nullptr;
+    // wrap the nested column as variant column
+    bool output_as_variant = false;
 
     ColumnArrayMutableData to_mutable_data() const {
         ColumnArrayMutableData dst;
@@ -70,7 +75,7 @@ public:
             dst.offsets_ptr->push_back((*offsets_ptr)[row]);
             size_t off = (*offsets_ptr)[row - 1];
             size_t len = (*offsets_ptr)[row] - off;
-            for (int start = off; start < off + len; ++start) {
+            for (size_t start = off; start < off + len; ++start) {
                 if (nested_nullmap_data && nested_nullmap_data[start]) {
                     dst.nested_col->insert_default();
                     dst.nested_nullmap_data->push_back(1);
@@ -91,7 +96,8 @@ MutableColumnPtr assemble_column_array(ColumnArrayMutableData& data);
 
 // array[offset:length]
 void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
-                 const ColumnInt64& offset_column, const ColumnInt64* length_column);
+                 const IColumn& offset_column, const IColumn* length_column);
 
 using ColumnArrayExecutionDatas = std::vector<ColumnArrayExecutionData>;
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

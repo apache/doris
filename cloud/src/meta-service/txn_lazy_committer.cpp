@@ -174,10 +174,12 @@ void convert_tmp_rowsets(
 
         // Accumulate affected rows
         auto& stats = tablet_stats[tmp_rowset_pb.tablet_id()];
-        stats.data_size += tmp_rowset_pb.data_disk_size();
+        stats.data_size += tmp_rowset_pb.total_disk_size();
         stats.num_rows += tmp_rowset_pb.num_rows();
         ++stats.num_rowsets;
         stats.num_segs += tmp_rowset_pb.num_segments();
+        stats.index_size += tmp_rowset_pb.index_disk_size();
+        stats.segment_size += tmp_rowset_pb.data_disk_size();
     }
 
     for (auto& [tablet_id, stats] : tablet_stats) {

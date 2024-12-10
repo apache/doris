@@ -298,6 +298,8 @@ DECLARE_mInt32(max_download_speed_kbps);
 DECLARE_mInt32(download_low_speed_limit_kbps);
 // download low speed time(seconds)
 DECLARE_mInt32(download_low_speed_time);
+// whether to download small files in batch.
+DECLARE_mBool(enable_batch_download);
 
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
@@ -470,6 +472,7 @@ DECLARE_mDouble(base_compaction_min_data_ratio);
 DECLARE_mInt64(base_compaction_dup_key_max_file_size_mbytes);
 
 DECLARE_Bool(enable_skip_tablet_compaction);
+DECLARE_mInt32(skip_tablet_compaction_second);
 // output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 DECLARE_mInt64(compaction_promotion_size_mbytes);
@@ -1013,12 +1016,12 @@ DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
 // The batch size for sending data by brpc streaming client
 DECLARE_mInt64(brpc_streaming_client_batch_bytes);
 DECLARE_mInt64(block_cache_wait_timeout_ms);
-DECLARE_mInt64(cache_lock_long_tail_threshold);
-DECLARE_Int64(file_cache_recycle_keys_size);
 
 DECLARE_Bool(enable_brpc_builtin_services);
 
 DECLARE_Bool(enable_brpc_connection_check);
+
+DECLARE_mInt64(brpc_connection_check_timeout_ms);
 
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
@@ -1097,6 +1100,15 @@ DECLARE_Bool(enable_ttl_cache_evict_using_lru);
 DECLARE_mBool(enbale_dump_error_file);
 // limit the max size of error log on disk
 DECLARE_mInt64(file_cache_error_log_limit_bytes);
+DECLARE_mInt64(cache_lock_long_tail_threshold);
+DECLARE_Int64(file_cache_recycle_keys_size);
+// Base compaction may retrieve and produce some less frequently accessed data,
+// potentially affecting the file cache hit rate.
+// This configuration determines whether to retain the output within the file cache.
+// Make your choice based on the following considerations:
+// If your file cache is ample enough to accommodate all the data in your database,
+// enable this option; otherwise, it is recommended to leave it disabled.
+DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1229,6 +1241,9 @@ DECLARE_mBool(enable_missing_rows_correctness_check);
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
+// When the size of primary keys in memory exceeds this value, finish current segment
+// and create a new segment, used in compaction.
+DECLARE_mInt64(mow_primary_key_index_max_size_in_memory);
 // When the version is not continuous for MOW table in publish phase and the gap between
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log

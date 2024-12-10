@@ -18,13 +18,14 @@
 #include "vorc_reader.h"
 
 #include <cctz/civil_time_detail.h>
-#include <ctype.h>
 #include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cctype>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <exception>
@@ -33,12 +34,11 @@
 #include <memory>
 #include <ostream>
 #include <tuple>
-#include <variant>
+#include <utility>
 
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
 #include "common/exception.h"
-#include "exec/olap_utils.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "gutil/strings/substitute.h"
@@ -55,6 +55,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/primitive_type.h"
 #include "runtime/thread_context.h"
+#include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "util/timezone_utils.h"
 #include "vec/columns/column.h"
@@ -71,15 +72,13 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/exec/format/orc/orc_memory_pool.h"
 #include "vec/exec/format/table/transactional_hive_common.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vectorized_fn_call.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
-#include "vec/exprs/vliteral.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
-#include "vec/exprs/vslot_ref.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -237,6 +236,10 @@ void OrcReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", orc_profile, 1);
         _orc_profile.filter_block_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FilterBlockTime", orc_profile, 1);
+        _orc_profile.selected_row_group_count =
+                ADD_COUNTER_WITH_LEVEL(_profile, "SelectedRowGroupCount", TUnit::UNIT, 1);
+        _orc_profile.evaluated_row_group_count =
+                ADD_COUNTER_WITH_LEVEL(_profile, "EvaluatedRowGroupCount", TUnit::UNIT, 1);
     }
 }
 
@@ -259,6 +262,7 @@ Status OrcReader::_create_file_reader() {
     try {
         orc::ReaderOptions options;
         options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
+        options.setReaderMetrics(&_reader_metrics);
         _reader = orc::createReader(
                 std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
     } catch (std::exception& e) {
@@ -388,6 +392,9 @@ Status OrcReader::_init_read_columns() {
             }
 
             _col_name_to_file_col_name[col_name] = read_col;
+            // TODO: refactor this
+            std::transform(read_col.begin(), read_col.end(), read_col.begin(), ::tolower);
+            _col_name_to_file_col_name_low_case[col_name] = read_col;
         }
     }
     return Status::OK();
@@ -461,8 +468,10 @@ static std::unordered_map<orc::TypeKind, orc::PredicateDataType> TYPEKIND_TO_PRE
         {orc::TypeKind::BOOLEAN, orc::PredicateDataType::BOOLEAN}};
 
 template <PrimitiveType primitive_type>
-std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, const void* value,
-                                                      int precision, int scale) {
+std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
+                                                      StringRef& literal_data, int precision,
+                                                      int scale) {
+    const auto* value = literal_data.data;
     try {
         switch (type->getKind()) {
         case orc::TypeKind::BOOLEAN:
@@ -486,8 +495,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
         case orc::TypeKind::CHAR:
             [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
-            StringRef* string_value = (StringRef*)value;
-            return std::make_tuple(true, orc::Literal(string_value->data, string_value->size));
+            return std::make_tuple(true, orc::Literal(literal_data.data, literal_data.size));
         }
         case orc::TypeKind::DECIMAL: {
             int128_t decimal_value;
@@ -558,190 +566,351 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
     }
 }
 
-template <PrimitiveType primitive_type>
-std::vector<OrcPredicate> value_range_to_predicate(
-        const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type,
-        std::vector<orc::TypeKind>* unsupported_pushdown_types) {
-    std::vector<OrcPredicate> predicates;
-
-    PrimitiveType src_type = OrcReader::convert_to_doris_type(type).type;
-    if (src_type != primitive_type) {
-        if (!(is_string_type(src_type) && is_string_type(primitive_type))) {
-            // not support schema change
-            return predicates;
-        }
+std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_literal(
+        const VSlotRef* slot_ref, const VLiteral* literal) {
+    DCHECK(_col_name_to_file_col_name_low_case.contains(slot_ref->expr_name()));
+    auto file_col_name_low_case = _col_name_to_file_col_name_low_case[slot_ref->expr_name()];
+    if (!_type_map.contains(file_col_name_low_case)) {
+        // TODO: this is for acid table
+        LOG(WARNING) << "Column " << slot_ref->expr_name() << " not found in _type_map";
+        return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
     }
-
-    if (unsupported_pushdown_types != nullptr) {
-        for (vector<orc::TypeKind>::iterator it = unsupported_pushdown_types->begin();
-             it != unsupported_pushdown_types->end(); ++it) {
-            if (*it == type->getKind()) {
-                // Unsupported type
-                return predicates;
-            }
-        }
+    DCHECK(_type_map.contains(file_col_name_low_case));
+    const auto* orc_type = _type_map[file_col_name_low_case];
+    if (!TYPEKIND_TO_PREDICATE_TYPE.contains(orc_type->getKind())) {
+        LOG(WARNING) << "Unsupported Push Down Orc Type [TypeKind=" << orc_type->getKind() << "]";
+        return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
     }
-
-    orc::PredicateDataType predicate_data_type;
-    auto type_it = TYPEKIND_TO_PREDICATE_TYPE.find(type->getKind());
-    if (type_it == TYPEKIND_TO_PREDICATE_TYPE.end()) {
-        // Unsupported type
-        return predicates;
-    } else {
-        predicate_data_type = type_it->second;
+    const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
+    if (literal == nullptr) {
+        // only get the predicate_type
+        return std::make_tuple(true, orc::Literal(true), predicate_type);
     }
-
-    if (col_val_range.is_fixed_value_range()) {
-        OrcPredicate in_predicate;
-        in_predicate.col_name = col_val_range.column_name();
-        in_predicate.data_type = predicate_data_type;
-        in_predicate.op = SQLFilterOp::FILTER_IN;
-        for (const auto& value : col_val_range.get_fixed_value_set()) {
-            auto [valid, literal] = convert_to_orc_literal<primitive_type>(
-                    type, &value, col_val_range.precision(), col_val_range.scale());
-            if (valid) {
-                in_predicate.literals.push_back(literal);
-            }
-        }
-        if (!in_predicate.literals.empty()) {
-            predicates.emplace_back(in_predicate);
-        }
-        return predicates;
+    auto literal_data = literal->get_column_ptr()->get_data_at(0);
+    auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
+    auto slot_type = slot->type();
+    switch (slot_type.type) {
+#define M(NAME)                                                                \
+    case TYPE_##NAME: {                                                        \
+        auto [valid, orc_literal] = convert_to_orc_literal<TYPE_##NAME>(       \
+                orc_type, literal_data, slot_type.precision, slot_type.scale); \
+        return std::make_tuple(valid, orc_literal, predicate_type);            \
     }
-
-    const auto& high_value = col_val_range.get_range_max_value();
-    const auto& low_value = col_val_range.get_range_min_value();
-    const auto& high_op = col_val_range.get_range_high_op();
-    const auto& low_op = col_val_range.get_range_low_op();
-
-    // orc can only push down is_null. When col_value_range._contain_null = true, only indicating that
-    // value can be null, not equals null, so ignore _contain_null in col_value_range
-    if (col_val_range.is_high_value_maximum() && high_op == SQLFilterOp::FILTER_LESS_OR_EQUAL &&
-        col_val_range.is_low_value_mininum() && low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL) {
-        return predicates;
+#define APPLY_FOR_PRIMITIVE_TYPE(M) \
+    M(TINYINT)                      \
+    M(SMALLINT)                     \
+    M(INT)                          \
+    M(BIGINT)                       \
+    M(LARGEINT)                     \
+    M(CHAR)                         \
+    M(DATE)                         \
+    M(DATETIME)                     \
+    M(DATEV2)                       \
+    M(DATETIMEV2)                   \
+    M(VARCHAR)                      \
+    M(STRING)                       \
+    M(HLL)                          \
+    M(DECIMAL32)                    \
+    M(DECIMAL64)                    \
+    M(DECIMAL128I)                  \
+    M(DECIMAL256)                   \
+    M(DECIMALV2)                    \
+    M(BOOLEAN)                      \
+    M(IPV4)                         \
+    M(IPV6)
+        APPLY_FOR_PRIMITIVE_TYPE(M)
+#undef M
+    default: {
+        VLOG_CRITICAL << "Unsupported Convert Orc Literal [ColName=" << slot->col_name() << "]";
+        return std::make_tuple(false, orc::Literal(false), predicate_type);
     }
-
-    if (low_value < high_value) {
-        if (!col_val_range.is_low_value_mininum() ||
-            SQLFilterOp::FILTER_LARGER_OR_EQUAL != low_op) {
-            auto [valid, low_literal] = convert_to_orc_literal<primitive_type>(
-                    type, &low_value, col_val_range.precision(), col_val_range.scale());
-            if (valid) {
-                OrcPredicate low_predicate;
-                low_predicate.col_name = col_val_range.column_name();
-                low_predicate.data_type = predicate_data_type;
-                low_predicate.op = low_op;
-                low_predicate.literals.emplace_back(low_literal);
-                predicates.emplace_back(low_predicate);
-            }
-        }
-        if (!col_val_range.is_high_value_maximum() ||
-            SQLFilterOp::FILTER_LESS_OR_EQUAL != high_op) {
-            auto [valid, high_literal] = convert_to_orc_literal<primitive_type>(
-                    type, &high_value, col_val_range.precision(), col_val_range.scale());
-            if (valid) {
-                OrcPredicate high_predicate;
-                high_predicate.col_name = col_val_range.column_name();
-                high_predicate.data_type = predicate_data_type;
-                high_predicate.op = high_op;
-                high_predicate.literals.emplace_back(high_literal);
-                predicates.emplace_back(high_predicate);
-            }
-        }
     }
-    return predicates;
 }
 
-bool static build_search_argument(std::vector<OrcPredicate>& predicates, int index,
-                                  std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
-    if (index >= predicates.size()) {
+// check if the slot of expr can be pushed down to orc reader and make orc predicate type
+bool OrcReader::_check_slot_can_push_down(const VExprSPtr& expr) {
+    if (!expr->children()[0]->is_slot_ref()) {
         return false;
     }
-    if (index < predicates.size() - 1) {
-        builder->startAnd();
-    }
-    OrcPredicate& predicate = predicates[index];
-    switch (predicate.op) {
-    case SQLFilterOp::FILTER_IN: {
-        if (predicate.literals.size() == 1) {
-            builder->equals(predicate.col_name, predicate.data_type, predicate.literals[0]);
-        } else {
-            builder->in(predicate.col_name, predicate.data_type, predicate.literals);
-        }
-        break;
-    }
-    case SQLFilterOp::FILTER_LESS:
-        builder->lessThan(predicate.col_name, predicate.data_type, predicate.literals[0]);
-        break;
-    case SQLFilterOp::FILTER_LESS_OR_EQUAL:
-        builder->lessThanEquals(predicate.col_name, predicate.data_type, predicate.literals[0]);
-        break;
-    case SQLFilterOp::FILTER_LARGER: {
-        builder->startNot();
-        builder->lessThanEquals(predicate.col_name, predicate.data_type, predicate.literals[0]);
-        builder->end();
-        break;
-    }
-    case SQLFilterOp::FILTER_LARGER_OR_EQUAL: {
-        builder->startNot();
-        builder->lessThan(predicate.col_name, predicate.data_type, predicate.literals[0]);
-        builder->end();
-        break;
-    }
-    default:
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    // check if the slot exists in orc file and not partition column
+    if (!_col_name_to_file_col_name.contains(slot_ref->expr_name()) ||
+        _lazy_read_ctx.predicate_partition_columns.contains(slot_ref->expr_name())) {
         return false;
     }
-    if (index < predicates.size() - 1) {
-        bool can_build = build_search_argument(predicates, index + 1, builder);
-        if (!can_build) {
+    auto [valid, _, predicate_type] = _make_orc_literal(slot_ref, nullptr);
+    if (valid) {
+        _vslot_ref_to_orc_predicate_data_type[slot_ref] = predicate_type;
+    }
+    return valid;
+}
+
+// check if the literal of expr can be pushed down to orc reader and make orc literal
+bool OrcReader::_check_literal_can_push_down(const VExprSPtr& expr, uint16_t child_id) {
+    if (!expr->children()[child_id]->is_literal()) {
+        return false;
+    }
+    // the slot has been checked in _check_slot_can_push_down before calling this function
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    const auto* literal = static_cast<const VLiteral*>(expr->children()[child_id].get());
+    auto [valid, orc_literal, _] = _make_orc_literal(slot_ref, literal);
+    if (valid) {
+        _vliteral_to_orc_literal.insert(std::make_pair(literal, orc_literal));
+    }
+    return valid;
+}
+
+// check if there are rest children of expr can be pushed down to orc reader
+bool OrcReader::_check_rest_children_can_push_down(const VExprSPtr& expr) {
+    if (expr->children().size() < 2) {
+        return false;
+    }
+
+    for (size_t i = 1; i < expr->children().size(); ++i) {
+        if (!_check_literal_can_push_down(expr, i)) {
             return false;
         }
-        builder->end();
     }
     return true;
 }
 
-bool OrcReader::_init_search_argument(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
-    if ((!_enable_filter_by_min_max) || colname_to_value_range->empty()) {
+// check if the expr can be pushed down to orc reader
+bool OrcReader::_check_expr_can_push_down(const VExprSPtr& expr) {
+    if (expr == nullptr) {
         return false;
     }
-    std::vector<OrcPredicate> predicates;
-    auto& root_type = _reader->getType();
-    std::unordered_map<std::string, const orc::Type*> type_map;
-    for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        type_map.emplace(get_field_name_lower_case(&root_type, i), root_type.getSubtype(i));
-    }
-    for (auto& col_name : _lazy_read_ctx.all_read_columns) {
-        auto iter = colname_to_value_range->find(col_name);
-        if (iter == colname_to_value_range->end()) {
-            continue;
+
+    switch (expr->op()) {
+    case TExprOpcode::COMPOUND_AND:
+        // at least one child can be pushed down
+        return std::ranges::any_of(expr->children(), [this](const auto& child) {
+            return _check_expr_can_push_down(child);
+        });
+    case TExprOpcode::COMPOUND_OR:
+        // all children must be pushed down
+        return std::ranges::all_of(expr->children(), [this](const auto& child) {
+            return _check_expr_can_push_down(child);
+        });
+    case TExprOpcode::COMPOUND_NOT:
+        DCHECK_EQ(expr->children().size(), 1);
+        return _check_expr_can_push_down(expr->children()[0]);
+
+    case TExprOpcode::GE:
+    case TExprOpcode::GT:
+    case TExprOpcode::LE:
+    case TExprOpcode::LT:
+    case TExprOpcode::EQ:
+    case TExprOpcode::NE:
+    case TExprOpcode::FILTER_IN:
+    case TExprOpcode::FILTER_NOT_IN:
+        return _check_slot_can_push_down(expr) && _check_rest_children_can_push_down(expr);
+
+    case TExprOpcode::INVALID_OPCODE:
+        if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
+            auto fn_name = expr->fn().name.function_name;
+            // only support is_null_pred and is_not_null_pred
+            if (fn_name == "is_null_pred" || fn_name == "is_not_null_pred") {
+                return _check_slot_can_push_down(expr);
+            }
+            VLOG_CRITICAL << "Unsupported function [funciton=" << fn_name << "]";
         }
-        auto type_it = type_map.find(_col_name_to_file_col_name[col_name]);
-        if (type_it == type_map.end()) {
-            continue;
+        return false;
+    default:
+        VLOG_CRITICAL << "Unsupported Opcode [OpCode=" << expr->op() << "]";
+        return false;
+    }
+}
+
+void OrcReader::_build_less_than(const VExprSPtr& expr,
+                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
+    DCHECK(expr->children().size() == 2);
+    DCHECK(expr->children()[0]->is_slot_ref());
+    DCHECK(expr->children()[1]->is_literal());
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+    DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
+    auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
+    DCHECK(_vliteral_to_orc_literal.contains(literal));
+    auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
+    builder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
+}
+
+void OrcReader::_build_less_than_equals(const VExprSPtr& expr,
+                                        std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
+    DCHECK(expr->children().size() == 2);
+    DCHECK(expr->children()[0]->is_slot_ref());
+    DCHECK(expr->children()[1]->is_literal());
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+    DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
+    auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
+    DCHECK(_vliteral_to_orc_literal.contains(literal));
+    auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
+    builder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
+}
+
+void OrcReader::_build_equals(const VExprSPtr& expr,
+                              std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
+    DCHECK(expr->children().size() == 2);
+    DCHECK(expr->children()[0]->is_slot_ref());
+    DCHECK(expr->children()[1]->is_literal());
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+    DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
+    auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
+    DCHECK(_vliteral_to_orc_literal.contains(literal));
+    auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
+    builder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
+}
+
+void OrcReader::_build_filter_in(const VExprSPtr& expr,
+                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
+    DCHECK(expr->children().size() >= 2);
+    DCHECK(expr->children()[0]->is_slot_ref());
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    std::vector<orc::Literal> literals;
+    DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
+    orc::PredicateDataType predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
+    for (size_t i = 1; i < expr->children().size(); ++i) {
+        DCHECK(expr->children()[i]->is_literal());
+        const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
+        DCHECK(_vliteral_to_orc_literal.contains(literal));
+        auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
+        literals.emplace_back(orc_literal);
+    }
+    DCHECK(!literals.empty());
+    builder->in(slot_ref->expr_name(), predicate_type, literals);
+}
+
+void OrcReader::_build_is_null(const VExprSPtr& expr,
+                               std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
+    DCHECK(expr->children().size() == 1);
+    DCHECK(expr->children()[0]->is_slot_ref());
+    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
+    auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
+    builder->isNull(slot_ref->expr_name(), predicate_type);
+}
+
+bool OrcReader::_build_search_argument(const VExprSPtr& expr,
+                                       std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
+    // OPTIMIZE: check expr only once
+    if (!_check_expr_can_push_down(expr)) {
+        return false;
+    }
+    switch (expr->op()) {
+    case TExprOpcode::COMPOUND_AND: {
+        builder->startAnd();
+        bool at_least_one_can_push_down = false;
+        for (const auto& child : expr->children()) {
+            if (_build_search_argument(child, builder)) {
+                at_least_one_can_push_down = true;
+            }
         }
-        std::visit(
-                [&](auto& range) {
-                    std::vector<OrcPredicate> value_predicates = value_range_to_predicate(
-                            range, type_it->second, _unsupported_pushdown_types);
-                    for (auto& range_predicate : value_predicates) {
-                        predicates.emplace_back(range_predicate);
-                    }
-                },
-                iter->second);
+        DCHECK(at_least_one_can_push_down);
+        builder->end();
+        break;
     }
-    if (predicates.empty()) {
+    case TExprOpcode::COMPOUND_OR: {
+        builder->startOr();
+        bool all_can_push_down = true;
+        for (const auto& child : expr->children()) {
+            if (!_build_search_argument(child, builder)) {
+                all_can_push_down = false;
+            }
+        }
+        DCHECK(all_can_push_down);
+        builder->end();
+        break;
+    }
+    case TExprOpcode::COMPOUND_NOT: {
+        DCHECK_EQ(expr->children().size(), 1);
+        builder->startNot();
+        auto res = _build_search_argument(expr->children()[0], builder);
+        DCHECK(res);
+        builder->end();
+        break;
+    }
+    case TExprOpcode::GE:
+        builder->startNot();
+        _build_less_than(expr, builder);
+        builder->end();
+        break;
+    case TExprOpcode::GT:
+        builder->startNot();
+        _build_less_than_equals(expr, builder);
+        builder->end();
+        break;
+    case TExprOpcode::LE:
+        _build_less_than_equals(expr, builder);
+        break;
+    case TExprOpcode::LT:
+        _build_less_than(expr, builder);
+        break;
+    case TExprOpcode::EQ:
+        _build_equals(expr, builder);
+        break;
+    case TExprOpcode::NE:
+        builder->startNot();
+        _build_equals(expr, builder);
+        builder->end();
+        break;
+    case TExprOpcode::FILTER_IN:
+        _build_filter_in(expr, builder);
+        break;
+    case TExprOpcode::FILTER_NOT_IN:
+        builder->startNot();
+        _build_filter_in(expr, builder);
+        builder->end();
+        break;
+    // is null and is not null is represented as function call
+    case TExprOpcode::INVALID_OPCODE:
+        DCHECK(expr->node_type() == TExprNodeType::FUNCTION_CALL);
+        if (expr->fn().name.function_name == "is_null_pred") {
+            _build_is_null(expr, builder);
+        } else if (expr->fn().name.function_name == "is_not_null_pred") {
+            builder->startNot();
+            _build_is_null(expr, builder);
+            builder->end();
+        } else {
+            // should not reach here, because _check_expr_can_push_down has already checked
+            __builtin_unreachable();
+        }
+        break;
+
+    default:
+        // should not reach here, because _check_expr_can_push_down has already checked
+        __builtin_unreachable();
+    }
+    return true;
+}
+
+bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
+    if (!_enable_filter_by_min_max) {
         return false;
     }
-    std::unique_ptr<orc::SearchArgumentBuilder> builder = orc::SearchArgumentFactory::newBuilder();
-    if (build_search_argument(predicates, 0, builder)) {
-        std::unique_ptr<orc::SearchArgument> sargs = builder->build();
-        _row_reader_options.searchArgument(std::move(sargs));
-        return true;
-    } else {
+
+    // build search argument, if any expr can not be pushed down, return false
+    auto builder = orc::SearchArgumentFactory::newBuilder();
+    bool at_least_one_can_push_down = false;
+    builder->startAnd();
+    for (const auto& expr_ctx : conjuncts) {
+        _vslot_ref_to_orc_predicate_data_type.clear();
+        _vliteral_to_orc_literal.clear();
+        if (_build_search_argument(expr_ctx->root(), builder)) {
+            at_least_one_can_push_down = true;
+        }
+    }
+    if (!at_least_one_can_push_down) {
+        // if all exprs can not be pushed down, builder->end() will throw exception
         return false;
     }
+    builder->end();
+
+    auto sargs = builder->build();
+    _profile->add_info_string("OrcReader SearchArgument: ", sargs->toString());
+    _row_reader_options.searchArgument(std::move(sargs));
+    return true;
 }
 
 Status OrcReader::set_fill_columns(
@@ -773,7 +942,7 @@ Status OrcReader::set_fill_columns(
                     visit_slot(child.get());
                 }
             } else if (VInPredicate* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
-                if (in_predicate->get_num_children() > 0) {
+                if (!in_predicate->children().empty()) {
                     visit_slot(in_predicate->children()[0].get());
                 }
             } else {
@@ -854,7 +1023,7 @@ Status OrcReader::set_fill_columns(
         _lazy_read_ctx.can_lazy_read = true;
     }
 
-    if (_colname_to_value_range == nullptr || !_init_search_argument(_colname_to_value_range)) {
+    if (_lazy_read_ctx.conjuncts.empty() || !_init_search_argument(_lazy_read_ctx.conjuncts)) {
         _lazy_read_ctx.can_lazy_read = false;
     }
     try {
@@ -1009,7 +1178,8 @@ Status OrcReader::_fill_partition_columns(
         if (num_deserialized != rows) {
             return Status::InternalError(
                     "Failed to fill partition column: {}={} ."
-                    "Number of rows expected to be written : {}, number of rows actually written : "
+                    "Number of rows expected to be written : {}, number of rows actually "
+                    "written : "
                     "{}",
                     slot_desc->col_name(), value, num_deserialized, rows);
         }
@@ -1619,6 +1789,12 @@ std::string OrcReader::get_field_name_lower_case(const orc::Type* orc_type, int 
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     RETURN_IF_ERROR(get_next_block_impl(block, read_rows, eof));
+    if (*eof) {
+        COUNTER_UPDATE(_orc_profile.selected_row_group_count,
+                       _reader_metrics.SelectedRowGroupCount);
+        COUNTER_UPDATE(_orc_profile.evaluated_row_group_count,
+                       _reader_metrics.EvaluatedRowGroupCount);
+    }
     if (_orc_filter) {
         RETURN_IF_ERROR(_orc_filter->get_status());
     }

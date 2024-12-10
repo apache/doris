@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
@@ -32,7 +31,6 @@ import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -55,7 +53,6 @@ import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.plsql.Exec;
@@ -63,18 +60,17 @@ import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
+import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadTaskInfo;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -134,10 +130,7 @@ public class ConnectContext {
     protected volatile String peerIdentity;
     private final Map<String, String> preparedQuerys = new HashMap<>();
     private String runningQuery;
-    private TNetworkAddress resultFlightServerAddr;
-    private TNetworkAddress resultInternalServiceAddr;
-    private ArrayList<Expr> resultOutputExprs;
-    private TUniqueId finstId;
+    private final List<FlightSqlEndpointsLocation> flightSqlEndpointsLocations = Lists.newArrayList();
     private boolean returnResultFromLocal = true;
     // mysql net
     protected volatile MysqlChannel mysqlChannel;
@@ -271,8 +264,6 @@ public class ConnectContext {
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
 
-    private Map<List<String>, TableIf> tables = null;
-
     private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
 
     public Map<String, ColumnStatistic> getTotalColumnStatisticMap() {
@@ -344,6 +335,11 @@ public class ConnectContext {
 
     public String removeLastDBOfCatalog(String catalog) {
         return lastDBOfCatalog.get(catalog);
+    }
+
+    // Used by COM_RESET_CONNECTION
+    public void clearLastDBOfCatalog() {
+        lastDBOfCatalog.clear();
     }
 
     public void setNotEvalNondeterministicFunction(boolean notEvalNondeterministicFunction) {
@@ -430,30 +426,6 @@ public class ConnectContext {
 
     public PreparedStatementContext getPreparedStementContext(String stmtName) {
         return this.preparedStatementContextMap.get(stmtName);
-    }
-
-    public Map<List<String>, TableIf> getTables() {
-        if (tables == null) {
-            tables = Maps.newHashMap();
-        }
-        return tables;
-    }
-
-    public void setTables(Map<List<String>, TableIf> tables) {
-        this.tables = tables;
-    }
-
-    /** get table by table name, try to get from information from dumpfile first */
-    public TableIf getTableInMinidumpCache(List<String> tableQualifier) {
-        if (!getSessionVariable().isPlayNereidsDump()) {
-            return null;
-        }
-        Preconditions.checkState(tables != null, "tables should not be null");
-        TableIf table = tables.getOrDefault(tableQualifier, null);
-        if (getSessionVariable().isPlayNereidsDump() && table == null) {
-            throw new AnalysisException("Minidump cache can not find table:" + tableQualifier);
-        }
-        return table;
     }
 
     public void closeTxn() {
@@ -730,36 +702,16 @@ public class ConnectContext {
         return runningQuery;
     }
 
-    public void setResultFlightServerAddr(TNetworkAddress resultFlightServerAddr) {
-        this.resultFlightServerAddr = resultFlightServerAddr;
+    public void addFlightSqlEndpointsLocation(FlightSqlEndpointsLocation flightSqlEndpointsLocation) {
+        this.flightSqlEndpointsLocations.add(flightSqlEndpointsLocation);
     }
 
-    public TNetworkAddress getResultFlightServerAddr() {
-        return resultFlightServerAddr;
+    public List<FlightSqlEndpointsLocation> getFlightSqlEndpointsLocations() {
+        return flightSqlEndpointsLocations;
     }
 
-    public void setResultInternalServiceAddr(TNetworkAddress resultInternalServiceAddr) {
-        this.resultInternalServiceAddr = resultInternalServiceAddr;
-    }
-
-    public TNetworkAddress getResultInternalServiceAddr() {
-        return resultInternalServiceAddr;
-    }
-
-    public void setResultOutputExprs(ArrayList<Expr> resultOutputExprs) {
-        this.resultOutputExprs = resultOutputExprs;
-    }
-
-    public ArrayList<Expr> getResultOutputExprs() {
-        return resultOutputExprs;
-    }
-
-    public void setFinstId(TUniqueId finstId) {
-        this.finstId = finstId;
-    }
-
-    public TUniqueId getFinstId() {
-        return finstId;
+    public void clearFlightSqlEndpointsLocations() {
+        flightSqlEndpointsLocations.clear();
     }
 
     public void setReturnResultFromLocal(boolean returnResultFromLocal) {

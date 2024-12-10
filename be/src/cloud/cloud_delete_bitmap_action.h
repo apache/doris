@@ -27,11 +27,12 @@
 #include "olap/tablet.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class HttpRequest;
 
 class ExecEnv;
 
-enum class DeleteBitmapActionType { COUNT_INFO = 1 };
+enum class DeleteBitmapActionType { COUNT_LOCAL = 1, COUNT_MS = 2 };
 
 /// This action is used for viewing the delete bitmap status
 class CloudDeleteBitmapAction : public HttpHandlerWithAuth {
@@ -45,10 +46,12 @@ public:
     void handle(HttpRequest* req) override;
 
 private:
-    Status _handle_show_delete_bitmap_count(HttpRequest* req, std::string* json_result);
+    Status _handle_show_local_delete_bitmap_count(HttpRequest* req, std::string* json_result);
+    Status _handle_show_ms_delete_bitmap_count(HttpRequest* req, std::string* json_result);
 
 private:
     CloudStorageEngine& _engine;
     DeleteBitmapActionType _delete_bitmap_action_type;
 };
+#include "common/compile_check_end.h"
 } // namespace doris

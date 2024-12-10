@@ -25,4 +25,7 @@ suite("test_show_commands_nereids") {
     checkNereidsExecute("""show frontends;""")
     checkNereidsExecute("""show backends;""")
     checkNereidsExecute("""show whitelist;""")
+    checkNereidsExecute("""show triggers;""")
+    checkNereidsExecute("""show events;""")
+    checkNereidsExecute("""show load profile "/";""")
 }

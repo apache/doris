@@ -21,7 +21,13 @@ suite("test_tablet_prune") {
 
     sql "drop table if exists t_customers_wide_index"
     sql """
-    CREATE TABLE `t_customers_wide_index` (   `CUSTOMER_ID` int NULL,   `ADDRESS` varchar(1500) NULL) ENGINE=OLAP UNIQUE KEY(`CUSTOMER_ID`) DISTRIBUTED BY HASH(`CUSTOMER_ID`) BUCKETS 32 PROPERTIES ( "file_cache_ttl_seconds" = "0", "is_being_synced" = "false", "storage_medium" = "hdd", "storage_format" = "V2", "inverted_index_storage_format" = "V2", "enable_unique_key_merge_on_write" = "true", "light_schema_change" = "true", "store_row_column" = "true", "row_store_page_size" = "16384", "disable_auto_compaction" = "false", "enable_single_replica_compaction" = "false", "group_commit_interval_ms" = "10000", "group_commit_data_bytes" = "134217728", "enable_mow_light_delete" = "false" );    """
+    CREATE TABLE `t_customers_wide_index` 
+    (`CUSTOMER_ID` int NULL,`ADDRESS` varchar(1500) NULL) 
+    ENGINE=OLAP 
+    UNIQUE KEY(`CUSTOMER_ID`) 
+    DISTRIBUTED BY HASH(`CUSTOMER_ID`) 
+    BUCKETS 32 
+    PROPERTIES ( "replication_allocation" = "tag.location.default: 1");"""
     sql """
     insert into t_customers_wide_index values (1, "111");
     """

@@ -250,6 +250,8 @@ DEFINE_mInt32(max_download_speed_kbps, "50000");
 DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 // download low speed time(seconds)
 DEFINE_mInt32(download_low_speed_time, "300");
+// whether to download small files in batch
+DEFINE_mBool(enable_batch_download, "false");
 
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
@@ -418,7 +420,9 @@ DEFINE_mInt64(base_compaction_max_compaction_score, "20");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
-DEFINE_Bool(enable_skip_tablet_compaction, "false");
+DEFINE_Bool(enable_skip_tablet_compaction, "true");
+DEFINE_mInt32(skip_tablet_compaction_second, "10");
+
 // output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 DEFINE_mInt64(compaction_promotion_size_mbytes, "1024");
@@ -454,7 +458,7 @@ DEFINE_mInt32(multi_get_max_threads, "10");
 DEFINE_mInt64(total_permits_for_compaction_score, "10000");
 
 // sleep interval in ms after generated compaction tasks
-DEFINE_mInt32(generate_compaction_tasks_interval_ms, "10");
+DEFINE_mInt32(generate_compaction_tasks_interval_ms, "100");
 
 // sleep interval in second after update replica infos
 DEFINE_mInt32(update_replica_infos_interval_seconds, "60");
@@ -551,6 +555,8 @@ DEFINE_Bool(enable_brpc_builtin_services, "true");
 
 // Enable brpc connection check
 DEFINE_Bool(enable_brpc_connection_check, "false");
+
+DEFINE_mInt64(brpc_connection_check_timeout_ms, "10000");
 
 // The maximum amount of data that can be processed by a stream load
 DEFINE_mInt64(streaming_load_max_mb, "102400");
@@ -960,8 +966,6 @@ DEFINE_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
 // number of s3 scanner thread pool queue size
 DEFINE_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
 DEFINE_mInt64(block_cache_wait_timeout_ms, "1000");
-DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
-DEFINE_Int64(file_cache_recycle_keys_size, "1000000");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DEFINE_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
@@ -1055,6 +1059,9 @@ DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
 DEFINE_mBool(enbale_dump_error_file, "true");
 // limit the max size of error log on disk
 DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
+DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
+DEFINE_Int64(file_cache_recycle_keys_size, "1000000");
+DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1164,6 +1171,9 @@ DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
+// When the size of primary keys in memory exceeds this value, finish current segment
+// and create a new segment, used in compaction. Default 50MB.
+DEFINE_mInt64(mow_primary_key_index_max_size_in_memory, "52428800");
 // When the version is not continuous for MOW table in publish phase and the gap between
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log

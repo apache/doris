@@ -15,48 +15,105 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_mtmv", "p0,external,paimon,external_docker,external_docker_hive") {
+suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_doris") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
-    logger.info("enabled: " + enabled)
-    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    logger.info("externalEnvIp: " + externalEnvIp)
-    String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
-    logger.info("hdfs_port: " + hdfs_port)
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String catalog_name = "paimon_mtmv_catalog";
-        String mvName = "test_paimon_mtmv"
-        String dbName = "regression_test_mtmv_p0"
-        String paimonDb = "db1"
-        String paimonTable = "all_table"
-        sql """drop catalog if exists ${catalog_name} """
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("disabled paimon test")
+        return
+    }
+    String suiteName = "test_paimon_mtmv"
+    String catalogName = "${suiteName}_catalog"
+    String mvName = "${suiteName}_mv"
+    String dbName = context.config.getDbNameByFile(context.file)
 
-        sql """create catalog if not exists ${catalog_name} properties (
-            "type" = "paimon",
-            "paimon.catalog.type"="filesystem",
-            "warehouse" = "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/paimon1"
+    String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
+    sql """drop catalog if exists ${catalogName}"""
+    sql """CREATE CATALOG ${catalogName} PROPERTIES (
+            'type'='paimon',
+            'warehouse' = 's3://warehouse/wh/',
+            "s3.access_key" = "admin",
+            "s3.secret_key" = "password",
+            "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+            "s3.region" = "us-east-1"
         );"""
 
-        order_qt_catalog """select * from ${catalog_name}.${paimonDb}.${paimonTable}"""
-        sql """drop materialized view if exists ${mvName};"""
+    order_qt_base_table """ select * from ${catalogName}.test_paimon_spark.test_tb_mix_format ; """
 
-        sql """
-            CREATE MATERIALIZED VIEW ${mvName}
-                BUILD DEFERRED REFRESH AUTO ON MANUAL
-                DISTRIBUTED BY RANDOM BUCKETS 2
-                PROPERTIES ('replication_num' = '1')
-                AS
-                SELECT * FROM ${catalog_name}.${paimonDb}.${paimonTable};
-            """
+    sql """drop materialized view if exists ${mvName};"""
 
-        sql """
-                REFRESH MATERIALIZED VIEW ${mvName} complete
-            """
-        def jobName = getJobName(dbName, mvName);
-        waitingMTMVTaskFinished(jobName)
-        order_qt_mtmv "SELECT * FROM ${mvName}"
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`par`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format;
+        """
+    def showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertTrue(showPartitionsResult.toString().contains("p_a"))
+    assertTrue(showPartitionsResult.toString().contains("p_b"))
 
-        sql """drop materialized view if exists ${mvName};"""
-        sql """ drop catalog if exists ${catalog_name} """
-    }
+    // refresh one partitions
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} partitions(p_a);
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
+
+    //refresh auto
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} auto
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_refresh_auto "SELECT * FROM ${mvName} "
+    order_qt_is_sync_before_rebuild "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
+
+   // rebuild catalog, should not Affects MTMV
+    sql """drop catalog if exists ${catalogName}"""
+    sql """
+        CREATE CATALOG ${catalogName} PROPERTIES (
+                'type'='paimon',
+                'warehouse' = 's3://warehouse/wh/',
+                "s3.access_key" = "admin",
+                "s3.secret_key" = "password",
+                "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+                "s3.region" = "us-east-1"
+            );
+    """
+    order_qt_is_sync_after_rebuild "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
+
+    // should refresh normal after catalog rebuild
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} complete
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_refresh_complete_rebuild "SELECT * FROM ${mvName} "
+
+    sql """drop materialized view if exists ${mvName};"""
+
+     // not have partition
+     sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format;
+        """
+    order_qt_not_partition_before "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    //should can refresh auto
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} auto
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_not_partition "SELECT * FROM ${mvName} "
+    order_qt_not_partition_after "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    sql """drop materialized view if exists ${mvName};"""
+    sql """drop catalog if exists ${catalogName}"""
+
 }
 

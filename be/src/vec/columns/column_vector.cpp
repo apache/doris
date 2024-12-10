@@ -42,6 +42,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 StringRef ColumnVector<T>::serialize_value_into_arena(size_t n, Arena& arena,
@@ -242,7 +243,7 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
     if (s == 0) return;
 
     // std::partial_sort need limit << s can get performance benefit
-    if (limit > (s / 8.0)) limit = 0;
+    if (static_cast<double>(limit) > (static_cast<double>(s) / 8.0)) limit = 0;
 
     if (limit) {
         for (size_t i = 0; i < s; ++i) res[i] = i;
@@ -289,6 +290,7 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
 template <typename T>
 void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
+    //  size_t(start)  start > src_vec.data.size() || length > src_vec.data.size() should not be negative which cause overflow
     if (start + length > src_vec.data.size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "Parameters start = {}, length = {}, are out of bound in "

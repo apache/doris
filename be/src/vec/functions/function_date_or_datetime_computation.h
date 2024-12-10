@@ -479,6 +479,34 @@ struct DateTimeOp {
         }
     }
 
+    // use for (const DateTime, ColumnNumber) -> other_type
+    static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
+                                NullMap& null_map, const IColumn& delta) {
+        size_t size = delta.size();
+        vec_to.resize(size);
+        null_map.resize_fill(size, false);
+
+        for (size_t i = 0; i < size; ++i) {
+            vec_to[i] = Transform::execute(from, delta.get_int(i),
+                                           reinterpret_cast<bool&>(null_map[i]));
+        }
+    }
+    static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
+                                const IColumn& delta) {
+        size_t size = delta.size();
+        vec_to.resize(size);
+        bool invalid = true;
+
+        for (size_t i = 0; i < size; ++i) {
+            vec_to[i] = Transform::execute(from, delta.get_int(i), invalid);
+
+            if (UNLIKELY(invalid)) {
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, from, delta.get_int(i));
+            }
+        }
+    }
+
     static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
                                 NullMap& null_map, const PaddedPODArray<FromType2>& delta) {
         size_t size = delta.size();
@@ -619,10 +647,9 @@ struct DateTimeAddIntervalImpl {
                                         col_to->get_data(), null_map->get_data(),
                                         delta_vec_column->get_data());
                 } else {
-                    return Status::RuntimeError(
-                            "Illegal column {} of first argument of function {}",
-                            block.get_by_position(arguments[0]).column->get_name(),
-                            Transform::name);
+                    Op::constant_vector(sources_const->template get_value<FromType1>(),
+                                        col_to->get_data(), null_map->get_data(),
+                                        *not_nullable_column_ptr_arg1);
                 }
                 if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
                             block.get_by_position(arguments[0]).column.get())) {
@@ -650,17 +677,17 @@ struct DateTimeAddIntervalImpl {
                     Op::constant_vector(sources_const->template get_value<FromType1>(),
                                         col_to->get_data(), delta_vec_column->get_data());
                 } else {
-                    return Status::RuntimeError(
-                            "Illegal column {} of first argument of function {}",
-                            block.get_by_position(arguments[0]).column->get_name(),
-                            Transform::name);
+                    Op::constant_vector(sources_const->template get_value<FromType1>(),
+                                        col_to->get_data(),
+                                        *block.get_by_position(arguments[1]).column);
                 }
                 block.replace_by_position(result, std::move(col_to));
             }
         } else {
-            return Status::RuntimeError("Illegal column {} of first argument of function {}",
-                                        block.get_by_position(arguments[0]).column->get_name(),
-                                        Transform::name);
+            return Status::RuntimeError(
+                    "Illegal column {} of first argument and type {} of function {}",
+                    block.get_by_position(arguments[0]).column->get_name(),
+                    block.get_by_position(arguments[0]).type->get_name(), Transform::name);
         }
         return Status::OK();
     }

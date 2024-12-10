@@ -34,6 +34,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "util/stopwatch.hpp"
 #include "util/uid_util.h"
 
 namespace butil {
@@ -60,6 +61,7 @@ struct LocalMergeFilters {
     int merge_size_times = 0;
     uint64_t local_merged_size = 0;
     std::vector<std::shared_ptr<IRuntimeFilter>> filters;
+    MonotonicStopWatch merge_watcher;
 };
 
 /// producer:
@@ -98,24 +100,19 @@ public:
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     int node_id, std::shared_ptr<IRuntimeFilter>* consumer_filter,
-                                    bool build_bf_exactly = false, bool need_local_merge = false);
+                                    bool need_local_merge = false);
 
     Status register_local_merge_producer_filter(const TRuntimeFilterDesc& desc,
                                                 const TQueryOptions& options,
-                                                std::shared_ptr<IRuntimeFilter> producer_filter,
-                                                bool build_bf_exactly = false);
+                                                std::shared_ptr<IRuntimeFilter> producer_filter);
 
     Status get_local_merge_producer_filters(int filter_id, LocalMergeFilters** local_merge_filters);
     LocalMergeFilters* get_local_merge_producer_filters(int filter_id);
 
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    std::shared_ptr<IRuntimeFilter>* producer_filter,
-                                    bool build_bf_exactly = false);
+                                    std::shared_ptr<IRuntimeFilter>* producer_filter);
 
     // update filter by remote
-    Status update_filter(const PPublishFilterRequest* request,
-                         butil::IOBufAsZeroCopyInputStream* data);
-
     void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
 
     Status get_merge_addr(TNetworkAddress* addr);
@@ -189,6 +186,7 @@ public:
         std::unordered_set<UniqueId> arrive_id;
         std::vector<PNetworkAddress> source_addrs;
         std::shared_ptr<ObjectPool> pool;
+        uint64_t local_merge_time = 0;
     };
 
 private:

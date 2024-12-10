@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "http/action/adjust_log_level.h"
 #include "http/action/adjust_tracing_dump.h"
+#include "http/action/batch_download_action.h"
 #include "http/action/be_proc_thread_action.h"
 #include "http/action/calc_file_crc_action.h"
 #include "http/action/check_rpc_channel_action.h"
@@ -80,6 +81,7 @@
 #include "util/doris_metrics.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace {
 std::shared_ptr<bufferevent_rate_limit_group> get_rate_limit_group(event_base* event_base) {
     auto rate_limit = config::download_binlog_rate_limit_kbs;
@@ -308,6 +310,16 @@ void HttpService::register_local_handler(StorageEngine& engine) {
                                       tablet_download_action);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/_tablet/_download",
                                       tablet_download_action);
+
+    BatchDownloadAction* batch_download_action =
+            _pool.add(new BatchDownloadAction(_env, _rate_limit_group, allow_paths));
+    _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_tablet/_batch_download",
+                                      batch_download_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/_tablet/_batch_download",
+                                      batch_download_action);
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/_tablet/_batch_download",
+                                      batch_download_action);
+
     if (config::enable_single_replica_load) {
         DownloadAction* single_replica_download_action = _pool.add(new DownloadAction(
                 _env, nullptr, allow_paths, config::single_replica_load_download_num_workers));
@@ -425,11 +437,16 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
-    CloudDeleteBitmapAction* count_delete_bitmap_action =
-            _pool.add(new CloudDeleteBitmapAction(DeleteBitmapActionType::COUNT_INFO, _env, engine,
+    CloudDeleteBitmapAction* count_local_delete_bitmap_action =
+            _pool.add(new CloudDeleteBitmapAction(DeleteBitmapActionType::COUNT_LOCAL, _env, engine,
                                                   TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count",
-                                      count_delete_bitmap_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_local",
+                                      count_local_delete_bitmap_action);
+    CloudDeleteBitmapAction* count_ms_delete_bitmap_action =
+            _pool.add(new CloudDeleteBitmapAction(DeleteBitmapActionType::COUNT_MS, _env, engine,
+                                                  TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_ms",
+                                      count_ms_delete_bitmap_action);
 #ifdef ENABLE_INJECTION_POINT
     InjectionPointAction* injection_point_action = _pool.add(new InjectionPointAction);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}",
@@ -468,4 +485,5 @@ int HttpService::get_real_port() const {
     return _ev_http_server->get_real_port();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

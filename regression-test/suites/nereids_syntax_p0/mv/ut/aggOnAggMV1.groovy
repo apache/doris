@@ -54,6 +54,7 @@ suite ("aggOnAggMV1") {
     order_qt_select_mv "select sum(salary), deptno from aggOnAggMV1 group by deptno order by deptno;"
 
     sql """set enable_stats=true;"""
+    sql """alter table aggOnAggMV1 modify column time_col set stats ('row_count'='4');"""
     mv_rewrite_fail("select * from aggOnAggMV1 order by empid;", "aggOnAggMV1_mv")
 
     mv_rewrite_success("select sum(salary), deptno from aggOnAggMV1 group by deptno order by deptno;", "aggOnAggMV1_mv")

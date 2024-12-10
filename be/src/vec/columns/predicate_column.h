@@ -102,8 +102,6 @@ public:
     using value_type = T;
     using Container = PaddedPODArray<value_type>;
 
-    bool is_numeric() const override { return false; }
-
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
@@ -269,8 +267,7 @@ public:
         }
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
+    void insert_many_strings(const StringRef* strings, size_t num) override {
         if (num == 0) {
             return;
         }
@@ -281,26 +278,25 @@ public:
 
             size_t total_mem_size = 0;
             for (size_t i = 0; i < num; i++) {
-                total_mem_size += len_array[i];
+                total_mem_size += strings[i].size;
             }
 
             char* destination = _arena->alloc(total_mem_size);
             char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
-            uint32_t fragment_start_offset = start_offset_array[0];
+            uint32_t fragment_start_offset = 0;
             size_t fragment_len = 0;
             for (size_t i = 0; i < num; i++) {
                 data[org_elem_num + i].data = destination + fragment_len;
-                data[org_elem_num + i].size = len_array[i];
-                fragment_len += len_array[i];
+                data[org_elem_num + i].size = strings[i].size;
+                fragment_len += strings[i].size;
                 // Compute the largest continuous memcpy block and copy them.
                 // If this is the last element in data array, then should copy the current memory block.
-                if (i == num - 1 ||
-                    start_offset_array[i + 1] != start_offset_array[i] + len_array[i]) {
-                    memcpy(destination, data_array + fragment_start_offset, fragment_len);
+                if (i == num - 1 || strings[i + 1].data != strings[i].data + strings[i].size) {
+                    memcpy(destination, strings[fragment_start_offset].data, fragment_len);
                     destination += fragment_len;
-                    fragment_start_offset = (i == num - 1 ? 0 : start_offset_array[i + 1]);
+                    fragment_start_offset = i == num - 1 ? 0 : i + 1;
                     fragment_len = 0;
                 }
             }
@@ -309,7 +305,6 @@ public:
         } else {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "Method insert_many_binary_data is not supported");
-            __builtin_unreachable();
         }
     }
 
@@ -378,9 +373,6 @@ public:
                 "deserialize_and_insert_from_arena not supported in PredicateColumnType");
         __builtin_unreachable();
     }
-
-    bool is_fixed_and_contiguous() const override { return true; }
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
     [[noreturn]] StringRef get_raw_data() const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
