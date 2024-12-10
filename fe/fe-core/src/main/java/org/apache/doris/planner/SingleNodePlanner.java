@@ -73,6 +73,7 @@ import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
 import org.apache.doris.datasource.odbc.source.OdbcScanNode;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.thrift.TPushAggOp;
 
@@ -1917,8 +1918,8 @@ public class SingleNodePlanner {
      */
     private PlanNode createScanNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
             throws UserException {
-        ScanNode scanNode = null;
-
+        SessionVariable sv = ConnectContext.get().getSessionVariable();
+        ScanNode scanNode;
         switch (tblRef.getTable().getType()) {
             case OLAP:
             case MATERIALIZED_VIEW:
@@ -1956,7 +1957,7 @@ public class SingleNodePlanner {
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), false);
                 break;
             case TABLE_VALUED_FUNCTION:
-                scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId());
+                scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId(), sv);
                 break;
             case HMS_EXTERNAL_TABLE:
                 TableIf table = tblRef.getDesc().getTable();
@@ -1969,13 +1970,13 @@ public class SingleNodePlanner {
                                     + "please set enable_nereids_planner = true to enable new optimizer");
                         }
                         scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true,
-                                Optional.empty(), Optional.empty(), ConnectContext.get().getSessionVariable());
+                                Optional.empty(), Optional.empty(), sv);
                         break;
                     case ICEBERG:
-                        scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                        scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                         break;
                     case HIVE:
-                        scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                        scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                         ((HiveScanNode) scanNode).setTableSample(tblRef.getTableSample());
                         break;
                     default:
@@ -1983,14 +1984,13 @@ public class SingleNodePlanner {
                 }
                 break;
             case ICEBERG_EXTERNAL_TABLE:
-                scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                 break;
             case PAIMON_EXTERNAL_TABLE:
-                scanNode = new PaimonScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true,
-                    ConnectContext.get().getSessionVariable());
+                scanNode = new PaimonScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                 break;
             case MAX_COMPUTE_EXTERNAL_TABLE:
-                scanNode = new MaxComputeScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                scanNode = new MaxComputeScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                 break;
             case ES_EXTERNAL_TABLE:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);

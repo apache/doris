@@ -44,6 +44,9 @@ Status PaimonReader::init_row_filters(const TFileRangeDesc& range, io::IOContext
         return Status::OK();
     }
 
+    // set push down agg type to NONE because we can not do count push down opt
+    // if there are delete files.
+    _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
     const auto& deletion_file = table_desc.deletion_file;
     io::FileSystemProperties properties = {
             .system_type = _params.file_type,
