@@ -19,7 +19,7 @@ PhysicalResultSink
 ------------------------------filter((item.i_current_price <= 1.49) and (item.i_current_price >= 0.99))
 --------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalProject
---------------------------filter((date_dim.d_date <= '1999-07-22') and (date_dim.d_date >= '1999-05-23'))
+--------------------------filter((date_dim.d_date = '1999-05-23'))
 ----------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[warehouse]
