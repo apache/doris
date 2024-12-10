@@ -87,6 +87,7 @@ public:
 
     int64_t get_scan_rows() { return scan_rows; }
     int64_t get_scan_bytes() { return scan_bytes; }
+    int64_t get_returned_rows() { return returned_rows; }
     int64_t get_current_used_memory_bytes() { return current_used_memory_bytes; }
     
     void add_exec_stats_item(uint32_t node_id, int64_t push, int64_t pull, int64_t pred_filter, int64_t index_filter,

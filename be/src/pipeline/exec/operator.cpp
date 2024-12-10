@@ -236,11 +236,12 @@ Status OperatorXBase::open(RuntimeState* state) {
 
 void OperatorXBase::update_exec_stats(RuntimeState* state) {
     QueryContext* ctx = state->get_query_ctx();
+
     if (ctx != nullptr && ctx->need_record_exec_stats(_node_id)) {
         // todo: what's the input/output rows?
-        ctx->update_push_rows_stats(_node_id, state->num_rows_load_success()); // push means output rows
-        ctx->update_pull_rows_stats(_node_id, state->num_rows_load_total()); // pull means input rows
-        ctx->update_pred_filter_stats(_node_id, state->num_rows_load_unselected());
+        ctx->update_push_rows_stats(_node_id, get_query_statistics_ptr()->get_returned_rows()); // push means output rows
+        ctx->update_pull_rows_stats(_node_id, get_query_statistics_ptr()->get_scan_rows()); // pull means input rows
+        //ctx->update_pred_filter_stats(_node_id, state->num_rows_load_unselected());
         // todo: update rows after runtime filter
         //if (_bloom_filter_eval_context.join_runtime_filter_input_counter != nullptr &&
         //    _bloom_filter_eval_context.join_runtime_filter_output_counter != nullptr) {
