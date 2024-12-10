@@ -785,8 +785,7 @@ public:
         return datetime;
     }
 
-    void set_microsecond(uint64_t microsecond)
-        requires is_datetime;
+    void set_microsecond(uint64_t microsecond);
 
     bool from_olap_date(uint64_t date) {
         auto [year, month, day] = std::tuple {0, 0, 0};
@@ -893,8 +892,7 @@ public:
     void unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
                             uint16_t second, uint32_t microsecond = 0);
 
-    void unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t second, uint32_t microsecond)
-        requires is_datetime;
+    void unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t second, uint32_t microsecond);
 
     int64_t daynr() const {
         return calc_daynr(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_);
