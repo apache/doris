@@ -86,10 +86,10 @@ void WorkloadGroupMgr::get_related_workload_groups(
     }
 }
 
-WorkloadGroupPtr WorkloadGroupMgr::get_task_group_by_id(uint64_t tg_id) {
+WorkloadGroupPtr WorkloadGroupMgr::get_group(uint64_t wg_id) {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-    if (_workload_groups.find(tg_id) != _workload_groups.end()) {
-        return _workload_groups.at(tg_id);
+    if (_workload_groups.find(wg_id) != _workload_groups.end()) {
+        return _workload_groups.at(wg_id);
     }
     return nullptr;
 }
