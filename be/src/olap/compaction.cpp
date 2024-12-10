@@ -954,6 +954,19 @@ Status CompactionMixin::modify_rowsets() {
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
+        DBUG_EXECUTE_IF("CompactionMixin::modify_rowsets.block", {
+            auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+            if (target_tablet_id == _tablet->tablet_id()) {
+                LOG(INFO) << "start debug block "
+                          << "CompactionMixin::modify_rowsets.block";
+                while (DebugPoints::instance()->is_enable(
+                        "CompactionMixin::modify_rowsets.block")) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
+                LOG(INFO) << "end debug block "
+                          << "CompactionMixin::modify_rowsets.block";
+            }
+        })
         Version version = tablet()->max_version();
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
         std::unique_ptr<RowLocationSet> missed_rows;

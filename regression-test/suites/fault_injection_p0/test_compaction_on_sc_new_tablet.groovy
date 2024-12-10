@@ -63,7 +63,8 @@ suite("test_compaction_on_sc_new_tablet", "nonConcurrent") {
         }
         logger.info("tablet ${tabletId} is on backend ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}, version=${version}");
 
-        GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::_convert_historical_rowsets.block")
+        // blocking the schema change process before it gains max version
+        GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
 
         sql "alter table ${table1} modify column c1 varchar(100);"
 
@@ -92,17 +93,33 @@ suite("test_compaction_on_sc_new_tablet", "nonConcurrent") {
         // trigger cumu compaction on new tablet
         int start_version = 15
         int end_version = 17
-        logger.info("trigger compaction [15-17] on new tablet ")
-        def (code, out, err) = be_run_full_compaction(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
+        // block compaction process on new tablet
+        GetDebugPoint().enableDebugPointForAllBEs("CompactionMixin::modify_rowsets.block", [tablet_id: "${newTabletStat.TabletId}"])
+        // manully set cumu compaction's input rowsets on new tablet
+        GetDebugPoint().enableDebugPointForAllBEs("SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+                [tablet_id:"${newTabletStat.TabletId}", start_version:"${start_version}", end_version:"${end_version}"])
+
+
+        logger.info("trigger compaction [15-17] on new tablet ${newTabletStat.TabletId}")
+        def (code, out, err) = be_run_full_compaction(tabletBackend.Host, tabletBackend.HttpPort, newTabletStat.TabletId)
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         Assert.assertEquals(code, 0)
         def compactJson = parseJson(out.trim())
         Assert.assertEquals("success", compactJson.status.toLowerCase())
 
-        // wait for cumu compaction to complete
+
+        // make the schema change run to complete and wait for it
+        GetDebugPoint().disableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tbl}' ORDER BY createtime DESC LIMIT 1 """
+            time 20000
+        }
+
+        // make the cumu compaction run to complete and wait for it
+        GetDebugPoint().disableDebugPointForAllBEs("CompactionMixin::modify_rowsets.block")
         Awaitility.await().atMost(3, TimeUnit.SECONDS).pollDelay(200, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
             {
-                (code, out, err) = be_get_compaction_status(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
+                (code, out, err) = be_get_compaction_status(tabletBackend.Host, tabletBackend.HttpPort, newTabletStat.TabletId)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                 Assert.assertEquals(code, 0)
                 def compactionStatus = parseJson(out.trim())
@@ -110,7 +127,6 @@ suite("test_compaction_on_sc_new_tablet", "nonConcurrent") {
                 return !compactionStatus.run_status
             }
         )
-
 
     } catch(Exception e) {
         logger.info(e.getMessage())
