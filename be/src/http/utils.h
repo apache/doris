@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "common/status.h"
 #include "common/utils.h"
 #include "http/http_request.h"
 
