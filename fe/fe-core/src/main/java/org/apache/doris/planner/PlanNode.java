@@ -599,7 +599,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return expBuilder.toString();
     }
 
-    private String getplanNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    private String getPlanNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder expBuilder = new StringBuilder();
         expBuilder.append(getNodeExplainString(prefix, detailLevel));
         if (limit != -1) {
@@ -615,7 +615,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public void getExplainStringMap(TExplainLevel detailLevel, Map<Integer, String> planNodeMap) {
-        planNodeMap.put(id.asInt(), getplanNodeExplainString("", detailLevel));
+        planNodeMap.put(id.asInt(), getPlanNodeExplainString("", detailLevel));
         for (int i = 0; i < children.size(); ++i) {
             children.get(i).getExplainStringMap(detailLevel, planNodeMap);
         }
@@ -995,10 +995,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
         // expr1, expr2, expr3
         // ==>
-        // [prefix]expr1,
-        // [prefix]expr2,
-        // [prefix]expr3
-        return Joiner.on(",\n").join(exprs.stream().map(expr -> prefix + expr.toSql()).collect(Collectors.toList()));
+        // [prefix  ]expr1,
+        // [prefix  ]expr2,
+        // [prefix  ]expr3
+        return Joiner.on(",\n").join(exprs.stream()
+                .map(expr -> prefix + "  " + expr.toSql()).collect(Collectors.toList()));
     }
 
     /**
