@@ -318,7 +318,7 @@ int main(int argc, char** argv) {
     // Some developers will modify status.h and we use a very ticky logic to init error_states
     // and it maybe not inited. So add a check here.
     doris::ErrorCode::error_code_init.check_init();
-    // check if print version or help and skip_check
+    // check if print version or help
     if (argc > 1) {
         if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
             puts(doris::get_build_version(false).c_str());
