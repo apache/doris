@@ -92,12 +92,12 @@ Suite.metaClass.listOssObjectWithPrefix = { OSS client, String bucketName, Strin
 
 }
 
-// 获取某个存储空间下指定目录（文件夹）下的文件大小。
+// get file size in a specific directory
 Suite.metaClass.calculateFolderLength = { OSS client, String bucketName, String folder ->
     long size = 0L;
     ObjectListing objectListing = null;
     do {
-        // MaxKey默认值为100，最大值为1000。
+        // The default value for MaxKey is 100, and the maximum value is 1000
         ListObjectsRequest request = new ListObjectsRequest(bucketName).withPrefix(folder).withMaxKeys(1000);
         if (objectListing != null) {
             request.setMarker(objectListing.getNextMarker());
@@ -128,7 +128,7 @@ Suite.metaClass.getOssAllDirSizeWithPrefix = { OSS client, String bucketName, St
         logger.info("List all objects with prefix:");
         ObjectListing objectListing = null;
         do {
-            // 默认情况下，每次列举100个文件或目录。
+            // By default, list 100 files or directories at a time
             ListObjectsRequest request = new ListObjectsRequest(bucketName).withDelimiter("/").withPrefix(prefix);
             if (objectListing != null) {
                 request.setMarker(objectListing.getNextMarker());
