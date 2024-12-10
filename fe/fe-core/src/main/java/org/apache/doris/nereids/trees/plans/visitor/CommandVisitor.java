@@ -110,6 +110,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
@@ -620,5 +621,10 @@ public interface CommandVisitor<R, C> {
     default R visitShowTabletStorageFormatCommand(ShowTabletStorageFormatCommand showTabletStorageFormatCommand,
                                                   C context) {
         return visitCommand(showTabletStorageFormatCommand, context);
+    }
+
+    default R visitShowQueryProfileCommand(ShowQueryProfileCommand showQueryProfileCommand,
+                                           C context) {
+        return visitCommand(showQueryProfileCommand, context);
     }
 }
