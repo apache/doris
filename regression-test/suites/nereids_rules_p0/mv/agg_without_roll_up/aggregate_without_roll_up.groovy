@@ -372,7 +372,7 @@ suite("aggregate_without_roll_up") {
             "max(o_totalprice) as max_total, " +
             "min(o_totalprice) as min_total, " +
             "count(*) as count_all, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as distinct_count " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end))  as distinct_count " +
             "from lineitem " +
             "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate " +
             "group by " +
@@ -570,7 +570,7 @@ suite("aggregate_without_roll_up") {
             "max(o_totalprice) as max_total, " +
             "min(o_totalprice) as min_total, " +
             "count(*) as count_all, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as distinct_count " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as distinct_count " +
             "from lineitem " +
             "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate " +
             "group by " +
@@ -660,7 +660,7 @@ suite("aggregate_without_roll_up") {
             "max(o_totalprice) as max_total, " +
             "min(o_totalprice) as min_total, " +
             "count(*) as count_all, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as distinct_count " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as distinct_count " +
             "from lineitem " +
             "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate " +
             "group by " +
