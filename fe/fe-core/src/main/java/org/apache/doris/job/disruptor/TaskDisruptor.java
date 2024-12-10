@@ -104,7 +104,7 @@ public class TaskDisruptor<T> {
 
             // Timeout reached without publishing the event
             LOG.warn("Failed to publish event within the specified timeout (1 second)."
-                            + "Queue may be full. the remaining buffer size is  {}",
+                            + "Queue may be full. the remaining buffer size is {}",
                     disruptor.getRingBuffer().remainingCapacity());
         } catch (Exception e) {
             // Catching general exceptions to handle unexpected errors
