@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
@@ -65,10 +66,16 @@ public abstract class FirstOrLastValue extends WindowFunction
         return SIGNATURES;
     }
 
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        if (2 == arity() && !child(1).isConstant()) {
-            throw new AnalysisException("The second parameter of " + getName() + " must be constant");
+    /**check the second parameter must be true or false*/
+    public static void checkSecondParameter(FirstOrLastValue firstOrLastValue) {
+        if (1 == firstOrLastValue.arity()) {
+            return;
+        }
+        if (!BooleanLiteral.TRUE.equals(firstOrLastValue.child(1))
+                && !BooleanLiteral.FALSE.equals(firstOrLastValue.child(1))) {
+            throw new AnalysisException("The second parameter of " + firstOrLastValue.getName()
+                    + " must be a constant or a constant expression, and the result of "
+                    + "the calculated constant or constant expression must be true or false.");
         }
     }
 }

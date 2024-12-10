@@ -316,6 +316,7 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
      */
     @Override
     public FirstOrLastValue visitFirstValue(FirstValue firstValue, Void ctx) {
+        FirstOrLastValue.checkSecondParameter(firstValue);
         if (2 == firstValue.arity() && firstValue.child(1).equals(BooleanLiteral.TRUE)) {
             return firstValue;
         }
@@ -341,6 +342,12 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
                 FrameBoundary.newPrecedingBoundary(), FrameBoundary.newCurrentRowBoundary()));
         }
         return firstValue;
+    }
+
+    @Override
+    public FirstOrLastValue visitLastValue(LastValue lastValue, Void ctx) {
+        FirstOrLastValue.checkSecondParameter(lastValue);
+        return lastValue;
     }
 
     /**
