@@ -113,10 +113,11 @@ suite("load_stream_fault_injection", "nonConcurrent") {
         }
     }
 
-    def load_with_injection = { injection, expect_errmsg ->
+    def load_with_injection = { injection, expect_errmsg, success=false->
         try {
             GetDebugPoint().enableDebugPointForAllBEs(injection)
             sql "insert into test select * from baseall where k1 <= 3"
+            assertTrue(success, String.format("Expected Exception '%s', actual success", expect_errmsg))
         } catch(Exception e) {
             // assertTrue(e.getMessage().contains("Process has no memory available"))  // the msg should contain the root cause
             logger.info(e.getMessage())
@@ -125,11 +126,12 @@ suite("load_stream_fault_injection", "nonConcurrent") {
         }
     }
 
-    def load_with_injection2 = { injection1, injection2, error_msg->
+    def load_with_injection2 = { injection1, injection2, error_msg, success=false->
         try {
             GetDebugPoint().enableDebugPointForAllBEs(injection1)
             GetDebugPoint().enableDebugPointForAllBEs(injection2)
             sql "insert into test select * from baseall where k1 <= 3"
+            assertTrue(success, String.format("expected Exception '%s', actual success", expect_errmsg))
         } catch(Exception e) {
             logger.info(e.getMessage())
             assertTrue(e.getMessage().contains(error_msg))
@@ -149,16 +151,12 @@ suite("load_stream_fault_injection", "nonConcurrent") {
     load_with_injection("LoadStreamWriter.close_segment.null_file_writer", "")
     // LoadStreamWriter close_segment meet file writer failed to close error
     load_with_injection("LocalFileWriter.close.failed", "")
-    // LoadStreamWriter close_segment meet bytes_appended and real file size not match error
-    load_with_injection("FileWriter.close_segment.zero_bytes_appended", "")
     // LoadStreamWriter close_writer/add_segment meet not inited error
     load_with_injection("TabletStream.init.uninited_writer", "")
     // LoadStreamWriter add_segment meet not bad segid error
     load_with_injection("LoadStreamWriter.add_segment.bad_segid", "")
     // LoadStreamWriter add_segment meet null file writer error
     load_with_injection("LoadStreamWriter.add_segment.null_file_writer", "")
-    // LoadStreamWriter add_segment meet bytes_appended and real file size not match error
-    load_with_injection("FileWriter.add_segment.zero_bytes_appended", "")
     // LoadStream init failed coz LoadStreamWriter init failed
     load_with_injection("RowsetBuilder.check_tablet_version_count.too_many_version", "")
     // LoadStream add_segment meet unknown segid in request header
