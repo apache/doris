@@ -64,7 +64,7 @@ while true; do
         ;;
     --skip)
         RUN_SKIP=1
-        RUN_DAEMON=1
+        RUN_CONSOLE=1
         shift
         ;;
     --)
