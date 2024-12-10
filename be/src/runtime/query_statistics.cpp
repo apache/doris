@@ -96,17 +96,19 @@ void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
     statistics->__set_scan_bytes_from_local_storage(_scan_bytes_from_local_storage);
 
     std::vector<TNodeExecStatsItemPB> pbList;
-    for (const auto& [node_id, exec_stats_item] : _exec_stats_items) {
-        TNodeExecStatsItemPB *pb = new TNodeExecStatsItemPB();
-        pb->__set_node_id(node_id);
-        pb->__set_push_rows(exec_stats_item->push_rows);
-        pb->__set_pull_rows(exec_stats_item->pull_rows);
-        pb->__set_index_filter_rows(exec_stats_item->index_filter_rows);
-        pb->__set_rf_filter_rows(exec_stats_item->rf_filter_rows);
-        pb->__set_pred_filter_rows(exec_stats_item->pred_filter_rows);
-        pbList.push_back(*pb);
+    if (!_exec_stats_items.empty()) {
+        for (const auto &[node_id, exec_stats_item]: _exec_stats_items) {
+            TNodeExecStatsItemPB *pb = new TNodeExecStatsItemPB();
+            pb->__set_node_id(node_id);
+            pb->__set_push_rows(exec_stats_item->push_rows);
+            pb->__set_pull_rows(exec_stats_item->pull_rows);
+            pb->__set_index_filter_rows(exec_stats_item->index_filter_rows);
+            pb->__set_rf_filter_rows(exec_stats_item->rf_filter_rows);
+            pb->__set_pred_filter_rows(exec_stats_item->pred_filter_rows);
+            pbList.push_back(*pb);
+        }
+        statistics->__set_node_exec_stats_items(pbList);
     }
-    statistics->__set_node_exec_stats_items(pbList);
 }
 
 void QueryStatistics::from_pb(const PQueryStatistics& statistics) {

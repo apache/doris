@@ -150,31 +150,34 @@ public class HistoryBasedPlanStatisticsTracker {
         WorkloadRuntimeStatusMgr mgr = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr();
         List<AuditEvent> auditEventList = mgr.getQueryNeedAudit();
         // TODO: choose which audit event
-        AuditEvent event = auditEventList.get(0);
-        Map<PlanNodeWithHash, PlanStatisticsWithSourceInfo> planStatistics = getQueryStats(event.queryId);
-        Map<PlanNodeWithHash, HistoricalPlanStatistics> historicalPlanStatisticsMap =
-                historyBasedPlanStatisticsProvider.getStats(
-                        planStatistics.keySet().stream().collect(toImmutableList()), 1000);
+        if (!auditEventList.isEmpty()) {
+            AuditEvent event = auditEventList.get(0);
+            Map<PlanNodeWithHash, PlanStatisticsWithSourceInfo> planStatistics = getQueryStats(event.queryId);
+            Map<PlanNodeWithHash, HistoricalPlanStatistics> historicalPlanStatisticsMap =
+                    historyBasedPlanStatisticsProvider.getStats(
+                            planStatistics.keySet().stream().collect(toImmutableList()), 1000);
 
-        Map<PlanNodeWithHash, HistoricalPlanStatistics> newPlanStatistics = planStatistics.entrySet().stream()
-                .filter(entry -> entry.getKey().getHash().isPresent() &&
-                        entry.getValue().getSourceInfo().getInputTableStatistics().isPresent())
-                .collect(toImmutableMap(
-                        Map.Entry::getKey,
-                        entry -> {
-                            HistoricalPlanStatistics oldPlanStatistics = Optional.ofNullable(historicalPlanStatisticsMap.get(entry.getKey()))
-                                    .orElseGet(HistoricalPlanStatistics::empty);
-                            HistoryBasedSourceInfo historyBasedSourceInfo = entry.getValue().getSourceInfo();
-                            return updatePlanStatistics(
-                                    oldPlanStatistics,
-                                    historyBasedSourceInfo.getInputTableStatistics().get(),
-                                    entry.getValue().getPlanStatistics());
-                        }));
+            Map<PlanNodeWithHash, HistoricalPlanStatistics> newPlanStatistics = planStatistics.entrySet().stream()
+                    .filter(entry -> entry.getKey().getHash().isPresent() &&
+                            entry.getValue().getSourceInfo().getInputTableStatistics().isPresent())
+                    .collect(toImmutableMap(
+                            Map.Entry::getKey,
+                            entry -> {
+                                HistoricalPlanStatistics oldPlanStatistics = Optional.ofNullable(
+                                                historicalPlanStatisticsMap.get(entry.getKey()))
+                                        .orElseGet(HistoricalPlanStatistics::empty);
+                                HistoryBasedSourceInfo historyBasedSourceInfo = entry.getValue().getSourceInfo();
+                                return updatePlanStatistics(
+                                        oldPlanStatistics,
+                                        historyBasedSourceInfo.getInputTableStatistics().get(),
+                                        entry.getValue().getPlanStatistics());
+                            }));
 
-        if (!newPlanStatistics.isEmpty()) {
-            historyBasedPlanStatisticsProvider.putStats(ImmutableMap.copyOf(newPlanStatistics));
+            if (!newPlanStatistics.isEmpty()) {
+                historyBasedPlanStatisticsProvider.putStats(ImmutableMap.copyOf(newPlanStatistics));
+            }
+            historyBasedStatisticsCacheManager.invalidate(event.queryId);
         }
-        historyBasedStatisticsCacheManager.invalidate(event.queryId);
     }
 
     public static HistoricalPlanStatistics updatePlanStatistics(

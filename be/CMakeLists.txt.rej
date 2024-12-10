@@ -1,0 +1,19 @@
+@@ -378,15 +377,15 @@
+ # For CMAKE_BUILD_TYPE=Debug
+ if (OS_MACOSX AND ARCH_ARM)
+     # Using -O0 may meet ARM64 branch out of range errors when linking with tcmalloc.
+-    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Og")
++    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Ogi -L/opt/homebrew/opt/llvm/lib/c++")
+ else()
+-    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
++    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0 -L/opt/homebrew/opt/llvm/lib/c++")
+ endif()
+ 
+ # For CMAKE_BUILD_TYPE=Release
+ #   -O3: Enable all compiler optimizations
+ #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
+-set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG")
++set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG -L/opt/homebrew/opt/llvm/lib/c++")
+ set(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O0 -fsanitize=address -fsanitize=undefined -fno-strict-aliasing -fno-sanitize=alignment,signed-integer-overflow,float-cast-overflow -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+ set(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
+ ## Use for BE-UT
