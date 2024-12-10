@@ -67,9 +67,9 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
 
         if (!StringUtils.isEmpty(expectedEqualExpr)) {
             Expression equalExpression = replaceUnboundSlot(PARSER.parseExpression(expectedEqualExpr), mem);
-            Assertions.assertEquals(equalExpression, splitPredicate.getEqualPredicate());
+            Assertions.assertEquals(equalExpression, splitPredicate.getEqualPredicateMap());
         } else {
-            Assertions.assertEquals(splitPredicate.getEqualPredicate(), BooleanLiteral.TRUE);
+            Assertions.assertEquals(splitPredicate.getEqualPredicateMap(), BooleanLiteral.TRUE);
         }
 
         if (!StringUtils.isEmpty(expectedRangeExpr)) {
@@ -81,9 +81,9 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
 
         if (!StringUtils.isEmpty(expectedResidualExpr)) {
             Expression residualExpression = replaceUnboundSlot(PARSER.parseExpression(expectedResidualExpr), mem);
-            Assertions.assertEquals(residualExpression, splitPredicate.getResidualPredicate());
+            Assertions.assertEquals(residualExpression, splitPredicate.getResidualPredicateMap());
         } else {
-            Assertions.assertEquals(splitPredicate.getResidualPredicate(), BooleanLiteral.TRUE);
+            Assertions.assertEquals(splitPredicate.getResidualPredicateMap(), BooleanLiteral.TRUE);
         }
     }
 

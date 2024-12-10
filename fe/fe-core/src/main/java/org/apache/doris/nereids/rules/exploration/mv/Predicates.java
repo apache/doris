@@ -27,8 +27,9 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -46,7 +47,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -87,7 +87,7 @@ public class Predicates {
     /**
      * compensate equivalence predicates
      */
-    public static Set<Expression> compensateEquivalence(StructInfo queryStructInfo,
+    public static Map<Expression, ExpressionInfo> compensateEquivalence(StructInfo queryStructInfo,
             StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping,
             ComparisonResult comparisonResult) {
@@ -98,9 +98,9 @@ public class Predicates {
         if (viewEquivalenceClassQueryBased == null) {
             return null;
         }
-        final Set<Expression> equalCompensateConjunctions = new HashSet<>();
+        final Map<Expression, ExpressionInfo> equalCompensateConjunctions = new HashMap<>();
         if (queryEquivalenceClass.isEmpty() && viewEquivalenceClass.isEmpty()) {
-            equalCompensateConjunctions.add(BooleanLiteral.TRUE);
+            return ImmutableMap.of();
         }
         if (queryEquivalenceClass.isEmpty() && !viewEquivalenceClass.isEmpty()) {
             return null;
@@ -115,37 +115,42 @@ public class Predicates {
         // do equal compensate
         Set<List<SlotReference>> mappedQueryEquivalenceSet =
                 queryToViewEquivalenceMapping.getEquivalenceClassSetMap().keySet();
-        queryEquivalenceClass.getEquivalenceSetList().forEach(
-                queryEquivalenceSet -> {
-                    // compensate the equivalence in query but not in view
-                    if (!mappedQueryEquivalenceSet.contains(queryEquivalenceSet)) {
-                        Iterator<SlotReference> iterator = queryEquivalenceSet.iterator();
-                        SlotReference first = iterator.next();
-                        while (iterator.hasNext()) {
-                            Expression equals = new EqualTo(first, iterator.next());
-                            equalCompensateConjunctions.add(equals);
-                        }
-                    } else {
-                        // compensate the equivalence both in query and view, but query has more equivalence
-                        List<SlotReference> viewEquivalenceSet =
-                                queryToViewEquivalenceMapping.getEquivalenceClassSetMap().get(queryEquivalenceSet);
-                        List<SlotReference> copiedQueryEquivalenceSet = new ArrayList<>(queryEquivalenceSet);
-                        copiedQueryEquivalenceSet.removeAll(viewEquivalenceSet);
-                        SlotReference first = viewEquivalenceSet.iterator().next();
-                        for (SlotReference slotReference : copiedQueryEquivalenceSet) {
-                            Expression equals = new EqualTo(first, slotReference);
-                            equalCompensateConjunctions.add(equals);
-                        }
+
+        for (List<SlotReference> queryEquivalenceSet : queryEquivalenceClass.getEquivalenceSetList()) {
+            // compensate the equivalence in query but not in view
+            if (!mappedQueryEquivalenceSet.contains(queryEquivalenceSet)) {
+                Iterator<SlotReference> iterator = queryEquivalenceSet.iterator();
+                SlotReference first = iterator.next();
+                while (iterator.hasNext()) {
+                    Expression equals = new EqualTo(first, iterator.next());
+                    if (equals.anyMatch(AggregateFunction.class::isInstance)) {
+                        return null;
                     }
+                    equalCompensateConjunctions.put(equals, ExpressionInfo.EMPTY);
                 }
-        );
+            } else {
+                // compensate the equivalence both in query and view, but query has more equivalence
+                List<SlotReference> viewEquivalenceSet =
+                        queryToViewEquivalenceMapping.getEquivalenceClassSetMap().get(queryEquivalenceSet);
+                List<SlotReference> copiedQueryEquivalenceSet = new ArrayList<>(queryEquivalenceSet);
+                copiedQueryEquivalenceSet.removeAll(viewEquivalenceSet);
+                SlotReference first = viewEquivalenceSet.iterator().next();
+                for (SlotReference slotReference : copiedQueryEquivalenceSet) {
+                    Expression equals = new EqualTo(first, slotReference);
+                    if (equals.anyMatch(AggregateFunction.class::isInstance)) {
+                        return null;
+                    }
+                    equalCompensateConjunctions.put(equals, ExpressionInfo.EMPTY);
+                }
+            }
+        }
         return equalCompensateConjunctions;
     }
 
     /**
      * compensate range predicates
      */
-    public static Map<Expression, Literal> compensateRangePredicate(StructInfo queryStructInfo,
+    public static Map<Expression, ExpressionInfo> compensateRangePredicate(StructInfo queryStructInfo,
             StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping,
             ComparisonResult comparisonResult,
@@ -153,13 +158,16 @@ public class Predicates {
         SplitPredicate querySplitPredicate = queryStructInfo.getSplitPredicate();
         SplitPredicate viewSplitPredicate = viewStructInfo.getSplitPredicate();
 
-        Expression queryRangePredicate = querySplitPredicate.getRangePredicate();
-        Expression viewRangePredicate = viewSplitPredicate.getRangePredicate();
-        Expression viewRangePredicateQueryBased =
-                ExpressionUtils.replace(viewRangePredicate, viewToQuerySlotMapping.toSlotReferenceMap());
+        Set<Expression> viewRangeQueryBasedSet = new HashSet<>();
+        for (Expression viewExpression : viewSplitPredicate.getRangePredicateMap().keySet()) {
+            viewRangeQueryBasedSet.add(
+                    ExpressionUtils.replace(viewExpression, viewToQuerySlotMapping.toSlotReferenceMap()));
+        }
+        viewRangeQueryBasedSet.remove(BooleanLiteral.TRUE);
 
-        Set<Expression> queryRangeSet = ExpressionUtils.extractConjunctionToSet(queryRangePredicate);
-        Set<Expression> viewRangeQueryBasedSet = ExpressionUtils.extractConjunctionToSet(viewRangePredicateQueryBased);
+        Set<Expression> queryRangeSet = querySplitPredicate.getRangePredicateMap().keySet();
+        queryRangeSet.remove(BooleanLiteral.TRUE);
+
         Set<Expression> differentExpressions = new HashSet<>();
         Sets.difference(queryRangeSet, viewRangeQueryBasedSet).copyInto(differentExpressions);
         Sets.difference(viewRangeQueryBasedSet, queryRangeSet).copyInto(differentExpressions);
@@ -174,16 +182,22 @@ public class Predicates {
             // normalized expressions is not in query, can not compensate
             return null;
         }
-        Map<Expression, Literal> normalizedExpressionsWithLiteral = new HashMap<>();
+        Map<Expression, ExpressionInfo> normalizedExpressionsWithLiteral = new HashMap<>();
         for (Expression expression : normalizedExpressions) {
             Set<Literal> literalSet = expression.collect(expressionTreeNode -> expressionTreeNode instanceof Literal);
             if (!(expression instanceof ComparisonPredicate)
-                    || (expression instanceof GreaterThan || expression instanceof LessThan)
+                    || (expression instanceof GreaterThan || expression instanceof LessThanEqual)
                     || literalSet.size() != 1) {
-                normalizedExpressionsWithLiteral.put(expression, null);
+                if (expression.anyMatch(AggregateFunction.class::isInstance)) {
+                    return null;
+                }
+                normalizedExpressionsWithLiteral.put(expression, ExpressionInfo.EMPTY);
                 continue;
             }
-            normalizedExpressionsWithLiteral.put(expression, literalSet.iterator().next());
+            if (expression.anyMatch(AggregateFunction.class::isInstance)) {
+                return null;
+            }
+            normalizedExpressionsWithLiteral.put(expression, new ExpressionInfo(literalSet.iterator().next()));
         }
         return normalizedExpressionsWithLiteral;
     }
@@ -200,31 +214,38 @@ public class Predicates {
     /**
      * compensate residual predicates
      */
-    public static Set<Expression> compensateResidualPredicate(StructInfo queryStructInfo,
+    public static Map<Expression, ExpressionInfo> compensateResidualPredicate(StructInfo queryStructInfo,
             StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping,
             ComparisonResult comparisonResult) {
         // TODO Residual predicates compensate, simplify implementation currently.
         SplitPredicate querySplitPredicate = queryStructInfo.getSplitPredicate();
         SplitPredicate viewSplitPredicate = viewStructInfo.getSplitPredicate();
-        Expression queryResidualPredicate = querySplitPredicate.getResidualPredicate();
-        Expression viewResidualPredicate = viewSplitPredicate.getResidualPredicate();
-        Expression viewResidualPredicateQueryBased =
-                ExpressionUtils.replace(viewResidualPredicate, viewToQuerySlotMapping.toSlotReferenceMap());
-        Set<Expression> queryResidualSet =
-                Sets.newHashSet(ExpressionUtils.extractConjunction(queryResidualPredicate));
-        Set<Expression> viewResidualQueryBasedSet =
-                Sets.newHashSet(ExpressionUtils.extractConjunction(viewResidualPredicateQueryBased));
+
+        Set<Expression> viewResidualQueryBasedSet = new HashSet<>();
+        for (Expression viewExpression : viewSplitPredicate.getResidualPredicateMap().keySet()) {
+            viewResidualQueryBasedSet.add(
+                    ExpressionUtils.replace(viewExpression, viewToQuerySlotMapping.toSlotReferenceMap()));
+        }
+        viewResidualQueryBasedSet.remove(BooleanLiteral.TRUE);
+
+        Set<Expression> queryResidualSet = querySplitPredicate.getResidualPredicateMap().keySet();
         // remove unnecessary literal BooleanLiteral.TRUE
         queryResidualSet.remove(BooleanLiteral.TRUE);
-        viewResidualQueryBasedSet.remove(BooleanLiteral.TRUE);
         // query residual predicate can not contain all view residual predicate when view have residual predicate,
         // bail out
         if (!queryResidualSet.containsAll(viewResidualQueryBasedSet)) {
             return null;
         }
         queryResidualSet.removeAll(viewResidualQueryBasedSet);
-        return queryResidualSet;
+        Map<Expression, ExpressionInfo> expressionExpressionInfoMap = new HashMap<>();
+        for (Expression needCompensate : queryResidualSet) {
+            if (needCompensate.anyMatch(AggregateFunction.class::isInstance)) {
+                return null;
+            }
+            expressionExpressionInfoMap.put(needCompensate, ExpressionInfo.EMPTY);
+        }
+        return expressionExpressionInfoMap;
     }
 
     @Override
@@ -233,50 +254,56 @@ public class Predicates {
     }
 
     /**
+     * The struct info for expression, such as the constant that it used
+     */
+    public static final class ExpressionInfo {
+
+        public static final ExpressionInfo EMPTY = new ExpressionInfo(null);
+
+        public final Literal literal;
+
+        public ExpressionInfo(Literal literal) {
+            this.literal = literal;
+        }
+    }
+
+    /**
      * The split different representation for predicate expression, such as equal, range and residual predicate.
      */
     public static final class SplitPredicate {
         public static final SplitPredicate INVALID_INSTANCE =
-                SplitPredicate.of(null, null, null, null);
-        private final Optional<Expression> equalPredicate;
-        private final Optional<Expression> rangePredicate;
-        private final Optional<Map<Expression, Literal>> rangePredicateMap;
-        private final Optional<Expression> residualPredicate;
+                SplitPredicate.of(null, null, null);
+        private final Map<Expression, ExpressionInfo> equalPredicateMap;
+        private final Map<Expression, ExpressionInfo> rangePredicateMap;
+        private final Map<Expression, ExpressionInfo> residualPredicateMap;
 
-        public SplitPredicate(Expression equalPredicate,
-                Expression rangePredicate,
-                Map<Expression, Literal> rangePredicateMap,
-                Expression residualPredicate) {
-            this.equalPredicate = Optional.ofNullable(equalPredicate);
-            this.rangePredicate = Optional.ofNullable(rangePredicate);
-            this.rangePredicateMap = Optional.ofNullable(rangePredicateMap);
-            this.residualPredicate = Optional.ofNullable(residualPredicate);
+        public SplitPredicate(Map<Expression, ExpressionInfo> equalPredicateMap,
+                Map<Expression, ExpressionInfo> rangePredicateMap,
+                Map<Expression, ExpressionInfo> residualPredicateMap) {
+            this.equalPredicateMap = equalPredicateMap;
+            this.rangePredicateMap = rangePredicateMap;
+            this.residualPredicateMap = residualPredicateMap;
         }
 
-        public Expression getEqualPredicate() {
-            return equalPredicate.orElse(BooleanLiteral.TRUE);
+        public Map<Expression, ExpressionInfo> getEqualPredicateMap() {
+            return equalPredicateMap;
         }
 
-        public Expression getRangePredicate() {
-            return rangePredicate.orElse(BooleanLiteral.TRUE);
+        public Map<Expression, ExpressionInfo> getRangePredicateMap() {
+            return rangePredicateMap;
         }
 
-        public Map<Expression, Literal> getRangePredicateMap() {
-            return rangePredicateMap.orElse(ImmutableMap.of());
-        }
-
-        public Expression getResidualPredicate() {
-            return residualPredicate.orElse(BooleanLiteral.TRUE);
+        public Map<Expression, ExpressionInfo> getResidualPredicateMap() {
+            return residualPredicateMap;
         }
 
         /**
          * SplitPredicate construct
          */
-        public static SplitPredicate of(Expression equalPredicates,
-                Expression rangePredicates,
-                Map<Expression, Literal> rangePredicateSet,
-                Expression residualPredicates) {
-            return new SplitPredicate(equalPredicates, rangePredicates, rangePredicateSet, residualPredicates);
+        public static SplitPredicate of(Map<Expression, ExpressionInfo> equalPredicateMap,
+                Map<Expression, ExpressionInfo> rangePredicateMap,
+                Map<Expression, ExpressionInfo> residualPredicateMap) {
+            return new SplitPredicate(equalPredicateMap, rangePredicateMap, residualPredicateMap);
         }
 
         /**
@@ -287,22 +314,21 @@ public class Predicates {
         }
 
         public List<Expression> toList() {
-            return ImmutableList.of(getEqualPredicate(), getRangePredicate(), getResidualPredicate());
+            if (isInvalid()) {
+                return ImmutableList.of();
+            }
+            List<Expression> flattenExpressions = new ArrayList<>(getEqualPredicateMap().keySet());
+            flattenExpressions.addAll(getRangePredicateMap().keySet());
+            flattenExpressions.addAll(getResidualPredicateMap().keySet());
+            return flattenExpressions;
         }
 
         /**
          * Check the predicates in SplitPredicate is whether all true or not
          */
         public boolean isAlwaysTrue() {
-            Expression equalExpr = getEqualPredicate();
-            Expression rangeExpr = getRangePredicate();
-            Expression residualExpr = getResidualPredicate();
-            return equalExpr instanceof BooleanLiteral
-                    && rangeExpr instanceof BooleanLiteral
-                    && residualExpr instanceof BooleanLiteral
-                    && ((BooleanLiteral) equalExpr).getValue()
-                    && ((BooleanLiteral) rangeExpr).getValue()
-                    && ((BooleanLiteral) residualExpr).getValue();
+            return getEqualPredicateMap().isEmpty() && getRangePredicateMap().isEmpty()
+                    && getResidualPredicateMap().isEmpty();
         }
 
         @Override
@@ -314,22 +340,22 @@ public class Predicates {
                 return false;
             }
             SplitPredicate that = (SplitPredicate) o;
-            return Objects.equals(equalPredicate, that.equalPredicate)
-                    && Objects.equals(rangePredicate, that.rangePredicate)
-                    && Objects.equals(residualPredicate, that.residualPredicate);
+            return Objects.equals(equalPredicateMap, that.equalPredicateMap)
+                    && Objects.equals(rangePredicateMap, that.residualPredicateMap)
+                    && Objects.equals(residualPredicateMap, that.residualPredicateMap);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(equalPredicate, rangePredicate, residualPredicate);
+            return Objects.hash(equalPredicateMap, rangePredicateMap, residualPredicateMap);
         }
 
         @Override
         public String toString() {
             return Utils.toSqlString("SplitPredicate",
-                    "equalPredicate", equalPredicate,
-                    "rangePredicate", rangePredicate,
-                    "residualPredicate", residualPredicate);
+                    "equalPredicate", equalPredicateMap,
+                    "rangePredicate", rangePredicateMap,
+                    "residualPredicate", residualPredicateMap);
         }
     }
 }
