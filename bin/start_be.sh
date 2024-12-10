@@ -33,6 +33,7 @@ OPTS="$(getopt \
     -l 'console' \
     -l 'version' \
     -l 'benchmark' \
+    -l 'skip' \
     -- "$@")"
 
 eval set -- "${OPTS}"
@@ -41,6 +42,7 @@ RUN_DAEMON=0
 RUN_CONSOLE=0
 RUN_VERSION=0
 RUN_BENCHMARK=0
+RUN_SKIP=0
 
 while true; do
     case "$1" in
@@ -58,6 +60,11 @@ while true; do
         ;;
     --benchmark)
         RUN_BENCHMARK=1
+        shift
+        ;;
+    --skip)
+        RUN_SKIP=1
+        RUN_DAEMON=1
         shift
         ;;
     --)
@@ -182,27 +189,29 @@ if [[ "${RUN_VERSION}" -eq 1 ]]; then
     exit 0
 fi
 
-if [[ "$(uname -s)" != 'Darwin' ]]; then
-    MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
-    if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
-        echo "Set kernel parameter 'vm.max_map_count' to a value greater than 2000000, example: 'sysctl -w vm.max_map_count=2000000'"
-        exit 1
-    fi
+if [[ "${RUN_SKIP}" -eq 0 ]]]; then
+  if [[ "$(uname -s)" != 'Darwin' ]]; then
+      MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
+      if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
+          echo "Set kernel parameter 'vm.max_map_count' to a value greater than 2000000, example: 'sysctl -w vm.max_map_count=2000000'"
+          exit 1
+      fi
 
-    if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
-        echo "Disable swap memory before starting be"
-        exit 1
-    fi
-fi
+      if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
+          echo "Disable swap memory before starting be"
+          exit 1
+      fi
+  fi
 
-MAX_FILE_COUNT="$(ulimit -n)"
-if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
-    echo "Set max number of open file descriptors to a value greater than 60000."
-    echo "Ask your system manager to modify /etc/security/limits.conf and append content like"
-    echo "  * soft nofile 655350"
-    echo "  * hard nofile 655350"
-    echo "and then run 'ulimit -n 655350' to take effect on current session."
-    exit 1
+  MAX_FILE_COUNT="$(ulimit -n)"
+  if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
+      echo "Set max number of open file descriptors to a value greater than 60000."
+      echo "Ask your system manager to modify /etc/security/limits.conf and append content like"
+      echo "  * soft nofile 655350"
+      echo "  * hard nofile 655350"
+      echo "and then run 'ulimit -n 655350' to take effect on current session."
+      exit 1
+  fi
 fi
 
 # add java libs
