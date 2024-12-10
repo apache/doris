@@ -17,6 +17,8 @@
 
 #include "vec/sink/tablet_sink_hash_partitioner.h"
 
+#include "pipeline/exec/operator.h"
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 TabletSinkHashPartitioner::TabletSinkHashPartitioner(
@@ -51,9 +53,11 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
     _tablet_sink_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tablet_sink_tuple_id);
     _tablet_sink_row_desc =
             state->obj_pool()->add(new RowDescriptor(_tablet_sink_tuple_desc, false));
-    _tablet_sink_expr_ctxs.resize(_tablet_sink_expr_ctxs.size());
+    auto& ctxs =
+            _local_state->parent()->cast<pipeline::ExchangeSinkOperatorX>().tablet_sink_expr_ctxs();
+    _tablet_sink_expr_ctxs.resize(ctxs.size());
     for (size_t i = 0; i < _tablet_sink_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(_tablet_sink_expr_ctxs[i]->clone(state, _tablet_sink_expr_ctxs[i]));
+        RETURN_IF_ERROR(ctxs[i]->clone(state, _tablet_sink_expr_ctxs[i]));
     }
     // if _part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED, we handle the processing of auto_increment column
     // on exchange node rather than on TabletWriter

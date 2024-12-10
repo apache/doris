@@ -121,6 +121,57 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         _sink_buffer->set_dependency(state->fragment_instance_id().lo, _queue_dependency, this);
     }
 
+    if (_part_type == TPartitionType::HASH_PARTITIONED) {
+        _partition_count = channels.size();
+        _partitioner =
+                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
+                        channels.size());
+        RETURN_IF_ERROR(_partitioner->init(p._texprs));
+        RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
+        _profile->add_info_string("Partitioner",
+                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
+    } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+        _partition_count = channels.size();
+        _partitioner =
+                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
+                        channels.size());
+        RETURN_IF_ERROR(_partitioner->init(p._texprs));
+        RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
+        _profile->add_info_string("Partitioner",
+                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
+    } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        _partition_count = channels.size();
+        _profile->add_info_string("Partitioner",
+                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
+        _partitioner = std::make_unique<vectorized::TabletSinkHashPartitioner>(
+                _partition_count, p._tablet_sink_txn_id, p._tablet_sink_schema,
+                p._tablet_sink_partition, p._tablet_sink_location, p._tablet_sink_tuple_id, this);
+        RETURN_IF_ERROR(_partitioner->init({}));
+        RETURN_IF_ERROR(_partitioner->prepare(state, {}));
+    } else if (_part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED) {
+        _partition_count =
+                channels.size() * config::table_sink_partition_write_max_partition_nums_per_writer;
+        _partitioner = std::make_unique<vectorized::ScaleWriterPartitioner>(
+                channels.size(), _partition_count, channels.size(), 1,
+                config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold /
+                                        state->task_num() ==
+                                0
+                        ? config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold
+                        : config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold /
+                                  state->task_num(),
+                config::table_sink_partition_write_min_data_processed_rebalance_threshold /
+                                        state->task_num() ==
+                                0
+                        ? config::table_sink_partition_write_min_data_processed_rebalance_threshold
+                        : config::table_sink_partition_write_min_data_processed_rebalance_threshold /
+                                  state->task_num());
+
+        RETURN_IF_ERROR(_partitioner->init(p._texprs));
+        RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
+        _profile->add_info_string("Partitioner",
+                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
+    }
+
     return Status::OK();
 }
 
@@ -192,64 +243,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
             }
         }
     }
-    if (_part_type == TPartitionType::HASH_PARTITIONED) {
-        _partition_count = channels.size();
-        _partitioner =
-                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
-                        channels.size());
-        RETURN_IF_ERROR(_partitioner->init(p._texprs));
-        RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
-        _profile->add_info_string("Partitioner",
-                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
-    } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        _partition_count = channels.size();
-        _partitioner =
-                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
-                        channels.size());
-        RETURN_IF_ERROR(_partitioner->init(p._texprs));
-        RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
-        _profile->add_info_string("Partitioner",
-                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
-    } else if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
-        _partition_count = channels.size();
-        _profile->add_info_string("Partitioner",
-                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
-        _partitioner = std::make_unique<vectorized::TabletSinkHashPartitioner>(
-                _partition_count, p._tablet_sink_txn_id, p._tablet_sink_schema,
-                p._tablet_sink_partition, p._tablet_sink_location, p._tablet_sink_tuple_id, this);
-        RETURN_IF_ERROR(_partitioner->init({}));
-        RETURN_IF_ERROR(_partitioner->prepare(state, {}));
-    } else if (_part_type == TPartitionType::TABLE_SINK_HASH_PARTITIONED) {
-        _partition_count =
-                channels.size() * config::table_sink_partition_write_max_partition_nums_per_writer;
-        _partitioner = std::make_unique<vectorized::ScaleWriterPartitioner>(
-                channels.size(), _partition_count, channels.size(), 1,
-                config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold /
-                                        state->task_num() ==
-                                0
-                        ? config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold
-                        : config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold /
-                                  state->task_num(),
-                config::table_sink_partition_write_min_data_processed_rebalance_threshold /
-                                        state->task_num() ==
-                                0
-                        ? config::table_sink_partition_write_min_data_processed_rebalance_threshold
-                        : config::table_sink_partition_write_min_data_processed_rebalance_threshold /
-                                  state->task_num());
-
-        RETURN_IF_ERROR(_partitioner->init(*p._t_tablet_sink_exprs));
-
-        if (p._output_tuple_id == -1) {
-            RETURN_IF_ERROR(_partitioner->prepare(state, p._child->row_desc()));
-        } else {
-            auto* output_tuple_desc = state->desc_tbl().get_tuple_descriptor(p._output_tuple_id);
-            auto* output_row_desc =
-                    state->obj_pool()->add(new RowDescriptor(output_tuple_desc, false));
-            RETURN_IF_ERROR(_partitioner->prepare(state, *output_row_desc));
-        }
-        _profile->add_info_string("Partitioner",
-                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
-    }
 
     if (_part_type == TPartitionType::HASH_PARTITIONED ||
         _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
@@ -312,6 +305,10 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
     if (_part_type == TPartitionType::RANGE_PARTITIONED) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
     }
+    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(*_t_tablet_sink_exprs,
+                                                             _tablet_sink_expr_ctxs));
+    }
     return Status::OK();
 }
 
@@ -319,6 +316,18 @@ Status ExchangeSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<ExchangeSinkLocalState>::open(state));
     _state = state;
     _compression_type = state->fragement_transmission_compression_type();
+    if (_part_type == TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED) {
+        if (_output_tuple_id == -1) {
+            RETURN_IF_ERROR(
+                    vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, _child->row_desc()));
+        } else {
+            auto* output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
+            auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc, false));
+            RETURN_IF_ERROR(
+                    vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, *output_row_desc));
+        }
+        RETURN_IF_ERROR(vectorized::VExpr::open(_tablet_sink_expr_ctxs, state));
+    }
     std::vector<InstanceLoId> ins_ids;
     for (auto fragment_instance_id : _fragment_instance_ids) {
         ins_ids.push_back(fragment_instance_id.lo);

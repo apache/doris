@@ -206,6 +206,7 @@ public:
     // In a merge sort scenario, there are only n RPCs, so a shared sink buffer is not needed.
     /// TODO: Modify this to let FE handle the judgment instead of BE.
     std::shared_ptr<ExchangeSinkBuffer> get_sink_buffer(InstanceLoId sender_ins_id);
+    vectorized::VExprContextSPtrs& tablet_sink_expr_ctxs() { return _tablet_sink_expr_ctxs; }
 
 private:
     friend class ExchangeSinkLocalState;
