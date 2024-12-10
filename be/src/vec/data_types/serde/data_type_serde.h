@@ -337,6 +337,11 @@ public:
                                           Arena& mem_pool, int64_t row_num) const;
     virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
 
+    virtual void write_one_cell_to_binary(const IColumn& src_column, ColumnString* dst_column,
+                                          int64_t row_num) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "write_one_cell_to_binary");
+    }
+
 protected:
     bool _return_object_as_string = false;
     // This parameter indicates what level the serde belongs to and is mainly used for complex types
