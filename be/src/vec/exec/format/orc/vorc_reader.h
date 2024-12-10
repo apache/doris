@@ -667,7 +667,6 @@ public:
     io::FileReaderSPtr& get_inner_reader() { return _inner_reader; }
 
 protected:
-    void _collect_profile_at_runtime() override {};
     void _collect_profile_before_close() override;
 
 private:

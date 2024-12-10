@@ -112,7 +112,6 @@ Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, siz
         RETURN_IF_ERROR(_remote_file_reader->read_at(offset, result, bytes_read, io_ctx));
         DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
         if (io_ctx->file_cache_stats) {
-            stats.bytes_read += bytes_req;
             _update_state(stats, io_ctx->file_cache_stats);
         }
         return Status::OK();
@@ -142,7 +141,6 @@ Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, siz
             break;
         }
     }
-    stats.bytes_read += bytes_req;
     size_t empty_start = 0;
     size_t empty_end = 0;
     if (!empty_segments.empty()) {
@@ -224,8 +222,9 @@ Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, siz
         size_t file_offset = current_offset - left;
         {
             SCOPED_RAW_TIMER(&stats.local_read_timer);
-            RETURN_IF_ERROR(segment->read_at(
-                    Slice(result.data + (current_offset - offset), read_size), file_offset));
+            RETURN_IF_ERROR(
+                    segment->read_at(Slice(result.data + (current_offset - offset), read_size),
+                                     file_offset, io_ctx));
         }
         *bytes_read += read_size;
         current_offset = right + 1;
@@ -280,10 +279,8 @@ void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
     }
     if (read_stats.hit_cache) {
         statis->num_local_io_total++;
-        statis->bytes_read_from_local += read_stats.bytes_read;
     } else {
         statis->num_remote_io_total++;
-        statis->bytes_read_from_remote += read_stats.bytes_read;
     }
     statis->remote_io_timer += read_stats.remote_read_timer;
     statis->local_io_timer += read_stats.local_read_timer;

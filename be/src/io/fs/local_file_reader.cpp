@@ -118,7 +118,7 @@ Status LocalFileReader::close() {
 }
 
 Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                     const IOContext* /*io_ctx*/) {
+                                     const IOContext* io_ctx) {
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::InternalError(
@@ -147,6 +147,9 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
             bytes_req -= res;
             *bytes_read += res;
         }
+    }
+    if (io_ctx && io_ctx->file_cache_stats) {
+        io_ctx->file_cache_stats->bytes_read_from_local += *bytes_read;
     }
     DorisMetrics::instance()->local_bytes_read_total->increment(*bytes_read);
     return Status::OK();

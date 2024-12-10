@@ -44,6 +44,8 @@ public:
             : scan_rows(0),
               scan_bytes(0),
               cpu_nanos(0),
+              _scan_bytes_from_local_storage(0),
+              _scan_bytes_from_remote_storage(0),
               returned_rows(0),
               max_peak_memory_bytes(0),
               current_used_memory_bytes(0),
@@ -63,6 +65,13 @@ public:
 
     void add_cpu_nanos(int64_t delta_cpu_time) {
         this->cpu_nanos.fetch_add(delta_cpu_time, std::memory_order_relaxed);
+    }
+
+    void add_scan_bytes_from_local_storage(int64_t scan_bytes_from_local_storage) {
+        _scan_bytes_from_local_storage += scan_bytes_from_local_storage;
+    }
+    void add_scan_bytes_from_remote_storage(int64_t scan_bytes_from_remote_storage) {
+        _scan_bytes_from_remote_storage += scan_bytes_from_remote_storage;
     }
 
     void add_shuffle_send_bytes(int64_t delta_bytes) {
@@ -95,6 +104,8 @@ public:
         cpu_nanos.store(0, std::memory_order_relaxed);
         shuffle_send_bytes.store(0, std::memory_order_relaxed);
         shuffle_send_rows.store(0, std::memory_order_relaxed);
+        _scan_bytes_from_local_storage.store(0, std::memory_order_relaxed);
+        _scan_bytes_from_remote_storage.store(0, std::memory_order_relaxed);
 
         returned_rows = 0;
         max_peak_memory_bytes.store(0, std::memory_order_relaxed);
@@ -120,6 +131,8 @@ private:
     std::atomic<int64_t> scan_rows;
     std::atomic<int64_t> scan_bytes;
     std::atomic<int64_t> cpu_nanos;
+    std::atomic<int64_t> _scan_bytes_from_local_storage;
+    std::atomic<int64_t> _scan_bytes_from_remote_storage;
     // number rows returned by query.
     // only set once by result sink when closing.
     int64_t returned_rows;

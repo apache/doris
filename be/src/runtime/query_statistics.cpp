@@ -32,6 +32,8 @@ void QueryStatistics::merge(const QueryStatistics& other) {
     cpu_nanos += other.cpu_nanos.load(std::memory_order_relaxed);
     shuffle_send_bytes += other.shuffle_send_bytes.load(std::memory_order_relaxed);
     shuffle_send_rows += other.shuffle_send_rows.load(std::memory_order_relaxed);
+    _scan_bytes_from_local_storage += other._scan_bytes_from_local_storage;
+    _scan_bytes_from_remote_storage += other._scan_bytes_from_remote_storage;
 
     int64_t other_peak_mem = other.max_peak_memory_bytes.load(std::memory_order_relaxed);
     if (other_peak_mem > this->max_peak_memory_bytes) {
@@ -51,6 +53,8 @@ void QueryStatistics::to_pb(PQueryStatistics* statistics) {
     statistics->set_cpu_ms(cpu_nanos / NANOS_PER_MILLIS);
     statistics->set_returned_rows(returned_rows);
     statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
+    statistics->set_scan_bytes_from_remote_storage(_scan_bytes_from_remote_storage);
+    statistics->set_scan_bytes_from_local_storage(_scan_bytes_from_local_storage);
 }
 
 void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
@@ -64,12 +68,16 @@ void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
             current_used_memory_bytes.load(std::memory_order_relaxed));
     statistics->__set_shuffle_send_bytes(shuffle_send_bytes.load(std::memory_order_relaxed));
     statistics->__set_shuffle_send_rows(shuffle_send_rows.load(std::memory_order_relaxed));
+    statistics->__set_scan_bytes_from_remote_storage(_scan_bytes_from_remote_storage);
+    statistics->__set_scan_bytes_from_local_storage(_scan_bytes_from_local_storage);
 }
 
 void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
     scan_rows = statistics.scan_rows();
     scan_bytes = statistics.scan_bytes();
     cpu_nanos = statistics.cpu_ms() * NANOS_PER_MILLIS;
+    _scan_bytes_from_local_storage = statistics.scan_bytes_from_local_storage();
+    _scan_bytes_from_remote_storage = statistics.scan_bytes_from_remote_storage();
 }
 
 void QueryStatistics::merge(QueryStatisticsRecvr* recvr) {

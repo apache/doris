@@ -66,10 +66,11 @@ private:
     IFileCache::Key _cache_key;
     CloudFileCachePtr _cache;
 
+    // Used to record read/write timer and cache related metrics.
+    // These metrics will finally be saved in FileCacheStatistics.
     struct ReadStatistics {
         bool hit_cache = true;
         bool skip_cache = false;
-        int64_t bytes_read = 0;
         int64_t bytes_write_into_file_cache = 0;
         int64_t remote_read_timer = 0;
         int64_t local_read_timer = 0;

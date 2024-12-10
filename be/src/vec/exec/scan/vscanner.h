@@ -135,6 +135,10 @@ public:
 
     void update_scan_cpu_timer();
 
+    // update the bytes and rows read at each round in query statistics.
+    // so that we can get runtime statistics for each query.
+    virtual void _update_bytes_and_rows_read();
+
     RuntimeState* runtime_state() { return _state; }
 
     bool is_open() { return _is_open; }
@@ -214,7 +218,12 @@ protected:
     // num of rows read from scanner
     int64_t _num_rows_read = 0;
 
-    int64_t _num_byte_read = 0;
+    // save the current _num_rows_read before next round,
+    // so that we can get delta rows between each round.
+    int64_t _prev_num_rows_read = 0;
+    // bytes read from local and remote fs
+    int64_t _bytes_read_from_local = 0;
+    int64_t _bytes_read_from_remote = 0;
 
     // num of rows return from scanner, after filter block
     int64_t _num_rows_return = 0;

@@ -852,7 +852,7 @@ TEST(LRUFileCache, fd_cache_remove) {
         assert_range(2, segments[0], io::FileBlock::Range(0, 8), io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(9);
-        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 9), 0));
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 9), 0, nullptr));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
     }
     {
@@ -864,7 +864,7 @@ TEST(LRUFileCache, fd_cache_remove) {
         assert_range(2, segments[0], io::FileBlock::Range(9, 9), io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(1);
-        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 1), 0));
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 1), 0, nullptr));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 9)));
     }
     {
@@ -877,7 +877,7 @@ TEST(LRUFileCache, fd_cache_remove) {
                      io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(5);
-        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 5), 0));
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 5), 0, nullptr));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 10)));
     }
     {
@@ -890,7 +890,7 @@ TEST(LRUFileCache, fd_cache_remove) {
                      io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(10);
-        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 10), 0));
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 10), 0, nullptr));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 15)));
     }
     EXPECT_FALSE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
@@ -933,7 +933,7 @@ TEST(LRUFileCache, fd_cache_evict) {
         assert_range(2, segments[0], io::FileBlock::Range(0, 8), io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(9);
-        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 9), 0));
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 9), 0, nullptr));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
     }
     {
@@ -945,7 +945,7 @@ TEST(LRUFileCache, fd_cache_evict) {
         assert_range(2, segments[0], io::FileBlock::Range(9, 9), io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(1);
-        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 1), 0));
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 1), 0, nullptr));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 9)));
     }
     {
@@ -958,7 +958,7 @@ TEST(LRUFileCache, fd_cache_evict) {
                      io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(5);
-        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 5), 0));
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 5), 0, nullptr));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 10)));
     }
     EXPECT_FALSE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));

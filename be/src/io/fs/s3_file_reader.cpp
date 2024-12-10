@@ -42,7 +42,6 @@
 
 namespace doris {
 namespace io {
-struct IOContext;
 bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");
 bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
 bvar::Adder<uint64_t> s3_bytes_read_total("s3_file_reader", "bytes_read");
@@ -86,7 +85,7 @@ Status S3FileReader::close() {
 }
 
 Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                  const IOContext* /*io_ctx*/) {
+                                  const IOContext* io_ctx) {
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::InternalError(
@@ -154,6 +153,11 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
             LOG(INFO) << fmt::format("read s3 file {} succeed after {} times with {} ms sleeping",
                                      _path.native(), retry_count, total_sleep_time);
         }
+        // ATTN: Do not open it, may casuing stack-use-after-scope.
+        // Will be refactored in future
+        // if (io_ctx && io_ctx->file_cache_stats) {
+        //     io_ctx->file_cache_stats->bytes_read_from_remote += bytes_req;
+        // }
         return Status::OK();
     }
     return Status::InternalError("failed to read from s3, exceeded maximum retries");

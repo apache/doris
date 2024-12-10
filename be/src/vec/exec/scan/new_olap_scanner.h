@@ -80,6 +80,7 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     void _collect_profile_before_close() override;
+    void _update_bytes_and_rows_read() override;
 
 private:
     void _update_realtime_counters();

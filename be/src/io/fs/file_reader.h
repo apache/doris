@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "io/fs/path.h"
+#include "io/io_common.h"
 #include "util/profile_collector.h"
 #include "util/slice.h"
 
@@ -32,7 +33,6 @@ namespace doris {
 namespace io {
 
 class FileSystem;
-struct IOContext;
 
 enum class FileCachePolicy : uint8_t {
     NO_CACHE,

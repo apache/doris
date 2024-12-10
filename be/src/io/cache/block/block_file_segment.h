@@ -110,7 +110,7 @@ public:
     Status append(Slice data);
 
     // read data from cache file
-    Status read_at(Slice buffer, size_t read_offset);
+    Status read_at(Slice buffer, size_t read_offset, const IOContext* io_ctx);
 
     // finish write, release the file writer
     Status finalize_write();

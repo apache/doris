@@ -84,6 +84,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     auditEvent.cpuTimeMs = queryStats.cpu_ms;
                     auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
                     auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+                    auditEvent.scanBytesFromLocalStorage = queryStats.scan_bytes_from_local_storage;
+                    auditEvent.scanBytesFromRemoteStorage = queryStats.scan_bytes_from_remote_storage;
                 }
                 boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent, true);
                 if (!ret) {
@@ -222,6 +224,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         if (dst.max_peak_memory_bytes < src.max_peak_memory_bytes) {
             dst.max_peak_memory_bytes = src.max_peak_memory_bytes;
         }
+        dst.scan_bytes_from_local_storage += src.scan_bytes_from_local_storage;
+        dst.scan_bytes_from_remote_storage += src.scan_bytes_from_remote_storage;
     }
 
     private void queryAuditEventLogWriteLock() {
@@ -232,3 +236,4 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         queryAuditEventLock.writeLock().unlock();
     }
 }
+
