@@ -474,14 +474,9 @@ struct WindowFunctionFirstImpl : Data {
 
         if constexpr (arg_ignore_null) {
             frame_end = std::min<int64_t>(frame_end, partition_end);
-            if (this->has_set_value()) {
-                frame_start = this->offset_pos();
-            }
-            const auto& second_arg = assert_cast<const ColumnVector<UInt8>&>(*columns[1]);
-            auto ignore_null_value = second_arg.get_data()[0];
-
-            if (ignore_null_value && columns[0]->is_nullable()) {
+            if (columns[0]->is_nullable()) {
                 const auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
+                // the valid range is: [frame_start, frame_end)
                 while (frame_start < frame_end - 1 && arg_nullable.is_null_at(frame_start)) {
                     frame_start++;
                 }
@@ -507,17 +502,25 @@ struct WindowFunctionLastImpl : Data {
 
         if constexpr (arg_ignore_null) {
             frame_start = std::max<int64_t>(frame_start, partition_start);
-            if (this->has_set_value()) {
-                frame_start = this->offset_pos();
-            }
-            const auto& second_arg = assert_cast<const ColumnVector<UInt8>&>(*columns[1]);
-            auto ignore_null_value = second_arg.get_data()[0];
-
-            if (ignore_null_value && columns[0]->is_nullable()) {
+            if (columns[0]->is_nullable()) {
                 const auto& arg_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
-                while (frame_start < (frame_end - 1) && arg_nullable.is_null_at(frame_end - 1)) {
-                    frame_end--;
+                // wants find a not null value in [frame_start, frame_end)
+                // iff has find: set_value and return directly
+                // iff not find: the while loop is finished
+                //     case 1: iff has_set_value, means the previous window have value, could reuse it, so return directly
+                //     case 2: iff not has_set_value, means there is none value, set it's to NULL
+                while (frame_start < frame_end) {
+                    if (arg_nullable.is_null_at(frame_end - 1)) {
+                        frame_end--;
+                    } else {
+                        this->set_value(columns, frame_end - 1);
+                        return;
+                    }
                 }
+                if (!this->has_set_value()) {
+                    this->set_is_null();
+                }
+                return;
             }
         }
 

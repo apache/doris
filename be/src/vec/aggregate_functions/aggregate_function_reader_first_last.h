@@ -66,8 +66,6 @@ public:
         _offset = 0;
     }
 
-    size_t offset_pos() { return _offset; }
-
 protected:
     const IColumn* _ptr = nullptr;
     size_t _offset = 0;
@@ -101,11 +99,6 @@ public:
         } else {
             column->get(row, _copied_value);
         }
-    }
-
-    size_t offset_pos() {
-        DCHECK(false) << " should call this in CopiedValue";
-        return 0;
     }
 
 private:
@@ -148,8 +141,6 @@ public:
     }
 
     bool has_set_value() { return _has_value; }
-
-    size_t offset_pos() { return _data_value.offset_pos(); }
 
     bool is_null() { return _data_value.is_null(); }
 
