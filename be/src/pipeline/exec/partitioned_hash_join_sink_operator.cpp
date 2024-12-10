@@ -479,16 +479,15 @@ Status PartitionedHashJoinSinkLocalState::_spill_to_disk(
         uint32_t partition_index, const vectorized::SpillStreamSPtr& spilling_stream) {
     auto& partitioned_block = _shared_state->partitioned_build_blocks[partition_index];
 
-    Status status = _shared_state->_spill_status.status();
-    if (status.ok()) {
+    if (!_state->is_cancelled()) {
         auto block = partitioned_block->to_block();
         int64_t block_mem_usage = block.allocated_bytes();
         Defer defer {[&]() { COUNTER_UPDATE(memory_used_counter(), -block_mem_usage); }};
         partitioned_block = vectorized::MutableBlock::create_unique(block.clone_empty());
-        status = spilling_stream->spill_block(state(), block, false);
+        return spilling_stream->spill_block(state(), block, false);
+    } else {
+        return _state->cancel_reason();
     }
-
-    return status;
 }
 
 PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(ObjectPool* pool,
@@ -580,9 +579,6 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
     CHECK_EQ(local_state._spill_dependency->is_blocked_by(nullptr), nullptr);
     local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    if (!local_state._shared_state->_spill_status.ok()) {
-        return local_state._shared_state->_spill_status.status();
-    }
 
     local_state._child_eos = eos;
 

@@ -284,10 +284,6 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block
 
     const auto block_mem_size = block->allocated_bytes();
 
-    if (!_shared_state->_spill_status.ok()) {
-        return _shared_state->_spill_status.status();
-    }
-
     {
         std::lock_guard l(_mutex);
 

@@ -698,9 +698,6 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
 Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
                                                vectorized::Block* output_block, bool* eos) const {
     auto& local_state = get_local_state(state);
-    if (!local_state._shared_state->_spill_status.ok()) {
-        return local_state._shared_state->_spill_status.status();
-    }
 
     const auto partition_index = local_state._partition_cursor;
     auto& probe_blocks = local_state._probe_blocks[partition_index];

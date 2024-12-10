@@ -151,8 +151,6 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
 
     local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    status = local_state._shared_state->_spill_status.status();
-    RETURN_IF_ERROR(status);
 
     if (local_state._shared_state->is_spilled &&
         local_state._need_to_merge_data_for_current_partition) {

@@ -144,9 +144,6 @@ Status SpillSortSinkOperatorX::revoke_memory(RuntimeState* state,
 
 size_t SpillSortSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    if (!local_state._shared_state->_spill_status.ok()) {
-        return UINT64_MAX;
-    }
     return _sort_sink_operator->get_revocable_mem_size(local_state._runtime_state.get());
 }
 
@@ -155,9 +152,6 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
     auto& local_state = get_local_state(state);
     local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    if (!local_state._shared_state->_spill_status.ok()) {
-        return local_state._shared_state->_spill_status.status();
-    }
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0) {
         local_state._shared_state->update_spill_block_batch_row_count(in_block);
@@ -203,9 +197,6 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
     VLOG_DEBUG << "Query " << print_id(state->query_id()) << " sort node "
                << Base::_parent->node_id() << " revoke_memory"
                << ", eos: " << _eos;
-    if (!_shared_state->_spill_status.ok()) {
-        return _shared_state->_spill_status.status();
-    }
 
     auto status = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
             state, _spilling_stream, print_id(state->query_id()), "sort", _parent->node_id(),

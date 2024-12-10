@@ -749,7 +749,10 @@ bool WorkloadGroupMgr::handle_single_query_(const std::shared_ptr<QueryContext>&
         }
     } else {
         SCOPED_ATTACH_TASK(query_ctx.get());
-        RETURN_IF_ERROR(query_ctx->revoke_memory());
+        auto status = query_ctx->revoke_memory();
+        if (!status.ok()) {
+            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_ctx->query_id(), status);
+        }
     }
     return true;
 }

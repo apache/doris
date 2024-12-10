@@ -426,8 +426,6 @@ private:
 struct BasicSpillSharedState {
     virtual ~BasicSpillSharedState() = default;
 
-    AtomicStatus _spill_status;
-
     // These two counters are shared to spill source operators as the initial value
     // of 'SpillWriteFileCurrentBytes' and 'SpillWriteFileCurrentCount'.
     // Total bytes of spill data written to disk file(after serialized)

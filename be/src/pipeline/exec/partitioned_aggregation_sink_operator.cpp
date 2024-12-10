@@ -173,9 +173,6 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
     local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    if (!local_state._shared_state->_spill_status.ok()) {
-        return local_state._shared_state->_spill_status.status();
-    }
     local_state._eos = eos;
     auto* runtime_state = local_state._runtime_state.get();
     DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::sink", {
@@ -214,9 +211,6 @@ Status PartitionedAggSinkOperatorX::revoke_memory(
 
 size_t PartitionedAggSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    if (!local_state._shared_state->_spill_status.ok()) {
-        return UINT64_MAX;
-    }
     auto* runtime_state = local_state._runtime_state.get();
     auto size = _agg_sink_operator->get_revocable_mem_size(runtime_state);
     return size;
@@ -265,9 +259,6 @@ Status PartitionedAggSinkLocalState::revoke_memory(
                << Base::_parent->node_id()
                << " revoke_memory, size: " << _parent->revocable_mem_size(state)
                << ", eos: " << _eos;
-    if (!_shared_state->_spill_status.ok()) {
-        return _shared_state->_spill_status.status();
-    }
     if (!_shared_state->is_spilled) {
         _shared_state->is_spilled = true;
         profile()->add_info_string("Spilled", "true");

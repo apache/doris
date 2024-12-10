@@ -24,6 +24,7 @@
 #include <functional>
 #include <utility>
 
+#include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -48,14 +49,18 @@ struct SpillContext {
               all_tasks_finished_callback(std::move(all_tasks_finished_callback_)) {}
 
     ~SpillContext() {
-        LOG_IF(WARNING, running_tasks_count.load() != 0)
-                << "Query: " << print_id(query_id)
-                << " not all spill tasks finished, remaining tasks: " << running_tasks_count.load();
+        if (running_tasks_count.load() != 0) {
+            LOG_EVERY_T(WARNING, 60) << "Query: " << print_id(query_id)
+                                     << " not all spill tasks finished, remaining tasks: "
+                                     << running_tasks_count.load();
+        }
 
-        LOG_IF(WARNING, _running_non_sink_tasks_count.load() != 0)
-                << "Query: " << print_id(query_id)
-                << " not all spill tasks(non sink tasks) finished, remaining tasks: "
-                << _running_non_sink_tasks_count.load();
+        if (_running_non_sink_tasks_count.load() != 0) {
+            LOG_EVERY_T(WARNING, 60)
+                    << "Query: " << print_id(query_id)
+                    << " not all spill tasks(non sink tasks) finished, remaining tasks: "
+                    << _running_non_sink_tasks_count.load();
+        }
     }
 
     void on_task_finished() {
@@ -152,11 +157,17 @@ public:
         if (_state->is_cancelled()) {
             return;
         }
-        shared_state_holder->_spill_status.update(_spill_exec_func());
+        auto status = _spill_exec_func();
+        if (!status.ok()) {
+            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(_state->query_id(), status);
+        }
 
         _on_task_finished();
         if (_spill_fin_cb) {
-            shared_state_holder->_spill_status.update(_spill_fin_cb());
+            auto status2 = _spill_fin_cb();
+            if (!status2.ok()) {
+                ExecEnv::GetInstance()->fragment_mgr()->cancel_query(_state->query_id(), status2);
+            }
         }
 
         if (_spill_dependency) {
