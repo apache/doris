@@ -4595,7 +4595,6 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsNormal) {
     });
     sp->enable_processing();
 
-    // store tablet stats
     int64_t db_id = 1000;
     int64_t table_id = 2001;
     int64_t index_id = 3001;
@@ -4649,7 +4648,6 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
 
         sp->enable_processing();
 
-        // store tablet stats
         int64_t db_id = 1000;
         int64_t table_id = 2001;
         int64_t index_id = 3001;
@@ -4663,6 +4661,9 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
                                       tablet_idxes, 5, 999999, -1, true);
         ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+        ASSERT_EQ(res.base_compaction_cnts().size(), 0);
+        ASSERT_EQ(res.cumulative_compaction_cnts().size(), 0);
+        ASSERT_EQ(res.cumulative_points().size(), 0);
     }
 
     {
@@ -4688,7 +4689,6 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
 
         sp->enable_processing();
 
-        // store tablet stats
         int64_t db_id = 1000;
         int64_t table_id = 2001;
         int64_t index_id = 3001;
@@ -4702,6 +4702,9 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
                                       tablet_idxes, 5, 999999, -1, true);
         ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+        ASSERT_EQ(res.base_compaction_cnts().size(), 0);
+        ASSERT_EQ(res.cumulative_compaction_cnts().size(), 0);
+        ASSERT_EQ(res.cumulative_points().size(), 0);
     }
 }
 
@@ -4732,7 +4735,6 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
 
         sp->enable_processing();
 
-        // store tablet stats
         int64_t db_id = 1000;
         int64_t table_id = 2001;
         int64_t index_id = 3001;
@@ -4746,10 +4748,13 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
         get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
                                       tablet_idxes, 5, 999999, -1, true);
         ASSERT_EQ(res.status().code(), injected_error_code);
+        ASSERT_EQ(res.base_compaction_cnts().size(), 0);
+        ASSERT_EQ(res.cumulative_compaction_cnts().size(), 0);
+        ASSERT_EQ(res.cumulative_points().size(), 0);
     }
 
     {
-        // 2.4 abnormal path, meeting TXN_TOO_OLD error when reading tablets' stats
+        // 2.4 abnormal path, meeting TXN_TOO_OLD error when reading tablets' stats,
         // this should not fail if lock is not expired
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal4";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
@@ -4775,7 +4780,6 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
 
         sp->enable_processing();
 
-        // store tablet stats
         int64_t db_id = 1000;
         int64_t table_id = 2001;
         int64_t index_id = 3001;
@@ -4793,6 +4797,63 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
         get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
                                       tablet_idxes, 5, 999999, -1, true);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.base_compaction_cnts().size(), tablet_idxes.size());
+        for (const auto& base_compaction_cnt : res.base_compaction_cnts()) {
+            ASSERT_EQ(base_compaction_cnt, 10);
+        }
+        ASSERT_EQ(res.cumulative_compaction_cnts().size(), tablet_idxes.size());
+        for (const auto& cumu_compaction_cnt : res.cumulative_compaction_cnts()) {
+            ASSERT_EQ(cumu_compaction_cnt, 20);
+        }
+        ASSERT_EQ(res.cumulative_points().size(), tablet_idxes.size());
+        for (const auto& cumulative_point : res.cumulative_points()) {
+            ASSERT_EQ(cumulative_point, 30);
+        }
+    }
+
+    {
+        // 2.5 abnormal path, meeting TXN_TOO_OLD error when reading tablets' stats and the retry times exceeds limit
+        std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal4";
+        [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+            SyncPoint::get_instance()->disable_processing();
+            SyncPoint::get_instance()->clear_all_call_backs();
+        });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = instance_id;
+            ret->second = true;
+        });
+
+        sp->set_call_back("internal_get_tablet_stats.inject_error", [&](auto&& args) {
+            auto* code = try_any_cast<MetaServiceCode*>(args[0]);
+            auto* msg = try_any_cast<std::string*>(args[1]);
+            *code = MetaServiceCode::KV_TXN_TOO_OLD;
+            *msg = "injected KV_TXN_TOO_OLD error";
+        });
+
+        sp->enable_processing();
+
+        int64_t db_id = 1000;
+        int64_t table_id = 2001;
+        int64_t index_id = 3001;
+        // [(partition_id, tablet_id)]
+        std::vector<std::array<int64_t, 2>> tablet_idxes;
+        for (int i = 0; i < 20; i++) {
+            int64_t partition_id = 70000 + i;
+            int64_t tablet_id = 80000 + i;
+            tablet_idxes.push_back({partition_id, tablet_id});
+        }
+
+        add_tablet_stats(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+
+        GetDeleteBitmapUpdateLockResponse res;
+        get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
+                                      tablet_idxes, 5, 999999, -1, true);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::KV_TXN_TOO_OLD);
+        ASSERT_EQ(res.base_compaction_cnts().size(), 0);
+        ASSERT_EQ(res.cumulative_compaction_cnts().size(), 0);
+        ASSERT_EQ(res.cumulative_points().size(), 0);
     }
 }
 

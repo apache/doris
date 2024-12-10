@@ -2217,8 +2217,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                 }
                 internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat,
                                           false);
-                LOG(INFO) << "retry get tablet stats, tablet=" << idx.tablet_id()
-                          << ", retry=" << retry;
+                LOG(INFO) << "retry get tablet stats, instance_id=" << instance_id
+                          << ", tablet=" << idx.tablet_id() << ", retry=" << retry;
             }
             if (code != MetaServiceCode::OK) {
                 response->clear_base_compaction_cnts();
