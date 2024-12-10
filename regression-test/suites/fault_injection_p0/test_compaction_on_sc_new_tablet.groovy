@@ -17,7 +17,7 @@
 
 import org.junit.Assert
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
+import org.awaitility.Awaitility
 
 suite("test_compaction_on_sc_new_tablet", "nonConcurrent") {
     if (isCloudMode()) {
@@ -107,11 +107,10 @@ suite("test_compaction_on_sc_new_tablet", "nonConcurrent") {
         def compactJson = parseJson(out.trim())
         Assert.assertEquals("success", compactJson.status.toLowerCase())
 
-
         // make the schema change run to complete and wait for it
         GetDebugPoint().disableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
         waitForSchemaChangeDone {
-            sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tbl}' ORDER BY createtime DESC LIMIT 1 """
+            sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
             time 20000
         }
 
