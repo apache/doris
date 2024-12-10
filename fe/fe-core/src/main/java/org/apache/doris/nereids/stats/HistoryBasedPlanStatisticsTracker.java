@@ -124,22 +124,28 @@ public class HistoryBasedPlanStatisticsTracker {
 
         //for (AuditEvent event : auditEventList) {
             TQueryStatistics qs = queryStatisticsMap.get(queryId);
-            List<TNodeExecStatsItemPB> pbList = qs.getNodeExecStatsItems();
-            for (TNodeExecStatsItemPB nodeStats : pbList) {
-                int nodeId = nodeStats.node_id;
-                PlanStatistics planStatistics = PlanStatistics.buildFromPB(nodeStats);
-                PhysicalPlan planNode = idToPlanMap.get(nodeId);
-                buildPlanNodeToInfoMap((PlanNode) planNode, pbList, planToInfoMap);
-                Optional<PlanNodeCanonicalInfo> planNodeCanonicalInfo = Optional.ofNullable(planToInfoMap.get(planNode));
-                if (planNodeCanonicalInfo.isPresent()) {
-                    String hash = planNodeCanonicalInfo.get().getHash();
-                    PlanNodeWithHash planNodeWithHash = new PlanNodeWithHash((PlanNode) planNode, Optional.of(hash));
-                    List<PlanStatistics> inputTableStatistics = planNodeCanonicalInfo.get().getInputTableStatistics();
-                    HistoryBasedSourceInfo sourceInfo = new HistoryBasedSourceInfo(Optional.of(hash), Optional.of(inputTableStatistics));
-                    PlanStatisticsWithSourceInfo planStatsWithSourceInfo = new PlanStatisticsWithSourceInfo(
-                            nodeId, planStatistics, sourceInfo);
+            if (qs != null) {
+                List<TNodeExecStatsItemPB> pbList = qs.getNodeExecStatsItems();
+                for (TNodeExecStatsItemPB nodeStats : pbList) {
+                    int nodeId = nodeStats.node_id;
+                    PlanStatistics planStatistics = PlanStatistics.buildFromPB(nodeStats);
+                    PhysicalPlan planNode = idToPlanMap.get(nodeId);
+                    buildPlanNodeToInfoMap((PlanNode) planNode, pbList, planToInfoMap);
+                    Optional<PlanNodeCanonicalInfo> planNodeCanonicalInfo = Optional.ofNullable(
+                            planToInfoMap.get(planNode));
+                    if (planNodeCanonicalInfo.isPresent()) {
+                        String hash = planNodeCanonicalInfo.get().getHash();
+                        PlanNodeWithHash planNodeWithHash = new PlanNodeWithHash((PlanNode) planNode,
+                                Optional.of(hash));
+                        List<PlanStatistics> inputTableStatistics = planNodeCanonicalInfo.get()
+                                .getInputTableStatistics();
+                        HistoryBasedSourceInfo sourceInfo = new HistoryBasedSourceInfo(Optional.of(hash),
+                                Optional.of(inputTableStatistics));
+                        PlanStatisticsWithSourceInfo planStatsWithSourceInfo = new PlanStatisticsWithSourceInfo(
+                                nodeId, planStatistics, sourceInfo);
 
-                    planStatisticsMap.put(planNodeWithHash, planStatsWithSourceInfo);
+                        planStatisticsMap.put(planNodeWithHash, planStatsWithSourceInfo);
+                    }
                 }
             }
         //}
