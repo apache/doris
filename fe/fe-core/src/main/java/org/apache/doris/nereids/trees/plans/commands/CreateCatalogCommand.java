@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -115,6 +116,29 @@ public class CreateCatalogCommand extends Command implements ForwardWithSync, Ne
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
+    }
+
+    @Override
+    public String toSql() {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("CREATE CATALOG ").append("`").append(catalogName).append("`");
+        if (!Strings.isNullOrEmpty(resourceName)) {
+            stringBuilder.append(" WITH RESOURCE `").append(resourceName).append("`");
+        }
+        if (!Strings.isNullOrEmpty(comment)) {
+            stringBuilder.append("\nCOMMENT \"").append(comment).append("\"");
+        }
+        if (properties.size() > 0) {
+            stringBuilder.append("\nPROPERTIES (\n");
+            stringBuilder.append(new PrintableMap<>(properties, "=", true, true, true));
+            stringBuilder.append("\n)");
+        }
+        return stringBuilder.toString();
     }
 }
 
