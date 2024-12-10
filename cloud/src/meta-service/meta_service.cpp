@@ -1877,7 +1877,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                                               request->lock_id(), request->initiator())) {
                     LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
                                  << " request lock_id=" << request->lock_id()
-                                 << " request initiator=" << request->initiator() << " msg" << msg;
+                                 << " request initiator=" << request->initiator() << " msg " << msg;
                     return;
                 }
             }
@@ -2191,6 +2191,14 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         // 2. read tablets' stats
         // 3. check whether we still hold the delete bitmap update lock
         // these steps can be done in different fdb txns
+
+        err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = "failed to init txn";
+            return;
+        }
+
         for (const auto& tablet_index : request->tablet_indexes()) {
             TabletIndexPB idx(tablet_index);
             TabletStatsPB tablet_stat;
@@ -2215,9 +2223,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                 response->clear_cumulative_compaction_cnts();
                 response->clear_cumulative_points();
                 LOG_WARNING(
-                        "failed to get tablet stats when get_delete_bitmap_update_lock, "
-                        "lock_id={}, initiator={}, tablet_id={}",
-                        request->lock_id(), request->initiator(), tablet_index.tablet_id());
+                        "failed to get tablet stats when internal_get_tablet_stats, "
+                        "lock_id={}, initiator={}, tablet_id={}, msg={}",
+                        request->lock_id(), request->initiator(), tablet_index.tablet_id(), msg);
                 return;
             }
             response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
@@ -2229,7 +2237,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                                       request->initiator())) {
             LOG(WARNING) << "failed to check delete bitmap lock after get tablet stats, table_id="
                          << table_id << " request lock_id=" << request->lock_id()
-                         << " request initiator=" << request->initiator() << " msg" << msg;
+                         << " request initiator=" << request->initiator() << " msg " << msg;
             return;
         }
     }
