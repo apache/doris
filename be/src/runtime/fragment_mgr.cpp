@@ -34,17 +34,16 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <pthread.h>
-#include <stddef.h>
 #include <sys/time.h>
 #include <thrift/TApplicationException.h>
 #include <thrift/Thrift.h>
 #include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/transport/TTransportException.h>
-#include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
-#include <atomic>
+#include <cstddef>
+#include <ctime>
 
 #include "common/status.h"
 // IWYU pragma: no_include <bits/chrono.h>
@@ -58,19 +57,16 @@
 #include <unordered_set>
 #include <utility>
 
-#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/utils.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/frontend_info.h"
-#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_filter_mgr.h"
@@ -89,24 +85,20 @@
 #include "util/debug_points.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
-#include "util/hash_util.hpp"
-#include "util/mem_info.h"
 #include "util/network_util.h"
-#include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
-#include "util/url_coding.h"
 #include "vec/runtime/shared_hash_table_controller.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_instance_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_num_active_threads, MetricUnit::NOUNIT);
 bvar::LatencyRecorder g_fragmentmgr_prepare_latency("doris_FragmentMgr", "prepare");
 
 bvar::Adder<uint64_t> g_fragment_executing_count("fragment_executing_count");
@@ -184,7 +176,7 @@ static Status _do_fetch_running_queries_rpc(const FrontendInfo& fe_info,
     }
 
     // Avoid logic error in frontend.
-    if (rpc_result.__isset.status == false || rpc_result.status.status_code != TStatusCode::OK) {
+    if (!rpc_result.__isset.status || rpc_result.status.status_code != TStatusCode::OK) {
         LOG_WARNING("Failed to fetch running queries from {}, reason: {}",
                     PrintThriftNetworkAddress(fe_info.info.coordinator_address),
                     doris::to_string(rpc_result.status.status_code));
@@ -193,7 +185,7 @@ static Status _do_fetch_running_queries_rpc(const FrontendInfo& fe_info,
                                      doris::to_string(rpc_result.status.status_code));
     }
 
-    if (rpc_result.__isset.running_queries == false) {
+    if (!rpc_result.__isset.running_queries) {
         return Status::InternalError("Failed to fetch running queries from {}, reason: {}",
                                      PrintThriftNetworkAddress(fe_info.info.coordinator_address),
                                      "running_queries is not set");
@@ -254,6 +246,8 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
 
     REGISTER_HOOK_METRIC(fragment_thread_pool_queue_size,
                          [this]() { return _thread_pool->get_queue_size(); });
+    REGISTER_HOOK_METRIC(fragment_thread_pool_num_active_threads,
+                         [this]() { return _thread_pool->num_active_threads(); });
     CHECK(s.ok()) << s.to_string();
 }
 
@@ -262,6 +256,7 @@ FragmentMgr::~FragmentMgr() = default;
 void FragmentMgr::stop() {
     DEREGISTER_HOOK_METRIC(fragment_instance_count);
     DEREGISTER_HOOK_METRIC(fragment_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(fragment_thread_pool_num_active_threads);
     _stop_background_threads_latch.count_down();
     if (_cancel_thread) {
         _cancel_thread->join();
