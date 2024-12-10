@@ -248,7 +248,6 @@ private:
     const bool is_nullable;
     Subcolumns subcolumns;
     size_t num_rows;
-
     // The rapidjson document format of Subcolumns tree structure
     // the leaves is null.In order to display whole document, copy
     // this structure and fill with Subcolumns sub items

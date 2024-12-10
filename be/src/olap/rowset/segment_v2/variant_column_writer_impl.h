@@ -36,18 +36,20 @@ class ColumnWriter;
 class ScalarColumnWriter;
 
 struct VariantStatistics {
+    // If reached the size of this, we should stop writing statistics for sparse data
     constexpr static size_t MAX_SHARED_DATA_STATISTICS_SIZE = 10000;
-    std::vector<size_t> _subcolumns_non_null_size;
+    std::map<StringRef, size_t> _subcolumns_non_null_size;
     std::map<StringRef, size_t> _sparse_column_non_null_size;
 
     void to_pb(VariantStatisticsPB* stats) const;
+    void from_pb(const VariantStatisticsPB& stats);
 };
 
 class VariantColumnWriterImpl {
 public:
     VariantColumnWriterImpl(const ColumnWriterOptions& opts, const TabletColumn* column);
     Status finalize();
-
+    Status init();
     bool is_finalized() const;
 
     Status append_data(const uint8_t** ptr, size_t num_rows);
@@ -64,6 +66,9 @@ public:
 
 private:
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
+
+    // subcolumn path from variant stats info to distinguish from sparse column
+    Status _get_subcolumn_paths_from_stats(std::set<std::string>& paths);
 
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                                  const TabletColumn& parent_column,

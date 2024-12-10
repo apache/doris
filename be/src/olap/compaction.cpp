@@ -172,6 +172,7 @@ Status Compaction::merge_input_rowsets() {
     }
 
     RowsetWriterContext ctx;
+    ctx.input_rs_readers = input_rs_readers;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
     // write merged rows to output rowset

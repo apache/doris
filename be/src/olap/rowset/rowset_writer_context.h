@@ -115,6 +115,9 @@ struct RowsetWriterContext {
     // For remote rowset
     std::optional<StorageResource> storage_resource;
 
+    // For collect segment statistics for compaction
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
+
     bool is_local_rowset() const { return !storage_resource; }
 
     std::string segment_path(int seg_id) const {

@@ -51,6 +51,7 @@
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
 #include "olap/rowset/segment_v2/stream_reader.h"
+#include "olap/rowset/segment_v2/variant_column_writer_impl.h"
 #include "olap/schema.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -202,6 +203,25 @@ Status Segment::_open() {
     _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
 
     return Status::OK();
+}
+
+const VariantStatistics* Segment::get_variant_stats(int32_t unique_id) const {
+    auto it = _variant_stats.find(unique_id);
+    if (it != _variant_stats.end()) {
+        return it->second.get();
+    }
+    return nullptr;
+}
+
+void Segment::_open_variant_stats() {
+    for (uint32_t ordinal = 0; ordinal < _footer_pb->columns().size(); ++ordinal) {
+        const auto& col = _footer_pb->columns(ordinal);
+        if (col.has_variant_statistics()) {
+            auto stats = std::make_unique<VariantStatistics>();
+            stats->from_pb(col.variant_statistics());
+            _variant_stats.emplace(col.unique_id(), std::move(stats));
+        }
+    }
 }
 
 Status Segment::_open_inverted_index() {
