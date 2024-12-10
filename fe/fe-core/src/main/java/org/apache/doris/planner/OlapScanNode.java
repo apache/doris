@@ -1335,8 +1335,8 @@ public class OlapScanNode extends ScanNode {
                 output.append("\n").append(prefix).append(String.format("afterFilter=%,d", cardinalityAfterFilter));
             }
             if (!runtimeFilters.isEmpty()) {
-                output.append("\n").append(prefix).append("Apply RFs: ");
-                output.append(getRuntimeFilterExplainString(false, true));
+                output.append("\n").append(prefix).append("Apply RFs:\n");
+                output.append(getRuntimeFilterExplainString(false, true, prefix));
             }
             if (!conjuncts.isEmpty()) {
                 output.append("\n").append(prefix).append("PREDICATES: ").append(conjuncts.size()).append("\n");
