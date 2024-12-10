@@ -162,7 +162,6 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
     }
 
     private Expression getExpression(UnknownValue value) {
-        Expression reference = value.getReference();
         List<ValueDesc> sourceValues = value.getSourceValues();
         Expression originExpr = value.getOriginExpr();
         if (sourceValues.isEmpty()) {

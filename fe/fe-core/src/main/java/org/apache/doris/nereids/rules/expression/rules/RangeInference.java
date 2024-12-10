@@ -49,6 +49,9 @@ import java.util.Set;
 import java.util.function.BinaryOperator;
 import java.util.stream.Collectors;
 
+/**
+ * collect range of expression
+ */
 public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, ExpressionRewriteContext> {
 
     /*
@@ -156,7 +159,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         return new UnknownValue(context, originExpr, valuePerRefs, isAnd);
     }
 
-    public static abstract class ValueDesc {
+    /**
+     * value desc
+     */
+    public abstract static class ValueDesc {
         ExpressionRewriteContext context;
         Expression toExpr;
         Expression reference;
@@ -181,6 +187,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         public abstract ValueDesc union(ValueDesc other);
 
+        /** or */
         public static ValueDesc union(ExpressionRewriteContext context,
                 RangeValue range, DiscreteValue discrete, boolean reverseOrder) {
             long count = discrete.values.stream().filter(x -> range.range.test(x)).count();
@@ -195,8 +202,10 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             return new UnknownValue(context, toExpr, sourceValues, false);
         }
 
+        /** intersect */
         public abstract ValueDesc intersect(ValueDesc other);
 
+        /** intersect */
         public static ValueDesc intersect(ExpressionRewriteContext context, RangeValue range, DiscreteValue discrete) {
             DiscreteValue result = new DiscreteValue(context, discrete.reference, discrete.toExpr);
             discrete.values.stream().filter(x -> range.range.contains(x)).forEach(result.values::add);
@@ -207,7 +216,7 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             return new EmptyValue(context, range.reference, originExpr);
         }
 
-        public static ValueDesc range(ExpressionRewriteContext context, ComparisonPredicate predicate) {
+        private static ValueDesc range(ExpressionRewriteContext context, ComparisonPredicate predicate) {
             Literal value = (Literal) predicate.right();
             if (predicate instanceof EqualTo) {
                 return new DiscreteValue(context, predicate.left(), predicate, value);
@@ -233,6 +242,9 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         }
     }
 
+    /**
+     * empty range
+     */
     public static class EmptyValue extends ValueDesc {
 
         public EmptyValue(ExpressionRewriteContext context, Expression reference, Expression toExpr) {
