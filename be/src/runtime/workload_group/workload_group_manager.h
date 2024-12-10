@@ -55,7 +55,7 @@ public:
 
     void delete_workload_group_by_ids(std::set<uint64_t> id_set);
 
-    WorkloadGroupPtr get_task_group_by_id(uint64_t tg_id);
+    WorkloadGroupPtr get_group(uint64_t wg_id);
 
     void do_sweep();
 

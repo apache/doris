@@ -648,12 +648,25 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
             }
 
             if (!query_ctx) {
+                WorkloadGroupPtr workload_group_ptr = nullptr;
+                std::string wg_info_str = "Workload Group not set";
+                if (params.__isset.workload_groups && !params.workload_groups.empty()) {
+                    uint64_t wg_id = params.workload_groups[0].id;
+                    workload_group_ptr = _exec_env->workload_group_mgr()->get_group(wg_id);
+                    if (workload_group_ptr != nullptr) {
+                        wg_info_str = workload_group_ptr->debug_string();
+                    } else {
+                        wg_info_str = "set wg but not find it in be";
+                    }
+                }
+
                 // First time a fragment of a query arrived. print logs.
                 LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
                           << ", total fragment num on current host: " << params.fragment_num_on_host
                           << ", fe process uuid: " << params.query_options.fe_process_uuid
                           << ", query type: " << params.query_options.query_type
-                          << ", report audit fe:" << params.current_connect_fe;
+                          << ", report audit fe:" << params.current_connect_fe
+                          << ", use wg:" << wg_info_str;
 
                 // This may be a first fragment request of the query.
                 // Create the query fragments context.
@@ -678,19 +691,11 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
 
                 _set_scan_concurrency(params, query_ctx.get());
 
-                if (params.__isset.workload_groups && !params.workload_groups.empty()) {
-                    uint64_t tg_id = params.workload_groups[0].id;
-                    WorkloadGroupPtr workload_group_ptr =
-                            _exec_env->workload_group_mgr()->get_task_group_by_id(tg_id);
-                    if (workload_group_ptr != nullptr) {
-                        RETURN_IF_ERROR(workload_group_ptr->add_query(query_id, query_ctx));
-                        RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
-                        _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(
-                                print_id(query_id), tg_id);
-                    } else {
-                        LOG(WARNING) << "Query/load id: " << print_id(query_ctx->query_id())
-                                     << "can't find its workload group " << tg_id;
-                    }
+                if (workload_group_ptr != nullptr) {
+                    RETURN_IF_ERROR(workload_group_ptr->add_query(query_id, query_ctx));
+                    query_ctx->set_workload_group(workload_group_ptr);
+                    _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(
+                            print_id(query_id), workload_group_ptr->id());
                 }
                 // There is some logic in query ctx's dctor, we could not check if exists and delete the
                 // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
