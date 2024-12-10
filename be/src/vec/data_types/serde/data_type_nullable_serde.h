@@ -99,6 +99,8 @@ public:
                                   int64_t row_num) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
+    virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

@@ -49,6 +49,7 @@ suite("grace_period") {
       "replication_num" = "1"
     );
     """
+    sql """alter table orders_partition modify column o_comment set stats ('row_count'='3');"""
 
     sql """
     drop table if exists lineitem_partition
@@ -81,6 +82,7 @@ suite("grace_period") {
       "replication_num" = "1"
     );
     """
+    sql """alter table lineitem_partition modify column l_comment set stats ('row_count'='3');"""
 
     sql """
     insert into orders_partition values 

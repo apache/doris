@@ -21,6 +21,7 @@
 #include "vec/aggregate_functions/aggregate_function_group_array_intersect.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 IAggregateFunction* create_with_extra_types(const DataTypePtr& nested_type,
                                             const DataTypes& argument_types) {

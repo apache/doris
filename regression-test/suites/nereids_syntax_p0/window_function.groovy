@@ -240,4 +240,78 @@ suite("window_function") {
     """
 
     qt_sql """ select LAST_VALUE(col_tinyint_undef_signed_not_null) over (partition by col_double_undef_signed_not_null, col_int_undef_signed, (col_float_undef_signed_not_null - col_int_undef_signed), round_bankers(col_int_undef_signed) order by pk rows between unbounded preceding and 4 preceding) AS col_alias56089 from table_200_undef_partitions2_keys3_properties4_distributed_by53 order by col_alias56089;  """
+
+    order_qt_multi_winf1 """
+        select *
+            from (
+                select
+                row_number() over(partition by c1 order by c2) rn,
+                lead(c2, 2, '') over(partition by c1 order by c2)
+                from (
+                  select 1 as c1, 'a' as c2
+                  union all
+                  select 1 as c1, 'b' as c2
+                  union all
+                  select 1 as c1, 'c' as c2
+                  union all
+                  select 1 as c1, 'd' as c2
+                  union all
+                  select 1 as c1, 'e' as c2
+                )t
+            )a where rn=1
+    """
+    order_qt_multi_winf2 """
+        select *
+            from (
+                select
+                row_number() over(partition by c1 order by c2) rn,
+                sum(c2) over(order by c2 range between unbounded preceding and unbounded following)
+                from (
+                  select 1 as c1, 5 as c2
+                  union all
+                  select 1 as c1, 6 as c2
+                  union all
+                  select 1 as c1, 7 as c2
+                  union all
+                  select 1 as c1, 8 as c2
+                  union all
+                  select 1 as c1, 9 as c2
+                )t
+            )a where rn=1
+    """
+
+    // test first value second param is not constant
+    test {
+        sql "select first_value(c1,c1) over() from window_test"
+        exception "The second parameter of first_value must be a constant or a constant expression, and the result of the calculated constant or constant expression must be true or false."
+    }
+
+    test {
+        sql "select last_value(c1,c1) over() from window_test"
+        exception "The second parameter of last_value must be a constant or a constant expression, and the result of the calculated constant or constant expression must be true or false."
+    }
+
+    test {
+        sql "select first_value(c1,cast('abc' as boolean)) over() from window_test"
+        exception "The second parameter of first_value must be a constant or a constant expression, and the result of the calculated constant or constant expression must be true or false."
+    }
+    test {
+        sql "select first_value(c1,'') over() from window_test"
+        exception "The second parameter of first_value must be a constant or a constant expression, and the result of the calculated constant or constant expression must be true or false."
+    }
+    test {
+        sql "select last_value(c1,'345_a') over() from window_test"
+        exception "The second parameter of last_value must be a constant or a constant expression, and the result of the calculated constant or constant expression must be true or false."
+    }
+    sql "select last_value(c1,cast('67' as boolean)) over() from window_test"
+    sql "select first_value(c1,cast(56 as boolean)) over() from window_test"
+    sql "select last_value(c1,cast(56 as boolean)) over() from window_test"
+    sql "select first_value(c1,cast('true' as boolean)) over() from window_test"
+    sql "select last_value(c1,cast('false' as boolean)) over() from window_test"
+    sql "select first_value(c1,cast('1' as boolean)) over() from window_test"
+    sql "select last_value(c1,cast('0' as boolean)) over() from window_test"
+    sql "select first_value(c1,true) over() from window_test"
+    sql "select last_value(c1,false) over() from window_test"
+    sql "select first_value(c1,1) over() from window_test"
+    sql "select last_value(c1,0) over() from window_test"
 }

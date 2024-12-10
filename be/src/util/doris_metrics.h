@@ -202,6 +202,7 @@ public:
     UIntGauge* send_batch_thread_pool_thread_num = nullptr;
     UIntGauge* send_batch_thread_pool_queue_size = nullptr;
     UIntGauge* fragment_thread_pool_queue_size = nullptr;
+    UIntGauge* fragment_thread_pool_num_active_threads = nullptr;
 
     // Upload metrics
     UIntGauge* upload_total_byte = nullptr;

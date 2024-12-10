@@ -102,8 +102,6 @@ public:
     using value_type = T;
     using Container = PaddedPODArray<value_type>;
 
-    bool is_numeric() const override { return false; }
-
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
@@ -375,9 +373,6 @@ public:
                 "deserialize_and_insert_from_arena not supported in PredicateColumnType");
         __builtin_unreachable();
     }
-
-    bool is_fixed_and_contiguous() const override { return true; }
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
     [[noreturn]] StringRef get_raw_data() const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,

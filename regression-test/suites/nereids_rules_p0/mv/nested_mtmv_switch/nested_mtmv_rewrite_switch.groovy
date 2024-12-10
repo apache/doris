@@ -99,6 +99,9 @@ suite("nested_mtmv_rewrite_switch") {
     sql """analyze table orders_2 with sync;"""
     sql """analyze table lineitem_2 with sync;"""
 
+    sql """alter table orders_2 modify column o_orderdate set stats ('row_count'='10');"""
+    sql """alter table lineitem_2 modify column l_shipdate set stats ('row_count'='7');"""
+
 
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"

@@ -197,9 +197,10 @@ void MemInfo::refresh_proc_meminfo() {
                 _s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
                 // find cgroup limit failed, wait 300s, 1000 * 100ms.
                 _s_cgroup_mem_refresh_wait_times = -3000;
-                LOG(INFO) << "Refresh cgroup memory limit failed, refresh again after 300s, cgroup "
-                             "mem limit: "
-                          << _s_cgroup_mem_limit;
+                LOG(WARNING)
+                        << "Refresh cgroup memory limit failed, refresh again after 300s, cgroup "
+                           "mem limit: "
+                        << _s_cgroup_mem_limit << ", " << status;
             } else {
                 _s_cgroup_mem_limit = cgroup_mem_limit;
                 // wait 10s, 100 * 100ms, avoid too frequently.
@@ -209,12 +210,17 @@ void MemInfo::refresh_proc_meminfo() {
             _s_cgroup_mem_refresh_wait_times++;
         }
 
+        // cgroup mem limit is refreshed every 10 seconds,
+        // cgroup mem usage is refreshed together with memInfo every time, which is very frequent.
         if (_s_cgroup_mem_limit != std::numeric_limits<int64_t>::max()) {
             int64_t cgroup_mem_usage;
             auto status = CGroupMemoryCtl::find_cgroup_mem_usage(&cgroup_mem_usage);
             if (!status.ok()) {
                 _s_cgroup_mem_usage = std::numeric_limits<int64_t>::min();
                 _s_cgroup_mem_refresh_state = false;
+                LOG_EVERY_N(WARNING, 500)
+                        << "Refresh cgroup memory usage failed, cgroup mem limit: "
+                        << _s_cgroup_mem_limit << ", " << status;
             } else {
                 _s_cgroup_mem_usage = cgroup_mem_usage;
                 _s_cgroup_mem_refresh_state = true;
@@ -279,6 +285,12 @@ void MemInfo::refresh_proc_meminfo() {
         mem_available = _mem_info_bytes["MemAvailable"];
     }
     if (_s_cgroup_mem_refresh_state) {
+        // Note, CgroupV2 MemAvailable is usually a little smaller than Process MemAvailable.
+        // Process `MemAvailable = MemFree - LowWaterMark + (PageCache - min(PageCache / 2, LowWaterMark))`,
+        // from `MemAvailable` in `/proc/meminfo`, calculated by OS.
+        // CgroupV2 `MemAvailable = cgroup_mem_limit - cgroup_mem_usage`,
+        // `cgroup_mem_usage = memory.current - inactive_file - slab_reclaimable`, in fact,
+        // there seems to be some memory that can be reused in `cgroup_mem_usage`.
         if (mem_available < 0) {
             mem_available = _s_cgroup_mem_limit - _s_cgroup_mem_usage;
         } else {

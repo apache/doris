@@ -19,8 +19,6 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -38,6 +36,7 @@ import org.apache.commons.collections.CollectionUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -60,10 +59,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                     ExternalTable tbl = scan.getTable();
 
                     SelectedPartitions selectedPartitions;
-                    // TODO(cmy): support other external table
-                    if (tbl instanceof HMSExternalTable && ((HMSExternalTable) tbl).getDlaType() == DLAType.HIVE) {
-                        HMSExternalTable hiveTbl = (HMSExternalTable) tbl;
-                        selectedPartitions = pruneHivePartitions(hiveTbl, filter, scan, ctx.cascadesContext);
+                    if (tbl.supportInternalPartitionPruned()) {
+                        selectedPartitions = pruneExternalPartitions(tbl, filter, scan, ctx.cascadesContext);
                     } else {
                         // set isPruned so that it won't go pass the partition prune again
                         selectedPartitions = new SelectedPartitions(0, ImmutableMap.of(), true);
@@ -74,10 +71,11 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 }).toRule(RuleType.FILE_SCAN_PARTITION_PRUNE);
     }
 
-    private SelectedPartitions pruneHivePartitions(HMSExternalTable hiveTbl,
+    private SelectedPartitions pruneExternalPartitions(ExternalTable externalTable,
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
-        Map<Long, PartitionItem> selectedPartitionItems = Maps.newHashMap();
-        if (CollectionUtils.isEmpty(hiveTbl.getPartitionColumns())) {
+        Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
+        // todo: real snapshotId
+        if (CollectionUtils.isEmpty(externalTable.getPartitionColumns(Optional.empty()))) {
             // non partitioned table, return NOT_PRUNED.
             // non partition table will be handled in HiveScanNode.
             return SelectedPartitions.NOT_PRUNED;
@@ -85,19 +83,19 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         Map<String, Slot> scanOutput = scan.getOutput()
                 .stream()
                 .collect(Collectors.toMap(slot -> slot.getName().toLowerCase(), Function.identity()));
-
-        List<Slot> partitionSlots = hiveTbl.getPartitionColumns()
+        // todo: real snapshotId
+        List<Slot> partitionSlots = externalTable.getPartitionColumns(Optional.empty())
                 .stream()
                 .map(column -> scanOutput.get(column.getName().toLowerCase()))
                 .collect(Collectors.toList());
 
-        Map<Long, PartitionItem> idToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
-        List<Long> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
-                partitionSlots, filter.getPredicate(), idToPartitionItem, ctx, PartitionTableType.HIVE));
+        Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
+        List<String> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
+                partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx, PartitionTableType.EXTERNAL));
 
-        for (Long id : prunedPartitions) {
-            selectedPartitionItems.put(id, idToPartitionItem.get(id));
+        for (String name : prunedPartitions) {
+            selectedPartitionItems.put(name, nameToPartitionItem.get(name));
         }
-        return new SelectedPartitions(idToPartitionItem.size(), selectedPartitionItems, true);
+        return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true);
     }
 }

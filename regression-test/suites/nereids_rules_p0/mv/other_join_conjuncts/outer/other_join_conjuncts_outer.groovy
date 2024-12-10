@@ -140,6 +140,10 @@ suite("other_join_conjuncts_outer") {
     sql """analyze table lineitem with sync"""
     sql """analyze table orders with sync"""
 
+    sql """alter table orders modify column lo_orderdate set stats ('row_count'='18');"""
+    sql """alter table lineitem modify column lo_orderdate set stats ('row_count'='10');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+
     // =, !=, >, <, <=, >=
     // left outer join
     // other conjuncts in join condition

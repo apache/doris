@@ -33,6 +33,7 @@ public class MetricCalculator extends TimerTask {
     private long lastQueryCounter = -1;
     private long lastRequestCounter = -1;
     private long lastQueryErrCounter = -1;
+    private long lastQuerySlowCounter = -1;
 
     private Map<String, Long> clusterLastRequestCounter = new HashMap<>();
     private Map<String, Long> clusterLastQueryCounter = new HashMap<>();
@@ -50,6 +51,7 @@ public class MetricCalculator extends TimerTask {
             lastQueryCounter = MetricRepo.COUNTER_QUERY_ALL.getValue();
             lastRequestCounter = MetricRepo.COUNTER_REQUEST_ALL.getValue();
             lastQueryErrCounter = MetricRepo.COUNTER_QUERY_ERR.getValue();
+            lastQuerySlowCounter = MetricRepo.COUNTER_QUERY_SLOW.getValue();
             initCloudMetrics();
             return;
         }
@@ -73,6 +75,12 @@ public class MetricCalculator extends TimerTask {
         double errRate = (double) (currentErrCounter - lastQueryErrCounter) / interval;
         MetricRepo.GAUGE_QUERY_ERR_RATE.setValue(errRate < 0 ? 0.0 : errRate);
         lastQueryErrCounter = currentErrCounter;
+
+        // slow rate
+        long currentSlowCounter = MetricRepo.COUNTER_QUERY_SLOW.getValue();
+        double slowRate = (double) (currentSlowCounter - lastQuerySlowCounter) / interval;
+        MetricRepo.GAUGE_QUERY_SLOW_RATE.setValue(slowRate < 0 ? 0.0 : slowRate);
+        lastQuerySlowCounter = currentSlowCounter;
 
         updateCloudMetrics(interval);
         lastTs = currentTs;
