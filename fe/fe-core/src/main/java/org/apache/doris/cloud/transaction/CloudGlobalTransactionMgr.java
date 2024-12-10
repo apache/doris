@@ -1097,8 +1097,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         try {
             commitTransactionWithSubTxns(db.getId(), tableList, transactionId, subTransactionStates);
         } finally {
-            decreaseWaitingLockCount(tableList);
-            MetaLockUtils.commitUnlockTables(tableList);
+            afterCommitTransaction(tableList);
         }
         return true;
     }
@@ -1153,14 +1152,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         entry.getValue().get());
             }
         }
-        increaseWaitingLockCount(tableList);
-        if (!MetaLockUtils.tryCommitLockTables(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
-            decreaseWaitingLockCount(tableList);
+
+        List<Table> mowTableList = tableList.stream()
+                .filter(table -> table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite())
+                .collect(Collectors.toList());
+        increaseWaitingLockCount(mowTableList);
+        if (!MetaLockUtils.tryCommitLockTables(mowTableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            decreaseWaitingLockCount(mowTableList);
             // DELETE_BITMAP_LOCK_ERR will be retried on be
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                     "get table cloud commit lock timeout, tableList=("
-                            + StringUtils.join(tableList, ",") + ")");
+                            + StringUtils.join(mowTableList, ",") + ")");
         }
+    }
+
+    private void afterCommitTransaction(List<Table> tableList) {
+        List<Table> mowTableList = tableList.stream()
+                .filter(table -> table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite())
+                .collect(Collectors.toList());
+        decreaseWaitingLockCount(mowTableList);
+        MetaLockUtils.commitUnlockTables(mowTableList);
     }
 
     @Override
@@ -1171,8 +1182,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         try {
             commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
-            decreaseWaitingLockCount(tableList);
-            MetaLockUtils.commitUnlockTables(tableList);
+            afterCommitTransaction(tableList);
         }
         return true;
     }
