@@ -65,8 +65,11 @@ suite("test_compaction_on_sc_new_tablet", "nonConcurrent") {
 
         // blocking the schema change process before it gains max version
         GetDebugPoint().enableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
+        Thread.sleep(2000)
 
         sql "alter table ${table1} modify column c1 varchar(100);"
+
+        Thread.sleep(4000)
 
         // double write
         for (int i = 20; i <= 30; i++) {
@@ -99,9 +102,10 @@ suite("test_compaction_on_sc_new_tablet", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllBEs("SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
                 [tablet_id:"${newTabletStat.TabletId}", start_version:"${start_version}", end_version:"${end_version}"])
 
+        Thread.sleep(2000)
 
         logger.info("trigger compaction [15-17] on new tablet ${newTabletStat.TabletId}")
-        def (code, out, err) = be_run_full_compaction(tabletBackend.Host, tabletBackend.HttpPort, newTabletStat.TabletId)
+        def (code, out, err) = be_run_cumulative_compaction(tabletBackend.Host, tabletBackend.HttpPort, newTabletStat.TabletId)
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         Assert.assertEquals(code, 0)
         def compactJson = parseJson(out.trim())
@@ -111,7 +115,7 @@ suite("test_compaction_on_sc_new_tablet", "nonConcurrent") {
         GetDebugPoint().disableDebugPointForAllBEs("SchemaChangeJob::_do_process_alter_tablet.block")
         waitForSchemaChangeDone {
             sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${table1}' ORDER BY createtime DESC LIMIT 1 """
-            time 20000
+            time 2000
         }
 
         // make the cumu compaction run to complete and wait for it
