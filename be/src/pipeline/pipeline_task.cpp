@@ -124,7 +124,9 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
         clear_blocking_state();
     }
     // todo: check if local_params's exec_stats_node_ids exists
-    query_ctx->init_node_exec_stats(local_params.exec_stats_node_ids);
+    if (!local_params.exec_stats_node_ids.empty()) {
+        query_ctx->init_node_exec_stats(local_params.exec_stats_node_ids);
+    }
     return Status::OK();
 }
 
