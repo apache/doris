@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
+import org.apache.doris.nereids.rules.expression.rules.OrAddMinMax;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
@@ -273,5 +274,66 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         ));
 
         assertRewrite("a and (b > 0 and b < 10)", "a and (b > 0 and b < 10)");
+    }
+
+    @Test
+    void testOrAddMinMax() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+            bottomUp(
+                OrAddMinMax.INSTANCE
+            )
+        ));
+
+        assertRewriteAfterTypeCoercion("TA >= 10", "TA >= 10");
+        assertRewriteAfterTypeCoercion("TA between 10 and 20", "TA >= 10 and TA <= 20");
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA >= 30",
+                "(TA <= 20 OR TA >= 30) AND (TA >= 10)");
+        assertRewriteAfterTypeCoercion("TA >= 10 and TA <= 20 or TA >= 50 and TA <= 60 or TA >= 100 and TA <= 120",
+                "(TA <= 20 or TA >= 50 and TA <= 60 or TA >= 100) AND TA >= 10 and TA <= 120");
+        assertRewriteAfterTypeCoercion("TA > 10 and TA < 20 or TA > 50 and TA < 60 or TA > 100 and TA < 120",
+                "(TA < 20 or TA > 50 and TA < 60 or TA > 100) AND TA > 10 and TA < 120");
+        // only slot reference add min max
+        assertRewriteAfterTypeCoercion("TA + TB > 10 and TA + TB < 20 or TA + TB > 50 and TA + TB < 60 or TA + TB > 100 and TA + TB < 120",
+                "TA + TB > 10 and TA + TB < 20 or TA + TB > 50 and TA + TB < 60 or TA + TB > 100 and TA + TB < 120");
+        assertRewriteAfterTypeCoercion("ISNULL (TA > 10) and TA > 10 and TA < 20 or TA > 50 and TA < 60 or TA > 100 and TA < 120",
+                "(ISNULL(TA > 10) and TA < 20 or TA > 50 and TA < 60 or TA > 100) AND TA > 10 and TA < 120");
+        assertRewriteAfterTypeCoercion("ISNULL (TA > 10) or TA > 10 and TA < 20 or TA > 50 and TA < 60 or TA > 100 and TA < 120",
+                "ISNULL (TA > 10) or TA > 10 and TA < 20 or TA > 50 and TA < 60 or TA > 100 and TA < 120");
+        assertRewriteAfterTypeCoercion("TA = 4 or (TA > 4 and TB is null)", "(TA = 4 or (TA > 4 and TB is null)) and TA >= 4");
+        assertRewriteAfterTypeCoercion("TA in (10, 50, 100) or TA in (20, 40)", "TA in (10, 50, 100) or TA in (20, 40)");
+        assertRewriteAfterTypeCoercion("TA in (10, 50, 100) or TA >= 70",
+                "(TA in (10, 50, 100) or TA >= 70) AND TA >= 10");
+        assertRewriteAfterTypeCoercion("TA in (10, 50, 100) or TA < 70",
+                "(TA in (10, 50, 100) or TA < 70) AND TA <= 100");
+        assertRewriteAfterTypeCoercion("TA in (10, 50, 100) or TA >= 70 and TA <= 90",
+                "(TA in (10, 50, 100) or TA >= 70 AND TA <= 90) AND TA >= 10 AND TA <= 100");
+        assertRewriteAfterTypeCoercion("TA in (10, 50, 100) or TA >= 70 and TA < 120",
+                "(TA in (10, 50, 100) or TA >= 70) AND TA >= 10 AND TA < 120");
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 and TB between 10 and 20", "TA >= 10 and TA <= 20 and TB >= 10 and TB <= 20");
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 and TB between 10 and 20 or TA between 100 and 120 and TB between 100 and 120",
+                "(TA <= 20 and TB <= 20 or TA >= 100 and TB >= 100) AND TA >= 10 AND TA <= 120 AND TB >= 10 AND TB <= 120");
+        assertRewriteAfterTypeCoercion("TA >= 10 AND (TA between 12 and 20 and TB between 10 and 20 or TA between 100 and 120 and TB between 100 and 120)",
+                "TA >= 10 and (TA <= 20 and TB <= 20 or TA >= 100 and TB >= 100) AND TA >= 12 AND TA <= 120 AND TB >= 10 AND TB <= 120");
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 and TB between 100 and 120 or TA between 100 and 120 and TB between 10 and 20",
+                "(TA <= 20 and TB >= 100 or TA >= 100 and TB <= 20) AND TA >= 10 AND TA <= 120 AND TB >= 10 AND TB <= 120");
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 and TB between 10 and 20 AND TC between 10 and 20 or TA between 100 and 120 and TB between 100 and 120",
+                "(TA <= 20 and TB <= 20 and TC >= 10 and TC <= 20 or TA >= 100 and TB >= 100) AND TA >= 10 AND TA <= 120 AND TB >= 10 AND TB <= 120");
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 and TB between 10 and 20 AND TC between 10 and 20 or TA between 100 and 120 and TB between 100 and 120 and TC between 100 AND 120",
+                "(TA <= 20 and TB <= 20 and TC <= 20 or TA >= 100 and TB >= 100 and TC >= 100) AND TA >= 10 AND TA <= 120 AND TB >= 10 AND TB <= 120 AND TC >= 10 AND TC <= 120");
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 and TB between 100 and 120 OR TB between 10 and 20 AND TC between 100 and 120 OR TA between 100 and 120 AND TC between 10 and 20",
+                "TA >= 10 and TA <= 20 and TB >= 100 AND TB <= 120 OR TB >= 10 AND TB <= 20 AND TC >= 100 AND TC <= 120 OR TA >= 100 AND TA <= 120 AND TC >= 10 AND TC <= 20");
+        assertRewriteAfterTypeCoercion("((TA = 1 AND SC ='1') OR SC = '1212') AND TA =1", "(SC = '1' OR SC = '1212') AND TA =1");
+        assertRewriteAfterTypeCoercion("(TA + TC > 10 and TB > 10) or (TB > 10 and TB > 20)", "(TA + TC > 10 or TB > 20) AND TB > 10");
+        assertRewriteAfterTypeCoercion("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))",
+                "((TA + TC > 10 or TA + TC > 5) or (TB > 20 or TB < 10)) and TB > 10");
+        assertRewriteAfterTypeCoercion("(CA >= date '2024-01-01' and CA <= date '2024-01-03') or (CA > date '2024-01-05' and CA < date '2024-01-07')",
+                "(CA <= date '2024-01-03' or CA > date '2024-01-05') and CA >= date '2024-01-01' and CA < date '2024-01-07')");
+        assertRewriteAfterTypeCoercion("CA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or CA < date '2024-01-01'",
+                "(CA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or CA < date '2024-01-01') AND CA <= date '2024-01-03'");
+        assertRewriteAfterTypeCoercion("(AA >= timestamp '2024-01-01 00:00:00' and AA <= timestamp '2024-01-03 00:00:00') or (AA > timestamp '2024-01-05 00:00:00' and AA < timestamp '2024-01-07 00:00:00')",
+                "(AA <= timestamp '2024-01-03 00:00:00' or AA > timestamp '2024-01-05 00:00:00') and AA >= timestamp '2024-01-01 00:00:00' and AA < timestamp '2024-01-07 00:00:00')");
+        assertRewriteAfterTypeCoercion("AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00'",
+                "(AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00' ) and AA <= timestamp '2024-01-03 02:00:00'");
+
     }
 }

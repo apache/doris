@@ -60,6 +60,13 @@ public class ExpressionOptimization extends ExpressionRewrite {
             )
     );
 
+    /**
+     * don't use it with PushDownFilterThroughJoin, it may cause dead loop:
+     *   LogicalFilter(origin expr)
+     *      => LogicalFilter((origin expr) and (add min max range))
+     *      => LogicalFilter((origin expr)) // use PushDownFilterThroughJoin
+     *      => ...
+     */
     public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES_OR_ADD_RANGE = ImmutableList.of(
             bottomUp(
                     OrAddMinMax.INSTANCE
