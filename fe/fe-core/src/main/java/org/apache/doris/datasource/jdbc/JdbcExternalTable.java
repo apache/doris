@@ -63,6 +63,9 @@ public class JdbcExternalTable extends ExternalTable {
     public static final String SQLSERVER_ROW_COUNT_SQL = "SELECT sum(rows) as rows FROM sys.partitions "
             + "WHERE object_id = (SELECT object_id('${dbName}.${tblName}')) AND index_id IN (0, 1)";
 
+    public static final String ORACLE_ROW_COUNT_SQL = "SELECT NUM_ROWS as \\\"rows\\\" FROM ALL_TABLES WHERE "
+            + "OWNER = '${dbName}' and TABLE_NAME = '${tblName}'";
+
     public static final String FETCH_ROW_COUNT_TEMPLATE = "SELECT * FROM QUERY"
             + "(\"catalog\"=\"${ctlName}\", \"query\"=\"${sql}\");";
 
@@ -144,6 +147,8 @@ public class JdbcExternalTable extends ExternalTable {
                 params.put("sql", SQLSERVER_ROW_COUNT_SQL);
                 return getRowCount(params);
             case JdbcResource.ORACLE:
+                params.put("sql", ORACLE_ROW_COUNT_SQL);
+                return getRowCount(params);
             default:
                 break;
         }
