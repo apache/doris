@@ -120,11 +120,11 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
         } while (running)
     }
 
-    def getDeleteBitmapStatus = { be_host, be_http_port, tablet_id ->
+    def getLocalDeleteBitmapStatus = { be_host, be_http_port, tablet_id ->
         boolean running = true
         StringBuilder sb = new StringBuilder();
         sb.append("curl -X GET http://${be_host}:${be_http_port}")
-        sb.append("/api/delete_bitmap/count?tablet_id=")
+        sb.append("/api/delete_bitmap/count_local?tablet_id=")
         sb.append(tablet_id)
 
         String command = sb.toString()
@@ -132,7 +132,7 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
         process = command.execute()
         code = process.waitFor()
         out = process.getText()
-        logger.info("Get delete bitmap count status:  =" + code + ", out=" + out)
+        logger.info("Get local delete bitmap count status:  =" + code + ", out=" + out)
         assertEquals(code, 0)
         def deleteBitmapStatus = parseJson(out.trim())
         return deleteBitmapStatus
@@ -142,7 +142,7 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
     def timeout = 10000
     sql """ DROP TABLE IF EXISTS ${testTable}"""
     def testTableDDL = """
-        create table ${testTable} 
+        create table ${testTable}
             (
             `plan_id` bigint(20) NOT NULL,
             `target_id` int(20) NOT NULL,
@@ -171,21 +171,22 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets")
         // 1. test normal
         sql "sync"
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,1,'1'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,2,'2'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,3,'3'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,4,'4'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,5,'5'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,6,'6'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,7,'7'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,8,'8'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'1'),(1,1,'1'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'2'),(2,2,'2'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'3'),(3,3,'3'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'4'),(4,4,'4'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'5'),(5,5,'5'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'6'),(6,6,'6'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'7'),(7,7,'7'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'8'),(8,8,'8'); """
 
         qt_sql "select * from ${testTable} order by plan_id"
 
         // trigger compaction to generate base rowset
         def tablets = sql_return_maparray """ show tablets from ${testTable}; """
         logger.info("tablets: " + tablets)
-        def delete_bitmap_count = 0
+        def local_delete_bitmap_count = 0
+        def local_delete_bitmap_cardinality = 0;
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
             def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
@@ -194,9 +195,12 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
             getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
 
             // before compaction, delete_bitmap_count is (rowsets num - 1)
-            delete_bitmap_count = getDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
-            assertTrue(delete_bitmap_count == 7)
-            logger.info("delete_bitmap_count:" + delete_bitmap_count)
+            local_delete_bitmap_count = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
+            local_delete_bitmap_cardinality = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).cardinality
+            logger.info("local_delete_bitmap_count:" + local_delete_bitmap_count)
+            logger.info("local_delete_bitmap_cardinality:" + local_delete_bitmap_cardinality)
+            assertTrue(local_delete_bitmap_count == 7)
+            assertTrue(local_delete_bitmap_cardinality == 7)
 
             assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
                     "cumulative", tablet_id).contains("Success"));
@@ -208,11 +212,11 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
 
         def now = System.currentTimeMillis()
 
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,9,'9'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,10,'10'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,11,'11'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,12,'12'); """
-        sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,13,'13'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'9'),(1,9,'9'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'10'),(1,10,'10'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'11'),(1,11,'11'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'12'),(1,12,'12'); """
+        sql """ INSERT INTO ${testTable} VALUES (0,0,'13'),(1,13,'13'); """
 
         def time_diff = System.currentTimeMillis() - now
         logger.info("time_diff:" + time_diff)
@@ -227,11 +231,14 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
             def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
             logger.info("tablet: " + tablet_info)
 
-            // before compaction, delete_bitmap_count is (rowsets num - 1)
+            // before compaction, local delete_bitmap_count is (total rowsets num - 1), ms delete_bitmap_count is new rowset num
             String trigger_backend_id = tablet.BackendId
-            delete_bitmap_count = getDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
-            logger.info("delete_bitmap_count:" + delete_bitmap_count)
-            assertTrue(delete_bitmap_count == 12)
+            local_delete_bitmap_count = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
+            local_delete_bitmap_cardinality = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).cardinality
+            logger.info("local_delete_bitmap_count:" + local_delete_bitmap_count)
+            logger.info("local_delete_bitmap_cardinality:" + local_delete_bitmap_cardinality)
+            assertTrue(local_delete_bitmap_count == 12)
+            assertTrue(local_delete_bitmap_cardinality == 17)
 
             getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
             assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
@@ -240,14 +247,16 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
             getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
 
             Thread.sleep(1000)
-            // after compaction, delete_bitmap_count is 1
-            delete_bitmap_count = getDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
-            logger.info("delete_bitmap_count:" + delete_bitmap_count)
-            assertTrue(delete_bitmap_count == 1)
+            // after compaction, delete_bitmap_count is 1, cardinality is 2, check it
+            local_delete_bitmap_count = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
+            local_delete_bitmap_cardinality = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).cardinality
+            logger.info("local_delete_bitmap_count:" + local_delete_bitmap_count)
+            logger.info("local_delete_bitmap_cardinality:" + local_delete_bitmap_cardinality)
+            assertTrue(local_delete_bitmap_count == 1)
+            assertTrue(local_delete_bitmap_cardinality == 2)
         }
 
         qt_sql "select * from ${testTable} order by plan_id"
-
     } finally {
         reset_be_param("compaction_promotion_version_count")
         reset_be_param("tablet_rowset_stale_sweep_time_sec")

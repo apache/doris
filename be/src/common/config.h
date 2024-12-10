@@ -1385,6 +1385,8 @@ DECLARE_mInt64(pipeline_task_leakage_detect_period_secs);
 DECLARE_mInt32(snappy_compression_block_size);
 DECLARE_mInt32(lz4_compression_block_size);
 
+DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
+
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
 #ifdef BE_TEST

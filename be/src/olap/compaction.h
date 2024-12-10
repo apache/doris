@@ -108,6 +108,8 @@ protected:
                     to_remove_vec,
             DeleteBitmapPtr& new_delete_bitmap);
 
+    void process_old_version_delete_bitmap();
+
 private:
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
     void _load_segment_to_cache();

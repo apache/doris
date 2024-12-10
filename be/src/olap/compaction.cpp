@@ -1064,6 +1064,13 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         _tablet->delete_expired_stale_rowset();
     }
 
+    if (config::enable_delete_bitmap_merge_on_compaction &&
+        compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+        _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
+        process_old_version_delete_bitmap();
+    }
+
     int64_t cur_max_version = 0;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
@@ -1209,6 +1216,36 @@ void Compaction::agg_and_remove_old_version_delete_bitmap(
                 continue;
             }
             new_delete_bitmap->set(end, *d);
+        }
+    }
+}
+
+void Compaction::process_old_version_delete_bitmap() {
+    std::vector<RowsetSharedPtr> pre_rowsets {};
+    for (const auto& it : _tablet->rowset_map()) {
+        if (it.first.second < _input_rowsets.front()->start_version()) {
+            pre_rowsets.emplace_back(it.second);
+        }
+    }
+    std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
+    if (!pre_rowsets.empty()) {
+        std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>
+                to_remove_vec;
+        DeleteBitmapPtr new_delete_bitmap = nullptr;
+        agg_and_remove_old_version_delete_bitmap(pre_rowsets, to_remove_vec, new_delete_bitmap);
+        if (!new_delete_bitmap->empty()) {
+            // store agg delete bitmap
+            Version version(_input_rowsets.front()->start_version(),
+                            _input_rowsets.back()->end_version());
+            for (auto it = new_delete_bitmap->delete_bitmap.begin();
+                 it != new_delete_bitmap->delete_bitmap.end(); it++) {
+                _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
+            }
+            _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(version.to_string(),
+                                                                        to_remove_vec);
+            DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets", {
+                static_cast<Tablet*>(_tablet.get())->delete_expired_stale_rowset();
+            });
         }
     }
 }
