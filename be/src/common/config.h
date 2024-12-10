@@ -1417,6 +1417,7 @@ DECLARE_mInt32(snappy_compression_block_size);
 DECLARE_mInt32(lz4_compression_block_size);
 
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
+DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
 #ifdef BE_TEST
 // test s3
