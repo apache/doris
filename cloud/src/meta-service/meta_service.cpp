@@ -2201,12 +2201,16 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
             return;
         }
 
+        int64_t total_retry = 0;
         for (const auto& tablet_index : request->tablet_indexes()) {
             TabletIndexPB idx(tablet_index);
             TabletStatsPB tablet_stat;
             int64_t retry = 0;
             internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, false);
-            while (retry++ < 3 && code == MetaServiceCode::KV_TXN_TOO_OLD) {
+            while (retry < 3 && total_retry < 20 && code == MetaServiceCode::KV_TXN_TOO_OLD) {
+                retry++;
+                total_retry++;
+
                 code = MetaServiceCode::OK;
                 err = txn_kv_->create_txn(&txn);
                 if (err != TxnErrorCode::TXN_OK) {
@@ -2218,7 +2222,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                 internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat,
                                           false);
                 LOG(INFO) << "retry get tablet stats, instance_id=" << instance_id
-                          << ", tablet=" << idx.tablet_id() << ", retry=" << retry;
+                          << ", tablet=" << idx.tablet_id() << ", retry=" << retry
+                          << ", total_retry=" << total_retry;
             }
             if (code != MetaServiceCode::OK) {
                 response->clear_base_compaction_cnts();
