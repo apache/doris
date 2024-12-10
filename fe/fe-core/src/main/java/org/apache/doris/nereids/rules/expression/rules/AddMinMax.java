@@ -61,8 +61,8 @@ import java.util.stream.Collectors;
  * a between 10 and 20 and b between 10 and 20 or a between 100 and 200 and b between 100 and 200
  *   => (a <= 20 and b <= 20 or a >= 100 and b >= 100) and a >= 10 and a <= 200 and b >= 10 and b <= 200
  */
-public class OrAddMinMax implements ExpressionPatternRuleFactory {
-    public static final OrAddMinMax INSTANCE = new OrAddMinMax();
+public class AddMinMax implements ExpressionPatternRuleFactory {
+    public static final AddMinMax INSTANCE = new AddMinMax();
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {

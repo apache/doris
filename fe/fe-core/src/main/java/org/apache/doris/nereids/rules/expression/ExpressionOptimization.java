@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.nereids.rules.expression.rules.AddMinMax;
 import org.apache.doris.nereids.rules.expression.rules.ArrayContainToArrayOverlap;
 import org.apache.doris.nereids.rules.expression.rules.BetweenToEqual;
 import org.apache.doris.nereids.rules.expression.rules.CaseWhenToIf;
@@ -25,7 +26,6 @@ import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
-import org.apache.doris.nereids.rules.expression.rules.OrAddMinMax;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
@@ -67,9 +67,9 @@ public class ExpressionOptimization extends ExpressionRewrite {
      *      => LogicalFilter((origin expr)) // use PushDownFilterThroughJoin
      *      => ...
      */
-    public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES_OR_ADD_RANGE = ImmutableList.of(
+    public static final List<ExpressionRewriteRule> ADD_RANGE = ImmutableList.of(
             bottomUp(
-                    OrAddMinMax.INSTANCE
+                    AddMinMax.INSTANCE
             )
     );
 

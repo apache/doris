@@ -17,12 +17,12 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.nereids.rules.expression.rules.AddMinMax;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
-import org.apache.doris.nereids.rules.expression.rules.OrAddMinMax;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
@@ -280,7 +280,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     void testOrAddMinMax() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
             bottomUp(
-                OrAddMinMax.INSTANCE
+                AddMinMax.INSTANCE
             )
         ));
 
