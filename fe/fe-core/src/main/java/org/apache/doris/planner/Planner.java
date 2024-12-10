@@ -43,8 +43,6 @@ public abstract class Planner {
 
     protected ArrayList<PlanFragment> fragments = Lists.newArrayList();
 
-    protected boolean isBlockQuery = false;
-
     protected TQueryOptions queryOptions;
 
     public abstract List<ScanNode> getScanNodes();
@@ -113,10 +111,6 @@ public abstract class Planner {
 
     public List<PlanFragment> getFragments() {
         return fragments;
-    }
-
-    public boolean isBlockQuery() {
-        return isBlockQuery;
     }
 
     public TQueryOptions getQueryOptions() {
