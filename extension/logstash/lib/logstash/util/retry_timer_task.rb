@@ -18,8 +18,9 @@
 require 'java'
 
 class RetryTimerTask < java.util.TimerTask
-   def initialize(retry_queue, event)
+   def initialize(retry_queue, count_block_queue, event)
       @retry_queue = retry_queue
+      @count_block_queue = count_block_queue
       # event style: [documents, http_headers, event_num, req_count]
       @event = event
       super()
@@ -27,5 +28,6 @@ class RetryTimerTask < java.util.TimerTask
 
    def run
       @retry_queue << @event
+      @count_block_queue.pull
    end
 end

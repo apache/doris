@@ -134,6 +134,8 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
       # Run named Timer as daemon thread
       @timer = java.util.Timer.new("Doris Output #{self.params['id']}", true)
+      # The queue in Timer is unbounded and uncontrollable, so use a new queue to control the amount
+      @count_block_queue = java.util.concurrent.ArrayBlockingQueue.new(128)
 
       @retry_queue = Queue.new
       retry_thread = Thread.new do
@@ -220,7 +222,8 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       sleep_for = sleep_for_attempt(req_count)
       req_count += 1
       @logger.warn("Will do retry #{req_count} after #{sleep_for} secs.")
-      timer_task = RetryTimerTask.new(@retry_queue, [documents, http_headers, event_num, req_count])
+      timer_task = RetryTimerTask.new(@retry_queue, @count_block_queue, [documents, http_headers, event_num, req_count])
+      @count_block_queue.add(0)
       @timer.schedule(timer_task, sleep_for*1000)
    end
 
