@@ -1400,6 +1400,7 @@ DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
+DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
 // clang-format off
 #ifdef BE_TEST

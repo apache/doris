@@ -69,4 +69,54 @@ suite("test_cumu_compaction_with_delete") {
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName} FORCE")
     }
+
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    def set_be_config = { key, value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+    }
+
+    try {
+        set_be_config.call("enable_sleep_between_delete_cumu_compaction", "true")
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """
+            CREATE TABLE ${tableName} (
+            `user_id` INT NOT NULL,
+            `value` INT NOT NULL)
+            UNIQUE KEY(`user_id`) 
+            DISTRIBUTED BY HASH(`user_id`) 
+            BUCKETS 1 
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1",
+            "enable_mow_light_delete" = "true")"""
+
+        for(int i = 1; i <= 100; ++i){
+            sql """ INSERT INTO ${tableName} VALUES (1,1)"""
+            sql """ delete from ${tableName} where user_id = 1"""
+        }
+
+        now = System.currentTimeMillis()
+
+        while(true){
+            if(check_cumu_point(100)){
+                break;
+            }
+            Thread.sleep(1000)
+        }
+        time_diff = System.currentTimeMillis() - now
+        logger.info("time_diff:" + time_diff)
+        assertTrue(time_diff>=250*1000)
+
+        qt_select """select * from ${tableName} order by user_id, value"""
+    } catch (Exception e){
+        logger.info(e.getMessage())
+        assertFalse(true)
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${tableName} FORCE")
+        set_be_config.call("enable_sleep_between_delete_cumu_compaction", "false")
+    }
 }
