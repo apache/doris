@@ -210,6 +210,7 @@ public class ConnectContext {
     // This property is obtained from UserProperty when the client connection is created.
     // Only when the connection is created again, the new resource tags will be retrieved from the UserProperty
     private Set<Tag> resourceTags = Sets.newHashSet();
+    private boolean allowResourceTagDowngrade = false;
     // If set to true, the resource tags set in resourceTags will be used to limit the query resources.
     // If set to false, the system will not restrict query resources.
     private boolean isResourceTagsSet = false;
@@ -1048,9 +1049,14 @@ public class ConnectContext {
         return resourceTags;
     }
 
-    public void setResourceTags(Set<Tag> resourceTags) {
+    public boolean isAllowResourceTagDowngrade() {
+        return allowResourceTagDowngrade;
+    }
+
+    public void setResourceTags(Set<Tag> resourceTags, boolean allowResourceTagDowngrade) {
         this.resourceTags = resourceTags;
         this.isResourceTagsSet = !this.resourceTags.isEmpty();
+        this.allowResourceTagDowngrade = allowResourceTagDowngrade;
     }
 
     public void setCurrentConnectedFEIp(String ip) {
