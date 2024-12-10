@@ -60,9 +60,9 @@ suite("test_cumu_compaction_with_delete") {
         }
         time_diff = System.currentTimeMillis() - now
         logger.info("time_diff:" + time_diff)
-        assertTrue(time_diff<250*1000)
+        assertTrue(time_diff<200*1000)
 
-        qt_select """select * from ${tableName} order by user_id, value"""
+        qt_select1 """select * from ${tableName} order by user_id, value"""
     } catch (Exception e){
         logger.info(e.getMessage())
         assertFalse(true)
@@ -111,7 +111,7 @@ suite("test_cumu_compaction_with_delete") {
         logger.info("time_diff:" + time_diff)
         assertTrue(time_diff>=250*1000)
 
-        qt_select """select * from ${tableName} order by user_id, value"""
+        qt_select2 """select * from ${tableName} order by user_id, value"""
     } catch (Exception e){
         logger.info(e.getMessage())
         assertFalse(true)
