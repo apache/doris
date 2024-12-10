@@ -95,8 +95,12 @@ public:
     std::string debug_string(int indentation_level) const override;
     RuntimeProfile::Counter* send_new_partition_timer() { return _send_new_partition_timer; }
     RuntimeProfile::Counter* add_partition_request_timer() { return _add_partition_request_timer; }
-    RuntimeProfile::Counter* split_block_hash_compute_timer() { return _split_block_hash_compute_timer; }
-    RuntimeProfile::Counter* distribute_rows_into_channels_timer() { return _distribute_rows_into_channels_timer; }
+    RuntimeProfile::Counter* split_block_hash_compute_timer() {
+        return _split_block_hash_compute_timer;
+    }
+    RuntimeProfile::Counter* distribute_rows_into_channels_timer() {
+        return _distribute_rows_into_channels_timer;
+    }
     std::vector<std::shared_ptr<vectorized::Channel>> channels;
     int current_channel_idx {0}; // index of current channel to send to if _random == true
     bool only_local_exchange {false};
