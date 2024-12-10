@@ -70,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
@@ -411,7 +412,8 @@ public class NereidsPlanner extends Planner {
             LOG.debug("End optimize plan");
         }
     }
-    private void collectExecStatsIds(PhysicalPlan root, PlanFragment fragment) {
+    private void collectExecStatsIds(PhysicalPlan root, PlanFragment fragment,
+            PlanTranslatorContext context) {
         if (ConnectContext.get() == null) {
             return;
         }
@@ -419,12 +421,15 @@ public class NereidsPlanner extends Planner {
             return;
         }
         for (Object child : root.children()) {
-            collectExecStatsIds((PhysicalPlan) child, fragment);
+            collectExecStatsIds((PhysicalPlan) child, fragment, context);
         }
         if (root.needCollectExecStats() && root instanceof AbstractPlan) {
             int nodeId = ((AbstractPlan) root).getId();
-            fragment.getCollectExecStatsIds().add(nodeId);
-            cascadesContext.getNeedStatsPlanIdNodeMap().put(nodeId, root);
+            PlanNodeId planId = context.getNereidsIdToPlanNodeIdMap().get(nodeId);
+            if (planId != null) {
+                fragment.getCollectExecStatsIds().add(planId.asInt());
+                cascadesContext.getNeedStatsPlanIdNodeMap().put(planId.asInt(), root);
+            }
         }
     }
 
@@ -447,7 +452,7 @@ public class NereidsPlanner extends Planner {
             return;
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
-        collectExecStatsIds(physicalPlan, root);
+        collectExecStatsIds(physicalPlan, root, planTranslatorContext);
         scanNodeList.addAll(planTranslatorContext.getScanNodes());
         physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());
         descTable = planTranslatorContext.getDescTable();
