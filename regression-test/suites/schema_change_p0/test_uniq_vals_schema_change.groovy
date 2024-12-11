@@ -65,7 +65,7 @@ suite ("test_uniq_vals_schema_change") {
                 (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2020-01-03', 1, 32, 20)
             """
 
-        qt_sc"""
+        qt_sc """
                         select count(*) from ${tableName}
                         """
 
@@ -101,7 +101,7 @@ suite ("test_uniq_vals_schema_change") {
         sql """
             ALTER TABLE ${tableName} DROP COLUMN last_visit_date
             """
-        qt_sc = sql """ select * from ${tableName} where user_id = 3 """
+        qt_sc """ select * from ${tableName} where user_id = 3 """
 
         sql """ INSERT INTO ${tableName} VALUES
                 (4, '2017-10-01', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', 1, 32, 20, 2)

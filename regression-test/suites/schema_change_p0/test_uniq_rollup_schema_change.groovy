@@ -131,7 +131,7 @@ suite ("test_uniq_rollup_schema_change") {
           ALTER TABLE ${tableName} DROP COLUMN cost
           """
 
-    max_try_time = 300
+    def max_try_time = 300
     Awaitility.await().atMost(max_try_time, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         String result = getJobState(tableName)
         if (result == "FINISHED") {

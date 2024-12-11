@@ -111,7 +111,7 @@ suite ("test_agg_rollup_schema_change") {
             ALTER TABLE ${tableName} DROP COLUMN cost
             """
 
-        max_try_time = 3000
+        def max_try_time = 3000
         while (max_try_time--){
             String result = getJobState(tableName)
             if (result == "FINISHED") {
