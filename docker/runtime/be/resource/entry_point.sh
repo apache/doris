@@ -115,7 +115,7 @@ get_doris_args() {
       for i in "${feServerArray[@]}"; do
         val=${i}
         val=${val// /}
-        tmpFeName=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); sub(/ /, ""); print$1}')
+        tmpFeName=$(echo "${val}" | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
         tmpFeIp=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$2}')
         tmpFeEditLogPort=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$3}')
         check_arg "TMP_FE_NAME" $tmpFeName
