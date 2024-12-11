@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.SessionVariable;
 
@@ -679,10 +680,10 @@ public class ColumnDef {
             sb.append(")");
         }
 
-        if (defaultValue.isSet) {
+        if (defaultValue != null && defaultValue.isSet) {
             sb.append(defaultValue.toSql()).append(" ");
         }
-        sb.append("COMMENT \"").append(comment).append("\"");
+        sb.append("COMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
 
         return sb.toString();
     }
