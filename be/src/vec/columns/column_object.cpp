@@ -616,18 +616,20 @@ bool ColumnObject::Subcolumn::is_finalized() const {
 }
 
 template <typename Func>
-MutableColumnPtr ColumnObject::apply_for_subcolumns(Func&& func) const {
+MutableColumnPtr ColumnObject::apply_for_columns(Func&& func) const {
     if (!is_finalized()) {
         auto finalized = clone_finalized();
         auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
-        return finalized_object.apply_for_subcolumns(std::forward<Func>(func));
+        return finalized_object.apply_for_columns(std::forward<Func>(func));
     }
     auto res = ColumnObject::create(is_nullable, false);
     for (const auto& subcolumn : subcolumns) {
-        auto new_subcolumn = func(subcolumn->data.get_finalized_column());
+        auto new_subcolumn = func(subcolumn->data.get_finalized_column_ptr());
         res->add_sub_column(subcolumn->path, new_subcolumn->assume_mutable(),
                             subcolumn->data.get_least_common_type());
     }
+    auto sparse_column = func(serialized_sparse_column);
+    res->serialized_sparse_column = sparse_column->assume_mutable();
     check_consistency();
     return res;
 }
@@ -642,6 +644,7 @@ void ColumnObject::resize(size_t n) {
         for (auto& subcolumn : subcolumns) {
             subcolumn->data.pop_back(num_rows - n);
         }
+        serialized_sparse_column->pop_back(num_rows - n);
     }
     num_rows = n;
 }
@@ -809,8 +812,13 @@ ColumnObject::ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_)
     check_consistency();
 }
 
+ColumnObject::ColumnObject(size_t num_rows) : is_nullable(true) {
+    insert_many_defaults(num_rows);
+    check_consistency();
+}
+
 void ColumnObject::check_consistency() const {
-    if (subcolumns.empty()) {
+    if (subcolumns.empty() && serialized_sparse_column->empty()) {
         return;
     }
     for (const auto& leaf : subcolumns) {
@@ -819,6 +827,11 @@ void ColumnObject::check_consistency() const {
                                    "unmatched column: {}, expeted rows: {}, but meet: {}",
                                    leaf->path.get_path(), num_rows, leaf->data.size());
         }
+    }
+    if (num_rows != serialized_sparse_column->size()) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "unmatched sparse column:, expeted rows: {}, but meet: {}", num_rows,
+                               serialized_sparse_column->size());
     }
 }
 
@@ -835,13 +848,11 @@ MutableColumnPtr ColumnObject::clone_resized(size_t new_size) const {
     }
     // If subcolumns are empty, then res will be empty but new_size > 0
     if (subcolumns.empty()) {
-        // Add an emtpy column with new_size rows
-        auto res = ColumnObject::create(true, false);
-        res->set_num_rows(new_size);
+        auto res = ColumnObject::create(new_size);
         return res;
     }
-    auto res = apply_for_subcolumns(
-            [&](const auto& subcolumn) { return subcolumn.clone_resized(new_size); });
+    auto res = apply_for_columns(
+            [&](const ColumnPtr column) { return column->clone_resized(new_size); });
     return res;
 }
 
@@ -850,6 +861,7 @@ size_t ColumnObject::byte_size() const {
     for (const auto& entry : subcolumns) {
         res += entry->data.byteSize();
     }
+    res += serialized_sparse_column->byte_size();
     return res;
 }
 
@@ -858,6 +870,7 @@ size_t ColumnObject::allocated_bytes() const {
     for (const auto& entry : subcolumns) {
         res += entry->data.allocatedBytes();
     }
+    res += serialized_sparse_column->allocated_bytes();
     return res;
 }
 
@@ -940,6 +953,7 @@ void ColumnObject::insert_default() {
     for (auto& entry : subcolumns) {
         entry->data.insert_default();
     }
+    serialized_sparse_column->insert_default();
     ++num_rows;
 }
 
@@ -1000,16 +1014,18 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
 
     // remove default
     row -= num_of_defaults_in_prefix;
-    is_null = false;
     for (size_t i = 0; i < data.size(); ++i) {
         const auto& part = data[i];
         if (row < part->size()) {
-            // insert key
-            key->insert_data(path.data(), path.size());
-            // insert value
-            const auto& part_type = data_types[i];
-            const auto& serde = part_type->get_serde();
-            serde->write_one_cell_to_binary(*part, value, row);
+            if (assert_cast<const ColumnNullable&>(*part).is_null_at(row)) {
+                is_null = true;
+            } else {
+                is_null = false;
+                // insert key
+                key->insert_data(path.data(), path.size());
+                // insert value
+                data_types[i]->get_serde()->write_one_cell_to_binary(*part, value, row);
+            }
             return;
         }
 
@@ -1018,6 +1034,110 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
 
     throw doris::Exception(ErrorCode::OUT_OF_BOUND,
                            "Index ({}) for serialize to sparse column is out of range", row);
+}
+
+const char* parse_binary_from_sparse_column(TypeIndex type, const char* data, Field& res,
+                                            FieldInfo& info_res) {
+    const char* end = data;
+    switch (type) {
+    case TypeIndex::String: {
+        const size_t size = *reinterpret_cast<const size_t*>(data);
+        data += sizeof(size_t);
+        res = Field(String(data, size));
+        end = data + size;
+        break;
+    }
+    case TypeIndex::Int8: {
+        res = *reinterpret_cast<const Int8*>(data);
+        end = data + sizeof(Int8);
+        break;
+    }
+    case TypeIndex::Int16: {
+        res = *reinterpret_cast<const Int16*>(data);
+        end = data + sizeof(Int16);
+        break;
+    }
+    case TypeIndex::Int32: {
+        res = *reinterpret_cast<const Int32*>(data);
+        end = data + sizeof(Int32);
+        break;
+    }
+    case TypeIndex::Int64: {
+        res = *reinterpret_cast<const Int64*>(data);
+        end = data + sizeof(Int64);
+        break;
+    }
+    case TypeIndex::Float32: {
+        res = *reinterpret_cast<const Float32*>(data);
+        end = data + sizeof(Float32);
+        break;
+    }
+    case TypeIndex::Float64: {
+        res = *reinterpret_cast<const Float64*>(data);
+        end = data + sizeof(Float64);
+        break;
+    }
+    case TypeIndex::JSONB: {
+        size_t size = *reinterpret_cast<const size_t*>(data);
+        data += sizeof(size_t);
+        res = JsonbField(data, size);
+        end = data + size;
+        break;
+    }
+    case TypeIndex::Array: {
+        const size_t size = *reinterpret_cast<const size_t*>(data);
+        data += sizeof(size_t);
+        res = Array(size);
+        vectorized::Array& array = res.get<Array>();
+        info_res.num_dimensions++;
+        for (size_t i = 0; i < size; ++i) {
+            const uint8_t is_null = *reinterpret_cast<const uint8_t*>(data++);
+            if (is_null) {
+                array.emplace_back(Null());
+                continue;
+            }
+            Field nested_field;
+            const TypeIndex nested_type =
+                    assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
+            data = parse_binary_from_sparse_column(nested_type, data, nested_field, info_res);
+            array.emplace_back(std::move(nested_field));
+        }
+        end = data;
+        break;
+    }
+    default:
+        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
+                               "Type ({}) for deserialize_from_sparse_column is invalid", type);
+    }
+    return end;
+}
+
+std::pair<Field, FieldInfo> ColumnObject::deserialize_from_sparse_column(const ColumnString* value,
+                                                                         size_t row) const {
+    const auto& data_ref = value->get_data_at(row);
+    const char* data = data_ref.data;
+    DCHECK(data_ref.size > 0);
+
+    FieldInfo info_res = {
+            .scalar_type_id = TypeIndex::Nothing,
+            .have_nulls = false,
+            .need_convert = false,
+            .num_dimensions = 1,
+    };
+    // 0 is null
+    const uint8_t is_null = *reinterpret_cast<const uint8_t*>(data++);
+    if (is_null) {
+        DCHECK(data_ref.size == 1);
+        return {Null(), info_res};
+    }
+
+    DCHECK(data_ref.size > 1);
+    const TypeIndex type = assert_cast<const TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
+    info_res.scalar_type_id = type;
+    Field res;
+    const char* end = parse_binary_from_sparse_column(type, data, res, info_res);
+    DCHECK_EQ(end - data_ref.data, data_ref.size);
+    return {std::move(res), std::move(info_res)};
 }
 
 Field ColumnObject::operator[](size_t n) const {
@@ -1043,6 +1163,18 @@ void ColumnObject::get(size_t n, Field& res) const {
             object.try_emplace(entry->path.get_path(), field);
         }
     }
+
+    const auto& [path, value] = get_sparse_data_paths_and_values();
+    auto& sparse_column_offsets = serialized_sparse_column_offsets();
+    size_t offset = sparse_column_offsets[n - 1];
+    size_t end = sparse_column_offsets[n];
+    // Iterator over [path, binary value]
+    for (size_t i = offset; i != end; ++i) {
+        const StringRef path_data = path->get_data_at(i);
+        const auto& data = deserialize_from_sparse_column(value, i);
+        object.try_emplace(std::string(path_data.data, path_data.size), data.first);
+    }
+
     if (object.empty()) {
         res = Null();
     }
@@ -1159,7 +1291,7 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
     const auto& src_serialized_sparse_column_offsets = src.serialized_sparse_column_offsets();
     if (src_serialized_sparse_column_offsets[start - 1] ==
         src_serialized_sparse_column_offsets[start + length - 1]) {
-        size_t current_size = size();
+        size_t current_size = num_rows;
 
         /// If no src subcolumns should be inserted into sparse column, insert defaults.
         if (sorted_src_subcolumn_for_sparse_column.empty()) {
@@ -1228,7 +1360,8 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
             const PathInData column_path(src_sparse_path);
             if (auto* subcolumn = get_subcolumn(column_path); subcolumn != nullptr) {
                 // Deserialize binary value into subcolumn from src serialized sparse column data.
-                subcolumn->deserialize_from_sparse_column(src_sparse_column_values, i);
+                const auto& data = src.deserialize_from_sparse_column(src_sparse_column_values, i);
+                subcolumn->insert(data.first, data.second);
             } else {
                 // Before inserting this path into sparse column check if we need to
                 // insert suibcolumns from sorted_src_subcolumn_for_sparse_column before.
@@ -1284,16 +1417,6 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
     return;
 }
 
-ColumnPtr ColumnObject::replicate(const Offsets& offsets) const {
-    if (subcolumns.empty()) {
-        // Add an emtpy column with offsets.back rows
-        auto res = ColumnObject::create(true, false);
-        res->set_num_rows(offsets.back());
-    }
-    return apply_for_subcolumns(
-            [&](const auto& subcolumn) { return subcolumn.replicate(offsets); });
-}
-
 ColumnPtr ColumnObject::permute(const Permutation& perm, size_t limit) const {
     if (subcolumns.empty()) {
         if (limit == 0) {
@@ -1306,19 +1429,17 @@ ColumnPtr ColumnObject::permute(const Permutation& perm, size_t limit) const {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "Size of permutation is less than required.");
         }
-        // Add an emtpy column with limit rows
-        auto res = ColumnObject::create(true, false);
-        res->set_num_rows(limit);
+        auto res = ColumnObject::create(limit);
         return res;
     }
-    return apply_for_subcolumns(
-            [&](const auto& subcolumn) { return subcolumn.permute(perm, limit); });
+    return apply_for_columns([&](const ColumnPtr column) { return column->permute(perm, limit); });
 }
 
 void ColumnObject::pop_back(size_t length) {
     for (auto& entry : subcolumns) {
         entry->data.pop_back(length);
     }
+    serialized_sparse_column->pop_back(length);
     num_rows -= length;
 }
 
@@ -1439,15 +1560,6 @@ bool ColumnObject::add_sub_column(const PathInData& key, size_t new_size) {
         return false;
     }
     return true;
-}
-
-PathsInData ColumnObject::getKeys() const {
-    PathsInData keys;
-    keys.reserve(subcolumns.size());
-    for (const auto& entry : subcolumns) {
-        keys.emplace_back(entry->path);
-    }
-    return keys;
 }
 
 bool ColumnObject::is_finalized() const {
@@ -1704,8 +1816,6 @@ Status ColumnObject::serialize_sparse_columns(
         std::map<std::string_view, Subcolumn>&& remaing_subcolumns) {
     CHECK(is_finalized());
 
-    serialized_sparse_column = ColumnMap::create(ColumnString::create(), ColumnString::create(),
-                                                 ColumnArray::ColumnOffsets::create());
     if (remaing_subcolumns.empty()) {
         serialized_sparse_column->insert_many_defaults(num_rows);
         return Status::OK();
@@ -1784,39 +1894,6 @@ Status ColumnObject::finalize(FinalizeMode mode) {
         new_subcolumns.get_mutable_root()->data.finalize(mode);
     }
 
-    // pick sparse columns
-    std::set<std::string_view> selected_path;
-    std::vector<std::string_view> remaining_path;
-    if (subcolumns.size() > MAX_SUBCOLUMNS) {
-        // pick subcolumns sort by size of none null values
-        std::unordered_map<std::string_view, size_t> none_null_value_sizes;
-        // 1. get the none null value sizes
-        for (auto&& entry : subcolumns) {
-            if (entry->data.is_root) {
-                continue;
-            }
-            size_t size = entry->data.get_non_null_value_size();
-            none_null_value_sizes[entry->path.get_path()] = size;
-        }
-        // 2. sort by the size
-        std::vector<std::pair<std::string_view, size_t>> sorted_by_size(
-                none_null_value_sizes.begin(), none_null_value_sizes.end());
-        std::sort(sorted_by_size.begin(), sorted_by_size.end(),
-                  [](const auto& a, const auto& b) { return a.second > b.second; });
-
-        // 3. pick MAX_SUBCOLUMNS selected subcolumns
-        for (size_t i = 0; i < std::min(MAX_SUBCOLUMNS, sorted_by_size.size()); ++i) {
-            selected_path.insert(sorted_by_size[i].first);
-        }
-
-        // 4. put remaining subcolumns to remaining_subcolumns
-        for (const auto& entry : sorted_by_size) {
-            if (selected_path.find(entry.first) == selected_path.end()) {
-                remaining_path.emplace_back(entry.first);
-            }
-        }
-    }
-
     // finalize all subcolumns
     for (auto&& entry : subcolumns) {
         const auto& least_common_type = entry->data.get_least_common_type();
@@ -1840,23 +1917,56 @@ Status ColumnObject::finalize(FinalizeMode mode) {
         }
     }
 
-    // add selected subcolumns to new_subcolumns
-    for (auto&& entry : subcolumns) {
-        if (selected_path.find(entry->path.get_path()) != selected_path.end()) {
-            new_subcolumns.add(entry->path, entry->data);
-        }
-    }
-
-    std::map<std::string_view, Subcolumn> remaing_subcolumns;
-    // merge remaining subcolumns to sparse_column
-    for (auto&& entry : subcolumns) {
-        if (selected_path.find(entry->path.get_path()) != selected_path.end()) {
-            remaing_subcolumns.emplace(entry->path.get_path(), entry->data);
-        }
-    }
-
     // merge and encode sparse column
-    RETURN_IF_ERROR(serialize_sparse_columns(std::move(remaing_subcolumns)));
+    if (mode == FinalizeMode::WRITE_MODE) {
+        // pick sparse columns
+        std::set<std::string_view> selected_path;
+        std::vector<std::string_view> remaining_path;
+        if (subcolumns.size() > MAX_SUBCOLUMNS) {
+            // pick subcolumns sort by size of none null values
+            std::unordered_map<std::string_view, size_t> none_null_value_sizes;
+            // 1. get the none null value sizes
+            for (auto&& entry : subcolumns) {
+                if (entry->data.is_root) {
+                    continue;
+                }
+                size_t size = entry->data.get_non_null_value_size();
+                none_null_value_sizes[entry->path.get_path()] = size;
+            }
+            // 2. sort by the size
+            std::vector<std::pair<std::string_view, size_t>> sorted_by_size(
+                    none_null_value_sizes.begin(), none_null_value_sizes.end());
+            std::sort(sorted_by_size.begin(), sorted_by_size.end(),
+                      [](const auto& a, const auto& b) { return a.second > b.second; });
+
+            // 3. pick MAX_SUBCOLUMNS selected subcolumns
+            for (size_t i = 0; i < std::min(MAX_SUBCOLUMNS, sorted_by_size.size()); ++i) {
+                selected_path.insert(sorted_by_size[i].first);
+            }
+
+            // 4. put remaining subcolumns to remaining_subcolumns
+            for (const auto& entry : sorted_by_size) {
+                if (selected_path.find(entry.first) == selected_path.end()) {
+                    remaining_path.emplace_back(entry.first);
+                }
+            }
+        }
+        // add selected subcolumns to new_subcolumns
+        for (auto&& entry : subcolumns) {
+            if (selected_path.find(entry->path.get_path()) != selected_path.end()) {
+                new_subcolumns.add(entry->path, entry->data);
+            }
+        }
+
+        std::map<std::string_view, Subcolumn> remaing_subcolumns;
+        // merge remaining subcolumns to sparse_column
+        for (auto&& entry : subcolumns) {
+            if (selected_path.find(entry->path.get_path()) != selected_path.end()) {
+                remaing_subcolumns.emplace(entry->path.get_path(), entry->data);
+            }
+        }
+        RETURN_IF_ERROR(serialize_sparse_columns(std::move(remaing_subcolumns)));
+    }
 
     std::swap(subcolumns, new_subcolumns);
     doc_structure = nullptr;
@@ -1894,6 +2004,7 @@ ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
     return column;
 }
 
+// ----
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     if (!is_finalized()) {
         auto finalized = clone_finalized();
@@ -1901,9 +2012,7 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
         return finalized_object.filter(filter, count);
     }
     if (subcolumns.empty()) {
-        // Add an emtpy column with filtered rows
-        auto res = ColumnObject::create(true, false);
-        res->set_num_rows(count_bytes_in_filter(filter));
+        auto res = ColumnObject::create(count_bytes_in_filter(filter));
         return res;
     }
     auto new_column = ColumnObject::create(true, false);
@@ -1912,26 +2021,8 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
         new_column->add_sub_column(entry->path, subcolumn->assume_mutable(),
                                    entry->data.get_least_common_type());
     }
+    // filter
     return new_column;
-}
-
-Status ColumnObject::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-    if (!is_finalized()) {
-        finalize();
-    }
-    if (subcolumns.empty()) {
-        assert_cast<ColumnObject*>(col_ptr)->insert_many_defaults(sel_size);
-        return Status::OK();
-    }
-    auto* res = assert_cast<ColumnObject*>(col_ptr);
-    for (const auto& subcolumn : subcolumns) {
-        auto new_subcolumn = subcolumn->data.get_least_common_type()->create_column();
-        RETURN_IF_ERROR(subcolumn->data.get_finalized_column().filter_by_selector(
-                sel, sel_size, new_subcolumn.get()));
-        res->add_sub_column(subcolumn->path, new_subcolumn->assume_mutable(),
-                            subcolumn->data.get_least_common_type());
-    }
-    return Status::OK();
 }
 
 size_t ColumnObject::filter(const Filter& filter) {
@@ -1940,7 +2031,7 @@ size_t ColumnObject::filter(const Filter& filter) {
     }
     size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
     if (count == 0) {
-        for_each_subcolumn([](auto& part) { part->clear(); });
+        clear();
     } else {
         for_each_subcolumn([&](auto& part) {
             if (part->size() != count) {
@@ -1958,6 +2049,14 @@ size_t ColumnObject::filter(const Filter& filter) {
                 }
             }
         });
+        const auto result_size = serialized_sparse_column->filter(filter);
+        if (result_size != count) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "result_size not euqal with filter_size, result_size={}, "
+                            "filter_size={}",
+                            result_size, count);
+        }
+        CHECK_EQ(result_size, count);
     }
     num_rows = count;
 #ifndef NDEBUG
@@ -1966,7 +2065,7 @@ size_t ColumnObject::filter(const Filter& filter) {
     return count;
 }
 
-void ColumnObject::clear_subcolumns_data() {
+void ColumnObject::clear_column_data() {
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
             DCHECK_EQ(part->use_count(), 1);
@@ -1974,12 +2073,14 @@ void ColumnObject::clear_subcolumns_data() {
         }
         entry->data.num_of_defaults_in_prefix = 0;
     }
+    serialized_sparse_column->clear();
     num_rows = 0;
 }
 
 void ColumnObject::clear() {
     Subcolumns empty;
     std::swap(empty, subcolumns);
+    serialized_sparse_column->clear();
     num_rows = 0;
     _prev_positions.clear();
 }
@@ -2063,61 +2164,53 @@ void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indic
     }
 }
 
-void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) const {
+template <typename Func>
+void ColumnObject::for_each_imutable_column(Func&& callback) const {
     if (!is_finalized()) {
         auto finalized = clone_finalized();
         auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
-        finalized_object.for_each_imutable_subcolumn(callback);
+        finalized_object.for_each_imutable_column(callback);
         return;
     }
     for (const auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
-            callback(*part);
+            callback(part);
         }
     }
-}
-
-bool ColumnObject::is_exclusive() const {
-    bool is_exclusive = IColumn::is_exclusive();
-    for_each_imutable_subcolumn([&](const auto& subcolumn) {
-        if (!subcolumn.is_exclusive()) {
-            is_exclusive = false;
-        }
-    });
-    return is_exclusive;
+    callback(serialized_sparse_column);
 }
 
 void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
-    for_each_imutable_subcolumn(
-            [&](const auto& subcolumn) { return subcolumn.update_hash_with_value(n, hash); });
+    for_each_imutable_column(
+            [&](const ColumnPtr column) { return column->update_hash_with_value(n, hash); });
 }
 
 void ColumnObject::update_hashes_with_value(uint64_t* __restrict hashes,
                                             const uint8_t* __restrict null_data) const {
-    for_each_imutable_subcolumn([&](const auto& subcolumn) {
-        return subcolumn.update_hashes_with_value(hashes, nullptr);
+    for_each_imutable_column([&](const ColumnPtr column) {
+        return column->update_hashes_with_value(hashes, nullptr);
     });
 }
 
 void ColumnObject::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                             const uint8_t* __restrict null_data) const {
-    for_each_imutable_subcolumn([&](const auto& subcolumn) {
-        return subcolumn.update_xxHash_with_value(start, end, hash, nullptr);
+    for_each_imutable_column([&](const ColumnPtr column) {
+        return column->update_xxHash_with_value(start, end, hash, nullptr);
     });
 }
 
 void ColumnObject::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
                                           uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {
-    for_each_imutable_subcolumn([&](const auto& subcolumn) {
-        return subcolumn.update_crcs_with_value(hash, type, rows, offset, nullptr);
+    for_each_imutable_column([&](const ColumnPtr column) {
+        return column->update_crcs_with_value(hash, type, rows, offset, nullptr);
     });
 }
 
 void ColumnObject::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                          const uint8_t* __restrict null_data) const {
-    for_each_imutable_subcolumn([&](const auto& subcolumn) {
-        return subcolumn.update_crc_with_value(start, end, hash, nullptr);
+    for_each_imutable_column([&](const ColumnPtr column) {
+        return column->update_crc_with_value(start, end, hash, nullptr);
     });
 }
 

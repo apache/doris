@@ -277,5 +277,17 @@ Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& a
     }
     return Status::OK();
 }
+
+void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                  ColumnString* dst_column, int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(TypeIndex::JSONB);
+    const auto& col = assert_cast<const ColumnString&>(src_column);
+    const auto& data_ref = col.get_data_at(row_num);
+    const size_t size = data_ref.size;
+
+    dst_column->insert_data(reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    dst_column->insert_data(reinterpret_cast<const char*>(&size), sizeof(size_t));
+    dst_column->insert_data(data_ref.data, size);
+}
 } // namespace vectorized
 } // namespace doris

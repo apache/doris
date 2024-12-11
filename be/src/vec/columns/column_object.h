@@ -98,7 +98,7 @@ public:
     constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
-    const size_t MAX_SUBCOLUMNS = 200;
+    const size_t MAX_SUBCOLUMNS = 3;
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
     // merge and encode them into a shared column in root column. Only affects in flush block to segments.
     // Otherwise read mode should be as default mode.
@@ -185,9 +185,6 @@ public:
         void serialize_to_sparse_column(ColumnString* key, std::string_view path,
                                         ColumnString* value, size_t row, bool& is_null);
 
-        // Deserialize the i-th row of the column from the sparse column.
-        void deserialize_from_sparse_column(const ColumnString* value, size_t row) {}
-
         friend class ColumnObject;
 
     private:
@@ -263,7 +260,8 @@ private:
 
     // It's filled when the number of subcolumns reaches the limit.
     // It has type Map(String, String) and stores a map (path, binary serialized subcolumn value) for each row.
-    WrappedPtr serialized_sparse_column;
+    WrappedPtr serialized_sparse_column = ColumnMap::create(
+            ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
@@ -271,6 +269,9 @@ public:
     explicit ColumnObject(bool is_nullable_, bool create_root = true);
 
     explicit ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
+
+    // create without root, num_rows = size
+    explicit ColumnObject(size_t size);
 
     ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
 
@@ -315,8 +316,6 @@ public:
 
     // Only single scalar root column
     bool is_scalar_variant() const;
-
-    bool is_exclusive() const override;
 
     ColumnPtr get_root() const { return subcolumns.get_root()->data.get_finalized_column_ptr(); }
 
@@ -365,8 +364,6 @@ public:
         return serialized_sparse_column->convert_to_full_column_if_const();
     }
 
-    PathsInData getKeys() const;
-
     // use sparse_subcolumns_schema to record sparse column's path info and type
     Status finalize(FinalizeMode mode);
 
@@ -385,7 +382,7 @@ public:
 
     void resize(size_t n) override;
 
-    void clear_subcolumns_data();
+    void clear_column_data();
 
     std::string get_name() const override {
         if (is_scalar_variant()) {
@@ -416,8 +413,6 @@ public:
 
     void insert_default() override;
 
-    ColumnPtr replicate(const Offsets& offsets) const override;
-
     void pop_back(size_t length) override;
 
     Field operator[](size_t n) const override;
@@ -428,8 +423,6 @@ public:
 
     ColumnPtr filter(const Filter&, ssize_t) const override;
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
-
     size_t filter(const Filter&) override;
 
     ColumnPtr permute(const Permutation&, size_t) const override;
@@ -437,7 +430,7 @@ public:
     bool is_variable_length() const override { return true; }
 
     template <typename Func>
-    MutableColumnPtr apply_for_subcolumns(Func&& func) const;
+    MutableColumnPtr apply_for_columns(Func&& func) const;
 
     // Extract path from root column and output to dst
     Status extract_root(const PathInData& path, MutableColumnPtr& dst) const;
@@ -461,6 +454,10 @@ public:
 
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
+
+    ColumnPtr replicate(const Offsets& offsets) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "replicate" + get_name());
+    }
 
     Int64 get_int(size_t /*n*/) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_int" + get_name());
@@ -529,10 +526,6 @@ public:
                                "deserialize_vec_with_null_map" + get_name());
     }
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "filter_by_selector" + get_name());
-    }
-
     bool structure_equals(const IColumn&) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "structure_equals" + get_name());
     }
@@ -579,6 +572,10 @@ public:
         return {&key, &value};
     }
 
+    // Deserialize the i-th row of the column from the sparse column.
+    std::pair<Field, FieldInfo> deserialize_from_sparse_column(const ColumnString* value,
+                                                               size_t row) const;
+
 private:
     // May throw execption
     void try_insert(const Field& field);
@@ -586,7 +583,8 @@ private:
     /// It's used to get shared sized of Nested to insert correct default values.
     const Subcolumns::Node* get_leaf_of_the_same_nested(const Subcolumns::NodePtr& entry) const;
 
-    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
+    template <typename Func>
+    void for_each_imutable_column(Func&& callback) const;
 
     // return null if not found
     const Subcolumn* get_subcolumn_with_cache(const PathInData& key, size_t index_hint) const;
