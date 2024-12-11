@@ -361,6 +361,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
             },
             spill_fin_cb);
 
+    _spill_dependency->block();
     return spill_io_pool->submit(std::move(spill_runnable));
 }
 
@@ -585,10 +586,9 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                     "fault_inject partitioned_hash_join_sink "
                     "sink failed");
         });
-        Defer defer {[&]() { local_state.update_memory_usage(); }};
         RETURN_IF_ERROR(_inner_sink_operator->sink(
                 local_state._shared_state->inner_runtime_state.get(), in_block, eos));
-
+        local_state.update_memory_usage();
         if (eos) {
             VLOG_DEBUG << "Query: " << print_id(state->query_id()) << " task " << state->task_id()
                        << " sink " << node_id() << " eos, set_ready_to_read"

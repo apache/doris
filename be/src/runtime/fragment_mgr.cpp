@@ -704,7 +704,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                                                                                  tg_id);
             } else {
                 LOG(WARNING) << "Query/load id: " << print_id(query_ctx->query_id())
-                             << "can't find its workload group " << tg_id;
+                             << " can't find its workload group " << tg_id;
             }
         }
         // There is some logic in query ctx's dctor, we could not check if exists and delete the
