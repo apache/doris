@@ -464,7 +464,8 @@ Status StorageEngine::_check_file_descriptor_number() {
         return Status::OK();
     }
     if (std::string(getenv("SKIP_CHECK_ULIMIT")) == "true") {
-        LOG(INFO) << "the ‘ulimit’ value check is skipped";
+        LOG(INFO) << "the ‘ulimit’ value check is skipped"
+                << ", the SKIP_CHECK_ULIMIT env value is " << getenv("SKIP_CHECK_ULIMIT");
         return Status::OK();
     }
     if (l.rlim_cur < config::min_file_descriptor_number) {
