@@ -75,7 +75,6 @@ run() {
     export JAVA_HOME
     if "${teamcity_build_checkoutDir}"/run-regression-test.sh \
         --teamcity \
-        --clean \
         --run \
         --times "${repeat_times_from_trigger:-1}" \
         -parallel 18 \

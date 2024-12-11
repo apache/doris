@@ -536,12 +536,13 @@ _monitor_regression_log() {
         fi
         # shellcheck disable=SC2250
         if sed -n "${start_row},\$p" "${directory}${filename}" | grep -a -q "${KEYWORD}"; then
-            start_row=$(grep -a -n "${KEYWORD}" "${directory}${filename}" | tail -n1 | cut -d: -f1)
-            echo "WARNING: find 'Reach limit of connections' in ${directory}${filename}, run 'show processlist;' to check the connections"
-            mysql -h127.0.0.1 -P"${query_port}" -uroot -e'show processlist;'
+            matched=$(grep -a -n "${KEYWORD}" "${directory}${filename}")
+            start_row=$(echo "${matched}" | tail -n1 | cut -d: -f1)
+            echo "WARNING: find '${matched}' in ${directory}${filename}, run 'show processlist;' to check the connections" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+            mysql -h127.0.0.1 -P"${query_port}" -uroot -e'show processlist;' | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
         fi
         start_row=$((start_row + 1))
-        # echo "start_row ${start_row}"
+        # echo "start_row ${start_row}" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
     done
 
 }
