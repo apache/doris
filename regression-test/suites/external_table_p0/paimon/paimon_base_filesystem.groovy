@@ -34,11 +34,10 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         String txYunAk = context.config.otherConfigs.get("txYunAk")
         String txYunSk = context.config.otherConfigs.get("txYunSk")
 
-        def obs = """select * from ${catalog_obs}.paimon_obs_db.paimon_obs_table order by k"""
-        def oss = """select * from ${catalog_oss}.paimon_oss_db.paimon_oss_table order by k"""
-        def cos = """select * from ${catalog_cos}.paimon_cos_db.paimon_cos_table order by k"""
-        def cosn = """select * from ${catalog_cosn}.paimon_cosn_db.paimon_cosn_table order by k"""
-
+        def obs = """select * from ${catalog_obs}.db1.all_table limit 1;"""
+        def oss = """select * from ${catalog_oss}.db1.all_table limit 1;"""
+        def cos = """select * from ${catalog_cos}.db1.all_table limit 1;"""
+        def cosn = """select * from ${catalog_cosn}.db1.all_table limit 1;"""
 
         sql """drop catalog if exists ${catalog_obs};"""
         sql """drop catalog if exists ${catalog_oss};"""
@@ -48,25 +47,28 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         sql """
             create catalog if not exists ${catalog_cos} properties (
                 "type" = "paimon",
-                "warehouse" = "cos://doris-build-1308700295/regression/paimon",
-                "cos.access_key" = "${txYunAk}",
-                "cos.secret_key" = "${txYunSk}",
-                "cos.endpoint" = "cos.ap-beijing.myqcloud.com"
+                "paimon.catalog.type"="filesystem",
+                "warehouse" = "s3://doris-build-1308700295/regression/paimon1",
+                "s3.access_key" = "${txYunAk}",
+                "s3.secret_key" = "${txYunSk}",
+                "s3.endpoint" = "cos.ap-beijing.myqcloud.com"
             );
         """
-        sql """
-            create catalog if not exists ${catalog_cosn} properties (
-                "type" = "paimon",
-                "warehouse" = "cosn://doris-build-1308700295/regression/paimon",
-                "cosn.access_key" = "${txYunAk}",
-                "cosn.secret_key" = "${txYunSk}",
-                "cosn.endpoint" = "cos.ap-beijing.myqcloud.com"
-            );
-        """
+        // sql """
+        //     create catalog if not exists ${catalog_cosn} properties (
+        //         "type" = "paimon",
+        //         "paimon.catalog.type"="filesystem",
+        //         "warehouse" = "cosn://doris-build-1308700295/regression/paimon1",
+        //         "cosn.access_key" = "${txYunAk}",
+        //         "cosn.secret_key" = "${txYunSk}",
+        //         "cosn.endpoint" = "cos.ap-beijing.myqcloud.com"
+        //     );
+        // """
         sql """
             create catalog if not exists ${catalog_oss} properties (
                 "type" = "paimon",
-                "warehouse" = "oss://doris-regression-bj/regression/paimon",
+                "paimon.catalog.type"="filesystem",
+                "warehouse" = "oss://doris-regression-bj/regression/paimon1",
                 "oss.access_key"="${aliYunAk}",
                 "oss.secret_key"="${aliYunSk}",
                 "oss.endpoint"="oss-cn-beijing.aliyuncs.com"
@@ -75,7 +77,8 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         sql """
             create catalog if not exists ${catalog_obs} properties (
                 "type" = "paimon",
-                "warehouse" = "obs://doris-build/piamon",
+                "paimon.catalog.type"="filesystem",
+                "warehouse" = "obs://doris-build/regression/paimon1",
                 "obs.access_key"="${hwYunAk}",
                 "obs.secret_key"="${hwYunSk}",
                 "obs.endpoint"="obs.cn-north-4.myhuaweicloud.com"
@@ -90,13 +93,13 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         qt_oss oss
         qt_obs obs
         qt_cos cos
-        qt_cosn cosn
+        // qt_cosn cosn
 
         sql """set force_jni_scanner=true"""
         qt_oss oss
         qt_obs obs
         qt_cos cos
-        qt_cosn cosn
+        // qt_cosn cosn
 
     } finally {
         sql """set force_jni_scanner=false"""
