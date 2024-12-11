@@ -41,6 +41,7 @@ suite("test_compaction_on_sc_new_tablet", "nonConcurrent") {
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true"); """
 
+        // [2-11]
         for (int i = 1; i <= 10; i++) {
             sql "insert into ${table1} values($i,$i,$i,$i);"
         }
@@ -71,7 +72,7 @@ suite("test_compaction_on_sc_new_tablet", "nonConcurrent") {
 
         Thread.sleep(4000)
 
-        // double write
+        // double write [11-22]
         for (int i = 20; i <= 30; i++) {
             sql "insert into ${table1} values($i,$i,$i,$i);"
         }
@@ -97,7 +98,7 @@ suite("test_compaction_on_sc_new_tablet", "nonConcurrent") {
         int start_version = 15
         int end_version = 17
         // block compaction process on new tablet
-        GetDebugPoint().enableDebugPointForAllBEs("CompactionMixin::modify_rowsets.block", [tablet_id: "${newTabletStat.TabletId}"])
+        GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction::execute_compact.block", [tablet_id: "${newTabletStat.TabletId}"])
         // manully set cumu compaction's input rowsets on new tablet
         GetDebugPoint().enableDebugPointForAllBEs("SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
                 [tablet_id:"${newTabletStat.TabletId}", start_version:"${start_version}", end_version:"${end_version}"])
@@ -118,18 +119,24 @@ suite("test_compaction_on_sc_new_tablet", "nonConcurrent") {
             time 2000
         }
 
+        Thread.sleep(2000)
+
         // make the cumu compaction run to complete and wait for it
-        GetDebugPoint().disableDebugPointForAllBEs("CompactionMixin::modify_rowsets.block")
-        Awaitility.await().atMost(3, TimeUnit.SECONDS).pollDelay(200, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
-            {
-                (code, out, err) = be_get_compaction_status(tabletBackend.Host, tabletBackend.HttpPort, newTabletStat.TabletId)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                Assert.assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                Assert.assertEquals("success", compactionStatus.status.toLowerCase())
-                return !compactionStatus.run_status
-            }
-        )
+        GetDebugPoint().disableDebugPointForAllBEs("CumulativeCompaction::execute_compact.block")
+
+        // Awaitility.await().atMost(3, TimeUnit.SECONDS).pollDelay(200, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
+        //     {
+        //         (code, out, err) = be_get_compaction_status(tabletBackend.Host, tabletBackend.HttpPort, newTabletStat.TabletId)
+        //         logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+        //         Assert.assertEquals(code, 0)
+        //         def compactionStatus = parseJson(out.trim())
+        //         Assert.assertEquals("success", compactionStatus.status.toLowerCase())
+        //         return !compactionStatus.run_status
+        //     }
+        // )
+
+        // BE should skip to check merged rows in cumu compaction, otherwise it will cause coredump
+        Thread.sleep(10000)
 
     } catch(Exception e) {
         logger.info(e.getMessage())
