@@ -90,7 +90,7 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     case TFileFormatType::FORMAT_ORC: {
         _file_format_transformer.reset(
                 new VOrcTransformer(state, _file_writer.get(), _write_output_expr_ctxs, "",
-                                    _write_column_names, false, _compress_type, &_schema));
+                                    _write_column_names, false, _compress_type, false, &_schema));
         return _file_format_transformer->open();
     }
     default: {

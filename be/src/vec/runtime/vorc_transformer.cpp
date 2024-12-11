@@ -112,13 +112,14 @@ void VOrcOutputStream::set_written_len(int64_t written_len) {
 VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                                  const VExprContextSPtrs& output_vexpr_ctxs, std::string schema,
                                  std::vector<std::string> column_names, bool output_object_data,
-                                 TFileCompressType::type compress_type,
+                                 TFileCompressType::type compress_type, bool legacy_hive_compatible,
                                  const iceberg::Schema* iceberg_schema)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
           _column_names(std::move(column_names)),
           _write_options(new orc::WriterOptions()),
           _schema_str(std::move(schema)),
+          _legacy_hive_compatible(legacy_hive_compatible),
           _iceberg_schema(iceberg_schema) {
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
@@ -155,6 +156,7 @@ Status VOrcTransformer::open() {
     _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);
     try {
         _write_options->setMemoryPool(ExecEnv::GetInstance()->orc_memory_pool());
+        _write_options->setLegacyHiveCompatible(_legacy_hive_compatible);
         _writer = orc::createWriter(*_schema, _output_stream.get(), *_write_options);
     } catch (const std::exception& e) {
         return Status::InternalError("failed to create writer: {}", e.what());
