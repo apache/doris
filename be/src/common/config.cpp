@@ -455,7 +455,7 @@ DEFINE_mInt32(cumulative_compaction_max_deltas_factor, "10");
 DEFINE_mInt32(multi_get_max_threads, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
-DEFINE_mInt64(total_permits_for_compaction_score, "10000");
+DEFINE_mInt64(total_permits_for_compaction_score, "1000000");
 
 // sleep interval in ms after generated compaction tasks
 DEFINE_mInt32(generate_compaction_tasks_interval_ms, "100");
@@ -1218,6 +1218,8 @@ DEFINE_mString(doris_cgroup_cpu_path, "");
 
 DEFINE_mBool(enable_be_proc_monitor, "false");
 DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
+
+DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
 
 DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
