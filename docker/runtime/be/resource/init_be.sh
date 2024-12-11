@@ -67,8 +67,8 @@ add_priority_networks() {
 }
 
 add_skip_check_ulimit_config() {
-  doris_note "add 'skip_check_ulimit = true' to ${DORIS_HOME}/be/conf/be.conf"
-  echo "skip_check_ulimit = true" >>${DORIS_HOME}/be/conf/be.conf
+  doris_note "exec 'export SKIP_CHECK_ULIMIT = true' command."
+  export SKIP_CHECK_ULIMIT=true
 }
 
 show_be_args(){

@@ -33,7 +33,7 @@ OPTS="$(getopt \
     -l 'console' \
     -l 'version' \
     -l 'benchmark' \
-    -l 'skip' \
+    -l 'skip_check_ulimit' \
     -- "$@")"
 
 eval set -- "${OPTS}"
@@ -42,7 +42,7 @@ RUN_DAEMON=0
 RUN_CONSOLE=0
 RUN_VERSION=0
 RUN_BENCHMARK=0
-RUN_SKIP=0
+RUN_SKIP_CHECK_ULIMIT=0
 
 while true; do
     case "$1" in
@@ -63,7 +63,7 @@ while true; do
         shift
         ;;
     --skip)
-        RUN_SKIP=1
+        RUN_SKIP_CHECK_ULIMIT=1
         RUN_CONSOLE=1
         shift
         ;;
@@ -189,7 +189,7 @@ if [[ "${RUN_VERSION}" -eq 1 ]]; then
     exit 0
 fi
 
-if [[ "${RUN_SKIP}" -eq 0 ]]; then
+if [[ "${RUN_SKIP_CHECK_ULIMIT}" -eq 0 ]]; then
     if [[ "$(uname -s)" != 'Darwin' ]]; then
         MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
         if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
