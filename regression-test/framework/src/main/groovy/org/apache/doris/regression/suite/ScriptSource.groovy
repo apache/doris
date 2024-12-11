@@ -36,11 +36,11 @@ class GroovyFileSource implements ScriptSource {
     SuiteScript toScript(ScriptContext scriptContext, GroovyShell shell) {
         def setPropertyFunction = '''
 \nvoid setProperty(String key, value) {
-    throw new IllegalArgumentException("you defined a global variable in script, which is not allowed")
+    throw new IllegalArgumentException("defined global variables in script are not allowed: ${key}")
 }
 '''
         def scriptContent = file.text
-        scriptContent = setPropertyFunction + scriptContent
+        scriptContent = scriptContent + setPropertyFunction
         SuiteScript suiteScript = shell.parse(scriptContent) as SuiteScript
         suiteScript.init(scriptContext)
         return suiteScript
