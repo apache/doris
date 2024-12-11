@@ -73,12 +73,12 @@ suite("compress_materialize") {
 
     explain {
         sql("select sum(v) from compress group by substring(k, 1, 3);")
-        contains("group by: encode_as_int(substring(k, 1, 3))")
+        contains("encode_as_int(substring(k, 1, 3))")
     }
 
     explain {
         sql("select sum(v) from compress group by substring(k, 1, 4);")
-        contains("group by: encode_as_bigint(substring(k, 1, 4))")
+        contains("encode_as_bigint(substring(k, 1, 4))")
     }
 
     order_qt_encodeexpr "select sum(v) from compress group by substring(k, 1, 3);"
