@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -24,16 +26,20 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * refresh mtmv info
@@ -67,10 +73,37 @@ public class RefreshMTMVInfo {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
             MTMV mtmv = (MTMV) db.getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
             if (!CollectionUtils.isEmpty(partitions)) {
-                MTMVPartitionUtil.getPartitionsIdsByNames(mtmv, partitions);
+                checkPartitionExist(mtmv);
             }
         } catch (org.apache.doris.common.AnalysisException | MetaNotFoundException | DdlException e) {
             throw new AnalysisException(e.getMessage());
+        }
+    }
+
+    private void checkPartitionExist(MTMV mtmv) throws org.apache.doris.common.AnalysisException {
+        MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
+        // todo: Unified locking sequence
+        mtmv.readLock();
+        relatedTable.readLock();
+        try {
+            if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
+                throw new AnalysisException(
+                        "The partition method of this asynchronous materialized view does not support refreshing by partition");
+            }
+            List<AllPartitionDesc> partitionDescs = MTMVPartitionUtil.getPartitionDescsByRelatedTable(
+                    mtmv.getTableProperty().getProperties(), mtmv.getMvPartitionInfo(), mtmv.getMvProperties());
+            Set<String> shouldExistPartitionNames = Sets.newHashSetWithExpectedSize(partitionDescs.size());
+            partitionDescs.stream().forEach(desc -> {
+                shouldExistPartitionNames.add(((SinglePartitionDesc) desc).getPartitionName());
+            });
+            for (String partition : partitions) {
+                if (!shouldExistPartitionNames.contains(partition)) {
+                    throw new org.apache.doris.common.AnalysisException("partition not exist: " + partition);
+                }
+            }
+        } finally {
+            relatedTable.readUnlock();
+            mtmv.readUnlock();
         }
     }
 
