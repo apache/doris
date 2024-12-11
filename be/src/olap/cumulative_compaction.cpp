@@ -66,6 +66,20 @@ Status CumulativeCompaction::prepare_compact() {
 }
 
 Status CumulativeCompaction::execute_compact_impl() {
+    DBUG_EXECUTE_IF("CumulativeCompaction::execute_compact.block", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        if (target_tablet_id == _tablet->tablet_id()) {
+            LOG(INFO) << "start debug block "
+                      << "CumulativeCompaction::execute_compact.block";
+            while (DebugPoints::instance()->is_enable(
+                    "CumulativeCompaction::execute_compact.block")) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            }
+            LOG(INFO) << "end debug block "
+                      << "CumulativeCompaction::execute_compact.block";
+        }
+    })
+
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED, false>(
