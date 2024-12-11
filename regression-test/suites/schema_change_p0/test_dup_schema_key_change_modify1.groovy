@@ -83,7 +83,7 @@ suite("test_dup_schema_key_change_modify1","p0") {
              "               (789012345, 'Grace', 2123483141, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
 
      //TODO Test the dup model by modify a key type from LARGEINT  to BOOLEAN
-     errorMessage = "errCode = 2, detailMessage = Can not change LARGEINT to BOOLEAN"
+     def errorMessage = "errCode = 2, detailMessage = Can not change LARGEINT to BOOLEAN"
      expectException({
           sql initTable
           sql initTableData

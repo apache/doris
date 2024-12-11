@@ -159,7 +159,7 @@ suite ("test_agg_rollup_schema_change") {
         String[][] tablets = sql """ show tablets from ${tableName}; """
         for (String[] tablet in tablets) {
                 String tablet_id = tablet[0]
-                backend_id = tablet[2]
+                def backend_id = tablet[2]
                 logger.info("run compaction:" + tablet_id)
                 (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
@@ -172,7 +172,7 @@ suite ("test_agg_rollup_schema_change") {
                 do {
                     Thread.sleep(100)
                     String tablet_id = tablet[0]
-                    backend_id = tablet[2]
+                    def backend_id = tablet[2]
                     (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                     logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)

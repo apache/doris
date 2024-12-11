@@ -1006,7 +1006,7 @@ PARTITION `p599` VALUES IN (599)
     sql """ANALYZE TABLE test_600_partition_table_analyze WITH SYNC"""
 
     //  0:column_name | 1:index_name | 2:count | 3:ndv  | 4:num_null | 5:data_size | 6:avg_size_byte | 7:min  | 8:max  | 9:method | 10:type | 11:trigger | 12:query_times | 13:updated_time
-    id_col_stats = sql """
+    def id_col_stats = sql """
         SHOW COLUMN CACHED STATS test_600_partition_table_analyze(id);
     """
 

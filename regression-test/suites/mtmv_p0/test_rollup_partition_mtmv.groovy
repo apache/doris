@@ -96,7 +96,7 @@ suite("test_rollup_partition_mtmv") {
             AS
             SELECT * FROM ${tableName};
     """
-    showPartitionsResult = sql """show partitions from ${mvName}"""
+    def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(2, showPartitionsResult.size())
     assertTrue(showPartitionsResult.toString().contains("2020-01-01"))

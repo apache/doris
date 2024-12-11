@@ -53,7 +53,7 @@ suite("test_dynamic_partition_mod_distribution_key") {
 
         sql """ ADMIN SET FRONTEND CONFIG ('dynamic_partition_check_interval_seconds' = '1') """
         sql """ alter table ${tableName} set('dynamic_partition.end'='5') """
-        result = sql "show partitions from ${tableName}"
+        def result = sql "show partitions from ${tableName}"
         for (def retry = 0; retry < 10; retry++) { // at most wait 120s
             if (result.size() == 9) {
                 break;

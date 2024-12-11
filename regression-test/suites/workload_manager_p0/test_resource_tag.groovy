@@ -29,7 +29,7 @@ suite("test_resource_tag") {
         }
 
         // test query
-        connect(user = 'test_rg', password = '', url = context.config.jdbcUrl) {
+        connect('test_rg', '', context.config.jdbcUrl) {
                 sql "drop table if exists test_skip_rg_bad_replica_tab;"
                 sql """
             CREATE TABLE test_skip_rg_bad_replica_tab
@@ -55,7 +55,7 @@ suite("test_resource_tag") {
         }
         sql "set property for test_rg 'allow_resource_tag_downgrade' = 'true';"
 
-        connect(user = 'test_rg', password = '', url = context.config.jdbcUrl) {
+        connect('test_rg', '', context.config.jdbcUrl) {
                 sql "select count(1) as t2 from test_skip_rg_bad_replica_tab;"
                 sql "drop table test_skip_rg_bad_replica_tab";
         }

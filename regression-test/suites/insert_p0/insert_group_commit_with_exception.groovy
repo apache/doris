@@ -78,7 +78,7 @@ suite("insert_group_commit_with_exception") {
             assertTrue(e.getMessage().contains("Column count doesn't match value count"))
         }
 
-        result = sql """ insert into ${table} values(3, 'c', 30)  """
+        def result = sql """ insert into ${table} values(3, 'c', 30)  """
         logger.info("insert result: " + result)
 
         // insert into with column

@@ -125,7 +125,7 @@ suite ("test_dup_rollup_schema_change") {
         sql """
             ALTER TABLE ${tableName} DROP COLUMN sex
             """
-        max_try_time = 3000
+        def max_try_time = 3000
         while (max_try_time--){
             String result = getJobState(tableName)
             if (result == "FINISHED") {

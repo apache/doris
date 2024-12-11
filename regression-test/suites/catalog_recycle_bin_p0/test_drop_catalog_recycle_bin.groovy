@@ -60,7 +60,7 @@ suite("test_drop_catalog_recycle_bin") {
     """
 
     // test drop partition in catalog recycle bin
-    res = sql "SHOW CREATE TABLE `test_drop_catalog_recycle_bin_db`.`test_drop_catalog_recycle_bin_tb1`;"
+    def res = sql "SHOW CREATE TABLE `test_drop_catalog_recycle_bin_db`.`test_drop_catalog_recycle_bin_tb1`;"
     assertTrue(res.size() != 0)
 
     sql "use `test_drop_catalog_recycle_bin_db`"
