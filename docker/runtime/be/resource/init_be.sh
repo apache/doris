@@ -66,11 +66,6 @@ add_priority_networks() {
   echo "priority_networks = ${1}" >>${DORIS_HOME}/be/conf/be.conf
 }
 
-add_skip_check_ulimit_config() {
-  doris_note "exec 'export SKIP_CHECK_ULIMIT = true' command."
-  export SKIP_CHECK_ULIMIT=true
-}
-
 show_be_args(){
   doris_note "============= init args ================"
   doris_note "MASTER_FE_IP " ${MASTER_FE_IP}
@@ -196,13 +191,13 @@ _main() {
       else
         add_priority_networks $PRIORITY_NETWORKS
       fi
-      add_skip_check_ulimit_config
       node_role_conf
       show_be_args
       register_be_to_fe
     fi
     check_be_status
     doris_note "Ready to start BE！"
+    export SKIP_CHECK_ULIMIT=true
     ${DORIS_HOME}/be/bin/start_be.sh --skip_check_ulimit &
     child_pid=$!
     wait $child_pid
