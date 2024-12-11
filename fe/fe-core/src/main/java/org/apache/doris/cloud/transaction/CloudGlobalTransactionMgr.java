@@ -1105,19 +1105,23 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         entry.getValue().get());
             }
         }
-        increaseWaitingLockCount(tableList);
-        if (!MetaLockUtils.tryCommitLockTables(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
-            decreaseWaitingLockCount(tableList);
+
+        List<Table> mowTableList = tableList.stream()
+                .filter(table -> table instanceof OlapTable && ((OlapTable) table).getEnableUniqueKeyMergeOnWrite())
+                .collect(Collectors.toList());
+        increaseWaitingLockCount(mowTableList);
+        if (!MetaLockUtils.tryCommitLockTables(mowTableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            decreaseWaitingLockCount(mowTableList);
             // DELETE_BITMAP_LOCK_ERR will be retried on be
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                     "get table cloud commit lock timeout, tableList=("
-                            + StringUtils.join(tableList, ",") + ")");
+                            + StringUtils.join(mowTableList, ",") + ")");
         }
         try {
             commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
-            decreaseWaitingLockCount(tableList);
-            MetaLockUtils.commitUnlockTables(tableList);
+            decreaseWaitingLockCount(mowTableList);
+            MetaLockUtils.commitUnlockTables(mowTableList);
         }
         return true;
     }
