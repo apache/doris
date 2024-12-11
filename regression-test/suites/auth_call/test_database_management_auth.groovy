@@ -111,7 +111,7 @@ suite("test_database_management_auth","p0,auth_call") {
         }
         test {
             sql """ADMIN CLEAN TRASH;"""
-            exception "denied"
+            exception "${error_in_cloud}"
         }
         test {
             sql """RECOVER DATABASE db_name;"""
