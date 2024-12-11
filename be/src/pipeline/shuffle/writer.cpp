@@ -45,11 +45,11 @@ Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,
         const auto& channel_filed = local_state->partitioner()->get_channel_ids();
         if (channel_filed.len == sizeof(uint32_t)) {
             RETURN_IF_ERROR(_channel_add_rows(state, local_state->channels,
-                                              local_state->partitioner()->partition_count(),
+                                              local_state->channels.size(),
                                               channel_filed.get<uint32_t>(), rows, block, eos));
         } else {
             RETURN_IF_ERROR(_channel_add_rows(state, local_state->channels,
-                                              local_state->partitioner()->partition_count(),
+                                              local_state->channels.size(),
                                               channel_filed.get<int64_t>(), rows, block, eos));
         }
     }
