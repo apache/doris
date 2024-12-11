@@ -21,10 +21,6 @@ import org.awaitility.Awaitility
 import org.apache.doris.regression.suite.ClusterOptions
 
 suite("test_compaction_on_sc_new_tablet", "docker") {
-    // if (isCloudMode()) {
-    //     return
-    // }
-
     def options = new ClusterOptions()
     options.setFeNum(1)
     options.setBeNum(1)
@@ -85,7 +81,7 @@ suite("test_compaction_on_sc_new_tablet", "docker") {
 
             // double write [11-22]
             for (int i = 20; i <= 30; i++) {
-                sql "insert into ${table1} values(1,1,1,1);"
+                sql "insert into ${table1} values(1,9,9,9);"
             }
 
             tabletStats = sql_return_maparray("show tablets from ${table1};")
@@ -138,8 +134,9 @@ suite("test_compaction_on_sc_new_tablet", "docker") {
 
             // BE should skip to check merged rows in cumu compaction, otherwise it will cause coredump
             // becasue [11-22] in new tablet will skip to calc delete bitmap becase tablet is in NOT_READY state
-            Thread.sleep(10000)
-            cluster.checkBeIsAlive(1, true)
+            Thread.sleep(7000)
+
+            qt_sql "select * from ${table1} order by k;"
 
         } catch(Exception e) {
             logger.info(e.getMessage())

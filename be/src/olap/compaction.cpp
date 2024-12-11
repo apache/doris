@@ -986,8 +986,33 @@ Status CompactionMixin::modify_rowsets() {
             if (!_tablet->tablet_meta()->tablet_schema()->cluster_key_uids().empty()) {
                 merged_missed_rows_size += _stats.filtered_rows;
             }
+
+            bool need_to_check_missed_rows = true;
+            {
+                std::shared_lock rlock(_tablet->get_header_lock());
+                need_to_check_missed_rows =
+                        std::all_of(_input_rowsets.begin(), _input_rowsets.end(),
+                                    [&](const RowsetSharedPtr& rowset) {
+                                        return tablet()->rowset_exists_unlocked(rowset);
+                                    });
+            }
+            if (!need_to_check_missed_rows) {
+                std::shared_lock rlock(_tablet->get_header_lock());
+                auto it = std::find_if(_input_rowsets.begin(), _input_rowsets.end(),
+                                       [&](const RowsetSharedPtr& rowset) {
+                                           return !tablet()->rowset_exists_unlocked(rowset);
+                                       });
+                DCHECK(it != _input_rowsets.end());
+                auto rs = *it;
+                LOG(INFO) << fmt::format(
+                        "skip to check missed rows becase rowset[rowset_id={}, version={}] doesn't "
+                        "exist in tablet_id={}",
+                        rs->rowset_id().to_string(), rs->version().to_string(),
+                        tablet()->tablet_id());
+            }
+
             if (_tablet->tablet_state() == TABLET_RUNNING &&
-                merged_missed_rows_size != missed_rows_size) {
+                merged_missed_rows_size != missed_rows_size && need_to_check_missed_rows) {
                 std::stringstream ss;
                 ss << "cumulative compaction: the merged rows(" << _stats.merged_rows
                    << "), filtered rows(" << _stats.filtered_rows
