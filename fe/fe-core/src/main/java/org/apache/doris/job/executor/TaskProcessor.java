@@ -45,7 +45,7 @@ public class TaskProcessor {
 
     public boolean addTask(AbstractTask task) {
         try {
-            executor.execute(() -> runTask(task)); // 直接提交任务
+            executor.execute(() -> runTask(task));
             log.info("Add task to executor, task id: {}", task.getTaskId());
             return true;
         } catch (RejectedExecutionException e) {
