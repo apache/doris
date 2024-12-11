@@ -866,6 +866,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
     for (int i = 0; i < num_cols; ++i) {
         return_columns[i] = i;
     }
+    std::vector<uint32_t> cluster_key_idxes;
 
     // begin to find deltas to convert from base tablet to new tablet so that
     // obtain base tablet and new tablet's push lock and header write lock to prevent loading data
@@ -980,6 +981,14 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
             reader_context.delete_bitmap = &_base_tablet->tablet_meta()->delete_bitmap();
             reader_context.version = Version(0, end_version);
+            if (!_base_tablet_schema->cluster_key_uids().empty()) {
+                for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
+                    cluster_key_idxes.emplace_back(_base_tablet_schema->field_index(uid));
+                }
+                reader_context.read_orderby_key_columns = &cluster_key_idxes;
+                reader_context.is_unique = false;
+                reader_context.sequence_id_idx = -1;
+            }
             for (auto& rs_split : rs_splits) {
                 res = rs_split.rs_reader->init(&reader_context);
                 if (!res) {
