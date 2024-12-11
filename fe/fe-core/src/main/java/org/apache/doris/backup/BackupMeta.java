@@ -20,7 +20,6 @@ package org.apache.doris.backup;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -54,7 +53,6 @@ public class BackupMeta implements Writable {
     @SerializedName(value = "resourceNameMap")
     private Map<String, Resource> resourceNameMap = Maps.newHashMap();
     // storagePolicy name -> resource
-    @SerializedName(value = "storagePolicyNameMap")
     private Map<String, StoragePolicy> storagePolicyNameMap = Maps.newHashMap();
 
     private BackupMeta() {
@@ -108,10 +106,6 @@ public class BackupMeta implements Writable {
         return resourceNameMap.get(resourceName);
     }
 
-    public StoragePolicy getStoragePolicy(String policyName) {
-        return storagePolicyNameMap.get(policyName);
-    }
-
     public Table getTable(Long tblId) {
         return tblIdMap.get(tblId);
     }
@@ -162,10 +156,6 @@ public class BackupMeta implements Writable {
         for (Resource resource : resourceNameMap.values()) {
             resource.write(out);
         }
-        out.writeInt(storagePolicyNameMap.size());
-        for (StoragePolicy storagePolicy : storagePolicyNameMap.values()) {
-            storagePolicy.write(out);
-        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -179,13 +169,6 @@ public class BackupMeta implements Writable {
         for (int i = 0; i < size; i++) {
             Resource resource = Resource.read(in);
             resourceNameMap.put(resource.getName(), resource);
-        }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_124) {
-            size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                StoragePolicy policy = StoragePolicy.read(in);
-                storagePolicyNameMap.put(policy.getName(), policy);
-            }
         }
     }
 

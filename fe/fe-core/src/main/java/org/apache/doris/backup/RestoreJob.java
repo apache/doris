@@ -659,8 +659,8 @@ public class RestoreJob extends AbstractJob {
             }
         }
 
-        for (BackupJobInfo.BackupStoragePolicyInfo backupStoragePolicyInfo : jobInfo.newBackupObjects.storagePolicies) {
-            String backupStoragePoliceName = backupStoragePolicyInfo.name;
+        for (StoragePolicy backupStoargePolicy : jobInfo.newBackupObjects.storagePolicies) {
+            String backupStoragePoliceName = backupStoargePolicy.getName();
             Optional<Policy> localPolicy = Env.getCurrentEnv().getPolicyMgr().findPolicy(backupStoragePoliceName,
                     PolicyTypeEnum.STORAGE);
             if (localPolicy.isPresent() && localPolicy.get().getType() != PolicyTypeEnum.STORAGE) {
@@ -1343,11 +1343,10 @@ public class RestoreJob extends AbstractJob {
             return;
         }
         PolicyMgr policyMgr = Env.getCurrentEnv().getPolicyMgr();
-        for (BackupJobInfo.BackupStoragePolicyInfo backupStoragePolicyInfo : jobInfo.newBackupObjects.storagePolicies) {
-            String backupStoragePoliceName = backupStoragePolicyInfo.name;
+        for (StoragePolicy backupStoargePolicy : jobInfo.newBackupObjects.storagePolicies) {
+            String backupStoragePoliceName = backupStoargePolicy.getName();
             Optional<Policy> localPolicy = policyMgr.findPolicy(backupStoragePoliceName,
                     PolicyTypeEnum.STORAGE);
-            StoragePolicy backupStoargePolicy = backupMeta.getStoragePolicy(backupStoragePoliceName);
 
             // use specified storageResource
             if (StringUtils.isNotEmpty(storageResource)) {
@@ -2730,11 +2729,6 @@ public class RestoreJob extends AbstractJob {
             resource.write(out);
         }
 
-        out.writeInt(storagePolicies.size());
-        for (StoragePolicy policy : storagePolicies) {
-            policy.write(out);
-        }
-
         // write properties
         out.writeInt(properties.size());
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -2831,12 +2825,6 @@ public class RestoreJob extends AbstractJob {
         size = in.readInt();
         for (int i = 0; i < size; i++) {
             restoredResources.add(Resource.read(in));
-        }
-
-        // restored storage policy
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            storagePolicies.add(StoragePolicy.read(in));
         }
 
         // read properties

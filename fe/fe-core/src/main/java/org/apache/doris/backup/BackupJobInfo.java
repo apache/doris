@@ -335,7 +335,7 @@ public class BackupJobInfo implements Writable {
         @SerializedName("s3_resource_list")
         public List<BackupS3ResourceInfo> s3ResourceList = Lists.newArrayList();
         @SerializedName("storage_policy_list")
-        public List<BackupStoragePolicyInfo> storagePolicyList = Lists.newArrayList();
+        public List<StoragePolicy> storagePolicyList = Lists.newArrayList();
 
         public static BriefBackupJobInfo fromBackupJobInfo(BackupJobInfo backupJobInfo) {
             BriefBackupJobInfo briefBackupJobInfo = new BriefBackupJobInfo();
@@ -376,7 +376,7 @@ public class BackupJobInfo implements Writable {
         @SerializedName("s3_resources")
         public List<BackupS3ResourceInfo> s3Resources = Lists.newArrayList();
         @SerializedName("storage_policy")
-        public List<BackupStoragePolicyInfo> storagePolicies = Lists.newArrayList();
+        public List<StoragePolicy> storagePolicies = Lists.newArrayList();
     }
 
     public static class BackupOlapTableInfo {
@@ -496,11 +496,6 @@ public class BackupJobInfo implements Writable {
     }
 
     public static class BackupS3ResourceInfo {
-        @SerializedName("name")
-        public String name;
-    }
-
-    public static class BackupStoragePolicyInfo {
         @SerializedName("name")
         public String name;
     }
@@ -708,9 +703,7 @@ public class BackupJobInfo implements Writable {
         // storage policies
         Collection<StoragePolicy> storagePolicies = backupMeta.getStoragePolicyNameMap().values();
         for (StoragePolicy storagePolicy : storagePolicies) {
-            BackupStoragePolicyInfo backupStoragePolicyInfo = new BackupStoragePolicyInfo();
-            backupStoragePolicyInfo.name = storagePolicy.getName();
-            jobInfo.newBackupObjects.storagePolicies.add(backupStoragePolicyInfo);
+            jobInfo.newBackupObjects.storagePolicies.add(storagePolicy.clone());
         }
 
         return jobInfo;
