@@ -280,6 +280,7 @@ import org.apache.doris.nereids.DorisParser.ShowTrashContext;
 import org.apache.doris.nereids.DorisParser.ShowTriggersContext;
 import org.apache.doris.nereids.DorisParser.ShowVariablesContext;
 import org.apache.doris.nereids.DorisParser.ShowViewContext;
+import org.apache.doris.nereids.DorisParser.ShowWarningErrorsContext;
 import org.apache.doris.nereids.DorisParser.ShowWhitelistContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefsContext;
@@ -586,6 +587,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
@@ -4836,6 +4838,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         long dbId = (ctx.id != null) ? Long.parseLong(ctx.id.getText()) : -1;
         String newDbName = (ctx.alias != null) ? ctx.alias.getText() : null;
         return new RecoverDatabaseCommand(dbName, dbId, newDbName);
+    }
+
+    @Override
+    public LogicalPlan visitShowWarningErrors(ShowWarningErrorsContext ctx) {
+        boolean isWarning = ctx.WARNINGS() != null;
+
+        // Extract the limit value if present
+        long limit = 0;
+        Optional<LimitClauseContext> limitCtx = Optional.ofNullable(ctx.limitClause());
+        if (ctx.limitClause() != null) {
+            limit = Long.parseLong(limitCtx.get().limit.getText());
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", limitCtx.get());
+            }
+        }
+        return new ShowWarningErrorsCommand(isWarning, limit);
     }
 
     @Override
