@@ -121,3 +121,23 @@ b	3	3	3	3	3	5
 b	\N	3	3	3	3	6
 b	2	2	2	2	3	7
 
+-- !select_default8 --
+a	1	2	0
+a	\N	\N	1
+a	\N	\N	2
+a	2	\N	3
+b	\N	2	4
+b	3	\N	5
+b	\N	\N	6
+b	2	\N	7
+
+-- !select_default9 --
+a	1	2	0
+a	\N	\N	1
+a	\N	\N	2
+a	2	\N	3
+b	\N	2	4
+b	3	\N	5
+b	\N	\N	6
+b	2	\N	7
+

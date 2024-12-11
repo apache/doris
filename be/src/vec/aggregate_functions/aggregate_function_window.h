@@ -465,9 +465,9 @@ struct WindowFunctionFirstImpl : Data {
             (!arg_ignore_null || (arg_ignore_null && !this->is_null()))) {
             return;
         }
-        if (frame_start <= frame_end &&
-            frame_end <= partition_start) { //rewrite last_value when under partition
-            this->set_is_null();            //so no need more judge
+        DCHECK_LE(frame_start, frame_end);
+        if (frame_start >= partition_end || frame_end <= partition_start) {
+            this->set_is_null();
             return;
         }
         frame_start = std::max<int64_t>(frame_start, partition_start);

@@ -312,4 +312,40 @@ suite("test_first_value_window") {
     ORDER BY uid, time_s
     ;
     """
+
+    qt_select_default8 """
+            SELECT uid
+        ,amt
+        ,(FIRST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s ROWS between 3 following AND 6 FOLLOWING)) amt3
+        ,time_s
+        FROM (
+            SELECT 'a' AS uid, 1    AS amt, 0 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 1 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+            SELECT 'a' AS uid, 2    AS amt, 3 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+            SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+            SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+            ) t
+        ORDER BY uid, time_s;
+    """
+
+    qt_select_default9 """
+            SELECT uid
+        ,amt
+        ,(FIRST_VALUE(amt) OVER(PARTITION BY uid ORDER BY time_s ROWS between 3 following AND 6 FOLLOWING)) amt3
+        ,time_s
+        FROM (
+            SELECT 'a' AS uid, 1    AS amt, 0 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 1 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+            SELECT 'a' AS uid, 2    AS amt, 3 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+            SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+            SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+            ) t
+        ORDER BY uid, time_s;
+    """
 }
