@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+suite("test_show_warning_errors_command", "query,warnings_errors") {
+        // Execute the SHOW WARNINGS command and verify the output
+        checkNereidsExecute("SHOW ERRORS;")
+        qt_cmd("SHOW ERRORS;")
 
-public enum JobPriority {
-    HIGH,
-    MID,
-    LOW,
-    VERY_LOW,
-    MANUAL;
+
+        // Execute the SHOW WARNINGS command and verify the output
+        checkNereidsExecute("SHOW WARNINGS LIMIT 5;")
+        qt_cmd("SHOW WARNINGS LIMIT 5;")
 }
