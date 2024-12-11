@@ -61,14 +61,14 @@ suite("test_dml_select_udf_auth","p0,auth_call") {
         """
     sql """ INSERT INTO ${dbName}.${tableName} VALUES ("abc"), ("123"), ("123"); """
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """ SELECT ${dbName}.${udfName}(col_1) as a FROM ${dbName}.${tableName} ORDER BY a; """
             exception "Can not found function"
         }
     }
     sql """grant select_priv on ${dbName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """ SELECT ${dbName}.${udfName}(col_1) as a FROM ${dbName}.${tableName} ORDER BY a; """
     }
 

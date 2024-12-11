@@ -42,7 +42,7 @@ suite("test_ddl_repository_auth","p0,auth_call") {
     sql """create database ${dbName}"""
 
     // ddl create,show,drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE REPOSITORY `${repositoryName}`
                     WITH S3
@@ -67,7 +67,7 @@ suite("test_ddl_repository_auth","p0,auth_call") {
         }
     }
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE REPOSITORY `${repositoryName}`
                 WITH S3
                 ON LOCATION "s3://${bucket}/${repositoryName}"
