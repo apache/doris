@@ -133,22 +133,16 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             BinaryOperator<ValueDesc> op, boolean isAnd) {
 
         boolean convertIsNullToEmptyValue = isAnd && predicates.stream().anyMatch(expr -> expr instanceof NullLiteral);
-        boolean hadNullLiteral = false;
-
         Multimap<Expression, ValueDesc> groupByReference
                 = Multimaps.newListMultimap(new LinkedHashMap<>(), ArrayList::new);
         for (Expression predicate : predicates) {
             ValueDesc valueDesc = null;
             if (convertIsNullToEmptyValue) {
                 if (predicate instanceof NullLiteral) {
-                    if (hadNullLiteral) {
-                        continue;
-                    }
-                    hadNullLiteral = true;
                     valueDesc = new UnknownValue(context, predicate);
                 } else if (predicate instanceof IsNull) {
                     Expression reference = ((IsNull) predicate).child();
-                    valueDesc = new EmptyValue(context, reference, ExpressionUtils.falseOrNull(reference));
+                    valueDesc = new EmptyValue(context, reference, predicate);
                 } else {
                     valueDesc = predicate.accept(this, context);
                 }
