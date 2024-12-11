@@ -293,11 +293,13 @@ public class EditLog {
                 case OperationType.OP_RECOVER_TABLE: {
                     RecoverInfo info = (RecoverInfo) journal.getData();
                     env.replayRecoverTable(info);
+                    env.getBinlogManager().addRecoverTableRecord(info, logId);
                     break;
                 }
                 case OperationType.OP_RECOVER_PARTITION: {
                     RecoverInfo info = (RecoverInfo) journal.getData();
                     env.replayRecoverPartition(info);
+                    env.getBinlogManager().addRecoverTableRecord(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_TABLE: {
@@ -1399,7 +1401,8 @@ public class EditLog {
     }
 
     public void logRecoverPartition(RecoverInfo info) {
-        logEdit(OperationType.OP_RECOVER_PARTITION, info);
+        long logId = logEdit(OperationType.OP_RECOVER_PARTITION, info);
+        Env.getCurrentEnv().getBinlogManager().addRecoverTableRecord(info, logId);
     }
 
     public void logModifyPartition(ModifyPartitionInfo info) {
@@ -1426,7 +1429,8 @@ public class EditLog {
     }
 
     public void logRecoverTable(RecoverInfo info) {
-        logEdit(OperationType.OP_RECOVER_TABLE, info);
+        long logId = logEdit(OperationType.OP_RECOVER_TABLE, info);
+        Env.getCurrentEnv().getBinlogManager().addRecoverTableRecord(info, logId);
     }
 
     public void logDropRollup(DropInfo info) {

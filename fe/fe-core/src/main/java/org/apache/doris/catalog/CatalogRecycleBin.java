@@ -768,7 +768,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 LOG.info("replay recover table[{}]", table.getId());
             } else {
                 // log
-                RecoverInfo recoverInfo = new RecoverInfo(db.getId(), table.getId(), -1L, "", newTableName, "");
+                RecoverInfo recoverInfo = new RecoverInfo(db.getId(), table.getId(),
+                                                    -1L, "", table.getName(), newTableName, "", "");
                 Env.getCurrentEnv().getEditLog().logRecoverTable(recoverInfo);
             }
             // Only olap table need recover dynamic partition, other table like jdbc odbc view.. do not need it
@@ -867,7 +868,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToRecycleTime.remove(partitionId);
 
         // log
-        RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId, "", "", newPartitionName);
+        RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId, "",
+                                                    table.getName(), "", partitionName, newPartitionName);
         Env.getCurrentEnv().getEditLog().logRecoverPartition(recoverInfo);
         LOG.info("recover partition[{}]", partitionId);
     }
