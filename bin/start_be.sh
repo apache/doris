@@ -62,7 +62,7 @@ while true; do
         RUN_BENCHMARK=1
         shift
         ;;
-    --skip)
+    --skip_check_ulimit)
         RUN_SKIP_CHECK_ULIMIT=1
         RUN_CONSOLE=1
         shift
