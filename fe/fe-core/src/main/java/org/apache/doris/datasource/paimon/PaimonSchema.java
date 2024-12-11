@@ -17,32 +17,30 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.catalog.PartitionItem;
+import org.apache.paimon.types.DataField;
 
-import com.google.common.collect.Maps;
+import java.util.List;
 
-import java.util.Map;
+public class PaimonSchema {
+    private final long schemaId;
+    private final List<DataField> fields;
+    private final List<String> partitionKeys;
 
-public class PaimonPartitionInfo {
-    private final Map<String, PartitionItem> nameToPartitionItem;
-    private final Map<String, PaimonPartition> nameToPartition;
-
-    public PaimonPartitionInfo() {
-        this.nameToPartitionItem = Maps.newHashMap();
-        this.nameToPartition = Maps.newHashMap();
+    public PaimonSchema(long schemaId, List<DataField> fields, List<String> partitionKeys) {
+        this.schemaId = schemaId;
+        this.fields = fields;
+        this.partitionKeys = partitionKeys;
     }
 
-    public PaimonPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
-            Map<String, PaimonPartition> nameToPartition) {
-        this.nameToPartitionItem = nameToPartitionItem;
-        this.nameToPartition = nameToPartition;
+    public long getSchemaId() {
+        return schemaId;
     }
 
-    public Map<String, PartitionItem> getNameToPartitionItem() {
-        return nameToPartitionItem;
+    public List<DataField> getFields() {
+        return fields;
     }
 
-    public Map<String, PaimonPartition> getNameToPartition() {
-        return nameToPartition;
+    public List<String> getPartitionKeys() {
+        return partitionKeys;
     }
 }
