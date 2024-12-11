@@ -23,6 +23,7 @@ import os
 import pwd
 import socket
 import subprocess
+import sys
 import time
 import yaml
 
@@ -30,7 +31,7 @@ DORIS_PREFIX = "doris-"
 
 LOG = None
 
-ENABLE_LOG = True
+ENALBE_LOG_STDOUT = True
 
 
 class Timer(object):
@@ -48,39 +49,41 @@ class Timer(object):
         self.canceled = True
 
 
-def set_enable_log(enabled):
-    global ENABLE_LOG
-    ENABLE_LOG = enabled
-    get_logger().disabled = not enabled
-
-
-def is_enable_log():
-    return ENABLE_LOG
+def is_log_stdout():
+    return ENALBE_LOG_STDOUT
 
 
 def set_log_verbose():
     get_logger().setLevel(logging.DEBUG)
 
 
-def get_logger(name=None):
-    global LOG
-    if LOG != None:
-        return LOG
-
-    logger = logging.getLogger(name)
-    if not logger.hasHandlers():
+def set_log_to(log_file_name, is_to_stdout):
+    logger = get_logger()
+    for ch in logger.handlers:
+        logger.removeHandler(ch)
+    if log_file_name:
+        os.makedirs(os.path.dirname(log_file_name), exist_ok=True)
+        logger.addHandler(logging.FileHandler(log_file_name))
+    global ENALBE_LOG_STDOUT
+    ENALBE_LOG_STDOUT = is_to_stdout
+    if is_to_stdout:
+        logger.addHandler(logging.StreamHandler(sys.stdout))
+    for ch in logger.handlers:
         formatter = logging.Formatter(
             '%(asctime)s - %(filename)s - %(lineno)dL - %(levelname)s - %(message)s'
         )
-        ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(formatter)
-        logger.addHandler(ch)
-        logger.setLevel(logging.INFO)
 
-    LOG = logger
 
-    return logger
+def get_logger(name="doris-compose"):
+    global LOG
+    if LOG is None:
+        LOG = logging.getLogger(name)
+        LOG.setLevel(logging.INFO)
+        set_log_to(None, True)
+
+    return LOG
 
 
 get_logger()
@@ -196,15 +199,17 @@ def exec_shell_command(command, ignore_errors=False, output_real_time=False):
     if output_real_time:
         while p.poll() is None:
             s = p.stdout.readline().decode('utf-8')
-            if ENABLE_LOG and s.rstrip():
-                print(s.rstrip())
+            if s.rstrip():
+                for line in s.strip().splitlines():
+                    LOG.info("(docker) " + line)
             out += s
         exitcode = p.wait()
     else:
         out = p.communicate()[0].decode('utf-8')
         exitcode = p.returncode
-        if ENABLE_LOG and out:
-            print(out)
+        if out:
+            for line in out.splitlines():
+                LOG.info("(docker) " + line)
     if not ignore_errors:
         assert exitcode == 0, out
     return exitcode, out
