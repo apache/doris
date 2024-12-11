@@ -79,6 +79,9 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     @SerializedName("updateTime")
     public long updatedTime;
 
+    @SerializedName("lat")
+    public long lastAnalyzeTime;
+
     @SerializedName("colNameToColStatsMeta")
     private ConcurrentMap<String, ColStatsMeta> deprecatedColNameToColStatsMeta = new ConcurrentHashMap<>();
 
@@ -156,19 +159,21 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
 
     public void update(AnalysisInfo analyzedJob, TableIf tableIf) {
         updatedTime = analyzedJob.tblUpdateTime;
+        lastAnalyzeTime = analyzedJob.createTime;
         if (analyzedJob.userInject) {
             userInjected = true;
         }
         for (Pair<String, String> colPair : analyzedJob.jobColumns) {
             ColStatsMeta colStatsMeta = colToColStatsMeta.get(colPair);
             if (colStatsMeta == null) {
-                colToColStatsMeta.put(colPair, new ColStatsMeta(updatedTime,
-                        analyzedJob.analysisMethod, analyzedJob.analysisType, analyzedJob.jobType, 0));
+                colToColStatsMeta.put(colPair, new ColStatsMeta(lastAnalyzeTime, analyzedJob.analysisMethod,
+                        analyzedJob.analysisType, analyzedJob.jobType, 0, analyzedJob.tableVersion));
             } else {
-                colStatsMeta.updatedTime = updatedTime;
+                colStatsMeta.updatedTime = lastAnalyzeTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
                 colStatsMeta.jobType = analyzedJob.jobType;
+                colStatsMeta.tableVersion = analyzedJob.tableVersion;
             }
         }
         jobType = analyzedJob.jobType;
@@ -232,5 +237,10 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
 
     public boolean isColumnsStatsEmpty() {
         return colToColStatsMeta == null || colToColStatsMeta.isEmpty();
+    }
+
+    @VisibleForTesting
+    public void setColToColStatsMeta(ConcurrentMap<Pair<String, String>, ColStatsMeta> colToColStatsMeta) {
+        this.colToColStatsMeta = colToColStatsMeta;
     }
 }

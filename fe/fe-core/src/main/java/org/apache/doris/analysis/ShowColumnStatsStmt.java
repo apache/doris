@@ -62,6 +62,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
                     .add("trigger")
                     .add("query_times")
                     .add("updated_time")
+                    .add("last_analyze_version")
                     .build();
 
     private final TableName tableName;
@@ -162,6 +163,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.jobType));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.queriedTimes));
             row.add(String.valueOf(p.second.updatedTime));
+            row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.tableVersion));
             result.add(row);
         });
         return new ShowResultSet(getMetaData(), result);

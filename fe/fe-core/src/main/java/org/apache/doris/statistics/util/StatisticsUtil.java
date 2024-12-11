@@ -51,6 +51,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
@@ -70,6 +71,7 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
@@ -904,4 +906,37 @@ public class StatisticsUtil {
         return rowCount == 0;
     }
 
+    public static boolean canCollect() {
+        return enableAutoAnalyze() && inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
+    }
+
+    public static boolean tableNotAnalyzedForTooLong(TableIf table, TableStatsMeta tblStats) {
+        if (table == null || tblStats == null) {
+            LOG.warn("Table or stats is null.");
+            return false;
+        }
+        if (tblStats.userInjected) {
+            return false;
+        }
+        if (!(table instanceof OlapTable)) {
+            return false;
+        }
+        boolean isLongTime = Config.auto_analyze_interval_seconds > 0
+                && System.currentTimeMillis() - tblStats.lastAnalyzeTime > Config.auto_analyze_interval_seconds * 1000;
+        if (!isLongTime) {
+            return false;
+        }
+        // For OlapTable, if update rows is 0, row count doesn't change since last analyze
+        // and table visible version doesn't change since last analyze. Then we skip analyzing it.
+        if (tblStats.updatedRows.get() != 0) {
+            return true;
+        }
+        long rowCount = table.getRowCount();
+        if (rowCount != tblStats.rowCount) {
+            return true;
+        }
+        long visibleVersion = ((OlapTable) table).getVisibleVersion();
+        return tblStats.analyzeColumns().stream()
+                .anyMatch(c -> tblStats.findColumnStatsMeta(c.first, c.second).tableVersion != visibleVersion);
+    }
 }

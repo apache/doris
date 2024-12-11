@@ -2837,7 +2837,7 @@ PARTITION `p599` VALUES IN (599)
 
     // Test auto analyze with job type SYSTEM
     sql """drop stats trigger_test"""
-    sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+    sql """analyze table trigger_test PROPERTIES("use.auto.analyzer"="true")"""
     int i = 0;
     for (0; i < 10; i++) {
         result = sql """show column stats trigger_test"""
@@ -2941,7 +2941,38 @@ PARTITION `p599` VALUES IN (599)
     new_part_result = sql """show column stats part(colint)"""
     assertEquals("2.0", new_part_result[0][2])
 
-
     sql """DROP DATABASE IF EXISTS trigger"""
+
+    // Test show last analyze table version
+    sql """create database if not exists test_version"""
+    sql """use test_version"""
+    sql """drop table if exists region"""
+    sql """
+        CREATE TABLE region  (
+            r_regionkey      int NOT NULL,
+            r_name       VARCHAR(25) NOT NULL,
+            r_comment    VARCHAR(152)
+        )ENGINE=OLAP
+        DUPLICATE KEY(`r_regionkey`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+    sql """analyze table region with sync"""
+    def versionResult = sql """show column stats region"""
+    assertEquals(versionResult[0][14], "1")
+    assertEquals(versionResult[1][14], "1")
+    assertEquals(versionResult[2][14], "1")
+
+    sql """insert into region values (1, "1", "1")"""
+    sql """analyze table region with sync"""
+    versionResult = sql """show column stats region"""
+    assertEquals(versionResult[0][14], "2")
+    assertEquals(versionResult[1][14], "2")
+    assertEquals(versionResult[2][14], "2")
+
+    sql """drop database if exists test_version"""
 }
 

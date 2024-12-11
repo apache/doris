@@ -2513,7 +2513,7 @@ public class StmtExecutor {
         context.getState().setOk();
     }
 
-    private void handleAnalyzeStmt() throws DdlException, AnalysisException {
+    private void handleAnalyzeStmt() throws DdlException, AnalysisException, ExecutionException, InterruptedException {
         context.env.getAnalysisManager().createAnalyze((AnalyzeStmt) parsedStmt, isProxy);
     }
 

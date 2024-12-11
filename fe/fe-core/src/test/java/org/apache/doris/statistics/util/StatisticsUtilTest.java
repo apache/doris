@@ -17,10 +17,20 @@
 
 package org.apache.doris.statistics.util;
 
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.statistics.TableStatsMeta;
 
 import com.google.common.collect.Lists;
 import mockit.Mock;
@@ -33,6 +43,8 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 class StatisticsUtilTest {
     @Test
@@ -149,5 +161,78 @@ class StatisticsUtilTest {
         String origin = "\\'\"";
         // \\''""
         Assertions.assertEquals("\\\\''\"", StatisticsUtil.escapeSQL(origin));
+    }
+
+    @Test
+    public void testTableNotAnalyzedForTooLong() throws InterruptedException {
+        TableStatsMeta tableMeta = new TableStatsMeta();
+        OlapTable olapTable = new OlapTable();
+        ExternalTable externalTable = new ExternalTable();
+
+        // Test table or stats is null
+        Assertions.assertFalse(StatisticsUtil.tableNotAnalyzedForTooLong(null, tableMeta));
+        Assertions.assertFalse(StatisticsUtil.tableNotAnalyzedForTooLong(olapTable, null));
+
+        // Test user injected
+        tableMeta.userInjected = true;
+        Assertions.assertFalse(StatisticsUtil.tableNotAnalyzedForTooLong(olapTable, tableMeta));
+
+        // Test External table
+        tableMeta.userInjected = false;
+        Assertions.assertFalse(StatisticsUtil.tableNotAnalyzedForTooLong(externalTable, tableMeta));
+
+        // Test config is 0
+        Config.auto_analyze_interval_seconds = 0;
+        Assertions.assertFalse(StatisticsUtil.tableNotAnalyzedForTooLong(olapTable, tableMeta));
+
+        // Test time not long enough
+        Config.auto_analyze_interval_seconds = 86400;
+        tableMeta.lastAnalyzeTime = System.currentTimeMillis();
+        Assertions.assertFalse(StatisticsUtil.tableNotAnalyzedForTooLong(olapTable, tableMeta));
+
+        // Test time long enough and update rows > 0
+        Config.auto_analyze_interval_seconds = 1;
+        tableMeta.lastAnalyzeTime = System.currentTimeMillis();
+        Thread.sleep(2000);
+        tableMeta.updatedRows.set(10);
+        Assertions.assertTrue(StatisticsUtil.tableNotAnalyzedForTooLong(olapTable, tableMeta));
+
+        // Test row count is not equal with last analyze
+        tableMeta.updatedRows.set(0);
+        tableMeta.rowCount = 10;
+        new MockUp<Table>() {
+            @Mock
+            public long getRowCount() {
+                return 100;
+            }
+        };
+        Assertions.assertTrue(StatisticsUtil.tableNotAnalyzedForTooLong(olapTable, tableMeta));
+
+        // Test visible version changed
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getVisibleVersion() {
+                return 100;
+            }
+        };
+        new MockUp<Table>() {
+            @Mock
+            public long getRowCount() {
+                return 10;
+            }
+        };
+        ConcurrentMap<Pair<String, String>, ColStatsMeta> colToColStatsMeta = new ConcurrentHashMap<>();
+        ColStatsMeta col1Meta = new ColStatsMeta(0, AnalysisMethod.SAMPLE, AnalysisType.FUNDAMENTALS, JobType.SYSTEM, 0, 100);
+        ColStatsMeta col2Meta = new ColStatsMeta(0, AnalysisMethod.SAMPLE, AnalysisType.FUNDAMENTALS, JobType.SYSTEM, 0, 101);
+        colToColStatsMeta.put(Pair.of("index1", "col1"), col1Meta);
+        colToColStatsMeta.put(Pair.of("index2", "col2"), col2Meta);
+        tableMeta.setColToColStatsMeta(colToColStatsMeta);
+        Assertions.assertTrue(StatisticsUtil.tableNotAnalyzedForTooLong(olapTable, tableMeta));
+
+        // Test visible version unchanged.
+        col2Meta = new ColStatsMeta(0, AnalysisMethod.SAMPLE, AnalysisType.FUNDAMENTALS, JobType.SYSTEM, 0, 100);
+        colToColStatsMeta.put(Pair.of("index2", "col2"), col2Meta);
+        tableMeta.setColToColStatsMeta(colToColStatsMeta);
+        Assertions.assertFalse(StatisticsUtil.tableNotAnalyzedForTooLong(olapTable, tableMeta));
     }
 }
