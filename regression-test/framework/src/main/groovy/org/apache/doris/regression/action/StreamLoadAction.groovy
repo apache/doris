@@ -279,6 +279,7 @@ class StreamLoadAction implements SuiteAction {
                     fileName = cacheHttpFile(client, fileName)
                 } else {
                     entity = new InputStreamEntity(httpGetStream(client, fileName))
+                    log.info("http entity length is ${entity.contentLength}")
                     return entity;
                 }
             }
