@@ -76,7 +76,7 @@ suite("test_resource_tag") {
         def test_failed_command = "curl --location-trusted -u test_rg: -H column_separator:| -H Transfer-Encoding:chunked -H columns:k1,k2  -T ${context.dataPath}/skip_rg_test_table.csv http://${context.config.feHttpAddress}/api/${context.config.defaultDb}/skip_rg_test_table/_stream_load"
         log.info("stream load skip_rg_test_table failed test cmd: ${test_failed_command}")
         def process = test_failed_command.execute()
-        code1 = process.waitFor()
+        def code1 = process.waitFor()
         out1 = process.text
         log.info("stream load skip_rg_test_table failed test result, ${out1}".toString())
         assertTrue("${out1}".toString().contains("No backend load available") || "${out1}".toString().contains("No available backends"))

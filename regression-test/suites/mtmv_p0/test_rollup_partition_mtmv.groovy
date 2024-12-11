@@ -199,7 +199,7 @@ suite("test_rollup_partition_mtmv") {
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
-    jobName = getJobName(dbName, mvName);
+    def jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
     order_qt_date_range_month "SELECT * FROM ${mvName} order by k1,k2"

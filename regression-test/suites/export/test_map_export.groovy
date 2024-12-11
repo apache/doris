@@ -146,7 +146,7 @@ suite("test_map_export", "export") {
             path.delete();
         }
         if (csvFiles != "") {
-            cmd = "rm -rf ${csvFiles}"
+            def cmd = "rm -rf ${csvFiles}"
             sshExec("root", urlHost, cmd)
         }
     }

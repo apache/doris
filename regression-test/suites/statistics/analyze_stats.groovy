@@ -1230,7 +1230,7 @@ PARTITION `p599` VALUES IN (599)
 
     def check_column = { r, expected ->
         expected_result = convert_col_list_str_to_java_collection(expected)
-        actual_result = convert_col_list_str_to_java_collection(r[0][4])
+        def actual_result = convert_col_list_str_to_java_collection(r[0][4])
         System.out.println(expected_result)
         System.out.println(actual_result)
         return expected_result.containsAll(actual_result) && actual_result.containsAll(expected_result)

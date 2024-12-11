@@ -219,7 +219,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
      }, insertSql, false, "${tbName1}")
 
      sql """ DROP TABLE IF EXISTS ${tbName2} """
-     initTable2 = " CREATE TABLE IF NOT EXISTS ${tbName2}\n" +
+     def initTable2 = " CREATE TABLE IF NOT EXISTS ${tbName2}\n" +
              "          (\n" +
              "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
              "              `username` VARCHAR(50) NOT NULL COMMENT \"用户昵称\",\n" +

@@ -161,7 +161,7 @@ suite ("test_agg_rollup_schema_change") {
                 String tablet_id = tablet[0]
                 def backend_id = tablet[2]
                 logger.info("run compaction:" + tablet_id)
-                (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
                 //assertEquals(code, 0)
         }

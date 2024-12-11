@@ -66,7 +66,7 @@ suite("test_partial_update_delete_sign_with_conflict") {
 
         def process = command.execute()
         def code = process.waitFor()
-        out = process.text
+        def out = process.text
         json2pc = parseJson(out)
         log.info("http_stream 2pc result: ${out}".toString())
         assertEquals(code, 0)

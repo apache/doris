@@ -66,7 +66,7 @@ suite("test_drop_catalog_recycle_bin") {
     sql "use `test_drop_catalog_recycle_bin_db`"
     sql "ALTER TABLE `test_drop_catalog_recycle_bin_db`.`test_drop_catalog_recycle_bin_tb1` DROP PARTITION p1000;"
 
-    pre_res = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = "p1000" """
+    def pre_res = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = "p1000" """
     assertTrue(pre_res.size() > 0)
     partition_id = pre_res[0][4]
     sql "DROP CATALOG RECYCLE BIN WHERE 'PartitionId' = ${partition_id};"
