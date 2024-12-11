@@ -115,6 +115,10 @@ public:
         return nested_function->has_trivial_destructor();
     }
 
+    AggregateFunctionPtr transmit_to_stable() override {
+        return nested_function->transmit_to_stable();
+    }
+
     size_t size_of_data() const override { return prefix_size + nested_function->size_of_data(); }
 
     size_t align_of_data() const override { return nested_function->align_of_data(); }
