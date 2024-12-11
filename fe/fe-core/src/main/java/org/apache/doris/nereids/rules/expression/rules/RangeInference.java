@@ -137,15 +137,13 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
                 = Multimaps.newListMultimap(new LinkedHashMap<>(), ArrayList::new);
         for (Expression predicate : predicates) {
             ValueDesc valueDesc = null;
-            if (convertIsNullToEmptyValue) {
-                if (predicate instanceof NullLiteral) {
-                    valueDesc = new UnknownValue(context, predicate);
-                } else if (predicate instanceof IsNull) {
-                    Expression reference = ((IsNull) predicate).child();
-                    valueDesc = new EmptyValue(context, reference, predicate);
-                } else {
-                    valueDesc = predicate.accept(this, context);
-                }
+            // we can override visitIsNull(expr, context) => EmptyValue,
+            // but it will make origin expression always add 'and null'.
+            // for example, origin expr is IsNull(a), then the result is 'IsNull(a) and null'.
+            // we don't want to add redundant 'and null' to the rewrite expr,
+            // so only convert is null to empty value only when origin expr indeed contains an "and null".
+            if (convertIsNullToEmptyValue && predicate instanceof IsNull) {
+                valueDesc = new EmptyValue(context, ((IsNull) predicate).child(), predicate);
             } else {
                 valueDesc = predicate.accept(this, context);
             }
