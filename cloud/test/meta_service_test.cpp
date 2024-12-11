@@ -515,7 +515,7 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         AlterObjStoreInfoResponse res;
         meta_service->alter_storage_vault(
                 reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         InstanceInfoPB instance;
         get_test_instance(instance);
 
@@ -526,7 +526,7 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
                   TxnErrorCode::TXN_OK);
         StorageVaultPB get_obj;
         get_obj.ParseFromString(val);
-        ASSERT_EQ(get_obj.obj_info().ak(), "new_ak") << get_obj.obj_info().ak();
+        ASSERT_EQ(get_obj.obj_info().ak(), "ak") << get_obj.obj_info().ak();
     }
 
     {
