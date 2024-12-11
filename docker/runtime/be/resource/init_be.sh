@@ -203,7 +203,7 @@ _main() {
     fi
     check_be_status
     doris_note "Ready to start BE！"
-    ${DORIS_HOME}/be/bin/start_be.sh --console &
+    ${DORIS_HOME}/be/bin/start_be.sh --skip_check_ulimit &
     child_pid=$!
     wait $child_pid
     exec "$@"
