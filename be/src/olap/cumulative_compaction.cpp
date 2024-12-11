@@ -105,7 +105,8 @@ Status CumulativeCompaction::execute_compact() {
         if (target_tablet_id == _tablet->tablet_id()) {
             LOG(INFO) << "start debug block "
                       << "CumulativeCompaction::execute_compact.block";
-            while (DebugPoints::instance()->is_enable("CumulativeCompaction::execute_compact.block")) {
+            while (DebugPoints::instance()->is_enable(
+                    "CumulativeCompaction::execute_compact.block")) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
             }
             LOG(INFO) << "end debug block "
