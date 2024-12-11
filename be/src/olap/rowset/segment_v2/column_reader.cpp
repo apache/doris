@@ -871,8 +871,14 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
         size_t num_read = *n;
         auto null_map_ptr =
                 static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
-        bool null_signs_has_null = false;
-        RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        if (_null_iterator) {
+            bool null_signs_has_null = false;
+            RETURN_IF_ERROR(
+                    _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        } else {
+            auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+            null_map.insert_many_vals(0, num_read);
+        }
         DCHECK(num_read == *n);
     }
     return Status::OK();
@@ -932,8 +938,14 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
         size_t num_read = *n;
         auto null_map_ptr =
                 static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
-        bool null_signs_has_null = false;
-        RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        if (_null_iterator) {
+            bool null_signs_has_null = false;
+            RETURN_IF_ERROR(
+                    _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        } else {
+            auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+            null_map.insert_many_vals(0, num_read);
+        }
         DCHECK(num_read == *n);
     }
 
@@ -1086,8 +1098,14 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
         auto null_map_ptr =
                 static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
         size_t num_read = *n;
-        bool null_signs_has_null = false;
-        RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        if (_null_iterator) {
+            bool null_signs_has_null = false;
+            RETURN_IF_ERROR(
+                    _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        } else {
+            auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+            null_map.insert_many_vals(0, num_read);
+        }
         DCHECK(num_read == *n);
     }
 
