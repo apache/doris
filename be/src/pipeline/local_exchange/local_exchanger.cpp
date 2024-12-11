@@ -352,6 +352,16 @@ void ExchangerBase::finalize(LocalExchangeSourceLocalState& local_state) {
         // do nothing
     }
 }
+
+void ExchangerBase::set_low_memory_mode() {
+    _free_block_limit = 0;
+
+    vectorized::Block block;
+    while (_free_blocks.try_dequeue(block)) {
+        // do nothing
+    }
+}
+
 void LocalMergeSortExchanger::finalize(LocalExchangeSourceLocalState& local_state) {
     BlockWrapperSPtr next_block;
     vectorized::Block block;

@@ -147,6 +147,7 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     if (state->get_query_ctx()->low_memory_mode()) {
         local_state._shared_state->set_low_memory_mode();
+        local_state._exchanger->set_low_memory_mode();
     }
 
     RETURN_IF_ERROR(local_state._exchanger->sink(state, in_block, eos, local_state));

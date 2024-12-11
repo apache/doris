@@ -847,8 +847,7 @@ public:
     }
 
     virtual void set_low_memory_mode() {
-        _buffer_mem_limit =
-                std::min<int64_t>(config::local_exchange_buffer_mem_limit, 10 * 1024 * 1024);
+        _buffer_mem_limit = std::min<int64_t>(config::local_exchange_buffer_mem_limit, 512 * 1024);
     }
 };
 
@@ -896,8 +895,7 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
     }
 
     void set_low_memory_mode() override {
-        _buffer_mem_limit =
-                std::min<int64_t>(config::local_exchange_buffer_mem_limit, 10 * 1024 * 1024);
+        _buffer_mem_limit = std::min<int64_t>(config::local_exchange_buffer_mem_limit, 512 * 1024);
         DCHECK(!_queues_mem_usage.empty());
         _each_queue_limit =
                 std::max<int64_t>(64 * 1024, _buffer_mem_limit / _queues_mem_usage.size());
