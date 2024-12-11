@@ -2643,18 +2643,21 @@ void Tablet::gc_binlogs(int64_t version) {
             wait_for_deleted_binlog_files.emplace_back(segment_file_path);
 
             // index files
-            if (tablet_schema()->get_inverted_index_storage_format() ==
-                InvertedIndexStorageFormatPB::V1) {
-                for (const auto& index : tablet_schema()->inverted_indexes()) {
-                    auto index_file = InvertedIndexDescriptor::get_index_file_path_v1(
-                            InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path),
-                            index->index_id(), index->get_index_suffix());
+            if (tablet_schema()->has_inverted_index()) {
+                if (tablet_schema()->get_inverted_index_storage_format() ==
+                    InvertedIndexStorageFormatPB::V1) {
+                    for (const auto& index : tablet_schema()->inverted_indexes()) {
+                        auto index_file = InvertedIndexDescriptor::get_index_file_path_v1(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(
+                                        segment_file_path),
+                                index->index_id(), index->get_index_suffix());
+                        wait_for_deleted_binlog_files.emplace_back(index_file);
+                    }
+                } else {
+                    auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                            InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path));
                     wait_for_deleted_binlog_files.emplace_back(index_file);
                 }
-            } else if (tablet_schema()->has_inverted_index()) {
-                auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
-                        InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path));
-                wait_for_deleted_binlog_files.emplace_back(index_file);
             }
         }
     };

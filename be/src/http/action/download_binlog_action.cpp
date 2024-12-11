@@ -147,9 +147,11 @@ void handle_get_segment_index_file(StorageEngine& engine, HttpRequest* req,
         auto segment_file_path = tablet->get_segment_filepath(rowset_id, segment_index);
         if (tablet->tablet_schema()->get_inverted_index_storage_format() ==
             InvertedIndexStorageFormatPB::V1) {
+            // now CCR not support for variant + index v1
+            constexpr std::string_view index_suffix = "";
             segment_index_file_path = InvertedIndexDescriptor::get_index_file_path_v1(
                     InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path),
-                    std::stoll(segment_index_id), "");
+                    std::stoll(segment_index_id), index_suffix);
         } else {
             DCHECK(segment_index_id == "-1");
             segment_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
