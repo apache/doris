@@ -2586,12 +2586,15 @@ public class SchemaChangeHandler extends AlterHandler {
                                 + " ) already exist.");
             }
         }
-
+        boolean disableInvertedIndexV1ForVariant = olapTable.getInvertedIndexStorageFormat()
+                        == TInvertedIndexStorageFormat.V1 && ConnectContext.get().getSessionVariable()
+                                                                        .getDisableInvertedIndexV1ForVaraint();
         for (String col : indexDef.getColumns()) {
             Column column = olapTable.getColumn(col);
             if (column != null) {
                 indexDef.checkColumn(column, olapTable.getKeysType(),
-                        olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite());
+                        olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite(),
+                                                                        disableInvertedIndexV1ForVariant);
                 indexDef.getColumnUniqueIds().add(column.getUniqueId());
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);

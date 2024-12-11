@@ -26,7 +26,7 @@ suite("regression_test_variant_var_index", "p0"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V2");
     """
 
     sql """insert into var_index values(1, '{"a" : 123, "b" : "xxxyyy", "c" : 111999111}')"""
@@ -45,4 +45,64 @@ suite("regression_test_variant_var_index", "p0"){
     sql """insert into var_index values(8, '{"timestamp": [123]}')"""
     sql """insert into var_index values(9, '{"timestamp": 17.0}'),(10, '{"timestamp": "17.0"}')"""
     qt_sql "select * from var_index order by k limit 10"
+
+    sql """ set disable_inverted_index_v1_for_variant = true """
+    sql "DROP TABLE IF EXISTS var_index"
+    try {
+        sql """
+            CREATE TABLE IF NOT EXISTS var_index (
+                k bigint,
+                v variant,
+                INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
+            )
+            DUPLICATE KEY(`k`)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 
+            properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+        """
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
+    }
+
+    sql """
+        CREATE TABLE IF NOT EXISTS var_index (
+            k bigint,
+            v variant
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+    """
+
+    try {
+        sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
+    }
+
+    sql """ set disable_inverted_index_v1_for_variant = false """
+    sql """
+        CREATE TABLE IF NOT EXISTS var_index (
+            k bigint,
+            v variant,
+            INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+    """
+
+    sql "DROP TABLE IF EXISTS var_index"
+    sql """
+        CREATE TABLE IF NOT EXISTS var_index (
+            k bigint,
+            v variant
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 1 
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+    """
+    sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
+    sql """ set disable_inverted_index_v1_for_variant = true """
 }

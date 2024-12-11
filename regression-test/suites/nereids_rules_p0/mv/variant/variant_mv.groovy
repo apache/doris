@@ -35,8 +35,7 @@ suite("variant_mv") {
         repo VARIANT NULL,
         payload VARIANT NULL,
         public BOOLEAN NULL,
-        created_at DATETIME NULL,
-        INDEX idx_payload (`payload`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'inverted index for payload'
+        created_at DATETIME NULL
     )
     DUPLICATE KEY(`id`)
     DISTRIBUTED BY HASH(id) BUCKETS 10
@@ -55,8 +54,7 @@ suite("variant_mv") {
         repo VARIANT NULL,
         payload VARIANT NULL,
         public BOOLEAN NULL,
-        created_at DATETIME NULL,
-        INDEX idx_payload (`payload`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'inverted index for payload'
+        created_at DATETIME NULL
     )
     DUPLICATE KEY(`id`)
     DISTRIBUTED BY HASH(id) BUCKETS 10

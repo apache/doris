@@ -634,6 +634,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MAX_FETCH_REMOTE_TABLET_COUNT = "max_fetch_remote_schema_tablet_count";
 
+    public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
+
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
@@ -1165,6 +1167,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = WAIT_FULL_BLOCK_SCHEDULE_TIMES)
     public int waitFullBlockScheduleTimes = 2;
+
+    @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT)
+    private boolean disableInvertedIndexV1ForVaraint = true;
 
     public int getBeNumberForTest() {
         return beNumberForTest;
@@ -4429,5 +4434,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableCooldownReplicaAffinity() {
         return enableCooldownReplicaAffinity;
+    }
+
+    public void setDisableInvertedIndexV1ForVaraint(boolean disableInvertedIndexV1ForVaraint) {
+        this.disableInvertedIndexV1ForVaraint = disableInvertedIndexV1ForVaraint;
+    }
+
+    public boolean getDisableInvertedIndexV1ForVaraint() {
+        return disableInvertedIndexV1ForVaraint;
     }
 }
