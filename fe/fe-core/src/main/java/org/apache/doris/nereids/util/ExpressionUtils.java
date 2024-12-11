@@ -178,23 +178,7 @@ public class ExpressionUtils {
      *  AND expression, also remove duplicate expression, boolean literal
      */
     public static Expression and(Collection<Expression> expressions) {
-        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
-        for (Expression expression : expressions) {
-            if (expression.equals(BooleanLiteral.FALSE)) {
-                return BooleanLiteral.FALSE;
-            } else if (!expression.equals(BooleanLiteral.TRUE)) {
-                distinctExpressions.add(expression);
-            }
-        }
-
-        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
-        if (exprList.isEmpty()) {
-            return BooleanLiteral.TRUE;
-        } else if (exprList.size() == 1) {
-            return exprList.get(0);
-        } else {
-            return new And(exprList);
-        }
+        return combineAsLeftDeepTree(And.class, expressions);
     }
 
     /**
@@ -223,23 +207,7 @@ public class ExpressionUtils {
      *  OR expression, also remove duplicate expression, boolean literal
      */
     public static Expression or(Collection<Expression> expressions) {
-        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
-        for (Expression expression : expressions) {
-            if (expression.equals(BooleanLiteral.TRUE)) {
-                return BooleanLiteral.TRUE;
-            } else if (!expression.equals(BooleanLiteral.FALSE)) {
-                distinctExpressions.add(expression);
-            }
-        }
-
-        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
-        if (exprList.isEmpty()) {
-            return BooleanLiteral.FALSE;
-        } else if (exprList.size() == 1) {
-            return exprList.get(0);
-        } else {
-            return new Or(exprList);
-        }
+        return combineAsLeftDeepTree(Or.class, expressions);
     }
 
     /**
