@@ -119,15 +119,15 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth,restart_fe") {
     // user
     sql """grant select_priv on ${dbName}.${tableName1} to ${user1}"""
     sql """grant select_priv on ${dbName}.${tableName2} to ${user1}"""
-    connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
         sql "select username from ${dbName}.${tableName1}"
     }
-    connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
         sql "select username from ${dbName}.${tableName2}"
     }
 
     sql """revoke select_priv on ${dbName}.${tableName1} from ${user1}"""
-    connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "select username from ${dbName}.${tableName1}"
         } catch (Exception e) {
@@ -135,7 +135,7 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth,restart_fe") {
             assertTrue(e.getMessage().contains("denied"))
         }
     }
-    connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
         sql "select username from ${dbName}.${tableName2}"
     }
 
@@ -143,13 +143,13 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth,restart_fe") {
     sql """grant select_priv on ${dbName}.${tableName1} to ROLE '${role1}'"""
     sql """grant Load_priv on ${dbName}.${tableName1} to ROLE '${role2}'"""
     sql """grant '${role1}', '${role2}' to '${user2}'"""
-    connect(user=user2, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user2, "${pwd}", context.config.jdbcUrl) {
         sql "select username from ${dbName}.${tableName1}"
         sql """insert into ${dbName}.`${tableName1}` values (4, "444")"""
     }
 
     sql """revoke '${role1}' from '${user2}'"""
-    connect(user=user2, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user2, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "select username from ${dbName}.${tableName1}"
         } catch (Exception e) {
@@ -157,12 +157,12 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth,restart_fe") {
             assertTrue(e.getMessage().contains("denied"))
         }
     }
-    connect(user=user2, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user2, "${pwd}", context.config.jdbcUrl) {
         sql """insert into ${dbName}.`${tableName1}` values (5, "555")"""
     }
 
     // workload group
-    connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
         sql """set workload_group = '${wg1}';"""
         try {
             sql "select username from ${dbName}.${tableName2}"
@@ -172,18 +172,18 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth,restart_fe") {
         }
     }
     sql """GRANT USAGE_PRIV ON WORKLOAD GROUP '${wg1}' TO '${user1}';"""
-    connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
         sql """set workload_group = '${wg1}';"""
         sql """select username from ${dbName}.${tableName2}"""
     }
 
     // resource group
-    connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
         def res = sql """SHOW RESOURCES;"""
         assertTrue(res == [])
     }
     sql """GRANT USAGE_PRIV ON RESOURCE ${rg1} TO ${user1};"""
-    connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
         def res = sql """SHOW RESOURCES;"""
         assertTrue(res.size == 10)
     }

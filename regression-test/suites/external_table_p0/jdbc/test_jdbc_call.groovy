@@ -129,7 +129,7 @@ suite("test_jdbc_call", "p0,external,doris,external_docker,external_docker_doris
         }
     }
 
-    def result2 = connect(user="${user2}", password="", url=context.config.jdbcUrl) {
+    def result2 = connect("${user2}", "", context.config.jdbcUrl) {
         sql """set enable_nereids_planner=true;"""
         sql """set enable_fallback_to_original_planner=false;"""
         sql """call execute_stmt("${catalog_name}", "insert into ${internal_db_name}.${internal_tbl_name} values (9, 10)")"""

@@ -328,7 +328,7 @@ suite("test_crud_wlg") {
             sql """ select count(1) from information_schema.backend_active_tasks; """
     }
 
-    connect(user = 'test_wlg_user', password = '12345', url = context.config.jdbcUrl) {
+    connect('test_wlg_user', '12345', context.config.jdbcUrl) {
         sql """ set workload_group = test_group; """
         test {
             sql """ select count(1) from information_schema.backend_active_tasks; """
@@ -338,7 +338,7 @@ suite("test_crud_wlg") {
 
     sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'test_group' TO 'test_wlg_user'@'%';"
 
-    connect(user = 'test_wlg_user', password = '12345', url = context.config.jdbcUrl) {
+    connect('test_wlg_user', '12345', context.config.jdbcUrl) {
         sql """ set workload_group = test_group; """
         sql """ select count(1) from information_schema.backend_active_tasks; """
     }
