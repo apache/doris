@@ -511,6 +511,10 @@ function set_doris_session_variables_from_file() {
 }
 
 _monitor_regression_log() {
+    if ! command -v inotifywait >/dev/null; then
+        apt install inotify-tools -y
+    fi
+
     # Path to the log directory
     local LOG_DIR="${DORIS_HOME}"/regression-test/log
 
