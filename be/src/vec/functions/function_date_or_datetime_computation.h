@@ -42,12 +42,10 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date.h"
@@ -64,73 +62,60 @@
 
 namespace doris::vectorized {
 
-template <TimeUnit unit, typename DateValueType, typename ResultDateValueType, typename ResultType,
-          typename Arg>
-extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
-    auto ts_value = binary_cast<Arg, DateValueType>(t);
-    TimeInterval interval(unit, delta, false);
-    if constexpr (std::is_same_v<VecDateTimeValue, DateValueType> ||
-                  std::is_same_v<DateValueType, ResultDateValueType>) {
-        is_null = !(ts_value.template date_add_interval<unit>(interval));
+/// because all these functions(xxx_add/xxx_sub) defined in FE use Integer as the second value
+///  so Int32 as delta is enough. For upstream(FunctionDateOrDateTimeComputation) we also could use Int32.
 
-        return binary_cast<ResultDateValueType, ResultType>(ts_value);
+template <
+        TimeUnit unit, typename ArgType, typename ReturnType,
+        typename InputNativeType = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<ArgType>>,
+        typename ReturnNativeType =
+                date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<ReturnType>>>
+ReturnNativeType date_time_add(const InputNativeType& t, Int32 delta, bool& is_null) {
+    using DateValueType = date_cast::TypeToValueTypeV<ArgType>;
+    using ResultDateValueType = date_cast::TypeToValueTypeV<ReturnType>;
+    // e.g.: for DatatypeDatetimeV2, cast from u64 to DateV2Value<DateTimeV2ValueType>
+    auto ts_value = binary_cast<InputNativeType, DateValueType>(t);
+    TimeInterval interval(unit, delta, false);
+    if constexpr (std::is_same_v<ArgType, ReturnType>) {
+        is_null = !(ts_value.template date_add_interval<unit>(interval));
+        // here DateValueType = ResultDateValueType
+        return binary_cast<DateValueType, ReturnNativeType>(ts_value);
     } else {
+        // this is for HOUR/MINUTE/SECOND/MS_ADD for datev2. got datetimev2 but not datev2. so need this two-arg reload to assign.
         ResultDateValueType res;
         is_null = !(ts_value.template date_add_interval<unit>(interval, res));
 
-        return binary_cast<ResultDateValueType, ResultType>(res);
+        return binary_cast<ResultDateValueType, ReturnNativeType>(res);
     }
 }
 
-#define ADD_TIME_FUNCTION_IMPL(CLASS, NAME, UNIT)                                                  \
-    template <typename DateType>                                                                   \
-    struct CLASS {                                                                                 \
-        using ReturnType = std::conditional_t<                                                     \
-                date_cast::IsV1<DateType>(), DataTypeDateTime,                                     \
-                std::conditional_t<                                                                \
-                        std::is_same_v<DateType, DataTypeDateV2>,                                  \
-                        std::conditional_t<TimeUnit::UNIT == TimeUnit::HOUR ||                     \
-                                                   TimeUnit::UNIT == TimeUnit::MINUTE ||           \
-                                                   TimeUnit::UNIT == TimeUnit::SECOND ||           \
-                                                   TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND, \
-                                           DataTypeDateTimeV2, DataTypeDateV2>,                    \
-                        DataTypeDateTimeV2>>;                                                      \
-        using ReturnNativeType =                                                                   \
-                date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<ReturnType>>;               \
-        using InputNativeType = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<DateType>>; \
-        static constexpr auto name = #NAME;                                                        \
-        static constexpr auto is_nullable = true;                                                  \
-        static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta,              \
-                                               bool& is_null) {                                    \
-            if constexpr (std::is_same_v<DateType, DataTypeDate> ||                                \
-                          std::is_same_v<DateType, DataTypeDateTime>) {                            \
-                return date_time_add<TimeUnit::UNIT, doris::VecDateTimeValue,                      \
-                                     doris::VecDateTimeValue, ReturnNativeType>(t, delta,          \
-                                                                                is_null);          \
-            } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {                       \
-                if constexpr (TimeUnit::UNIT == TimeUnit::HOUR ||                                  \
-                              TimeUnit::UNIT == TimeUnit::MINUTE ||                                \
-                              TimeUnit::UNIT == TimeUnit::SECOND ||                                \
-                              TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND) {                    \
-                    return date_time_add<TimeUnit::UNIT, DateV2Value<DateV2ValueType>,             \
-                                         DateV2Value<DateTimeV2ValueType>, ReturnNativeType>(      \
-                            t, delta, is_null);                                                    \
-                } else {                                                                           \
-                    return date_time_add<TimeUnit::UNIT, DateV2Value<DateV2ValueType>,             \
-                                         DateV2Value<DateV2ValueType>, ReturnNativeType>(t, delta, \
-                                                                                         is_null); \
-                }                                                                                  \
-                                                                                                   \
-            } else {                                                                               \
-                return date_time_add<TimeUnit::UNIT, DateV2Value<DateTimeV2ValueType>,             \
-                                     DateV2Value<DateTimeV2ValueType>, ReturnNativeType>(t, delta, \
-                                                                                         is_null); \
-            }                                                                                      \
-        }                                                                                          \
-                                                                                                   \
-        static DataTypes get_variadic_argument_types() {                                           \
-            return {std::make_shared<DateType>(), std::make_shared<DataTypeInt32>()};              \
-        }                                                                                          \
+#define ADD_TIME_FUNCTION_IMPL(CLASS, NAME, UNIT)                                                   \
+    template <typename ArgType>                                                                     \
+    struct CLASS {                                                                                  \
+        /* for V1 type all return Datetime. for V2 type, if unit <= hour, increase to DatetimeV2 */ \
+        using ReturnType = std::conditional_t<                                                      \
+                date_cast::IsV1<ArgType>(), DataTypeDateTime,                                       \
+                std::conditional_t<                                                                 \
+                        std::is_same_v<ArgType, DataTypeDateV2>,                                    \
+                        std::conditional_t<TimeUnit::UNIT == TimeUnit::HOUR ||                      \
+                                                   TimeUnit::UNIT == TimeUnit::MINUTE ||            \
+                                                   TimeUnit::UNIT == TimeUnit::SECOND ||            \
+                                                   TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND,  \
+                                           DataTypeDateTimeV2, DataTypeDateV2>,                     \
+                        DataTypeDateTimeV2>>;                                                       \
+        using ReturnNativeType =                                                                    \
+                date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<ReturnType>>;                \
+        using InputNativeType = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<ArgType>>;   \
+        static constexpr auto name = #NAME;                                                         \
+        static constexpr auto is_nullable = true;                                                   \
+        static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta,               \
+                                               bool& is_null) {                                     \
+            return date_time_add<TimeUnit::UNIT, ArgType, ReturnType>(t, delta, is_null);           \
+        }                                                                                           \
+                                                                                                    \
+        static DataTypes get_variadic_argument_types() {                                            \
+            return {std::make_shared<ArgType>(), std::make_shared<DataTypeInt32>()};                \
+        }                                                                                           \
     }
 
 ADD_TIME_FUNCTION_IMPL(AddMicrosecondsImpl, microseconds_add, MICROSECOND);
@@ -143,46 +128,32 @@ ADD_TIME_FUNCTION_IMPL(AddWeeksImpl, weeks_add, WEEK);
 ADD_TIME_FUNCTION_IMPL(AddMonthsImpl, months_add, MONTH);
 ADD_TIME_FUNCTION_IMPL(AddYearsImpl, years_add, YEAR);
 
-template <typename DateType>
+template <typename ArgType>
 struct AddQuartersImpl {
     using ReturnType =
-            std::conditional_t<std::is_same_v<DateType, DataTypeDate> ||
-                                       std::is_same_v<DateType, DataTypeDateTime>,
+            std::conditional_t<std::is_same_v<ArgType, DataTypeDate> ||
+                                       std::is_same_v<ArgType, DataTypeDateTime>,
                                DataTypeDateTime,
-                               std::conditional_t<std::is_same_v<DateType, DataTypeDateV2>,
+                               std::conditional_t<std::is_same_v<ArgType, DataTypeDateV2>,
                                                   DataTypeDateV2, DataTypeDateTimeV2>>;
-    using InputNativeType = std::conditional_t<
-            std::is_same_v<DateType, DataTypeDate> || std::is_same_v<DateType, DataTypeDateTime>,
-            Int64, std::conditional_t<std::is_same_v<DateType, DataTypeDateV2>, UInt32, UInt64>>;
-    using ReturnNativeType = std::conditional_t<
-            std::is_same_v<DateType, DataTypeDate> || std::is_same_v<DateType, DataTypeDateTime>,
-            Int64, std::conditional_t<std::is_same_v<DateType, DataTypeDateV2>, UInt32, UInt64>>;
+    using InputNativeType = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<ArgType>>;
+    using ReturnNativeType = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<ReturnType>>;
     static constexpr auto name = "quarters_add";
     static constexpr auto is_nullable = true;
-    static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta, bool& is_null) {
-        if constexpr (std::is_same_v<DateType, DataTypeDate> ||
-                      std::is_same_v<DateType, DataTypeDateTime>) {
-            return date_time_add<TimeUnit::MONTH, doris::VecDateTimeValue, doris::VecDateTimeValue,
-                                 ReturnNativeType>(t, delta, is_null);
-        } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
-            return date_time_add<TimeUnit::MONTH, DateV2Value<DateV2ValueType>,
-                                 DateV2Value<DateV2ValueType>, ReturnNativeType>(t, delta, is_null);
-        } else {
-            return date_time_add<TimeUnit::MONTH, DateV2Value<DateTimeV2ValueType>,
-                                 DateV2Value<DateTimeV2ValueType>, ReturnNativeType>(t, delta,
-                                                                                     is_null);
-        }
+    static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta, bool& is_null) {
+        return date_time_add<TimeUnit::MONTH, ArgType, ReturnType>(t, 3 * delta, is_null);
     }
 
-    static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<ArgType>()}; }
 };
 
 template <typename Transform, typename DateType>
 struct SubtractIntervalImpl {
     using ReturnType = typename Transform::ReturnType;
     using InputNativeType = typename Transform::InputNativeType;
+    using ReturnNativeType = typename Transform::ReturnNativeType;
     static constexpr auto is_nullable = true;
-    static inline Int64 execute(const InputNativeType& t, Int64 delta, bool& is_null) {
+    static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta, bool& is_null) {
         return Transform::execute(t, -delta, is_null);
     }
 
@@ -241,57 +212,49 @@ struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>, DateType
     static constexpr auto name = "years_sub";
 };
 
-#define DECLARE_DATE_FUNCTIONS(NAME, FN_NAME, RETURN_TYPE, STMT)                                   \
-    template <typename DateType1, typename DateType2>                                              \
-    struct NAME {                                                                                  \
-        using ArgType1 = std::conditional_t<                                                       \
-                std::is_same_v<DateType1, DataTypeDateV2>, UInt32,                                 \
-                std::conditional_t<std::is_same_v<DateType1, DataTypeDateTimeV2>, UInt64, Int64>>; \
-        using ArgType2 = std::conditional_t<                                                       \
-                std::is_same_v<DateType2, DataTypeDateV2>, UInt32,                                 \
-                std::conditional_t<std::is_same_v<DateType2, DataTypeDateTimeV2>, UInt64, Int64>>; \
-        using DateValueType1 = std::conditional_t<                                                 \
-                std::is_same_v<DateType1, DataTypeDateV2>, DateV2Value<DateV2ValueType>,           \
-                std::conditional_t<std::is_same_v<DateType1, DataTypeDateTimeV2>,                  \
-                                   DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;           \
-        using DateValueType2 = std::conditional_t<                                                 \
-                std::is_same_v<DateType2, DataTypeDateV2>, DateV2Value<DateV2ValueType>,           \
-                std::conditional_t<std::is_same_v<DateType2, DataTypeDateTimeV2>,                  \
-                                   DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;           \
-        using ReturnType = RETURN_TYPE;                                                            \
-        static constexpr auto name = #FN_NAME;                                                     \
-        static constexpr auto is_nullable = false;                                                 \
-        static inline ReturnType::FieldType execute(const ArgType1& t0, const ArgType2& t1,        \
-                                                    bool& is_null) {                               \
-            const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);                         \
-            const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);                         \
-            is_null = !ts0.is_valid_date() || !ts1.is_valid_date();                                \
-            return STMT;                                                                           \
-        }                                                                                          \
-        static DataTypes get_variadic_argument_types() {                                           \
-            return {std::make_shared<DateType1>(), std::make_shared<DateType2>()};                 \
-        }                                                                                          \
+#define DECLARE_DATE_FUNCTIONS(NAME, FN_NAME, RETURN_TYPE, STMT)                                  \
+    template <typename DateType1, typename DateType2>                                             \
+    struct NAME {                                                                                 \
+        using NativeType1 = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<DateType1>>;   \
+        using NativeType2 = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<DateType2>>;   \
+        using DateValueType1 = date_cast::TypeToValueTypeV<DateType1>;                            \
+        using DateValueType2 = date_cast::TypeToValueTypeV<DateType2>;                            \
+        using ReturnType = RETURN_TYPE;                                                           \
+                                                                                                  \
+        static constexpr auto name = #FN_NAME;                                                    \
+        static constexpr auto is_nullable = false;                                                \
+        static inline ReturnType::FieldType execute(const NativeType1& t0, const NativeType2& t1, \
+                                                    bool& is_null) {                              \
+            const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);                        \
+            const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);                        \
+            is_null = !ts0.is_valid_date() || !ts1.is_valid_date();                               \
+            return (STMT);                                                                        \
+        }                                                                                         \
+        static DataTypes get_variadic_argument_types() {                                          \
+            return {std::make_shared<DateType1>(), std::make_shared<DateType2>()};                \
+        }                                                                                         \
     };
+
 DECLARE_DATE_FUNCTIONS(DateDiffImpl, datediff, DataTypeInt32, (ts0.daynr() - ts1.daynr()));
 // DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.second_diff(ts1));
-// Expands to
+// Expands to below here because it use Time type which need some special deal.
 template <typename DateType1, typename DateType2>
 struct TimeDiffImpl {
-    using DateValueType1 = date_cast::TypeToValueTypeV<DateType1>;
-    using DateValueType2 = date_cast::TypeToValueTypeV<DateType2>;
+    using NativeType1 = date_cast::TypeToValueTypeV<DateType1>;
+    using NativeType2 = date_cast::TypeToValueTypeV<DateType2>;
     using ArgType1 = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<DateType1>>;
     using ArgType2 = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<DateType2>>;
     static constexpr bool UsingTimev2 =
             date_cast::IsV2<DateType1>() || date_cast::IsV2<DateType2>();
 
-    using ReturnType = DataTypeTimeV2;
+    using ReturnType = DataTypeTimeV2; // TimeV1Type also use double as native type. same as v2.
 
     static constexpr auto name = "timediff";
     static constexpr int64_t limit_value = 3020399000000; // 838:59:59 convert to microsecond
     static inline ReturnType::FieldType execute(const ArgType1& t0, const ArgType2& t1,
                                                 bool& is_null) {
-        const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
-        const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
+        const auto& ts0 = reinterpret_cast<const NativeType1&>(t0);
+        const auto& ts1 = reinterpret_cast<const NativeType2&>(t1);
         is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
         if constexpr (UsingTimev2) {
             // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
@@ -315,274 +278,114 @@ struct TimeDiffImpl {
 #define TIME_DIFF_FUNCTION_IMPL(CLASS, NAME, UNIT) \
     DECLARE_DATE_FUNCTIONS(CLASS, NAME, DataTypeInt64, datetime_diff<TimeUnit::UNIT>(ts1, ts0))
 
+// all these functions implemented by datediff
 TIME_DIFF_FUNCTION_IMPL(YearsDiffImpl, years_diff, YEAR);
 TIME_DIFF_FUNCTION_IMPL(MonthsDiffImpl, months_diff, MONTH);
 TIME_DIFF_FUNCTION_IMPL(WeeksDiffImpl, weeks_diff, WEEK);
 TIME_DIFF_FUNCTION_IMPL(DaysDiffImpl, days_diff, DAY);
 TIME_DIFF_FUNCTION_IMPL(HoursDiffImpl, hours_diff, HOUR);
-TIME_DIFF_FUNCTION_IMPL(MintueSDiffImpl, minutes_diff, MINUTE);
+TIME_DIFF_FUNCTION_IMPL(MintuesDiffImpl, minutes_diff, MINUTE);
 TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
 TIME_DIFF_FUNCTION_IMPL(MilliSecondsDiffImpl, milliseconds_diff, MILLISECOND);
 TIME_DIFF_FUNCTION_IMPL(MicroSecondsDiffImpl, microseconds_diff, MICROSECOND);
 
-#define TIME_FUNCTION_TWO_ARGS_IMPL(CLASS, NAME, FUNCTION, RETURN_TYPE)                           \
-    template <typename DateType>                                                                  \
-    struct CLASS {                                                                                \
-        using ArgType = std::conditional_t<                                                       \
-                std::is_same_v<DateType, DataTypeDateV2>, UInt32,                                 \
-                std::conditional_t<std::is_same_v<DateType, DataTypeDateTimeV2>, UInt64, Int64>>; \
-        using DateValueType = std::conditional_t<                                                 \
-                std::is_same_v<DateType, DataTypeDateV2>, DateV2Value<DateV2ValueType>,           \
-                std::conditional_t<std::is_same_v<DateType, DataTypeDateTimeV2>,                  \
-                                   DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;          \
-        using ReturnType = RETURN_TYPE;                                                           \
-        static constexpr auto name = #NAME;                                                       \
-        static constexpr auto is_nullable = false;                                                \
-        static inline ReturnType::FieldType execute(const ArgType& t0, const Int32 mode,          \
-                                                    bool& is_null) {                              \
-            const auto& ts0 = reinterpret_cast<const DateValueType&>(t0);                         \
-            is_null = !ts0.is_valid_date();                                                       \
-            return ts0.FUNCTION;                                                                  \
-        }                                                                                         \
-        static DataTypes get_variadic_argument_types() {                                          \
-            return {std::make_shared<DateType>(), std::make_shared<DataTypeInt32>()};             \
-        }                                                                                         \
+#define TIME_FUNCTION_TWO_ARGS_IMPL(CLASS, NAME, FUNCTION, RETURN_TYPE)                    \
+    template <typename DateType>                                                           \
+    struct CLASS {                                                                         \
+        using ArgType = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<DateType>>; \
+        using DateValueType = date_cast::TypeToValueTypeV<DateType>;                       \
+        using ReturnType = RETURN_TYPE;                                                    \
+                                                                                           \
+        static constexpr auto name = #NAME;                                                \
+        static constexpr auto is_nullable = false;                                         \
+        static inline ReturnType::FieldType execute(const ArgType& t0, const Int32 mode,   \
+                                                    bool& is_null) {                       \
+            const auto& ts0 = reinterpret_cast<const DateValueType&>(t0);                  \
+            is_null = !ts0.is_valid_date();                                                \
+            return ts0.FUNCTION;                                                           \
+        }                                                                                  \
+        static DataTypes get_variadic_argument_types() {                                   \
+            return {std::make_shared<DateType>(), std::make_shared<DataTypeInt32>()};      \
+        }                                                                                  \
     }
 
 TIME_FUNCTION_TWO_ARGS_IMPL(ToYearWeekTwoArgsImpl, yearweek, year_week(mysql_week_mode(mode)),
                             DataTypeInt32);
 TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImpl, week, week(mysql_week_mode(mode)), DataTypeInt8);
 
-template <typename FromType1, typename FromType2, typename ToType, typename Transform>
+// only use for FunctionDateOrDateTimeComputation
+template <typename FromType0, typename FromType1, typename ToType, typename Transform>
 struct DateTimeOp {
-    // use for (DateTime, DateTime) -> other_type
-    static void vector_vector(const PaddedPODArray<FromType1>& vec_from0,
-                              const PaddedPODArray<FromType2>& vec_from1,
-                              PaddedPODArray<ToType>& vec_to) {
+    static void vector_vector(const PaddedPODArray<FromType0>& vec_from0,
+                              const PaddedPODArray<FromType1>& vec_from1,
+                              PaddedPODArray<ToType>& vec_to, const NullMap* nullmap0,
+                              const NullMap* nullmap1) {
         size_t size = vec_from0.size();
         vec_to.resize(size);
+        bool invalid = false;
 
-        bool invalid = true;
         for (size_t i = 0; i < size; ++i) {
-            // here reinterpret_cast is used to convert uint8& to bool&,
-            // otherwise it will be implicitly converted to bool, causing the rvalue to fail to match the lvalue.
-            // the same goes for the following.
+            if ((nullmap0 && (*nullmap0)[i]) || (nullmap1 && (*nullmap1)[i])) [[unlikely]] {
+                continue;
+            }
             vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], invalid);
 
             if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {} {} out of range",
                                 Transform::name, vec_from0[i], vec_from1[i]);
             }
         }
     }
 
-    // use for (DateTime, int32) -> other_type
-    static void vector_vector(const PaddedPODArray<FromType1>& vec_from0,
-                              const PaddedPODArray<Int32>& vec_from1,
-                              PaddedPODArray<ToType>& vec_to) {
-        size_t size = vec_from0.size();
-        vec_to.resize(size);
-
-        bool invalid = true;
-        for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], invalid);
-
-            if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
-                                Transform::name, vec_from0[i], vec_from1[i]);
-            }
+    static void vector_constant(const PaddedPODArray<FromType0>& vec_from,
+                                PaddedPODArray<ToType>& vec_to, const FromType1& delta,
+                                const NullMap* nullmap0, const NullMap* nullmap1) {
+        if (nullmap1 && (*nullmap1)[0]) [[unlikely]] {
+            return;
         }
-    }
-
-    // use for (DateTime, const DateTime) -> other_type
-    static void vector_constant(const PaddedPODArray<FromType1>& vec_from,
-                                PaddedPODArray<ToType>& vec_to, Int128& delta) {
         size_t size = vec_from.size();
         vec_to.resize(size);
+        bool invalid = false;
 
-        bool invalid = true;
         for (size_t i = 0; i < size; ++i) {
+            if (nullmap0 && (*nullmap0)[i]) [[unlikely]] {
+                continue;
+            }
             vec_to[i] = Transform::execute(vec_from[i], delta, invalid);
 
             if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {} {} out of range",
                                 Transform::name, vec_from[i], delta);
             }
         }
     }
 
-    // use for (DateTime, const ColumnNumber) -> other_type
-    static void vector_constant(const PaddedPODArray<FromType1>& vec_from,
-                                PaddedPODArray<ToType>& vec_to, Int64 delta) {
-        size_t size = vec_from.size();
-        vec_to.resize(size);
-        bool invalid = true;
-
-        for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(vec_from[i], delta, invalid);
-
-            if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
-                                Transform::name, vec_from[i], delta);
-            }
+    static void constant_vector(const FromType0& from, PaddedPODArray<ToType>& vec_to,
+                                const PaddedPODArray<FromType1>& delta, const NullMap* nullmap0,
+                                const NullMap* nullmap1) {
+        if (nullmap0 && (*nullmap0)[0]) [[unlikely]] {
+            return;
         }
-    }
-
-    // use for (const DateTime, ColumnNumber) -> other_type
-    static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
-                                const IColumn& delta) {
         size_t size = delta.size();
         vec_to.resize(size);
-        bool invalid = true;
+        bool invalid = false;
 
         for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(from, delta.get_int(i), invalid);
-
-            if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
-                                Transform::name, from, delta.get_int(i));
+            if (nullmap1 && (*nullmap1)[i]) [[unlikely]] {
+                continue;
             }
-        }
-    }
-
-    static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
-                                const PaddedPODArray<FromType2>& delta) {
-        size_t size = delta.size();
-        vec_to.resize(size);
-        bool invalid = true;
-
-        for (size_t i = 0; i < size; ++i) {
             vec_to[i] = Transform::execute(from, delta[i], invalid);
 
             if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {} {} out of range",
                                 Transform::name, from, delta[i]);
             }
         }
     }
 };
 
-template <typename FromType1, typename Transform, typename FromType2 = FromType1>
-struct DateTimeAddIntervalImpl {
-    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
-                          size_t input_rows_count) {
-        using ToType = typename Transform::ReturnType::FieldType;
-        using Op = DateTimeOp<FromType1, FromType2, ToType, Transform>;
-
-        // if null wrapped, extract nested column as source_col
-        const ColumnPtr source_col = remove_nullable(block.get_by_position(arguments[0]).column);
-        const auto is_nullable = block.get_by_position(result).type->is_nullable();
-        // not const input column
-        if (const auto* sources = check_and_get_column<ColumnVector<FromType1>>(source_col.get())) {
-            auto col_to = ColumnVector<ToType>::create();
-            auto delta_column_ptr = remove_nullable(block.get_by_position(arguments[1]).column);
-            const IColumn& delta_column = *delta_column_ptr;
-
-            if (const auto* delta_const_column = typeid_cast<const ColumnConst*>(&delta_column)) {
-                if (delta_const_column->get_field().get_type() == Field::Types::Int128) {
-                    Op::vector_constant(sources->get_data(), col_to->get_data(),
-                                        delta_const_column->get_field().get<Int128>());
-                } else if (delta_const_column->get_field().get_type() == Field::Types::Int64) {
-                    Op::vector_constant(sources->get_data(), col_to->get_data(),
-                                        delta_const_column->get_field().get<Int64>());
-                } else if (delta_const_column->get_field().get_type() == Field::Types::UInt64) {
-                    Op::vector_constant(sources->get_data(), col_to->get_data(),
-                                        delta_const_column->get_field().get<UInt64>());
-                } else {
-                    Op::vector_constant(sources->get_data(), col_to->get_data(),
-                                        delta_const_column->get_field().get<Int32>());
-                }
-            } else {
-                if (const auto* delta_vec_column0 =
-                            check_and_get_column<ColumnVector<FromType2>>(delta_column)) {
-                    Op::vector_vector(sources->get_data(), delta_vec_column0->get_data(),
-                                      col_to->get_data());
-                } else {
-                    const auto* delta_vec_column1 =
-                            check_and_get_column<ColumnVector<Int32>>(delta_column);
-                    DCHECK(delta_vec_column1 != nullptr);
-                    Op::vector_vector(sources->get_data(), delta_vec_column1->get_data(),
-                                      col_to->get_data());
-                }
-            }
-            // update nullmap
-            if (is_nullable) {
-                auto null_map = ColumnUInt8::create(input_rows_count, 0);
-                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                            block.get_by_position(arguments[0]).column.get())) {
-                    NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
-                    const NullMap& src_null_map =
-                            assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                                    .get_data();
-
-                    VectorizedUtils::update_null_map(result_null_map, src_null_map);
-                }
-                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                            block.get_by_position(arguments[1]).column.get())) {
-                    NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
-                    const NullMap& src_null_map =
-                            assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                                    .get_data();
-
-                    VectorizedUtils::update_null_map(result_null_map, src_null_map);
-                }
-                block.get_by_position(result).column =
-                        ColumnNullable::create(std::move(col_to), std::move(null_map));
-            } else {
-                block.replace_by_position(result, std::move(col_to));
-            }
-        } else if (const auto* sources_const =
-                           check_and_get_column_const<ColumnVector<FromType1>>(source_col.get())) {
-            // const input column
-            auto col_to = ColumnVector<ToType>::create();
-
-            auto not_nullable_column_ptr_arg1 =
-                    remove_nullable(block.get_by_position(arguments[1]).column);
-            if (const auto* delta_vec_column = check_and_get_column<ColumnVector<FromType2>>(
-                        *not_nullable_column_ptr_arg1)) {
-                Op::constant_vector(sources_const->template get_value<FromType1>(),
-                                    col_to->get_data(), delta_vec_column->get_data());
-            } else {
-                Op::constant_vector(sources_const->template get_value<FromType1>(),
-                                    col_to->get_data(), *not_nullable_column_ptr_arg1);
-            }
-
-            if (is_nullable) {
-                auto null_map = ColumnUInt8::create(input_rows_count, 0);
-
-                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                            block.get_by_position(arguments[0]).column.get())) {
-                    NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
-                    const NullMap& src_null_map =
-                            assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                                    .get_data();
-
-                    VectorizedUtils::update_null_map(result_null_map, src_null_map);
-                }
-                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                            block.get_by_position(arguments[1]).column.get())) {
-                    NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
-                    const NullMap& src_null_map =
-                            assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                                    .get_data();
-
-                    VectorizedUtils::update_null_map(result_null_map, src_null_map);
-                }
-                block.get_by_position(result).column =
-                        ColumnNullable::create(std::move(col_to), std::move(null_map));
-            } else {
-                block.replace_by_position(result, std::move(col_to));
-            }
-        } else {
-            return Status::RuntimeError(
-                    "Illegal column {} of first argument and type {} of function {}",
-                    block.get_by_position(arguments[0]).column->get_name(),
-                    block.get_by_position(arguments[0]).type->get_name(), Transform::name);
-        }
-        return Status::OK();
-    }
-};
-
+// Used for date(time) add/sub date(time)/integer. the input types are variadic and dispatch in execute. the return type is
+//  decided by Transform
 template <typename Transform>
 class FunctionDateOrDateTimeComputation : public IFunction {
 public:
@@ -606,35 +409,6 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        if (arguments.size() != 2 && arguments.size() != 3) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "Number of arguments for function {} doesn't match: passed {} , "
-                                   "should be 2 or 3",
-                                   get_name(), arguments.size());
-        }
-
-        if (arguments.size() == 2) {
-            if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
-                !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
-                throw doris::Exception(
-                        ErrorCode::INVALID_ARGUMENT,
-                        "Illegal type {} of argument of function {}. Should be a date or a date "
-                        "with time",
-                        arguments[0].type->get_name(), get_name());
-            }
-        } else {
-            if (!WhichDataType(remove_nullable(arguments[0].type)).is_date_time() ||
-                !WhichDataType(remove_nullable(arguments[0].type)).is_date_time_v2() ||
-                !WhichDataType(remove_nullable(arguments[2].type)).is_string()) {
-                throw doris::Exception(
-                        ErrorCode::INVALID_ARGUMENT,
-                        "Function {} supports 2 or 3 arguments. The 1st argument must be of type "
-                        "Date or DateTime. The 2nd argument must be number. The 3rd argument "
-                        "(optional) must be a constant string with timezone name. The timezone "
-                        "argument is allowed only when the 1st argument has the type DateTime",
-                        get_name());
-            }
-        }
         RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(typename Transform::ReturnType);
     }
 
@@ -645,48 +419,160 @@ public:
         WhichDataType which1(remove_nullable(first_arg_type));
         WhichDataType which2(remove_nullable(second_arg_type));
 
-        if (which1.is_date_v2() && which2.is_date_v2()) {
-            return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
-                                           DataTypeDateV2::FieldType>::execute(block, arguments,
-                                                                               result,
-                                                                               input_rows_count);
-        } else if (which1.is_date_time_v2() && which2.is_date_time_v2()) {
-            return DateTimeAddIntervalImpl<
-                    DataTypeDateTimeV2::FieldType, Transform,
-                    DataTypeDateTimeV2::FieldType>::execute(block, arguments, result,
-                                                            input_rows_count);
-        } else if (which1.is_date_time() && which2.is_date_time()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTime::FieldType, Transform,
-                                           DataTypeDateTime::FieldType>::execute(block, arguments,
-                                                                                 result,
-                                                                                 input_rows_count);
-        } else if (which1.is_date_v2() && which2.is_date_time_v2()) {
-            return DateTimeAddIntervalImpl<
-                    DataTypeDateV2::FieldType, Transform,
-                    DataTypeDateTimeV2::FieldType>::execute(block, arguments, result,
-                                                            input_rows_count);
-        } else if (which1.is_date_time_v2() && which2.is_date_v2()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTimeV2::FieldType, Transform,
-                                           DataTypeDateV2::FieldType>::execute(block, arguments,
-                                                                               result,
-                                                                               input_rows_count);
-        } else if (which1.is_date()) {
-            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform>::execute(
-                    block, arguments, result, input_rows_count);
-        } else if (which1.is_date_time()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTime::FieldType, Transform>::execute(
-                    block, arguments, result, input_rows_count);
-        } else if (which1.is_date_v2()) {
-            return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform>::execute(
-                    block, arguments, result, input_rows_count);
-        } else if (which1.is_date_time_v2()) {
-            return DateTimeAddIntervalImpl<DataTypeDateTimeV2::FieldType, Transform>::execute(
-                    block, arguments, result, input_rows_count);
-        } else {
-            return Status::RuntimeError("Illegal type {} of argument of function {}",
-                                        block.get_by_position(arguments[0]).type->get_name(),
-                                        get_name());
+        /// now dispatch with the two arguments' type. no need to consider return type because the same arguments decide a
+        /// unique return type which could be extracted from Transform.
+
+        // for all `xxx_add/sub`, the second arg is int32.
+        // for `week/yearweek`, if it has the second arg, it's int32.
+        // in these situations, the first would be any datelike type.
+        if (which2.is_int32()) {
+            switch (which1.idx) {
+            case TypeIndex::Date:
+                return execute_inner<DataTypeDate::FieldType, Int32>(block, arguments, result,
+                                                                     input_rows_count);
+                break;
+            case TypeIndex::DateTime:
+                return execute_inner<DataTypeDateTime::FieldType, Int32>(block, arguments, result,
+                                                                         input_rows_count);
+                break;
+            case TypeIndex::DateV2:
+                return execute_inner<DataTypeDateV2::FieldType, Int32>(block, arguments, result,
+                                                                       input_rows_count);
+                break;
+            case TypeIndex::DateTimeV2:
+                return execute_inner<DataTypeDateTimeV2::FieldType, Int32>(block, arguments, result,
+                                                                           input_rows_count);
+                break;
+            default:
+                return Status::InternalError("Illegal argument {} and {} of function {}",
+                                             block.get_by_position(arguments[0]).type->get_name(),
+                                             block.get_by_position(arguments[1]).type->get_name(),
+                                             get_name());
+            }
         }
+        // then consider datelike - datelike. everything is possible here as well.
+        // for `xxx_diff`, every combination of V2 is possible. but for V1 we only support Datetime - Datetime
+        if (which1.is_date_v2() && which2.is_date_v2()) {
+            return execute_inner<DataTypeDateV2::FieldType, DataTypeDateV2::FieldType>(
+                    block, arguments, result, input_rows_count);
+        } else if (which1.is_date_time_v2() && which2.is_date_time_v2()) {
+            return execute_inner<DataTypeDateTimeV2::FieldType, DataTypeDateTimeV2::FieldType>(
+                    block, arguments, result, input_rows_count);
+        } else if (which1.is_date_v2() && which2.is_date_time_v2()) {
+            return execute_inner<DataTypeDateV2::FieldType, DataTypeDateTimeV2::FieldType>(
+                    block, arguments, result, input_rows_count);
+        } else if (which1.is_date_time_v2() && which2.is_date_v2()) {
+            return execute_inner<DataTypeDateTimeV2::FieldType, DataTypeDateV2::FieldType>(
+                    block, arguments, result, input_rows_count);
+        } else if (which1.is_date_time() && which2.is_date_time()) {
+            return execute_inner<DataTypeDateTime::FieldType, DataTypeDateTime::FieldType>(
+                    block, arguments, result, input_rows_count);
+        }
+        return Status::InternalError("Illegal argument {} and {} of function {}",
+                                     block.get_by_position(arguments[0]).type->get_name(),
+                                     block.get_by_position(arguments[1]).type->get_name(),
+                                     get_name());
+    }
+
+    template <typename FromType0, typename FromType1> // are native types
+    static Status execute_inner(Block& block, const ColumnNumbers& arguments, uint32_t result,
+                                size_t input_rows_count) {
+        using ToType = typename Transform::ReturnType::FieldType;
+        using Op = DateTimeOp<FromType0, FromType1, ToType, Transform>;
+
+        auto get_null_map = [](const ColumnPtr& col) -> const NullMap* {
+            if (col->is_nullable()) {
+                return &static_cast<const ColumnNullable&>(*col).get_null_map_data();
+            }
+            // Const(Nullable)
+            if (const auto* const_col = check_and_get_column<ColumnConst>(col.get());
+                const_col != nullptr && const_col->is_concrete_nullable()) {
+                return &static_cast<const ColumnNullable&>(const_col->get_data_column())
+                                .get_null_map_data();
+            }
+            return nullptr;
+        };
+
+        //ATTN: those null maps may be nullmap of ColumnConst(only 1 row)
+        // src column is always datelike type.
+        ColumnPtr& col0 = block.get_by_position(arguments[0]).column;
+        const NullMap* nullmap0 = get_null_map(col0);
+        // the second column may be delta column(xx_add/sub) or datelike column(xxx_diff)
+        ColumnPtr& col1 = block.get_by_position(arguments[1]).column;
+        const NullMap* nullmap1 = get_null_map(col1);
+
+        // if null wrapped, extract nested column as src_nested_col
+        const ColumnPtr src_nested_col = remove_nullable(col0);
+        const auto result_nullable = block.get_by_position(result).type->is_nullable();
+        auto res_col = ColumnVector<ToType>::create();
+
+        // vector-const or vector-vector
+        if (const auto* sources =
+                    check_and_get_column<ColumnVector<FromType0>>(src_nested_col.get())) {
+            const IColumn& nest_col1 = *remove_nullable(col1);
+            bool rconst = false;
+            // vector-const
+            if (const auto* nest_col1_const = check_and_get_column<ColumnConst>(&nest_col1)) {
+                rconst = true;
+                const auto col1_inside_const = assert_cast<const ColumnVector<FromType1>&>(
+                        nest_col1_const->get_data_column());
+                Op::vector_constant(sources->get_data(), res_col->get_data(),
+                                    col1_inside_const.get_data()[0], nullmap0, nullmap1);
+            } else { // vector-vector
+                const auto concrete_col1 = assert_cast<const ColumnVector<FromType1>&>(nest_col1);
+                Op::vector_vector(sources->get_data(), concrete_col1.get_data(),
+                                  res_col->get_data(), nullmap0, nullmap1);
+            }
+
+            // update result nullmap with inputs
+            if (result_nullable) {
+                auto null_map = ColumnBool::create(input_rows_count, 0);
+                NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
+                if (nullmap0) {
+                    VectorizedUtils::update_null_map(result_null_map, *nullmap0);
+                }
+                if (nullmap1) {
+                    VectorizedUtils::update_null_map(result_null_map, *nullmap1, rconst);
+                }
+                block.get_by_position(result).column =
+                        ColumnNullable::create(std::move(res_col), std::move(null_map));
+            } else {
+                block.replace_by_position(result, std::move(res_col));
+            }
+        } else if (const auto* sources_const = check_and_get_column_const<ColumnVector<FromType0>>(
+                           src_nested_col.get())) {
+            // const-vector
+            const auto col0_inside_const =
+                    assert_cast<const ColumnVector<FromType0>&>(sources_const->get_data_column());
+            const IColumn& nested_col1 = *remove_nullable(col1);
+            const auto concrete_col1 = assert_cast<const ColumnVector<FromType1>&>(nested_col1);
+            Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(),
+                                concrete_col1.get_data(), nullmap0, nullmap1);
+
+            // update result nullmap with inputs
+            if (result_nullable) {
+                auto null_map = ColumnBool::create(input_rows_count, 0);
+                NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
+                if (nullmap0) {
+                    VectorizedUtils::update_null_map(result_null_map, *nullmap0, true);
+                }
+                if (nullmap1) { // no const-const here. default impl deal it.
+                    VectorizedUtils::update_null_map(result_null_map, *nullmap1);
+                }
+                block.get_by_position(result).column =
+                        ColumnNullable::create(std::move(res_col), std::move(null_map));
+            } else {
+                block.replace_by_position(result, std::move(res_col));
+            }
+        } else { // no const-const here. default impl deal it.
+            return Status::InternalError(
+                    "Illegel columns for function {}:\n1: {} with type {}\n2: {} with type {}",
+                    Transform::name, block.get_by_position(arguments[0]).name,
+                    block.get_by_position(arguments[0]).type->get_name(),
+                    block.get_by_position(arguments[1]).name,
+                    block.get_by_position(arguments[1]).type->get_name());
+        }
+        return Status::OK();
     }
 };
 
