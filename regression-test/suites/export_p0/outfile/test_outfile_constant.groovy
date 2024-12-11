@@ -15,20 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_outfile_null_type", "p0") {
+suite("test_outfile_constant", "p0") {
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
     String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
-    def export_table_name = "test_outfile_null_type"
-    def outFilePath = "${bucket}/outfile/null_type/exp_"
+    def export_table_name = "test_outfile_constant"
+    def outFilePath = "${bucket}/outfile/constant_type/exp_"
 
-    def outfile_to_S3 = { format ->
+    def outfile_to_S3 = { select_stmt, format ->
         // select ... into outfile ...
         def res = sql """
-            SELECT *, NULL AS null_col FROM ${export_table_name} t
+            ${select_stmt}
             INTO OUTFILE "s3://${outFilePath}"
             FORMAT AS ${format}
             PROPERTIES (
@@ -40,6 +40,17 @@ suite("test_outfile_null_type", "p0") {
         """
 
         return res[0][3]
+    }
+
+    def s3_tvf = { outfile_url, format ->
+       order_qt_s3_select """ SELECT * FROM S3 (
+            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
+            "ACCESS_KEY"= "${ak}",
+            "SECRET_KEY" = "${sk}",
+            "format" = "${format}",
+            "region" = "${region}"
+        );
+        """ 
     }
 
     sql """ DROP TABLE IF EXISTS ${export_table_name} """
@@ -72,39 +83,39 @@ suite("test_outfile_null_type", "p0") {
     logger.info("insert result: " + insert_res.toString())
     qt_select_export """ SELECT * FROM ${export_table_name} t ORDER BY id; """
 
-    // parquet file format
-    def format = "parquet"
-    def outfile_url = outfile_to_S3("${format}")
-    order_qt_select_load_parquet """ SELECT * FROM S3 (
-                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
-                "format" = "${format}",
-                "region" = "${region}"
-            );
-            """
 
-    // orc file foramt
-    format = "orc"
-    outfile_url = outfile_to_S3("${format}")
-    order_qt_select_load_orc """ SELECT * FROM S3 (
-                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
-                "format" = "${format}",
-                "region" = "${region}"
-            );
-            """
+    def test_outfile_constant = { format ->
+        // select 1
+        def outfile_url = outfile_to_S3("Select 1", "${format}")
+        s3_tvf("${outfile_url}", "${format}")
 
-    // csv file foramt
-    format = "csv"
-    outfile_url = outfile_to_S3("${format}")
-    order_qt_select_load_csv """ SELECT * FROM S3 (
-                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
-                "format" = "${format}",
-                "region" = "${region}"
-            );
-            """
+        // select 3.1415926
+        outfile_url = outfile_to_S3("Select 3.1415926", "${format}")
+        s3_tvf("${outfile_url}", "${format}")
+
+        // select e()
+        outfile_url = outfile_to_S3("Select e()", "${format}")
+        s3_tvf("${outfile_url}", "${format}")
+
+        // select Pi()
+        outfile_url = outfile_to_S3("Select Pi()", "${format}")
+        s3_tvf("${outfile_url}", "${format}")
+
+        // select 2024-12-09;
+        outfile_url = outfile_to_S3("Select 2024-12-09", "${format}")
+        s3_tvf("${outfile_url}", "${format}")
+
+        // select "2024-12-09";
+        outfile_url = outfile_to_S3("""Select "2024-12-09" """, "${format}")
+        s3_tvf("${outfile_url}", "${format}")
+
+        // select null
+        outfile_url = outfile_to_S3("Select null", "${format}")
+        s3_tvf("${outfile_url}", "${format}")
+    }
+
+    test_outfile_constant("parquet");
+    test_outfile_constant("orc");
+    test_outfile_constant("csv");
+    
 }
