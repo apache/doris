@@ -65,7 +65,6 @@ private:
     RuntimeProfile::Counter* _compute_hash_value_timer = nullptr;
     RuntimeProfile::Counter* _distribute_timer = nullptr;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner = nullptr;
-    std::vector<uint32_t> _partition_rows_histogram;
 
     // Used by random passthrough exchanger
     int _channel_id = 0;
