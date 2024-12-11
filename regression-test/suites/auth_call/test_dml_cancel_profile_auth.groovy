@@ -35,7 +35,7 @@ suite("test_dml_cancel_profile_auth","p0,auth_call,nonConcurrent") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """
                 CLEAN ALL PROFILE;

@@ -55,14 +55,14 @@ suite("test_ddl_mask_view_auth","p0,auth_call") {
                 AS
                 SELECT mask(id) as k1, mask(username) as v1 FROM ${dbName}.${tableName} GROUP BY k1, v1;"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """select * from ${dbName}.${viewName};"""
             exception "denied"
         }
     }
     sql """grant select_PRIV on ${dbName}.${viewName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def res = sql """select * from ${dbName}.${viewName};"""
         assertTrue(res[0][0] == "n")
         assertTrue(res[0][1] == "nnnxxxXXX")
