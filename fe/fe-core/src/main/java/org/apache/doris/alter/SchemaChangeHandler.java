@@ -2733,6 +2733,12 @@ public class SchemaChangeHandler extends AlterHandler {
                         indexDef.getIndexType() + " index for columns (" + String.join(",", indexDef.getColumns())
                                 + " ) already exist.");
             }
+            // The restored olap table may not reset the index id, which comes from the upstream,
+            // so we need to check and reset the index id here, to avoid confliction.
+            // See OlapTable.resetIdsForRestore for details.
+            if (existedIdx.getIndexId() == alterIndex.getIndexId()) {
+                alterIndex.setIndexId(Env.getCurrentEnv().getNextId());
+            }
         }
         boolean disableInvertedIndexV1ForVariant = olapTable.getInvertedIndexFileStorageFormat()
                         == TInvertedIndexFileStorageFormat.V1 && ConnectContext.get().getSessionVariable()
