@@ -152,11 +152,7 @@ suite ("test_agg_vals_schema_change") {
                 do {
                     Thread.sleep(100)
                     String tablet_id = tablet[0]
-<<<<<<< HEAD
-                    backend_id = tablet[2]
-=======
                     def backend_id = tablet[2]
->>>>>>> 829a35d390 (fix global var bugs)
                     def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                     logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)

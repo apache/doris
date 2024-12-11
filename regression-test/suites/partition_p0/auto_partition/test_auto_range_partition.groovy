@@ -117,7 +117,7 @@ suite("test_auto_range_partition") {
         );
     """
     sql " insert into week_range values (20240408), (20240409); "
-    def result2 = sql "show partitions from week_range"
+    result2 = sql "show partitions from week_range"
     logger.info("${result2}")
     assertEquals(result2.size(), 1)
 
