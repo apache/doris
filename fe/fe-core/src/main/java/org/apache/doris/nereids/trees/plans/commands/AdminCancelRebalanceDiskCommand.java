@@ -35,19 +35,18 @@ import org.apache.log4j.Logger;
 import java.util.List;
 
 /**
- * admin rebalance disk
+ * admin cancel rebalance disk
  */
-public class AdminRebalanceDiskCommand extends AbstractRebalanceDiskCommand {
-    private static final Logger LOG = LogManager.getLogger(AdminRebalanceDiskCommand.class);
-    private final long timeoutS = 24 * 3600; // default 24 hours
+public class AdminCancelRebalanceDiskCommand extends AbstractRebalanceDiskCommand {
+    private static final Logger LOG = LogManager.getLogger(AdminCancelRebalanceDiskCommand.class);
     private List<String> backends;
 
-    public AdminRebalanceDiskCommand() {
-        super(PlanType.ADMIN_REBALANCE_DISK_COMMAND);
+    public AdminCancelRebalanceDiskCommand() {
+        super(PlanType.ADMIN_CANCEL_REBALANCE_DISK_COMMAND);
     }
 
-    public AdminRebalanceDiskCommand(List<String> backends) {
-        super(PlanType.ADMIN_REBALANCE_DISK_COMMAND);
+    public AdminCancelRebalanceDiskCommand(List<String> backends) {
+        super(PlanType.ADMIN_CANCEL_REBALANCE_DISK_COMMAND);
         this.backends = backends;
     }
 
@@ -57,26 +56,26 @@ public class AdminRebalanceDiskCommand extends AbstractRebalanceDiskCommand {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-        handleRebalanceDisk();
+        handleCancelRebalanceDisk();
     }
 
-    private void handleRebalanceDisk() throws AnalysisException {
+    private void handleCancelRebalanceDisk() throws AnalysisException {
         List<Backend> rebalanceDiskBackends = getNeedRebalanceDiskBackends(backends);
         if (rebalanceDiskBackends.isEmpty()) {
-            LOG.info("The matching be is empty, no be to rebalance disk.");
+            LOG.info("The matching be is empty, no be to cancel rebalance disk.");
             return;
         }
-        Env.getCurrentEnv().getTabletScheduler().rebalanceDisk(rebalanceDiskBackends, timeoutS);
+        Env.getCurrentEnv().getTabletScheduler().cancelRebalanceDisk(rebalanceDiskBackends);
     }
 
     @Override
     protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
-        LOG.info("AdminRebalanceDiskCommand not supported in cloud mode");
+        LOG.info("AdminCancelRebalanceDiskCommand not supported in cloud mode");
         throw new DdlException("Unsupported operation");
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitAdminRebalanceDiskCommand(this, context);
+        return visitor.visitAdminCancelRebalanceDiskCommand(this, context);
     }
 }

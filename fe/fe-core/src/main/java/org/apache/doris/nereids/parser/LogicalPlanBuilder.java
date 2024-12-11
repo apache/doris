@@ -478,6 +478,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCancelRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
@@ -4722,9 +4723,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.ON() != null) {
             List<String> backendList = Lists.newArrayList();
             ctx.backends.forEach(backend -> backendList.add(stripQuotes(backend.getText())));
-            return new AdminRebalanceDiskCommand(false, backendList);
+            return new AdminRebalanceDiskCommand(backendList);
         }
-        return new AdminRebalanceDiskCommand(false);
+        return new AdminRebalanceDiskCommand();
     }
 
     @Override
@@ -4732,9 +4733,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.ON() != null) {
             List<String> backendList = Lists.newArrayList();
             ctx.backends.forEach(backend -> backendList.add(stripQuotes(backend.getText())));
-            return new AdminRebalanceDiskCommand(true, backendList);
+            return new AdminCancelRebalanceDiskCommand(backendList);
         }
-        return new AdminRebalanceDiskCommand(true);
+        return new AdminCancelRebalanceDiskCommand();
     }
 
     @Override

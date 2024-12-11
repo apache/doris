@@ -19,9 +19,9 @@ suite("test_nereids_rebalance_disk") {
     // can not use qt command since the output change based on cluster and backend ip
     checkNereidsExecute(""" admin rebalance disk; """)
     checkNereidsExecute(""" admin rebalance disk ON ("127.0.0.1:9050"); """)
-    checkNereidsExecute(""" admin rebalance disk ON ("192.168.0.1:9050", "192.168.0.2:9050"); """)
+    checkNereidsExecute(""" admin rebalance disk ON ("192.168.0.1:9050", "127.0.0.1:9050", "192.168.0.2:9050"); """)
 
     checkNereidsExecute(""" admin cancel rebalance disk; """)
     checkNereidsExecute(""" admin cancel rebalance disk ON ("127.0.0.1:9050"); """)
-    checkNereidsExecute(""" admin cancel rebalance disk ON ("192.168.0.1:9050", "192.168.0.2:9050"); """)
+    checkNereidsExecute(""" admin cancel rebalance disk ON ("192.168.0.1:9050", "127.0.0.1:9050", "192.168.0.2:9050"); """)
 }
