@@ -290,6 +290,9 @@ public class OutFileClause {
     private String dorisTypeToOrcTypeMap(Type dorisType) throws AnalysisException {
         String orcType = "";
         switch (dorisType.getPrimitiveType()) {
+            case NULL_TYPE:
+                orcType = "tinyint";
+                break;
             case BOOLEAN:
             case TINYINT:
             case SMALLINT:
@@ -415,6 +418,9 @@ public class OutFileClause {
             Pair<String, String> schema = this.orcSchemas.get(i);
             Type resultType = resultExprs.get(i).getType();
             switch (resultType.getPrimitiveType()) {
+                case NULL_TYPE:
+                    checkOrcType(schema.second, "tinyint", true, resultType.getPrimitiveType().toString());
+                    break;
                 case BOOLEAN:
                 case TINYINT:
                 case SMALLINT:
