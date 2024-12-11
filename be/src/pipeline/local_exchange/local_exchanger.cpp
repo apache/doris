@@ -444,7 +444,7 @@ void LocalMergeSortExchanger::finalize() {
     int id = 0;
     for (auto& data_queue : _data_queue) {
         data_queue.set_eos();
-        while (_dequeue_data(nullptr, next_block, &eos, &block, id)) {
+        while (_dequeue_data(next_block, &eos, &block, id)) {
             block = vectorized::Block();
         }
         id++;
@@ -457,8 +457,8 @@ Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
     RETURN_IF_ERROR(_sort_source->build_merger(state, _merger, local_state->profile()));
     std::vector<vectorized::BlockSupplier> child_block_suppliers;
     for (int channel_id = 0; channel_id < _num_partitions; channel_id++) {
-        vectorized::BlockSupplier block_supplier = [&, id = channel_id](vectorized::Block* block,
-                                                                        bool* eos) {
+        vectorized::BlockSupplier block_supplier = [&, local_state, id = channel_id](
+                                                           vectorized::Block* block, bool* eos) {
             BlockWrapperSPtr next_block;
             _dequeue_data(local_state, next_block, eos, block, id);
             return Status::OK();
