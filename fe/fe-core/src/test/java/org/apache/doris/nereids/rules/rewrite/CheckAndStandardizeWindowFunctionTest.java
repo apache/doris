@@ -28,11 +28,14 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
+import org.apache.doris.nereids.trees.expressions.functions.window.FirstValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
+import org.apache.doris.nereids.trees.expressions.functions.window.LastValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -238,6 +241,29 @@ public class CheckAndStandardizeWindowFunctionTest implements MemoPatternMatchSu
                 FrameBoundary.newFollowingBoundary(new IntegerLiteral(5)), FrameBoundary.newFollowingBoundary(new IntegerLiteral(4)));
         String errorMsg2 = "WindowFrame with FOLLOWING boundary requires that leftBoundOffset >= rightBoundOffset";
         forCheckWindowFrameBeforeFunc(windowFrame2, errorMsg2);
+    }
+
+    @Test
+    public void testFirstValueRewrite() {
+        age = rStudent.getOutput().get(3).toSlot();
+        WindowExpression window = new WindowExpression(new FirstValue(age, BooleanLiteral.FALSE), partitionKeyList, orderKeyList);
+        Alias windowAlias = new Alias(window, window.toSql());
+        WindowExpression windowLastValue = new WindowExpression(new LastValue(age, BooleanLiteral.FALSE), partitionKeyList, orderKeyList);
+        Alias windowLastValueAlias = new Alias(windowLastValue, windowLastValue.toSql());
+        List<NamedExpression> outputExpressions = Lists.newArrayList(windowAlias, windowLastValueAlias);
+        Plan root = new LogicalWindow<>(outputExpressions, rStudent);
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new ExtractAndNormalizeWindowExpression())
+                .applyTopDown(new CheckAndStandardizeWindowFunctionAndFrame())
+                .matches(
+                        logicalWindow()
+                                .when(logicalWindow -> {
+                                    WindowExpression newWindowFirstValue = (WindowExpression) logicalWindow.getWindowExpressions().get(0).child(0);
+                                    WindowExpression newWindowLastValue = (WindowExpression) logicalWindow.getWindowExpressions().get(0).child(0);
+                                    return newWindowFirstValue.getFunction().arity() == 1 && newWindowLastValue.getFunction().arity() == 1;
+                                })
+                );
     }
 
     private void forCheckWindowFrameBeforeFunc(WindowFrame windowFrame, String errorMsg) {

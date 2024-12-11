@@ -784,7 +784,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "单个 broker scanner 的最大并发数。", "Maximal concurrency of broker scanners."})
-    public static int max_broker_concurrency = 10;
+    public static int max_broker_concurrency = 100;
 
     // TODO(cmy): Disable by default because current checksum logic has some bugs.
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -2948,7 +2948,7 @@ public class Config extends ConfigBase {
             "Columns that have not been collected within the specified interval will trigger automatic analyze. "
                 + "0 means not trigger."
     })
-    public static long auto_analyze_interval_seconds = 0;
+    public static long auto_analyze_interval_seconds = 86400; // 24 hours.
 
     //==========================================================================
     //                    begin of cloud config

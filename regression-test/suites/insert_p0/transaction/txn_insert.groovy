@@ -291,7 +291,7 @@ suite("txn_insert") {
             def observer_fe_url = get_observer_fe_url()
             if (observer_fe_url != null) {
                 logger.info("observer url: $observer_fe_url")
-                connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = observer_fe_url) {
+                connect( context.config.jdbcUser,  context.config.jdbcPassword,  observer_fe_url) {
                     result = sql """ select count() from regression_test_insert_p0_transaction.${table}_0 """
                     logger.info("select from observer result: $result")
                     assertEquals(79, result[0][0])

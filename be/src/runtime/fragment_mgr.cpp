@@ -34,17 +34,16 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <pthread.h>
-#include <stddef.h>
 #include <sys/time.h>
 #include <thrift/TApplicationException.h>
 #include <thrift/Thrift.h>
 #include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/transport/TTransportException.h>
-#include <time.h>
 #include <unistd.h>
 
 #include <algorithm>
-#include <atomic>
+#include <cstddef>
+#include <ctime>
 
 #include "common/status.h"
 // IWYU pragma: no_include <bits/chrono.h>
@@ -58,19 +57,16 @@
 #include <unordered_set>
 #include <utility>
 
-#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/utils.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/frontend_info.h"
-#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_filter_mgr.h"
@@ -89,24 +85,20 @@
 #include "util/debug_points.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
-#include "util/hash_util.hpp"
-#include "util/mem_info.h"
 #include "util/network_util.h"
-#include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
-#include "util/url_coding.h"
 #include "vec/runtime/shared_hash_table_controller.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_instance_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_num_active_threads, MetricUnit::NOUNIT);
 bvar::LatencyRecorder g_fragmentmgr_prepare_latency("doris_FragmentMgr", "prepare");
 
 bvar::Adder<uint64_t> g_fragment_executing_count("fragment_executing_count");
@@ -184,7 +176,7 @@ static Status _do_fetch_running_queries_rpc(const FrontendInfo& fe_info,
     }
 
     // Avoid logic error in frontend.
-    if (rpc_result.__isset.status == false || rpc_result.status.status_code != TStatusCode::OK) {
+    if (!rpc_result.__isset.status || rpc_result.status.status_code != TStatusCode::OK) {
         LOG_WARNING("Failed to fetch running queries from {}, reason: {}",
                     PrintThriftNetworkAddress(fe_info.info.coordinator_address),
                     doris::to_string(rpc_result.status.status_code));
@@ -193,7 +185,7 @@ static Status _do_fetch_running_queries_rpc(const FrontendInfo& fe_info,
                                      doris::to_string(rpc_result.status.status_code));
     }
 
-    if (rpc_result.__isset.running_queries == false) {
+    if (!rpc_result.__isset.running_queries) {
         return Status::InternalError("Failed to fetch running queries from {}, reason: {}",
                                      PrintThriftNetworkAddress(fe_info.info.coordinator_address),
                                      "running_queries is not set");
@@ -254,6 +246,8 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
 
     REGISTER_HOOK_METRIC(fragment_thread_pool_queue_size,
                          [this]() { return _thread_pool->get_queue_size(); });
+    REGISTER_HOOK_METRIC(fragment_thread_pool_num_active_threads,
+                         [this]() { return _thread_pool->num_active_threads(); });
     CHECK(s.ok()) << s.to_string();
 }
 
@@ -262,6 +256,7 @@ FragmentMgr::~FragmentMgr() = default;
 void FragmentMgr::stop() {
     DEREGISTER_HOOK_METRIC(fragment_instance_count);
     DEREGISTER_HOOK_METRIC(fragment_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(fragment_thread_pool_num_active_threads);
     _stop_background_threads_latch.count_down();
     if (_cancel_thread) {
         _cancel_thread->join();
@@ -653,12 +648,25 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
             }
 
             if (!query_ctx) {
+                WorkloadGroupPtr workload_group_ptr = nullptr;
+                std::string wg_info_str = "Workload Group not set";
+                if (params.__isset.workload_groups && !params.workload_groups.empty()) {
+                    uint64_t wg_id = params.workload_groups[0].id;
+                    workload_group_ptr = _exec_env->workload_group_mgr()->get_group(wg_id);
+                    if (workload_group_ptr != nullptr) {
+                        wg_info_str = workload_group_ptr->debug_string();
+                    } else {
+                        wg_info_str = "set wg but not find it in be";
+                    }
+                }
+
                 // First time a fragment of a query arrived. print logs.
                 LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
                           << ", total fragment num on current host: " << params.fragment_num_on_host
                           << ", fe process uuid: " << params.query_options.fe_process_uuid
                           << ", query type: " << params.query_options.query_type
-                          << ", report audit fe:" << params.current_connect_fe;
+                          << ", report audit fe:" << params.current_connect_fe
+                          << ", use wg:" << wg_info_str;
 
                 // This may be a first fragment request of the query.
                 // Create the query fragments context.
@@ -683,19 +691,11 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
 
                 _set_scan_concurrency(params, query_ctx.get());
 
-                if (params.__isset.workload_groups && !params.workload_groups.empty()) {
-                    uint64_t tg_id = params.workload_groups[0].id;
-                    WorkloadGroupPtr workload_group_ptr =
-                            _exec_env->workload_group_mgr()->get_task_group_by_id(tg_id);
-                    if (workload_group_ptr != nullptr) {
-                        RETURN_IF_ERROR(workload_group_ptr->add_query(query_id, query_ctx));
-                        RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
-                        _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(
-                                print_id(query_id), tg_id);
-                    } else {
-                        LOG(WARNING) << "Query/load id: " << print_id(query_ctx->query_id())
-                                     << "can't find its workload group " << tg_id;
-                    }
+                if (workload_group_ptr != nullptr) {
+                    RETURN_IF_ERROR(workload_group_ptr->add_query(query_id, query_ctx));
+                    query_ctx->set_workload_group(workload_group_ptr);
+                    _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(
+                            print_id(query_id), workload_group_ptr->id());
                 }
                 // There is some logic in query ctx's dctor, we could not check if exists and delete the
                 // temp query ctx now. For example, the query id maybe removed from workload group's queryset.

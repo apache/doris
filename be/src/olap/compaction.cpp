@@ -929,6 +929,33 @@ Status CloudCompactionMixin::update_delete_bitmap() {
     return Status::OK();
 }
 
+void Compaction::agg_and_remove_old_version_delete_bitmap(
+        std::vector<RowsetSharedPtr>& pre_rowsets,
+        std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>&
+                to_remove_vec,
+        DeleteBitmapPtr& new_delete_bitmap) {
+    // agg previously rowset old version delete bitmap
+    auto pre_max_version = _output_rowset->version().second;
+    new_delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_meta()->tablet_id());
+    for (auto& rowset : pre_rowsets) {
+        if (rowset->rowset_meta()->total_disk_size() == 0) {
+            continue;
+        }
+        for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
+            rowset->rowset_id().to_string();
+            DeleteBitmap::BitmapKey start {rowset->rowset_id(), seg_id, 0};
+            DeleteBitmap::BitmapKey end {rowset->rowset_id(), seg_id, pre_max_version};
+            auto d = _tablet->tablet_meta()->delete_bitmap().get_agg(
+                    {rowset->rowset_id(), seg_id, pre_max_version});
+            to_remove_vec.emplace_back(std::make_tuple(_tablet->tablet_id(), start, end));
+            if (d->isEmpty()) {
+                continue;
+            }
+            new_delete_bitmap->set(end, *d);
+        }
+    }
+}
+
 Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // only do index compaction for dup_keys and unique_keys with mow enabled
     if (config::inverted_index_compaction_enable &&
@@ -986,8 +1013,31 @@ Status CompactionMixin::modify_rowsets() {
             if (!_tablet->tablet_meta()->tablet_schema()->cluster_key_uids().empty()) {
                 merged_missed_rows_size += _stats.filtered_rows;
             }
+
+            // Suppose a heavy schema change process on BE converting tablet A to tablet B.
+            // 1. during schema change double write, new loads write [X-Y] on tablet B.
+            // 2. rowsets with version [a],[a+1],...,[b-1],[b] on tablet B are picked for cumu compaction(X<=a<b<=Y).(cumu compaction
+            //    on new tablet during schema change double write is allowed after https://github.com/apache/doris/pull/16470)
+            // 3. schema change remove all rowsets on tablet B before version Z(b<=Z<=Y) before it begins to convert historical rowsets.
+            // 4. schema change finishes.
+            // 5. cumu compation begins on new tablet with version [a],...,[b]. If there are duplicate keys between these rowsets,
+            //    the compaction check will fail because these rowsets have skipped to calculate delete bitmap in commit phase and
+            //    publish phase because tablet B is in NOT_READY state when writing.
+
+            // Considering that the cumu compaction will fail finally in this situation because `Tablet::modify_rowsets` will check if rowsets in
+            // `to_delete`(_input_rowsets) still exist in tablet's `_rs_version_map`, we can just skip to check missed rows here.
+            bool need_to_check_missed_rows = true;
+            {
+                std::shared_lock rlock(_tablet->get_header_lock());
+                need_to_check_missed_rows =
+                        std::all_of(_input_rowsets.begin(), _input_rowsets.end(),
+                                    [&](const RowsetSharedPtr& rowset) {
+                                        return tablet()->rowset_exists_unlocked(rowset);
+                                    });
+            }
+
             if (_tablet->tablet_state() == TABLET_RUNNING &&
-                merged_missed_rows_size != missed_rows_size) {
+                merged_missed_rows_size != missed_rows_size && need_to_check_missed_rows) {
                 std::stringstream ss;
                 ss << "cumulative compaction: the merged rows(" << _stats.merged_rows
                    << "), filtered rows(" << _stats.filtered_rows
@@ -1103,6 +1153,13 @@ Status CompactionMixin::modify_rowsets() {
         tablet()->delete_expired_stale_rowset();
     }
 
+    if (config::enable_delete_bitmap_merge_on_compaction &&
+        compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+        _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
+        process_old_version_delete_bitmap();
+    }
+
     int64_t cur_max_version = 0;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
@@ -1119,6 +1176,36 @@ Status CompactionMixin::modify_rowsets() {
     }
 
     return Status::OK();
+}
+
+void CompactionMixin::process_old_version_delete_bitmap() {
+    std::vector<RowsetSharedPtr> pre_rowsets {};
+    for (const auto& it : tablet()->rowset_map()) {
+        if (it.first.second < _input_rowsets.front()->start_version()) {
+            pre_rowsets.emplace_back(it.second);
+        }
+    }
+    std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
+    if (!pre_rowsets.empty()) {
+        std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>
+                to_remove_vec;
+        DeleteBitmapPtr new_delete_bitmap = nullptr;
+        agg_and_remove_old_version_delete_bitmap(pre_rowsets, to_remove_vec, new_delete_bitmap);
+        if (!new_delete_bitmap->empty()) {
+            // store agg delete bitmap
+            Version version(_input_rowsets.front()->start_version(),
+                            _input_rowsets.back()->end_version());
+            for (auto it = new_delete_bitmap->delete_bitmap.begin();
+                 it != new_delete_bitmap->delete_bitmap.end(); it++) {
+                _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
+            }
+            _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(version.to_string(),
+                                                                        to_remove_vec);
+            DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets", {
+                static_cast<Tablet*>(_tablet.get())->delete_expired_stale_rowset();
+            });
+        }
+    }
 }
 
 bool CompactionMixin::_check_if_includes_input_rowsets(

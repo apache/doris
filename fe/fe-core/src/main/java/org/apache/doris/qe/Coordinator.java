@@ -235,8 +235,6 @@ public class Coordinator implements CoordInterface {
     // same as backend_exec_states_.size() after Exec()
     private final Set<TUniqueId> instanceIds = Sets.newHashSet();
 
-    private final boolean isBlockQuery;
-
     private int numReceivedRows = 0;
 
     private List<String> deltaUrls;
@@ -332,7 +330,6 @@ public class Coordinator implements CoordInterface {
     // Used for query/insert/test
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
         this.context = context;
-        this.isBlockQuery = planner.isBlockQuery();
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
         this.scanNodes = planner.getScanNodes();
@@ -375,7 +372,6 @@ public class Coordinator implements CoordInterface {
     // Constructor of Coordinator is too complicated.
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
             List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, boolean enableProfile) {
-        this.isBlockQuery = true;
         this.jobId = jobId;
         this.queryId = queryId;
         this.descTable = descTable.toThrift();
@@ -1202,22 +1198,21 @@ public class Coordinator implements CoordInterface {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
         }
 
+        // if reached limit rows, cancel this query immediately
+        // to avoid BE from reading more data.
+        // ATTN: if change here, also need to change the same logic in QueryProcessor.getNext();
+        Long limitRows = fragments.get(0).getPlanRoot().getLimit();
+        boolean reachedLimit = LimitUtils.cancelIfReachLimit(
+                resultBatch, limitRows, numReceivedRows, this::cancelInternal);
+
         if (resultBatch.isEos()) {
             receivers.remove(receiver);
             if (receivers.isEmpty()) {
                 returnedAllResults = true;
-            } else {
+            } else if (!reachedLimit) {
+                // if reachedLimit is true, which means this query has been cancelled.
+                // so no need to set eos to false again.
                 resultBatch.setEos(false);
-            }
-
-            // if this query is a block query do not cancel.
-            Long numLimitRows = fragments.get(0).getPlanRoot().getLimit();
-            boolean hasLimit = numLimitRows > 0;
-            if (!isBlockQuery && instanceIds.size() > 1 && hasLimit && numReceivedRows >= numLimitRows) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("no block query, return num >= limit rows, need cancel");
-                }
-                cancelInternal(new Status(TStatusCode.LIMIT_REACH, "query reach limit"));
             }
         }
 
