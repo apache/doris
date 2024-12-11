@@ -167,8 +167,8 @@ suite("test_backup_restore_inverted_idx", "backup_restore") {
         sql """ ADMIN SET FRONTEND CONFIG ("restore_reset_index_id" = "true") """
     }
 
-    // sql "DROP TABLE ${dbName}.${tableName} FORCE"
-    // sql "DROP DATABASE ${dbName} FORCE"
-    // sql "DROP REPOSITORY `${repoName}`"
+    sql "DROP TABLE ${dbName}.${tableName} FORCE"
+    sql "DROP DATABASE ${dbName} FORCE"
+    sql "DROP REPOSITORY `${repoName}`"
 }
 
