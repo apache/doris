@@ -29,6 +29,9 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
@@ -70,6 +73,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -140,6 +144,8 @@ public class MTMVTask extends AbstractTask {
     private MTMVRelation relation;
     private StmtExecutor executor;
     private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
+
+    private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     public MTMVTask() {
     }
@@ -218,6 +224,9 @@ public class MTMVTask extends AbstractTask {
             throws Exception {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
         StatementContext statementContext = new StatementContext();
+        for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
+            statementContext.setSnapshot(entry.getKey(), entry.getValue());
+        }
         ctx.setStatementContext(statementContext);
         TUniqueId queryId = generateQueryId();
         lastQueryId = DebugUtil.printId(queryId);
@@ -304,6 +313,11 @@ public class MTMVTask extends AbstractTask {
             if (tableIf instanceof MTMVBaseTableIf) {
                 MTMVBaseTableIf baseTableIf = (MTMVBaseTableIf) tableIf;
                 baseTableIf.beforeMTMVRefresh(mtmv);
+            }
+            if (tableIf instanceof MvccTable) {
+                MvccTable mvccTable = (MvccTable) tableIf;
+                MvccSnapshot mvccSnapshot = mvccTable.loadSnapshot();
+                snapshots.put(new MvccTableInfo(mvccTable), mvccSnapshot);
             }
         }
     }

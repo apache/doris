@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
@@ -116,7 +117,9 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
@@ -217,6 +220,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAdminCompactTableCommand(AdminCompactTableCommand adminCompactTableCommand, C context) {
         return visitCommand(adminCompactTableCommand, context);
+    }
+
+    default R visitAdminCleanTrashCommand(AdminCleanTrashCommand adminCleanTrashCommand, C context) {
+        return visitCommand(adminCleanTrashCommand, context);
     }
 
     default R visitDropConstraintCommand(DropConstraintCommand dropConstraintCommand, C context) {
@@ -609,5 +616,14 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowDataSkewCommand(ShowDataSkewCommand showDataSkewCommand, C context) {
         return visitCommand(showDataSkewCommand, context);
+    }
+
+    default R visitShowTableCreationCommand(ShowTableCreationCommand showTableCreationCommand, C context) {
+        return visitCommand(showTableCreationCommand, context);
+    }
+
+    default R visitShowTabletStorageFormatCommand(ShowTabletStorageFormatCommand showTabletStorageFormatCommand,
+                                                  C context) {
+        return visitCommand(showTabletStorageFormatCommand, context);
     }
 }
