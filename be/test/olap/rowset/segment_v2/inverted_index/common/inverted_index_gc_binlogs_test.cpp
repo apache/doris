@@ -62,24 +62,13 @@ protected:
 
         // tablet_schema
         TabletSchemaPB schema_pb;
-        schema_pb.set_keys_type(KeysType::DUP_KEYS);
-        schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+        _schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        _schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
 
-        construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "key_index", 0,
+        construct_column(_schema_pb.add_column(), _schema_pb.add_index(), 10000, "key_index", 0,
                          "INT", "key");
-        construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001, "v1_index", 1,
+        construct_column(_schema_pb.add_column(), _schema_pb.add_index(), 10001, "v1_index", 1,
                          "STRING", "v1");
-
-        _tablet_schema.reset(new TabletSchema);
-        _tablet_schema->init_from_pb(schema_pb);
-
-        // tablet
-        TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
-
-        tablet_meta->set_tablet_uid(TabletUid(20, 20));
-        tablet_meta.get()->_tablet_id = 200;
-        _tablet.reset(new Tablet(*_engine_ref, tablet_meta, _data_dir.get()));
-        EXPECT_TRUE(_tablet->init().ok());
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
@@ -134,37 +123,52 @@ private:
     TabletSharedPtr _tablet = nullptr;
     std::string _absolute_dir;
     std::string _curreent_dir;
+    TabletSchemaPB _schema_pb;
 };
 
 TEST_F(IndexGcBinglogsTest, gc_binlogs_test) {
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+    auto test = [&](InvertedIndexStorageFormatPB format) {
+        TabletSchemaPB schema_pb = _schema_pb;
+        _schema_pb.set_inverted_index_storage_format(format);
+        _tablet_schema.reset(new TabletSchema);
+        _tablet_schema->init_from_pb(schema_pb);
+        TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
 
-    RowsetSharedPtr rowset;
-    const auto& res =
-            RowsetFactory::create_rowset_writer(*_engine_ref, rowset_writer_context(), false);
-    EXPECT_TRUE(res.has_value()) << res.error();
-    const auto& rowset_writer = res.value();
+        tablet_meta->set_tablet_uid(TabletUid(20, 20));
+        tablet_meta.get()->_tablet_id = 200;
+        _tablet.reset(new Tablet(*_engine_ref, tablet_meta, _data_dir.get()));
+        EXPECT_TRUE(_tablet->init().ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
 
-    Block block = _tablet_schema->create_block();
-    auto columns = block.mutate_columns();
+        RowsetSharedPtr rowset;
+        const auto& res =
+                RowsetFactory::create_rowset_writer(*_engine_ref, rowset_writer_context(), false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        const auto& rowset_writer = res.value();
 
-    vectorized::Field key = 10;
-    vectorized::Field v1 = "v1";
-    columns[0]->insert(key);
-    columns[1]->insert(v1);
+        Block block = _tablet_schema->create_block();
+        auto columns = block.mutate_columns();
 
-    EXPECT_TRUE(rowset_writer->add_block(&block).ok());
-    EXPECT_TRUE(rowset_writer->flush().ok());
-    EXPECT_TRUE(rowset_writer->build(rowset).ok());
-    EXPECT_TRUE(rowset->add_to_binlog().ok());
-    EXPECT_TRUE(_tablet->add_rowset(rowset).ok());
-    EXPECT_TRUE(RowsetMetaManager::save(_data_dir->get_meta(), _tablet->tablet_uid(),
-                                        rowset->rowset_id(), rowset->rowset_meta()->get_rowset_pb(),
-                                        true)
-                        .ok());
-    _tablet->save_meta();
-    _tablet->gc_binlogs(0);
+        vectorized::Field key = 10;
+        vectorized::Field v1 = "v1";
+        columns[0]->insert(key);
+        columns[1]->insert(v1);
+
+        EXPECT_TRUE(rowset_writer->add_block(&block).ok());
+        EXPECT_TRUE(rowset_writer->flush().ok());
+        EXPECT_TRUE(rowset_writer->build(rowset).ok());
+        EXPECT_TRUE(rowset->add_to_binlog().ok());
+        EXPECT_TRUE(_tablet->add_rowset(rowset).ok());
+        EXPECT_TRUE(RowsetMetaManager::save(_data_dir->get_meta(), _tablet->tablet_uid(),
+                                            rowset->rowset_id(),
+                                            rowset->rowset_meta()->get_rowset_pb(), true)
+                            .ok());
+        _tablet->save_meta();
+        _tablet->gc_binlogs(0);
+    };
+    test(InvertedIndexStorageFormatPB::V1);
+    test(InvertedIndexStorageFormatPB::V2);
 }
 
 } // namespace doris
