@@ -463,7 +463,7 @@ Status StorageEngine::_check_file_descriptor_number() {
                      << ", use default configuration instead.";
         return Status::OK();
     }
-    if (getenv("SKIP_CHECK_ULIMIT") == true) {
+    if (getenv("SKIP_CHECK_ULIMIT")) {
         LOG(INFO) << "the ‘ulimit’ value check is skipped";
         return Status::OK();
     }
