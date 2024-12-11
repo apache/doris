@@ -88,7 +88,8 @@ public class RefreshMTMVInfo {
         try {
             if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
                 throw new AnalysisException(
-                        "The partition method of this asynchronous materialized view does not support refreshing by partition");
+                        "The partition method of this asynchronous materialized view "
+                                + "does not support refreshing by partition");
             }
             List<AllPartitionDesc> partitionDescs = MTMVPartitionUtil.getPartitionDescsByRelatedTable(
                     mtmv.getTableProperty().getProperties(), mtmv.getMvPartitionInfo(), mtmv.getMvProperties());
