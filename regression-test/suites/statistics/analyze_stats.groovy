@@ -357,7 +357,7 @@ suite("test_analyze") {
         ANALYZE TABLE analyze_partitioned_tbl_test WITH SYNC
     """
 
-    part_tbl_analyze_result = sql """
+    def part_tbl_analyze_result = sql """
         SHOW COLUMN CACHED STATS analyze_partitioned_tbl_test(col1)
     """
 
