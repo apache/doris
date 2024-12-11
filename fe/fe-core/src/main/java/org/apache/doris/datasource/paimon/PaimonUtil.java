@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.hive.HiveUtil;
@@ -30,12 +31,22 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.options.ConfigOption;
+import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.shade.jackson2.com.fasterxml.jackson.core.type.TypeReference;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DecimalType;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.JsonSerdeUtil;
 import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
 
@@ -48,8 +59,11 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public class PaimonUtil {
+    private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
+
     public static List<InternalRow> read(
-            Table table, @Nullable int[][] projection, Pair<ConfigOption<?>, String>... dynamicOptions)
+            Table table, @Nullable int[][] projection, @Nullable Predicate predicate,
+            Pair<ConfigOption<?>, String>... dynamicOptions)
             throws IOException {
         Map<String, String> options = new HashMap<>();
         for (Pair<ConfigOption<?>, String> pair : dynamicOptions) {
@@ -59,6 +73,9 @@ public class PaimonUtil {
         ReadBuilder readBuilder = table.newReadBuilder();
         if (projection != null) {
             readBuilder.withProjection(projection);
+        }
+        if (predicate != null) {
+            readBuilder.withFilter(predicate);
         }
         RecordReader<InternalRow> reader =
                 readBuilder.newRead().createReader(readBuilder.newScan().plan());
@@ -151,5 +168,108 @@ public class PaimonUtil {
         PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
         ListPartitionItem listPartitionItem = new ListPartitionItem(Lists.newArrayList(key));
         return listPartitionItem;
+    }
+
+    private static Type paimonPrimitiveTypeToDorisType(org.apache.paimon.types.DataType dataType) {
+        int tsScale = 3; // default
+        switch (dataType.getTypeRoot()) {
+            case BOOLEAN:
+                return Type.BOOLEAN;
+            case INTEGER:
+                return Type.INT;
+            case BIGINT:
+                return Type.BIGINT;
+            case FLOAT:
+                return Type.FLOAT;
+            case DOUBLE:
+                return Type.DOUBLE;
+            case SMALLINT:
+                return Type.SMALLINT;
+            case TINYINT:
+                return Type.TINYINT;
+            case VARCHAR:
+            case BINARY:
+            case CHAR:
+            case VARBINARY:
+                return Type.STRING;
+            case DECIMAL:
+                DecimalType decimal = (DecimalType) dataType;
+                return ScalarType.createDecimalV3Type(decimal.getPrecision(), decimal.getScale());
+            case DATE:
+                return ScalarType.createDateV2Type();
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                if (dataType instanceof org.apache.paimon.types.TimestampType) {
+                    tsScale = ((org.apache.paimon.types.TimestampType) dataType).getPrecision();
+                    if (tsScale > 6) {
+                        tsScale = 6;
+                    }
+                } else if (dataType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+                    tsScale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
+                    if (tsScale > 6) {
+                        tsScale = 6;
+                    }
+                }
+                return ScalarType.createDatetimeV2Type(tsScale);
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                if (dataType instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+                    tsScale = ((org.apache.paimon.types.LocalZonedTimestampType) dataType).getPrecision();
+                    if (tsScale > 6) {
+                        tsScale = 6;
+                    }
+                }
+                return ScalarType.createDatetimeV2Type(tsScale);
+            case ARRAY:
+                ArrayType arrayType = (ArrayType) dataType;
+                Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType());
+                return org.apache.doris.catalog.ArrayType.create(innerType, true);
+            case MAP:
+                MapType mapType = (MapType) dataType;
+                return new org.apache.doris.catalog.MapType(
+                        paimonTypeToDorisType(mapType.getKeyType()), paimonTypeToDorisType(mapType.getValueType()));
+            case ROW:
+                RowType rowType = (RowType) dataType;
+                List<DataField> fields = rowType.getFields();
+                return new org.apache.doris.catalog.StructType(fields.stream()
+                        .map(field -> new org.apache.doris.catalog.StructField(field.name(),
+                                paimonTypeToDorisType(field.type())))
+                        .collect(Collectors.toCollection(ArrayList::new)));
+            case TIME_WITHOUT_TIME_ZONE:
+                return Type.UNSUPPORTED;
+            default:
+                LOG.warn("Cannot transform unknown type: " + dataType.getTypeRoot());
+                return Type.UNSUPPORTED;
+        }
+    }
+
+    public static Type paimonTypeToDorisType(org.apache.paimon.types.DataType type) {
+        return paimonPrimitiveTypeToDorisType(type);
+    }
+
+    /**
+     * https://paimon.apache.org/docs/0.9/maintenance/system-tables/#schemas-table
+     * demo:
+     * 0
+     * [{"id":0,"name":"user_id","type":"BIGINT NOT NULL"},
+     * {"id":1,"name":"item_id","type":"BIGINT"},
+     * {"id":2,"name":"behavior","type":"STRING"},
+     * {"id":3,"name":"dt","type":"STRING NOT NULL"},
+     * {"id":4,"name":"hh","type":"STRING NOT NULL"}]
+     * ["dt"]
+     * ["dt","hh","user_id"]
+     * {"owner":"hadoop","provider":"paimon"}
+     * 2024-12-03 15:38:14.734
+     *
+     * @param row
+     * @return
+     */
+    public static PaimonSchema rowToSchema(InternalRow row) {
+        long schemaId = row.getLong(0);
+        String fieldsStr = row.getString(1).toString();
+        String partitionKeysStr = row.getString(2).toString();
+        List<DataField> fields = JsonSerdeUtil.fromJson(fieldsStr, new TypeReference<List<DataField>>() {
+        });
+        List<String> partitionKeys = JsonSerdeUtil.fromJson(partitionKeysStr, new TypeReference<List<String>>() {
+        });
+        return new PaimonSchema(schemaId, fields, partitionKeys);
     }
 }

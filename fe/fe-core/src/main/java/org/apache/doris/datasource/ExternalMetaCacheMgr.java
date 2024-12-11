@@ -20,14 +20,11 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.datasource.hudi.source.HudiCachedFsViewProcessor;
-import org.apache.doris.datasource.hudi.source.HudiCachedMetaClientProcessor;
-import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
+import org.apache.doris.datasource.hudi.source.HudiPartitionMgr;
 import org.apache.doris.datasource.hudi.source.HudiPartitionProcessor;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCacheMgr;
@@ -90,7 +87,7 @@ public class ExternalMetaCacheMgr {
     // catalog id -> table schema cache
     private Map<Long, ExternalSchemaCache> schemaCacheMap = Maps.newHashMap();
     // hudi partition manager
-    private final HudiMetadataCacheMgr hudiMetadataCacheMgr;
+    private final HudiPartitionMgr hudiPartitionMgr;
     // all catalogs could share the same fsCache.
     private FileSystemCache fsCache;
     // all external table row count cache.
@@ -99,25 +96,25 @@ public class ExternalMetaCacheMgr {
     private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
     private final PaimonMetadataCacheMgr paimonMetadataCacheMgr;
 
-    public ExternalMetaCacheMgr(boolean isCheckpointCatalog) {
-        rowCountRefreshExecutor = newThreadPool(isCheckpointCatalog,
+    public ExternalMetaCacheMgr() {
+        rowCountRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "RowCountRefreshExecutor", 0, true);
 
-        commonRefreshExecutor = newThreadPool(isCheckpointCatalog,
+        commonRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 10000,
                 "CommonRefreshExecutor", 10, true);
 
         // The queue size should be large enough,
         // because there may be thousands of partitions being queried at the same time.
-        fileListingExecutor = newThreadPool(isCheckpointCatalog,
+        fileListingExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "FileListingExecutor", 10, true);
 
-        scheduleExecutor = newThreadPool(isCheckpointCatalog,
+        scheduleExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "scheduleExecutor", 10, true);
@@ -125,25 +122,10 @@ public class ExternalMetaCacheMgr {
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
 
-        hudiMetadataCacheMgr = new HudiMetadataCacheMgr(commonRefreshExecutor);
+        hudiPartitionMgr = new HudiPartitionMgr(commonRefreshExecutor);
         icebergMetadataCacheMgr = new IcebergMetadataCacheMgr(commonRefreshExecutor);
         maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
         paimonMetadataCacheMgr = new PaimonMetadataCacheMgr(commonRefreshExecutor);
-    }
-
-    private ExecutorService newThreadPool(boolean isCheckpointCatalog, int numThread, int queueSize,
-            String poolName, int timeoutSeconds,
-            boolean needRegisterMetric) {
-        String executorNamePrefix = isCheckpointCatalog ? "Checkpoint" : "NotCheckpoint";
-        String realPoolName = executorNamePrefix + poolName;
-        // Business threads require a fixed size thread pool and use queues to store unprocessed tasks.
-        // Checkpoint threads have almost no business and need to be released in a timely manner to avoid thread leakage
-        if (isCheckpointCatalog) {
-            return ThreadPoolManager.newDaemonCacheThreadPool(numThread, realPoolName, needRegisterMetric);
-        } else {
-            return ThreadPoolManager.newDaemonFixedThreadPool(numThread, queueSize, realPoolName, timeoutSeconds,
-                    needRegisterMetric);
-        }
     }
 
     public ExecutorService getFileListingExecutor() {
@@ -182,19 +164,7 @@ public class ExternalMetaCacheMgr {
     }
 
     public HudiPartitionProcessor getHudiPartitionProcess(ExternalCatalog catalog) {
-        return hudiMetadataCacheMgr.getPartitionProcessor(catalog);
-    }
-
-    public HudiCachedFsViewProcessor getFsViewProcessor(ExternalCatalog catalog) {
-        return hudiMetadataCacheMgr.getFsViewProcessor(catalog);
-    }
-
-    public HudiCachedMetaClientProcessor getMetaClientProcessor(ExternalCatalog catalog) {
-        return hudiMetadataCacheMgr.getHudiMetaClientProcessor(catalog);
-    }
-
-    public HudiMetadataCacheMgr getHudiMetadataCacheMgr() {
-        return hudiMetadataCacheMgr;
+        return hudiPartitionMgr.getPartitionProcessor(catalog);
     }
 
     public IcebergMetadataCache getIcebergMetadataCache() {
@@ -224,7 +194,7 @@ public class ExternalMetaCacheMgr {
         if (schemaCacheMap.remove(catalogId) != null) {
             LOG.info("remove schema cache for catalog {}", catalogId);
         }
-        hudiMetadataCacheMgr.removeCache(catalogId);
+        hudiPartitionMgr.removePartitionProcessor(catalogId);
         icebergMetadataCacheMgr.removeCache(catalogId);
         maxComputeMetadataCacheMgr.removeCache(catalogId);
         paimonMetadataCacheMgr.removeCache(catalogId);
@@ -240,7 +210,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateTableCache(dbName, tblName);
         }
-        hudiMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
+        hudiPartitionMgr.cleanTablePartitions(catalogId, dbName, tblName);
         icebergMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
         maxComputeMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
         paimonMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
@@ -259,7 +229,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateDbCache(dbName);
         }
-        hudiMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
+        hudiPartitionMgr.cleanDatabasePartitions(catalogId, dbName);
         icebergMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         maxComputeMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         paimonMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
@@ -277,7 +247,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateAll();
         }
-        hudiMetadataCacheMgr.invalidateCatalogCache(catalogId);
+        hudiPartitionMgr.cleanPartitionProcess(catalogId);
         icebergMetadataCacheMgr.invalidateCatalogCache(catalogId);
         maxComputeMetadataCacheMgr.invalidateCatalogCache(catalogId);
         paimonMetadataCacheMgr.invalidateCatalogCache(catalogId);
@@ -332,7 +302,7 @@ public class ExternalMetaCacheMgr {
 
     public <T> MetaCache<T> buildMetaCache(String name,
             OptionalLong expireAfterWriteSec, OptionalLong refreshAfterWriteSec, long maxSize,
-            CacheLoader<String, List<Pair<String, String>>> namesCacheLoader,
+            CacheLoader<String, List<String>> namesCacheLoader,
             CacheLoader<String, Optional<T>> metaObjCacheLoader,
             RemovalListener<String, Optional<T>> removalListener) {
         MetaCache<T> metaCache = new MetaCache<>(name, commonRefreshExecutor, expireAfterWriteSec, refreshAfterWriteSec,
