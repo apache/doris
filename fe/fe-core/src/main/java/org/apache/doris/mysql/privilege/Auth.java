@@ -1234,6 +1234,15 @@ public class Auth implements Writable {
         }
     }
 
+    public boolean isAllowResourceTagDowngrade(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.isAllowResourceTagDowngrade(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public long getExecMemLimit(String qualifiedUser) {
         readLock();
         try {
