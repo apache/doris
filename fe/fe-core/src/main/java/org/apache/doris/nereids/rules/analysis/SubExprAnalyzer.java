@@ -46,7 +46,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Use the visitor to iterate sub expression.
@@ -188,17 +187,13 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         }
         CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
                 cascadesContext, expr.getQueryPlan(), cascadesContext.getCteContext());
-        Scope subqueryScope = genScopeWithSubquery(expr);
+        // don't use `getScope()` because we only need `getScope().getOuterScope()` and `getScope().getSlots()`
+        // otherwise unexpected errors may occur
+        Scope subqueryScope = new Scope(getScope().getOuterScope(), getScope().getSlots());
         subqueryContext.setOuterScope(subqueryScope);
         subqueryContext.newAnalyzer().analyze();
         return new AnalyzedResult((LogicalPlan) subqueryContext.getRewritePlan(),
                 subqueryScope.getCorrelatedSlots());
-    }
-
-    private Scope genScopeWithSubquery(SubqueryExpr expr) {
-        return new Scope(getScope().getOuterScope(),
-                getScope().getSlots(),
-                Optional.ofNullable(expr));
     }
 
     public Scope getScope() {
