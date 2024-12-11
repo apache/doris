@@ -277,7 +277,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testOrAddMinMax() {
+    void testAddMinMax() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
             bottomUp(
                 AddMinMax.INSTANCE
@@ -335,5 +335,20 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00'",
                 "(AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00' ) and AA <= timestamp '2024-01-03 02:00:00'");
 
+    }
+
+    @Test
+    void testSimplifyRangeAndAddMinMax() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+            bottomUp(
+                SimplifyRange.INSTANCE,
+                AddMinMax.INSTANCE
+            )
+        ));
+
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA between 30 and 40 or TA between 60 and 50",
+                "(TA <= 20 or TA >= 30 or TA is null and null) and TA >= 10 and TA <= 40");
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 and TB between 10 and 20 or TA between 30 and 40 and TB between 30 and 40 or TA between 60 and 50 and TB between 60 and 50",
+                "(TA <= 20 and TB <= 20 or TA >= 30 and TB >= 30 or TA is null and null and TB is null) and TA >= 10 and TA <= 40 and TB >= 10 and TB <= 40");
     }
 }

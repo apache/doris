@@ -25,10 +25,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -45,6 +47,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BinaryOperator;
 import java.util.stream.Collectors;
@@ -116,8 +119,37 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
     @Override
     public ValueDesc visitAnd(And and, ExpressionRewriteContext context) {
+        Optional<ValueDesc> isNullAndNullValue = toIsNullAndNullValue(and, context);
+        if (isNullAndNullValue.isPresent()) {
+            return isNullAndNullValue.get();
+        }
         return simplify(context, and, ExpressionUtils.extractConjunction(and),
                 ValueDesc::intersect, true);
+    }
+
+    private Optional<ValueDesc> toIsNullAndNullValue(And and, ExpressionRewriteContext context) {
+        boolean hasNullLiteral = false;
+        Set<Expression> references = Sets.newLinkedHashSet();
+        for (Expression expr : and.children()) {
+            if (expr instanceof NullLiteral) {
+                hasNullLiteral = true;
+            } else if (expr instanceof IsNull) {
+                references.add(((IsNull) expr).child());
+            } else {
+                return Optional.empty();
+            }
+        }
+        if (!hasNullLiteral || references.isEmpty()) {
+            return Optional.empty();
+        }
+        if (references.size() == 1) {
+            return Optional.of(new EmptyValue(context, references.iterator().next(), and));
+        } else {
+            List<ValueDesc> emptyValues = references.stream()
+                    .map(reference -> new EmptyValue(context, reference, ExpressionUtils.falseOrNull(reference)))
+                    .collect(Collectors.toList());
+            return Optional.of(new UnknownValue(context, and, emptyValues, true));
+        }
     }
 
     @Override

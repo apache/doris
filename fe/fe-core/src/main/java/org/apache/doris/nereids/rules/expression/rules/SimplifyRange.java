@@ -108,11 +108,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
     private Expression getExpression(EmptyValue value) {
         Expression reference = value.getReference();
-        if (reference.nullable()) {
-            return new And(new IsNull(reference), new NullLiteral(BooleanType.INSTANCE));
-        } else {
-            return BooleanLiteral.FALSE;
-        }
+        return ExpressionUtils.falseOrNull(reference);
     }
 
     private Expression getExpression(RangeValue value) {
@@ -136,11 +132,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         if (!result.isEmpty()) {
             return ExpressionUtils.and(result);
         } else {
-            if (reference.nullable()) {
-                return new Or(new Not(new IsNull(reference)), new NullLiteral(BooleanType.INSTANCE));
-            } else {
-                return BooleanLiteral.TRUE;
-            }
+            return ExpressionUtils.trueOrNull(reference);
         }
     }
 
@@ -167,8 +159,15 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         if (sourceValues.isEmpty()) {
             return originExpr;
         }
-        List<Expression> sourceExprs = sourceValues.stream().map(sourceValue -> getExpression(sourceValue))
-                .collect(Collectors.toList());
+        List<Expression> sourceExprs = Lists.newArrayListWithExpectedSize(sourceValues.size());
+        for (ValueDesc sourceValue : sourceValues) {
+            Expression expr = getExpression(sourceValue);
+            if (value.isAnd()) {
+                sourceExprs.addAll(ExpressionUtils.extractConjunction(expr));
+            } else {
+                sourceExprs.addAll(ExpressionUtils.extractDisjunction(expr));
+            }
+        }
         Expression result = value.isAnd() ? ExpressionUtils.and(sourceExprs) : ExpressionUtils.or(sourceExprs);
         result = FoldConstantRuleOnFE.evaluate(result, value.getExpressionRewriteContext());
         // ATTN: we must return original expr, because OrToIn is implemented with MutableState,

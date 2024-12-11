@@ -326,7 +326,10 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
         for (int i = 1; i < sourceValues.size(); i++) {
             // process in sourceValues[i]
             Map<Expression, MinMaxValue> minMaxValues = getExprMinMaxValues(sourceValues.get(i));
-            for (Map.Entry<Expression, MinMaxValue> entry : minMaxValues.entrySet()) {
+            List<Map.Entry<Expression, MinMaxValue>> minMaxValueList = minMaxValues.entrySet().stream()
+                    .sorted((a, b) -> Integer.compare(a.getValue().exprOrderIndex, b.getValue().exprOrderIndex))
+                    .collect(Collectors.toList());
+            for (Map.Entry<Expression, MinMaxValue> entry : minMaxValueList) {
                 Expression expr = entry.getKey();
                 MinMaxValue value = result.get(expr);
                 MinMaxValue otherValue = entry.getValue();
