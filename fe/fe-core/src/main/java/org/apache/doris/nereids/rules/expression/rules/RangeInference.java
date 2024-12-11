@@ -47,7 +47,6 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.BinaryOperator;
 import java.util.stream.Collectors;
@@ -119,37 +118,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
     @Override
     public ValueDesc visitAnd(And and, ExpressionRewriteContext context) {
-        Optional<ValueDesc> isNullAndNullValue = toIsNullAndNullValue(and, context);
-        if (isNullAndNullValue.isPresent()) {
-            return isNullAndNullValue.get();
-        }
         return simplify(context, and, ExpressionUtils.extractConjunction(and),
                 ValueDesc::intersect, true);
-    }
-
-    private Optional<ValueDesc> toIsNullAndNullValue(And and, ExpressionRewriteContext context) {
-        boolean hasNullLiteral = false;
-        Set<Expression> references = Sets.newLinkedHashSet();
-        for (Expression expr : and.children()) {
-            if (expr instanceof NullLiteral) {
-                hasNullLiteral = true;
-            } else if (expr instanceof IsNull) {
-                references.add(((IsNull) expr).child());
-            } else {
-                return Optional.empty();
-            }
-        }
-        if (!hasNullLiteral || references.isEmpty()) {
-            return Optional.empty();
-        }
-        if (references.size() == 1) {
-            return Optional.of(new EmptyValue(context, references.iterator().next(), and));
-        } else {
-            List<ValueDesc> emptyValues = references.stream()
-                    .map(reference -> new EmptyValue(context, reference, ExpressionUtils.falseOrNull(reference)))
-                    .collect(Collectors.toList());
-            return Optional.of(new UnknownValue(context, and, emptyValues, true));
-        }
     }
 
     @Override
@@ -162,10 +132,29 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             Expression originExpr, List<Expression> predicates,
             BinaryOperator<ValueDesc> op, boolean isAnd) {
 
+        boolean convertIsNullToEmptyValue = isAnd && predicates.stream().anyMatch(expr -> expr instanceof NullLiteral);
+        boolean hadNullLiteral = false;
+
         Multimap<Expression, ValueDesc> groupByReference
                 = Multimaps.newListMultimap(new LinkedHashMap<>(), ArrayList::new);
         for (Expression predicate : predicates) {
-            ValueDesc valueDesc = predicate.accept(this, context);
+            ValueDesc valueDesc = null;
+            if (convertIsNullToEmptyValue) {
+                if (predicate instanceof NullLiteral) {
+                    if (hadNullLiteral) {
+                        continue;
+                    }
+                    hadNullLiteral = true;
+                    valueDesc = new UnknownValue(context, predicate);
+                } else if (predicate instanceof IsNull) {
+                    Expression reference = ((IsNull) predicate).child();
+                    valueDesc = new EmptyValue(context, reference, ExpressionUtils.falseOrNull(reference));
+                } else {
+                    valueDesc = predicate.accept(this, context);
+                }
+            } else {
+                valueDesc = predicate.accept(this, context);
+            }
             List<ValueDesc> valueDescs = (List<ValueDesc>) groupByReference.get(valueDesc.reference);
             valueDescs.add(valueDesc);
         }
