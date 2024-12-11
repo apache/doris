@@ -84,6 +84,14 @@ protected:
 
     int64_t merge_way_num();
 
+    virtual Status update_delete_bitmap() = 0;
+
+    void agg_and_remove_old_version_delete_bitmap(
+            std::vector<RowsetSharedPtr>& pre_rowsets,
+            std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>&
+                    to_remove_vec,
+            DeleteBitmapPtr& new_delete_bitmap);
+
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
@@ -146,6 +154,8 @@ protected:
 
     virtual Status modify_rowsets();
 
+    Status update_delete_bitmap() override;
+
     StorageEngine& _engine;
 
 private:
@@ -157,6 +167,8 @@ private:
     bool handle_ordered_data_compaction();
 
     Status do_compact_ordered_rowsets();
+
+    void process_old_version_delete_bitmap();
 
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
 
@@ -174,6 +186,8 @@ public:
 
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
+
+    Status update_delete_bitmap() override;
 
     virtual void garbage_collection();
 

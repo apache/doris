@@ -41,6 +41,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -72,7 +73,8 @@ struct AggregateFunctionAvgData {
     ResultT result() const {
         if constexpr (std::is_floating_point_v<ResultT>) {
             if constexpr (std::numeric_limits<ResultT>::is_iec559) {
-                return static_cast<ResultT>(sum) / count; /// allow division by zero
+                return static_cast<ResultT>(sum) /
+                       static_cast<ResultT>(count); /// allow division by zero
             }
         }
 
@@ -91,7 +93,7 @@ struct AggregateFunctionAvgData {
             if constexpr (IsDecimal256<T>) {
                 return static_cast<ResultT>(sum / T(count));
             } else {
-                return static_cast<ResultT>(sum) / count;
+                return static_cast<ResultT>(sum) / static_cast<ResultT>(count);
             }
         }
     }
@@ -124,7 +126,11 @@ public:
             IsDecimalV2<T>, ColumnDecimal<Decimal128V2>,
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<typename Data::ResultType>,
                                ColumnFloat64>>;
+    // The result calculated by PercentileApprox is an approximate value,
+    // so the underlying storage uses float. The following calls will involve
+    // an implicit cast to float.
 
+    using DataType = typename Data::ResultType;
     /// ctor for native types
     AggregateFunctionAvg(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>>(argument_types_),
@@ -148,9 +154,9 @@ public:
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         if constexpr (IsDecimalNumber<T>) {
-            this->data(place).sum += column.get_data()[row_num].value;
+            this->data(place).sum += (DataType)column.get_data()[row_num].value;
         } else {
-            this->data(place).sum += column.get_data()[row_num];
+            this->data(place).sum += (DataType)column.get_data()[row_num];
         }
         ++this->data(place).count;
     }
@@ -282,3 +288,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

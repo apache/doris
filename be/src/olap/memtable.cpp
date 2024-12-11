@@ -43,7 +43,6 @@
 namespace doris {
 
 bvar::Adder<int64_t> g_memtable_cnt("memtable_cnt");
-bvar::Adder<int64_t> g_memtable_input_block_allocated_size("memtable_input_block_allocated_size");
 
 using namespace ErrorCode;
 
@@ -151,7 +150,6 @@ MemTable::~MemTable() {
                        << _mem_tracker->consumption();
         }
     }
-    g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
     g_memtable_cnt << -1;
     if (_keys_type != KeysType::DUP_KEYS) {
         for (auto it = _row_in_blocks.begin(); it != _row_in_blocks.end(); it++) {
@@ -222,11 +220,8 @@ Status MemTable::insert(const vectorized::Block* input_block,
 
     auto num_rows = row_idxs.size();
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
-    auto block_size0 = _input_mutable_block.allocated_bytes();
     RETURN_IF_ERROR(_input_mutable_block.add_rows(input_block, row_idxs.data(),
                                                   row_idxs.data() + num_rows, &_column_offset));
-    auto block_size1 = _input_mutable_block.allocated_bytes();
-    g_memtable_input_block_allocated_size << block_size1 - block_size0;
     for (int i = 0; i < num_rows; i++) {
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
     }
@@ -355,7 +350,7 @@ Status MemTable::_sort_by_cluster_keys() {
     }
     Tie tie = Tie(0, mutable_block.rows());
 
-    for (auto cid : _tablet_schema->cluster_key_idxes()) {
+    for (auto cid : _tablet_schema->cluster_key_uids()) {
         auto index = _tablet_schema->field_index(cid);
         if (index == -1) {
             return Status::InternalError("could not find cluster key column with unique_id=" +
@@ -624,14 +619,13 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
         (_skip_bitmap_col_idx == -1) ? _aggregate<true, false>() : _aggregate<true, true>();
     }
     if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow &&
-        !_tablet_schema->cluster_key_idxes().empty()) {
+        !_tablet_schema->cluster_key_uids().empty()) {
         if (_partial_update_mode != UniqueKeyUpdateModePB::UPSERT) {
             return Status::InternalError(
                     "Partial update for mow with cluster keys is not supported");
         }
         RETURN_IF_ERROR(_sort_by_cluster_keys());
     }
-    g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
     _input_mutable_block.clear();
     // After to block, all data in arena is saved in the block
     _arena.reset();

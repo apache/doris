@@ -684,9 +684,10 @@ struct DateTimeAddIntervalImpl {
                 block.replace_by_position(result, std::move(col_to));
             }
         } else {
-            return Status::RuntimeError("Illegal column {} of first argument of function {}",
-                                        block.get_by_position(arguments[0]).column->get_name(),
-                                        Transform::name);
+            return Status::RuntimeError(
+                    "Illegal column {} of first argument and type {} of function {}",
+                    block.get_by_position(arguments[0]).column->get_name(),
+                    block.get_by_position(arguments[0]).type->get_name(), Transform::name);
         }
         return Status::OK();
     }

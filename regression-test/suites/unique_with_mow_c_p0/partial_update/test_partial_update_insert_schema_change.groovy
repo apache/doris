@@ -19,6 +19,9 @@ import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
 suite("test_partial_update_insert_schema_change", "p0") {
+    if (isClusterKeyEnabled()) {
+        return
+    }
 
     // ===== light schema change =====
     // test add value column

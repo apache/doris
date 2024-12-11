@@ -64,6 +64,7 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris::cloud {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency) {
@@ -243,12 +244,12 @@ private:
         long deadline = now;
         // connection age only works without list endpoint.
         if (!is_meta_service_endpoint_list &&
-            config::meta_service_connection_age_base_minutes > 0) {
+            config::meta_service_connection_age_base_seconds > 0) {
             std::default_random_engine rng(static_cast<uint32_t>(now));
             std::uniform_int_distribution<> uni(
-                    config::meta_service_connection_age_base_minutes,
-                    config::meta_service_connection_age_base_minutes * 2);
-            deadline = now + duration_cast<milliseconds>(minutes(uni(rng))).count();
+                    config::meta_service_connection_age_base_seconds,
+                    config::meta_service_connection_age_base_seconds * 2);
+            deadline = now + duration_cast<milliseconds>(seconds(uni(rng))).count();
         } else {
             deadline = LONG_MAX;
         }
@@ -610,8 +611,9 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
             engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id,
                                                                            tablet->tablet_id());
         } else {
-            LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << tablet->tablet_id()
-                         << ", txn_id=" << txn_id << ", status=" << status;
+            LOG_EVERY_N(INFO, 20)
+                    << "delete bitmap not found in cache, will sync rowset to get. tablet_id= "
+                    << tablet->tablet_id() << ", txn_id=" << txn_id << ", status=" << status;
             return false;
         }
     }
@@ -630,8 +632,6 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
         sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
         return Status::OK();
     } else {
-        LOG(WARNING) << "failed to sync delete bitmap by txn info. tablet_id="
-                     << tablet->tablet_id();
         DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
         *delete_bitmap = *new_delete_bitmap;
     }
@@ -718,7 +718,7 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
                 "rowset_ids.size={},segment_ids.size={},vers.size={},delete_bitmaps.size={}",
                 rowset_ids.size(), segment_ids.size(), vers.size(), delete_bitmaps.size());
     }
-    for (size_t i = 0; i < rowset_ids.size(); i++) {
+    for (int i = 0; i < rowset_ids.size(); i++) {
         RowsetId rst_id;
         rst_id.init(rowset_ids[i]);
         delete_bitmap->merge(
@@ -758,10 +758,10 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
     Status st = retry_rpc("prepare rowset", req, &resp, &MetaService_Stub::prepare_rowset);
     if (!st.ok() && resp.status().code() == MetaServiceCode::ALREADY_EXISTED) {
         if (existed_rs_meta != nullptr && resp.has_existed_rowset_meta()) {
-            RowsetMetaPB doris_rs_meta =
+            RowsetMetaPB doris_rs_meta_tmp =
                     cloud_rowset_meta_to_doris(std::move(*resp.mutable_existed_rowset_meta()));
             *existed_rs_meta = std::make_shared<RowsetMeta>();
-            (*existed_rs_meta)->init_from_pb(doris_rs_meta);
+            (*existed_rs_meta)->init_from_pb(doris_rs_meta_tmp);
         }
         return Status::AlreadyExist("failed to prepare rowset: {}", resp.status().msg());
     }
@@ -1287,4 +1287,5 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
     return total_inverted_index_size;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::cloud

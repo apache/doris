@@ -49,6 +49,8 @@ suite("test_create_mv") {
 
     sql """ insert into ${tableName} values ('2024-03-20 10:00:00', 'a', 'b', 1) """
 
+    sql """alter table test_mv_10010 modify column load_time set stats ('row_count'='1');"""
+
     sql """
         create materialized view mv_1 as
         select 

@@ -817,10 +817,13 @@ void Tablet::delete_expired_stale_rowset() {
         auto old_meta_size = _tablet_meta->all_stale_rs_metas().size();
 
         // do delete operation
+        std::vector<std::string> version_to_delete;
         auto to_delete_iter = stale_version_path_map.begin();
         while (to_delete_iter != stale_version_path_map.end()) {
             std::vector<TimestampedVersionSharedPtr>& to_delete_version =
                     to_delete_iter->second->timestamped_versions();
+            int64_t start_version = -1;
+            int64_t end_version = -1;
             for (auto& timestampedVersion : to_delete_version) {
                 auto it = _stale_rs_version_map.find(timestampedVersion->version());
                 if (it != _stale_rs_version_map.end()) {
@@ -841,10 +844,17 @@ void Tablet::delete_expired_stale_rowset() {
                                  << timestampedVersion->version().second
                                  << "] not find in stale rs version map";
                 }
+                if (start_version < 0) {
+                    start_version = timestampedVersion->version().first;
+                }
+                end_version = timestampedVersion->version().second;
                 _delete_stale_rowset_by_version(timestampedVersion->version());
             }
+            Version version(start_version, end_version);
+            version_to_delete.emplace_back(version.to_string());
             to_delete_iter++;
         }
+        _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue(version_to_delete);
 
         bool reconstructed = _reconstruct_version_tracker_if_necessary();
 
@@ -1692,6 +1702,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // tablet may not have cooldowned data, but the storage policy is set
         tablet_info->__set_cooldown_term(_cooldown_conf.term);
     }
+    tablet_info->__set_local_index_size(_tablet_meta->tablet_local_index_size());
+    tablet_info->__set_local_segment_size(_tablet_meta->tablet_local_segment_size());
+    tablet_info->__set_remote_index_size(_tablet_meta->tablet_remote_index_size());
+    tablet_info->__set_remote_segment_size(_tablet_meta->tablet_remote_segment_size());
 }
 
 void Tablet::report_error(const Status& st) {
@@ -2490,7 +2504,7 @@ CalcDeleteBitmapExecutor* Tablet::calc_delete_bitmap_executor() {
 
 Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                                  const RowsetIdUnorderedSet& cur_rowset_ids) {
+                                  const RowsetIdUnorderedSet& cur_rowset_ids, int64_t lock_id) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
 

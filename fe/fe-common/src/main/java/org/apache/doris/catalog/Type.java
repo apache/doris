@@ -36,6 +36,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.InetAddress;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -321,7 +322,8 @@ public abstract class Type {
                     .put(PrimitiveType.FLOAT, Sets.newHashSet(Float.class, float.class))
                     .put(PrimitiveType.DOUBLE, Sets.newHashSet(Double.class, double.class))
                     .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
-                    .put(PrimitiveType.IPV4, Sets.newHashSet(Integer.class, int.class))
+                    .put(PrimitiveType.IPV4, Sets.newHashSet(InetAddress.class))
+                    .put(PrimitiveType.IPV6, Sets.newHashSet(InetAddress.class))
                     .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
                     .put(PrimitiveType.DATE, DATE_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)

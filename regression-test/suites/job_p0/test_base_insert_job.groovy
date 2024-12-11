@@ -76,6 +76,7 @@ suite("test_base_insert_job") {
         insert into ${tableName} values
         ('2023-03-18', 1, 1)
         """
+    // create recurring job
     sql """
        CREATE JOB ${jobName}  ON SCHEDULE every 1 second   comment 'test' DO INSERT INTO ${tableName} (`timestamp`, `type`, `user_id`)
         WITH
@@ -97,23 +98,25 @@ suite("test_base_insert_job") {
     """
     Awaitility.await().atMost(30, SECONDS).until(
             {
-                def onceJob = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='RECURRING' """
-                println(onceJob)
-                onceJob.size() == 1 && '1' <= onceJob.get(0).get(0)
+                def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='RECURRING' """
+                // check job status and succeed task count larger than 1
+                jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
 
             }
     )
     sql """
         PAUSE JOB where jobname =  '${jobName}'
     """
+    def pausedJobStatus = sql """
+        select status from jobs("type"="insert") where Name='${jobName}'
+    """
+    assert pausedJobStatus.get(0).get(0) == "PAUSED"
     def tblDatas = sql """select * from ${tableName}"""
-    println tblDatas
     assert tblDatas.size() >= 2 //at least 2 records
-    def pauseJobId = sql """select id from jobs("type"="insert") where Name='${jobName}'"""
-    def taskStatus = sql """select status from tasks("type"="insert") where jobid= '${pauseJobId.get(0).get(0)}'"""
-    println taskStatus
+
+    def taskStatus = sql """select status from tasks("type"="insert") where JobName ='${jobName}'"""
     for (int i = 0; i < taskStatus.size(); i++) {
-        assert taskStatus.get(i).get(0) != "FAILED" || taskStatus.get(i).get(0) != "STOPPED" || taskStatus.get(i).get(0) != "STOPPED"
+        assert taskStatus.get(i).get(0) =="CANCELLED" || taskStatus.get(i).get(0) =="FINISHED"
     }
     sql """
        CREATE JOB ${jobMixedName}  ON SCHEDULE every 1 second  DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
@@ -122,6 +125,7 @@ suite("test_base_insert_job") {
     println mixedNameJobs
     assert mixedNameJobs.size() == 1 && mixedNameJobs.get(0).get(0) == jobMixedName
     assert mixedNameJobs.get(0).get(1) == ''
+    // clean up job and table
     sql """
         DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
@@ -145,23 +149,25 @@ suite("test_base_insert_job") {
         """
     def dataCount = sql """select count(*) from ${tableName}"""
     assert dataCount.get(0).get(0) == 0
+    // create one time job
     sql """
           CREATE JOB ${jobName}  ON SCHEDULE at current_timestamp   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', 2, 1001);
      """
-
+    // wait job finished
     Awaitility.await("create-one-time-job-test").atMost(30, SECONDS).until(
             {
                 def onceJob = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='ONE_TIME' """
                 onceJob.size() == 1 && '1' == onceJob.get(0).get(0)
             }
     )
-    def onceJob = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='ONE_TIME' """
+    def onceJob = sql """ select SucceedTaskCount  from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='ONE_TIME' """
     assert onceJob.size() == 1
     //check succeed task count
     assert '1' == onceJob.get(0).get(0)
     def datas = sql """select status,taskid from tasks("type"="insert") where jobName= '${jobName}'"""
-    println datas
+    // table should have one record after job finished
     assert datas.size() == 1
+    // one time job only has one task. when job finished, task status should be FINISHED
     assert datas.get(0).get(0) == "FINISHED"
     // check table data
     def dataCount1 = sql """select count(1) from ${tableName} where user_id=1001"""
@@ -175,19 +181,20 @@ suite("test_base_insert_job") {
     sql """
         DROP JOB IF EXISTS where jobname =  'press'
     """
-
+    // create job with start time is current time and interval is 10 hours
     sql """
           CREATE JOB press  ON SCHEDULE every 10 hour starts CURRENT_TIMESTAMP  comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', 99, 99);
      """
     Awaitility.await("create-immediately-job-test").atMost(60, SECONDS).until({
         def pressJob = sql """ select SucceedTaskCount from jobs("type"="insert") where name='press'"""
-        println pressJob
+        // check job status and succeed task count is 1
         pressJob.size() == 1 && '1' == onceJob.get(0).get(0)
     })
 
     sql """
         DROP JOB IF EXISTS where jobname =  'past_start_time'
     """
+    // create job with start time is past time, job should be running
     sql """
           CREATE JOB past_start_time  ON SCHEDULE every 10 hour starts '2023-11-13 14:18:07'  comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', 99, 99);
      """
@@ -214,16 +221,27 @@ suite("test_base_insert_job") {
     sql """
         PAUSE JOB where jobname =  '${jobName}'
     """
+    pausedJobStatus = sql """
+        select status from jobs("type"="insert") where Name='${jobName}'
+    """
+    assert pausedJobStatus.get(0).get(0) == "PAUSED"
     def tasks = sql """ select status from tasks("type"="insert") where JobName= '${jobName}'  """
     sql """
         RESUME JOB where jobname =  '${jobName}'
     """
     println(tasks.size())
+    // test resume job success
     Awaitility.await("resume-job-test").atMost(60, SECONDS).until({
         def afterResumeTasks = sql """ select status from tasks("type"="insert") where JobName= '${jobName}'   """
         println "resume tasks :" + afterResumeTasks
+        //resume tasks size should be greater than before pause
         afterResumeTasks.size() > tasks.size()
     })
+    // check resume job status
+    def afterResumeJobStatus = sql """
+        select status from jobs("type"="insert") where Name='${jobName}'
+    """
+    assert afterResumeJobStatus.get(0).get(0) == "RUNNING"
 
     // assert same job name
     try {
@@ -247,7 +265,6 @@ suite("test_base_insert_job") {
             CREATE JOB ${jobName}  ON SCHEDULE at '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
-        println e.getMessage()
         assert e.getMessage().contains("startTimeMs must be greater than current time")
     }
     // assert end time less than start time
@@ -280,6 +297,14 @@ suite("test_base_insert_job") {
         """
     } catch (Exception e) {
         assert e.getMessage().contains("Invalid interval time unit: years")
+    }
+    // assert interval time unit is -1
+    try {
+        sql """
+            CREATE JOB test_error_starts  ON SCHEDULE every -1 second    comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
+        """
+    } catch (Exception e) {
+        assert e.getMessage().contains("expecting INTEGER_VALUE")
     }
 
     // test keyword as job name

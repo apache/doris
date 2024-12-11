@@ -78,7 +78,7 @@ inline HashKeyType get_hash_key_type_fixed(const std::vector<vectorized::DataTyp
         if (!data_type->have_maximum_size_of_value()) {
             return HashKeyType::serialized;
         }
-        key_byte_size += data_type->get_maximum_size_of_value_in_memory();
+        key_byte_size += data_type->get_size_of_value_in_memory();
         if (data_type->is_nullable()) {
             has_null = true;
             key_byte_size--;
@@ -106,7 +106,7 @@ inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>&
         throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}", t->get_name());
     }
 
-    size_t size = t->get_maximum_size_of_value_in_memory();
+    size_t size = t->get_size_of_value_in_memory();
     if (size == sizeof(vectorized::UInt8)) {
         return HashKeyType::int8_key;
     } else if (size == sizeof(vectorized::UInt16)) {

@@ -637,8 +637,8 @@ public:
         WhichDataType which_left {left_type};
         WhichDataType which_right {right_type};
 
-        const bool left_is_num = col_left_untyped->is_numeric();
-        const bool right_is_num = col_right_untyped->is_numeric();
+        const bool left_is_num_can_compare = which_left.is_num_can_compare();
+        const bool right_is_num_can_compare = which_right.is_num_can_compare();
 
         const bool left_is_string = which_left.is_string_or_fixed_string();
         const bool right_is_string = which_right.is_string_or_fixed_string();
@@ -648,7 +648,7 @@ public:
         //        bool date_and_datetime = (left_type != right_type) && which_left.is_date_or_datetime() &&
         //                                 which_right.is_date_or_datetime();
 
-        if (left_is_num && right_is_num) {
+        if (left_is_num_can_compare && right_is_num_can_compare) {
             if (!(execute_num_left_type<UInt8>(block, result, col_left_untyped,
                                                col_right_untyped) ||
                   execute_num_left_type<UInt16>(block, result, col_left_untyped,

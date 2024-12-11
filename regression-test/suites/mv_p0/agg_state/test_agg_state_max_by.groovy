@@ -69,6 +69,7 @@ suite ("test_agg_state_max_by") {
     qt_select_star "select * from d_table order by 1,2;"
     mv_rewrite_success("select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;", "k1mb")
     sql """set enable_stats=true;"""
+    sql """alter table d_table modify column k4 set stats ('row_count'='8');"""
     mv_rewrite_success("select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;", "k1mb")
     qt_select_mv "select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;"
 
@@ -101,6 +102,7 @@ suite ("test_agg_state_max_by") {
     qt_select_star "select * from d_table order by 1,2;"
 
     sql """set enable_stats=true;"""
+    sql """alter table d_table modify column k4 set stats ('row_count'='8');"""
     sql "analyze table d_table with sync;"
     sql """set enable_stats=false;"""
 
@@ -114,6 +116,7 @@ suite ("test_agg_state_max_by") {
     qt_select_mv "select k1,max_by(k2,abs(k3)) from d_table group by k1 order by 1,2;"
 
     sql """set enable_stats=true;"""
+    sql """alter table d_table modify column k4 set stats ('row_count'='8');"""
     mv_rewrite_success("select k1,max_by(k2+k3,abs(k3)) from d_table group by k1 order by 1,2;", "k1mbcp1")
     mv_rewrite_success("select k1,max_by(k2+k3,k3) from d_table group by k1 order by 1,2;", "k1mbcp2")
     mv_rewrite_success("select k1,max_by(k2,abs(k3)) from d_table group by k1 order by 1,2;", "k1mbcp3")

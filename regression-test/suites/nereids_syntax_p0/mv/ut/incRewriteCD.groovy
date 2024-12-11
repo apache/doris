@@ -31,6 +31,7 @@ suite ("incRewriteCD") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+
     sql """insert into incRewriteCD values("2020-01-01",1,"a",1);"""
     sql """insert into incRewriteCD values("2020-01-02",2,"b",2);"""
 
@@ -50,6 +51,8 @@ suite ("incRewriteCD") {
     order_qt_select_mv "select user_name, count(distinct tag_id) from incRewriteCD group by user_name order by user_name;"
 
     sql """set enable_stats=true;"""
+    sql """alter table incRewriteCD modify column time_col set stats ('row_count'='3');"""
+
     mv_rewrite_fail("select * from incRewriteCD order by time_col;", "incRewriteCD_mv")
 
     mv_rewrite_fail("select user_name, count(distinct tag_id) from incRewriteCD group by user_name;", "incRewriteCD_mv")

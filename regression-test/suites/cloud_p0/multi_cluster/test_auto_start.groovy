@@ -141,7 +141,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
             def begin = System.currentTimeMillis();
             // root cant resume, due to deamon thread use root
             def connInfo = context.threadLocalConn.get()
-            result = connect(user = 'admin', password = '', url = connInfo.conn.getMetaData().getURL()) {
+            result = connect('admin', '', connInfo.conn.getMetaData().getURL()) {
                 sql 'SELECT * FROM table1'
             }
             def cost = System.currentTimeMillis() - begin;

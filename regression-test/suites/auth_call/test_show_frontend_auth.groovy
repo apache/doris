@@ -33,7 +33,7 @@ suite("test_show_frontend_auth","p0,auth_call") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """SHOW frontends"""
             exception "denied"
@@ -44,7 +44,7 @@ suite("test_show_frontend_auth","p0,auth_call") {
         }
     }
     sql """grant node_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def res = sql """SHOW frontends"""
         assertTrue(res.size() > 0)
 

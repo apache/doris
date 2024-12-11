@@ -110,7 +110,7 @@ suite("test_iceberg_optimize_count", "p0,external,doris,external_docker,external
 
     } finally {
         sql """ set enable_count_push_down_for_external_table=true; """
-        sql """drop catalog if exists ${catalog_name}"""
+        // sql """drop catalog if exists ${catalog_name}"""
     }
 }
 

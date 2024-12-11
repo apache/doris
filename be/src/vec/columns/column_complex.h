@@ -48,11 +48,6 @@ public:
     using value_type = T;
     using Container = std::vector<value_type>;
 
-    bool is_numeric() const override { return false; }
-
-    bool is_bitmap() const override { return std::is_same_v<T, BitmapValue>; }
-    bool is_hll() const override { return std::is_same_v<T, HyperLogLog>; }
-
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
@@ -206,9 +201,6 @@ public:
                                   const uint8_t* __restrict null_data = nullptr) const override {
         // TODO add hash function
     }
-
-    bool is_fixed_and_contiguous() const override { return true; }
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
     StringRef get_raw_data() const override {
         return StringRef(reinterpret_cast<const char*>(data.data()), data.size());

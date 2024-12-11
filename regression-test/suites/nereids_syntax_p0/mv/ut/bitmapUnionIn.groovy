@@ -30,6 +30,7 @@ suite ("bitmapUnionIn") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+
     sql """insert into bitmapUnionIn values("2020-01-01",1,"a",1);"""
     sql """insert into bitmapUnionIn values("2020-01-02",2,"b",2);"""
 
@@ -50,6 +51,8 @@ suite ("bitmapUnionIn") {
     order_qt_select_mv "select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;"
 
     sql """set enable_stats=true;"""
+    sql """alter table bitmapUnionIn modify column time_col set stats ('row_count'='3');"""
+
     mv_rewrite_fail("select * from bitmapUnionIn order by time_col;", "bitmapUnionIn_mv")
 
     mv_rewrite_success("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;",
