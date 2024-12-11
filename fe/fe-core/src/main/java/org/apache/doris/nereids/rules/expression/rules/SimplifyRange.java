@@ -25,22 +25,16 @@ import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDesc;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
-import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.BoundType;
