@@ -108,7 +108,7 @@ suite("test_catalogs_tvf","p0,external,tvf,external_docker") {
 
 
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """ switch internal """
         order_qt_test_15 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "type" """ 
         order_qt_test_16 """ select  CatalogName,CatalogType,Property,Value from catalogs()  """ 
@@ -117,7 +117,7 @@ suite("test_catalogs_tvf","p0,external,tvf,external_docker") {
     sql """GRANT SELECT_PRIV on `catalog_tvf_test_dlf`.``.`` to '${user}'"""
 
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """ switch internal """
 
         order_qt_test_17 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "dlf.secret_key" """ 
@@ -129,7 +129,7 @@ suite("test_catalogs_tvf","p0,external,tvf,external_docker") {
     sql """REVOKE SELECT_PRIV on `catalog_tvf_test_dlf`.``.`` FROM '${user}'"""
 
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """ switch internal """
 
         order_qt_test_21 """ select  CatalogName,CatalogType,Property,Value from catalogs() where CatalogName = "catalog_tvf_test_dlf" and   Property= "dlf.secret_key" """ 

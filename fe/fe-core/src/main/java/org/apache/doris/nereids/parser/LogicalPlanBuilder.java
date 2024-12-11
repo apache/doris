@@ -478,6 +478,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
@@ -4579,6 +4580,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new ShowTrashCommand();
         }
         return new ShowTrashCommand();
+    }
+
+    @Override
+    public LogicalPlan visitAdminCleanTrash(DorisParser.AdminCleanTrashContext ctx) {
+        if (ctx.ON() != null) {
+            List<String> backendsQuery = Lists.newArrayList();
+            ctx.backends.forEach(backend -> backendsQuery.add(stripQuotes(backend.getText())));
+            return new AdminCleanTrashCommand(backendsQuery);
+        }
+        return new AdminCleanTrashCommand();
     }
 
     @Override
