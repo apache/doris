@@ -34,6 +34,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 CloudEngineCalcDeleteBitmapTask::CloudEngineCalcDeleteBitmapTask(
         CloudStorageEngine& engine, const TCalcDeleteBitmapRequest& cal_delete_bitmap_req,
@@ -253,4 +254,5 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     return status;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

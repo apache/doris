@@ -263,7 +263,7 @@ public:
     // Find the first consecutive empty rowsets. output->size() >= limit
     void calc_consecutive_empty_rowsets(std::vector<RowsetSharedPtr>* empty_rowsets,
                                         const std::vector<RowsetSharedPtr>& candidate_rowsets,
-                                        int limit);
+                                        int64_t limit);
 
     // Return the merged schema of all rowsets
     virtual TabletSchemaSPtr merged_tablet_schema() const {

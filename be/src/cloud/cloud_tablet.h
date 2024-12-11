@@ -92,7 +92,7 @@ public:
     void clear_cache() override;
 
     // Return number of deleted stale rowsets
-    int delete_expired_stale_rowsets();
+    uint64_t delete_expired_stale_rowsets();
 
     bool has_stale_rowsets() const { return !_stale_rs_version_map.empty(); }
 
