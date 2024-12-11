@@ -282,7 +282,11 @@ int S3Accessor::init() {
         Aws::Client::ClientConfiguration aws_config;
         aws_config.endpointOverride = conf_.endpoint;
         aws_config.region = conf_.region;
-        aws_config.maxConnections = config::recycle_pool_parallelism + config::instance_recycler_worker_pool_size;
+        // Aws::Http::CurlHandleContainer::AcquireCurlHandle() may be blocked if the connecitons are bottleneck
+        aws_config.maxConnections = std::max((long)(config::recycle_pool_parallelism +
+                                                    config::instance_recycler_worker_pool_size),
+                                             (long)aws_config.maxConnections);
+
         if (config::s3_client_http_scheme == "http") {
             aws_config.scheme = Aws::Http::Scheme::HTTP;
         }
@@ -350,7 +354,12 @@ int S3Accessor::delete_files(const std::vector<std::string>& paths) {
 
 int S3Accessor::delete_file(const std::string& path) {
     LOG_INFO("delete file").tag("uri", to_uri(path));
-    return obj_client_->delete_object({.bucket = conf_.bucket, .key = get_key(path)}).ret;
+    int ret = obj_client_->delete_object({.bucket = conf_.bucket, .key = get_key(path)}).ret;
+    static_assert(ObjectStorageResponse::OK == 0);
+    if (ret == ObjectStorageResponse::OK || ret == ObjectStorageResponse::NOT_FOUND) {
+        return 0;
+    }
+    return ret;
 }
 
 int S3Accessor::put_file(const std::string& path, const std::string& content) {
@@ -398,11 +407,17 @@ int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expi
     int ret = 0;
     int cnt = 0;
     int skip = 0;
+    int64_t del_nonexisted = 0;
     int del = 0;
     auto iter = obj_client_->list_objects({conf_.bucket, get_key(path_prefix)});
     for (auto obj = iter->next(); obj.has_value(); obj = iter->next()) {
         if (!(++cnt % 100)) {
-            LOG_INFO("loop delete prefix").tag("uri", to_uri(path_prefix)).tag(" total_obj_cnt", cnt).tag("deleted", del).tag("skipped", skip);
+            LOG_INFO("loop delete prefix")
+                    .tag("uri", to_uri(path_prefix))
+                    .tag("total_obj_cnt", cnt)
+                    .tag("deleted", del)
+                    .tag("del_nonexisted", del_nonexisted)
+                    .tag("skipped", skip);
         }
         if (expiration_time > 0 && obj->mtime_s > expiration_time) {
             skip++;
@@ -410,13 +425,21 @@ int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expi
         }
         del++;
 
-        // FIXME(plat1ko): Delete objects by batch
-        if (int del_ret = obj_client_->delete_object({conf_.bucket, obj->key}).ret; del_ret != 0) {
+        // FIXME(plat1ko): Delete objects by batch with genuine GCS client
+        int del_ret = obj_client_->delete_object({conf_.bucket, obj->key}).ret;
+        del_nonexisted += (del_ret == ObjectStorageResponse::NOT_FOUND);
+        static_assert(ObjectStorageResponse::OK == 0);
+        if (del_ret != ObjectStorageResponse::OK && del_ret != ObjectStorageResponse::NOT_FOUND) {
             ret = del_ret;
         }
     }
 
-    LOG_INFO("finish delete prefix").tag("uri", to_uri(path_prefix)).tag(" total_obj_cnt", cnt).tag("deleted", del).tag("skipped", skip);
+    LOG_INFO("finish delete prefix")
+            .tag("uri", to_uri(path_prefix))
+            .tag("total_obj_cnt", cnt)
+            .tag("deleted", del)
+            .tag("del_nonexisted", del_nonexisted)
+            .tag("skipped", skip);
 
     if (!iter->is_valid()) {
         return -1;

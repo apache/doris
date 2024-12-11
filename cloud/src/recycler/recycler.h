@@ -131,7 +131,7 @@ public:
     int recycle_deleted_instance();
 
     // scan and recycle expired indexes:
-    // 1. dropped table, dropped mv 
+    // 1. dropped table, dropped mv
     // 2. half-successtable/index when create
     // returns 0 for success otherwise error
     int recycle_indexes();
@@ -144,7 +144,7 @@ public:
 
     // scan and recycle expired rowsets:
     // 1. prepare_rowset will produce recycle_rowset before uploading data to remote storage (memo)
-    // 2. compaction will change the input rowsets to recycle_rowset 
+    // 2. compaction will change the input rowsets to recycle_rowset
     // returns 0 for success otherwise error
     int recycle_rowsets();
 
