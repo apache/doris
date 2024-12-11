@@ -996,20 +996,6 @@ Status CompactionMixin::modify_rowsets() {
                                         return tablet()->rowset_exists_unlocked(rowset);
                                     });
             }
-            if (!need_to_check_missed_rows) {
-                std::shared_lock rlock(_tablet->get_header_lock());
-                auto it = std::find_if(_input_rowsets.begin(), _input_rowsets.end(),
-                                       [&](const RowsetSharedPtr& rowset) {
-                                           return !tablet()->rowset_exists_unlocked(rowset);
-                                       });
-                DCHECK(it != _input_rowsets.end());
-                auto rs = *it;
-                LOG(INFO) << fmt::format(
-                        "skip to check missed rows becase rowset[rowset_id={}, version={}] doesn't "
-                        "exist in tablet_id={}",
-                        rs->rowset_id().to_string(), rs->version().to_string(),
-                        tablet()->tablet_id());
-            }
 
             if (_tablet->tablet_state() == TABLET_RUNNING &&
                 merged_missed_rows_size != missed_rows_size && need_to_check_missed_rows) {
