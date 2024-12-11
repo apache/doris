@@ -535,8 +535,8 @@ _monitor_regression_log() {
             start_row=${total_rows}
         fi
         # shellcheck disable=SC2250
-        if sed -n "${start_row},\$p" "${directory}${filename}" | grep -q "${KEYWORD}"; then
-            start_row=$(grep -n "${KEYWORD}" "${directory}${filename}" | tail -n1 | cut -d: -f1)
+        if sed -n "${start_row},\$p" "${directory}${filename}" | grep -a -q "${KEYWORD}"; then
+            start_row=$(grep -a -n "${KEYWORD}" "${directory}${filename}" | tail -n1 | cut -d: -f1)
             echo "WARNING: find 'Reach limit of connections' in ${directory}${filename}, run 'show processlist;' to check the connections"
             mysql -h127.0.0.1 -P"${query_port}" -uroot -e'show processlist;'
         fi
