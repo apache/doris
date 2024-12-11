@@ -28,7 +28,9 @@ namespace doris {
 
 class IOThrottle {
 public:
-    IOThrottle(std::string prefix, std::string name);
+    IOThrottle() = default;
+
+    IOThrottle(std::string metric_name) : _metric_name(metric_name) {}
 
     ~IOThrottle() = default;
 
@@ -41,7 +43,7 @@ public:
 
     void set_io_bytes_per_second(int64_t read_bytes_per_second);
 
-    size_t get_bvar_io_per_second() { return _io_adder_per_second->get_value(); }
+    std::string metric_name() { return _metric_name; }
 
 private:
     std::mutex _mutex;
@@ -49,8 +51,6 @@ private:
     int64_t _next_io_time_micros {0};
     std::atomic<int64_t> _io_bytes_per_second_limit {-1};
 
-    // bvar monitor
-    std::unique_ptr<bvar::Adder<size_t>> _io_adder;
-    std::unique_ptr<bvar::PerSecond<bvar::Adder<size_t>>> _io_adder_per_second;
+    std::string _metric_name;
 };
 }; // namespace doris
