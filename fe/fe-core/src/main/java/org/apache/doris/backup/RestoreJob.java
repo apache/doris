@@ -700,8 +700,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
-        for (BackupJobInfo.BackupStoragePolicyInfo backupStoragePolicyInfo : jobInfo.newBackupObjects.storagePolicies) {
-            String backupStoragePoliceName = backupStoragePolicyInfo.name;
+        for (StoragePolicy  backupStoragePolicy : jobInfo.newBackupObjects.storagePolicies) {
+            String backupStoragePoliceName = backupStoragePolicy.getName();
             Optional<Policy> localPolicy = Env.getCurrentEnv().getPolicyMgr().findPolicy(backupStoragePoliceName,
                     PolicyTypeEnum.STORAGE);
             if (localPolicy.isPresent() && localPolicy.get().getType() != PolicyTypeEnum.STORAGE) {
@@ -1390,21 +1390,19 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
         PolicyMgr policyMgr = Env.getCurrentEnv().getPolicyMgr();
-        for (BackupJobInfo.BackupStoragePolicyInfo backupStoragePolicyInfo : jobInfo.newBackupObjects.storagePolicies) {
-            String backupStoragePoliceName = backupStoragePolicyInfo.name;
+        for (StoragePolicy backupStoragePolicy : jobInfo.newBackupObjects.storagePolicies) {
+            String backupStoragePoliceName = backupStoragePolicy.getName();
             Optional<Policy> localPolicy = policyMgr.findPolicy(backupStoragePoliceName,
                     PolicyTypeEnum.STORAGE);
-            StoragePolicy backupStoargePolicy = backupMeta.getStoragePolicy(backupStoragePoliceName);
-
             // use specified storageResource
             if (storageResource != null) {
-                backupStoargePolicy.setStorageResource(storageResource);
+                backupStoragePolicy.setStorageResource(storageResource);
             }
             if (localPolicy.isPresent()) {
                 StoragePolicy localStoargePolicy = (StoragePolicy) localPolicy.get();
                 // storage policy name and resource name should be same
                 if (localStoargePolicy.getSignature(BackupHandler.SIGNATURE_VERSION)
-                        != backupStoargePolicy.getSignature(BackupHandler.SIGNATURE_VERSION)) {
+                        != backupStoragePolicy.getSignature(BackupHandler.SIGNATURE_VERSION)) {
                     status = new Status(ErrCode.COMMON_ERROR, "Storage policy "
                         + jobInfo.getAliasByOriginNameIfSet(backupStoragePoliceName)
                         + " already exist but with different properties");
@@ -1414,11 +1412,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             } else {
                 // restore storage policy
                 try {
-                    policyMgr.createStoragePolicy(backupStoargePolicy);
+                    policyMgr.createStoragePolicy(backupStoragePolicy);
                 } catch (Exception e) {
                     LOG.error("restore storage policy fail should not happen", e);
                 }
-                storagePolicies.add(backupStoargePolicy);
+                storagePolicies.add(backupStoragePolicy);
             }
         }
     }
@@ -2816,12 +2814,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         size = in.readInt();
         for (int i = 0; i < size; i++) {
             restoredResources.add(Resource.read(in));
-        }
-
-        // restored storage policy
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            storagePolicies.add(StoragePolicy.read(in));
         }
 
         // read properties

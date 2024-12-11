@@ -54,7 +54,6 @@ public class BackupMeta implements Writable, GsonPostProcessable {
     @SerializedName(value = "resourceNameMap")
     private Map<String, Resource> resourceNameMap = Maps.newHashMap();
     // storagePolicy name -> resource
-    @SerializedName(value = "storagePolicyNameMap")
     private Map<String, StoragePolicy> storagePolicyNameMap = Maps.newHashMap();
 
     private BackupMeta() {
@@ -106,10 +105,6 @@ public class BackupMeta implements Writable, GsonPostProcessable {
 
     public Resource getResource(String resourceName) {
         return resourceNameMap.get(resourceName);
-    }
-
-    public StoragePolicy getStoragePolicy(String policyName) {
-        return storagePolicyNameMap.get(policyName);
     }
 
     public Table getTable(Long tblId) {
@@ -168,10 +163,6 @@ public class BackupMeta implements Writable, GsonPostProcessable {
         for (Resource resource : resourceNameMap.values()) {
             resource.write(out);
         }
-        out.writeInt(storagePolicyNameMap.size());
-        for (StoragePolicy storagePolicy : storagePolicyNameMap.values()) {
-            storagePolicy.write(out);
-        }
     }
 
     @Deprecated
@@ -186,14 +177,6 @@ public class BackupMeta implements Writable, GsonPostProcessable {
         for (int i = 0; i < size; i++) {
             Resource resource = Resource.read(in);
             resourceNameMap.put(resource.getName(), resource);
-        }
-
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_141) {
-            size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                StoragePolicy policy = StoragePolicy.read(in);
-                storagePolicyNameMap.put(policy.getName(), policy);
-            }
         }
     }
 
