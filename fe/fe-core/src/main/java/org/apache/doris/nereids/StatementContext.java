@@ -558,7 +558,11 @@ public class StatementContext implements Closeable {
         }
         for (TableIf tableIf : tables.values()) {
             if (tableIf instanceof MvccTable) {
-                snapshots.put(new MvccTableInfo(tableIf), ((MvccTable) tableIf).loadSnapshot());
+                MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
+                // may be set by MTMV, we can not load again
+                if (!snapshots.containsKey(mvccTableInfo)) {
+                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot());
+                }
             }
         }
     }
@@ -566,11 +570,25 @@ public class StatementContext implements Closeable {
     /**
      * Obtain snapshot information of mvcc
      *
-     * @param mvccTable mvccTable
+     * @param tableIf tableIf
      * @return MvccSnapshot
      */
-    public MvccSnapshot getSnapshot(MvccTable mvccTable) {
-        return snapshots.get(new MvccTableInfo(mvccTable));
+    public Optional<MvccSnapshot> getSnapshot(TableIf tableIf) {
+        if (!(tableIf instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
+        return Optional.ofNullable(snapshots.get(mvccTableInfo));
+    }
+
+    /**
+     * Obtain snapshot information of mvcc
+     *
+     * @param mvccTableInfo mvccTableInfo
+     * @param snapshot snapshot
+     */
+    public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
+        snapshots.put(mvccTableInfo, snapshot);
     }
 
     private static class CloseableResource implements Closeable {

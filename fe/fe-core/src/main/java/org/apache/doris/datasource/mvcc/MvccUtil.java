@@ -15,23 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.paimon;
+package org.apache.doris.datasource.mvcc;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
 
-import java.util.List;
+import java.util.Optional;
 
-public class PaimonSchemaCacheValue extends SchemaCacheValue {
-
-    private List<Column> partitionColumns;
-
-    public PaimonSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
-        super(schema);
-        this.partitionColumns = partitionColumns;
-    }
-
-    public List<Column> getPartitionColumns() {
-        return partitionColumns;
+public class MvccUtil {
+    /**
+     * get Snapshot From StatementContext
+     *
+     * @param tableIf
+     * @return MvccSnapshot
+     */
+    public static Optional<MvccSnapshot> getSnapshotFromContext(TableIf tableIf) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return Optional.empty();
+        }
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext == null) {
+            return Optional.empty();
+        }
+        return statementContext.getSnapshot(tableIf);
     }
 }
