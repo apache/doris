@@ -421,13 +421,19 @@ Status PipelineTask::execute(bool* eos) {
                 COUNTER_UPDATE(_memory_reserve_times, 1);
                 if (!st.ok()) {
                     COUNTER_UPDATE(_memory_reserve_failed_times, 1);
-                    VLOG_DEBUG << "Query: " << print_id(query_id) << ", try to reserve: "
-                               << PrettyPrinter::print(reserve_size, TUnit::BYTES)
-                               << ", sink name: " << _sink->get_name()
-                               << ", node id: " << _sink->node_id()
-                               << ", task id: " << _state->task_id()
-                               << ", failed: " << st.to_string()
-                               << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
+                    auto debug_msg = fmt::format(
+                            "Query: {} , try to reserve: {}, operator name: {}, operator id: {}, "
+                            "task id: "
+                            "{}, revocable mem size: {}, failed: {}",
+                            print_id(query_id), PrettyPrinter::print_bytes(reserve_size),
+                            _root->get_name(), _root->node_id(), _state->task_id(),
+                            PrettyPrinter::print_bytes(get_revocable_size()), st.to_string());
+                    // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
+                    if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
+                        debug_msg += fmt::format(", debug info: {}",
+                                                 GlobalMemoryArbitrator::process_mem_log_str());
+                    }
+                    LOG(INFO) << debug_msg;
 
                     _state->get_query_ctx()->update_paused_reason(st);
                     _state->get_query_ctx()->set_low_memory_mode();
@@ -453,13 +459,19 @@ Status PipelineTask::execute(bool* eos) {
 
                 if (!status.ok()) {
                     COUNTER_UPDATE(_memory_reserve_failed_times, 1);
-                    VLOG_DEBUG << "Query: " << print_id(query_id) << ", try to reserve: "
-                               << PrettyPrinter::print(sink_reserve_size, TUnit::BYTES)
-                               << ", sink name: " << _sink->get_name()
-                               << ", node id: " << _sink->node_id()
-                               << ", task id: " << _state->task_id()
-                               << ", failed: " << status.to_string()
-                               << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
+                    auto debug_msg = fmt::format(
+                            "Query: {} try to reserve: {}, sink name: {}, node id: {}, task id: "
+                            "{}, revocable mem size: {}, failed: {}",
+                            print_id(query_id), PrettyPrinter::print_bytes(sink_reserve_size),
+                            _sink->get_name(), _sink->node_id(), _state->task_id(),
+                            PrettyPrinter::print_bytes(get_revocable_size()), status.to_string());
+                    // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
+                    if (!status.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
+                        debug_msg += fmt::format(", debug info: {}",
+                                                 GlobalMemoryArbitrator::process_mem_log_str());
+                    }
+                    LOG(INFO) << debug_msg;
+
                     DCHECK_EQ(_pending_block.get(), nullptr);
                     _pending_block = std::move(_block);
                     _block = vectorized::Block::create_unique(_pending_block->clone_empty());

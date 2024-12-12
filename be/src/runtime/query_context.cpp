@@ -476,17 +476,17 @@ Status QueryContext::revoke_memory() {
     // should free 200MB memory, not 300MB
     const auto target_revoking_size = (int64_t)(query_mem_tracker->consumption() * 0.2);
     size_t revoked_size = 0;
+    size_t total_revokable_size = 0;
 
     std::vector<pipeline::PipelineTask*> chosen_tasks;
     for (auto&& [revocable_size, task] : tasks) {
-        chosen_tasks.emplace_back(task);
-
-        revoked_size += revocable_size;
         // Only revoke the largest task to ensure memory is used as much as possible
         // break;
-        if (revoked_size >= target_revoking_size) {
-            break;
+        if (revoked_size < target_revoking_size) {
+            chosen_tasks.emplace_back(task);
+            revoked_size += revocable_size;
         }
+        total_revokable_size += revocable_size;
     }
 
     std::weak_ptr<QueryContext> this_ctx = shared_from_this();
@@ -502,13 +502,14 @@ Status QueryContext::revoke_memory() {
                 query_context->set_memory_sufficient(true);
             });
 
+    LOG(INFO) << fmt::format(
+            "{}, spill context: {}, revokable mem: {}/{}, tasks count: {}/{}", this->debug_string(),
+            ((void*)spill_context.get()), PrettyPrinter::print_bytes(revoked_size),
+            PrettyPrinter::print_bytes(total_revokable_size), chosen_tasks.size(), tasks.size());
+
     for (auto* task : chosen_tasks) {
         RETURN_IF_ERROR(task->revoke_memory(spill_context));
     }
-
-    LOG(INFO) << this->debug_string() << ", context: " << ((void*)spill_context.get())
-              << " total revoked size: " << PrettyPrinter::print(revoked_size, TUnit::BYTES)
-              << ", tasks count: " << chosen_tasks.size() << "/" << tasks.size();
     return Status::OK();
 }
 
