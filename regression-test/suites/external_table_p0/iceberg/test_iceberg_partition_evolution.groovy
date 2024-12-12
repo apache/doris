@@ -42,7 +42,7 @@ suite("test_iceberg_partition_evolution", "p0,external,doris,external_docker,ext
     logger.info("catalog " + catalog_name + " created")
     sql """switch ${catalog_name};"""
     logger.info("switched to catalog " + catalog_name)
-    sql """ use multi_catalog;""" 
+    sql """ use test_db;""" 
 
     qt_add_partition_1  """desc iceberg_add_partition;"""
     qt_add_partition_2  """select * from iceberg_add_partition order by id;"""
