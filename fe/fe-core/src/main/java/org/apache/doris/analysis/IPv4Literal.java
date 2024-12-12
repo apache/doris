@@ -89,7 +89,6 @@ public class IPv4Literal extends LiteralExpr {
 
     private static String parseLongToIPv4(long ipv4) {
         StringBuilder sb = new StringBuilder();
-        sb.append("\"");
         for (int i = 3; i >= 0; i--) {
             short octet = (short) ((ipv4 >> (i * 8)) & 0xFF);
             sb.append(octet);
@@ -97,7 +96,6 @@ public class IPv4Literal extends LiteralExpr {
                 sb.append(".");
             }
         }
-        sb.append("\"");
         return sb.toString();
     }
 
@@ -117,7 +115,7 @@ public class IPv4Literal extends LiteralExpr {
 
     @Override
     protected String toSqlImpl() {
-        return getStringValue();
+        return "\"" + getStringValue() + "\"";
     }
 
     @Override
