@@ -42,6 +42,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "gtest/gtest.h"
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/substitute.h"
 #include "util/barrier.h"
@@ -339,7 +340,7 @@ TEST_F(ThreadPoolTest, TestDeadlocks) {
             "_ZNSt5_BindIFMN5doris10ThreadPoolEFvvEPS1_EE6__callIvJEJLm0EEEET_OSt5tupleIJDpT0_"
             "EESt12_Index_tupleIJXspT1_EEE";
 #endif
-    EXPECT_DEATH(
+    EXPECT_ANY_THROW(
             {
                 EXPECT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
                 EXPECT_TRUE(
@@ -348,7 +349,7 @@ TEST_F(ThreadPoolTest, TestDeadlocks) {
             },
             death_msg);
 
-    EXPECT_DEATH(
+    EXPECT_ANY_THROW(
             {
                 EXPECT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
                 EXPECT_TRUE(_pool->submit_func(std::bind(&ThreadPool::wait, _pool.get())).ok());
