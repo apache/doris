@@ -48,7 +48,7 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
         def wait_for_load_result = {checklabel, testTable ->
             def max_try_milli_secs = 10000
             while(max_try_milli_secs) {
-                result = sql "show load where label = '${checklabel}'"
+                def result = sql "show load where label = '${checklabel}'"
                 if(result[0][2] == "FINISHED") {
                     break
                 } else {

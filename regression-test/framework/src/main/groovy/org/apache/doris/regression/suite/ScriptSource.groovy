@@ -41,7 +41,7 @@ class GroovyFileSource implements ScriptSource {
 '''
         def scriptContent = file.text
         scriptContent = scriptContent + setPropertyFunction
-        SuiteScript suiteScript = shell.parse(scriptContent) as SuiteScript
+        SuiteScript suiteScript = shell.parse(scriptContent, file.getName()) as SuiteScript
         suiteScript.init(scriptContext)
         return suiteScript
     }
