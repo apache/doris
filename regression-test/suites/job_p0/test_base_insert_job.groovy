@@ -116,7 +116,7 @@ suite("test_base_insert_job") {
 
     def taskStatus = sql """select status from tasks("type"="insert") where JobName ='${jobName}'"""
     for (int i = 0; i < taskStatus.size(); i++) {
-        assert taskStatus.get(i).get(0) =="CANCELLED" || taskStatus.get(i).get(0) =="SUCCESS"
+        assert taskStatus.get(i).get(0) =="CANCELED" || taskStatus.get(i).get(0) =="SUCCESS"
     }
     sql """
        CREATE JOB ${jobMixedName}  ON SCHEDULE every 1 second  DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
