@@ -30,6 +30,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.FieldInfo;
+import org.apache.doris.nereids.CascadesContext.Lock;
+import org.apache.doris.nereids.commonCTE.CteExtractor;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -58,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
+import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -265,7 +268,7 @@ public class NereidsPlanner extends Planner {
                 return rewrittenPlan;
             }
         }
-
+        extractCommonCTE();
         optimize();
         // print memo before choose plan.
         // if chooseNthPlan failed, we could get memo to debug
@@ -295,6 +298,11 @@ public class NereidsPlanner extends Planner {
 
     protected LogicalPlan preprocess(LogicalPlan logicalPlan) {
         return new PlanPreprocessors(statementContext).process(logicalPlan);
+    }
+
+    private void extractCommonCTE() {
+        CteExtractor commonCTE = new CteExtractor((AbstractLogicalPlan) cascadesContext.getRewritePlan());
+        commonCTE.execute();
     }
 
     /**
