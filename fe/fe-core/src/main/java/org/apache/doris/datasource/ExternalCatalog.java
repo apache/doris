@@ -41,6 +41,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -432,13 +433,13 @@ public abstract class ExternalCatalog
         }
     }
 
-    public final Optional<SchemaCacheValue> getSchema(String dbName, String tblName) {
+    public final Optional<SchemaCacheValue> getSchema(SchemaCacheKey key) {
         makeSureInitialized();
-        Optional<ExternalDatabase<? extends ExternalTable>> db = getDb(dbName);
+        Optional<ExternalDatabase<? extends ExternalTable>> db = getDb(key.getDbName());
         if (db.isPresent()) {
-            Optional<? extends ExternalTable> table = db.get().getTable(tblName);
+            Optional<? extends ExternalTable> table = db.get().getTable(key.getTblName());
             if (table.isPresent()) {
-                return table.get().initSchemaAndUpdateTime();
+                return table.get().initSchemaAndUpdateTime(key);
             }
         }
         return Optional.empty();

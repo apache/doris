@@ -50,7 +50,7 @@ suite("test_dml_mysql_load_auth","p0,auth_call") {
 
     sql """use ${dbName}"""
     def path_file = "${context.file.parent}/../../data/auth_call/stream_load_data.csv"
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """
                 LOAD DATA LOCAL
@@ -64,7 +64,7 @@ suite("test_dml_mysql_load_auth","p0,auth_call") {
         }
     }
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName};"""
         sql """
                 LOAD DATA LOCAL

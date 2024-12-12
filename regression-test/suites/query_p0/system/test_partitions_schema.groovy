@@ -184,17 +184,17 @@ suite("test_partitions_schema") {
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
 
-    connect(user=user, password='123abc!@#', url=url) {
+    connect(user, '123abc!@#', url) {
         order_qt_select_check_3 """select $listOfColum from information_schema.partitions where table_schema=\"${dbName}\""""
     }
 
     sql "GRANT SELECT_PRIV ON ${dbName}.duplicate_table  TO ${user}"
-    connect(user=user, password='123abc!@#', url=url) {
+    connect(user, '123abc!@#', url) {
         order_qt_select_check_4 """select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,PARTITION_NAME from information_schema.partitions where table_schema=\"${dbName}\""""
     }
     
     sql "REVOKE SELECT_PRIV ON ${dbName}.duplicate_table  FROM ${user}"
-    connect(user=user, password='123abc!@#', url=url) {
+    connect(user, '123abc!@#', url) {
         order_qt_select_check_5 """select TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,PARTITION_NAME from information_schema.partitions where table_schema=\"${dbName}\""""
     }
 

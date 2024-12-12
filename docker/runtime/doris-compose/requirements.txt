@@ -22,5 +22,6 @@ jsonpickle
 prettytable
 pymysql
 python-dateutil
-#pyyaml==5.4.1
+# if mac install pyyaml failed, change pyyaml version
+#pyyaml==5.3.1
 requests<=2.31.0

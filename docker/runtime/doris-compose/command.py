@@ -183,7 +183,7 @@ class Command(object):
         return sys.version_info.major == 3 and sys.version_info.minor >= 9
 
     def _print_table(self, header, datas):
-        if utils.is_enable_log():
+        if utils.is_log_stdout():
             table = prettytable.PrettyTable(
                 [utils.render_green(field) for field in header])
             for row in datas:
@@ -598,13 +598,6 @@ class UpCommand(Command):
                                           related_nodes,
                                           output_real_time=output_real_time)
 
-        ls_cmd = "python docker/runtime/doris-compose/doris-compose.py ls " + cluster.name
-        LOG.info("Inspect command: " + utils.render_green(ls_cmd) + "\n")
-        LOG.info(
-            "Master fe query address: " +
-            utils.render_green(CLUSTER.get_master_fe_endpoint(cluster.name)) +
-            "\n")
-
         if not args.start:
             LOG.info(
                 utils.render_green(
@@ -618,14 +611,18 @@ class UpCommand(Command):
             LOG.info("Waiting for FE master to be elected...")
             expire_ts = time.time() + 30
             while expire_ts > time.time():
+                ready = False
                 db_mgr = database.get_db_mgr(args.NAME, False)
                 for id in add_fe_ids:
                     fe_state = db_mgr.get_fe(id)
                     if fe_state is not None and fe_state.alive:
+                        ready = True
                         break
-                    LOG.info("there is no fe ready")
-                time.sleep(5)
-
+                if ready:
+                    break
+                LOG.info("there is no fe ready")
+                time.sleep(1)
+            LOG.info("after Waiting for FE master to be elected...")
             if cluster.is_cloud and args.sql_mode_node_mgr:
                 db_mgr = database.get_db_mgr(args.NAME, False)
                 master_fe_endpoint = CLUSTER.get_master_fe_endpoint(
@@ -635,7 +632,9 @@ class UpCommand(Command):
                     fe_endpoint = f"{fe.get_ip()}:{CLUSTER.FE_EDITLOG_PORT}"
                     if fe_endpoint != master_fe_endpoint:
                         try:
-                            db_mgr.add_fe(fe_endpoint)
+                            db_mgr.add_fe(
+                                fe_endpoint, "FOLLOWER"
+                                if cluster.fe_follower else "OBSERVER")
                             LOG.info(f"Added FE {fe_endpoint} successfully.")
                         except Exception as e:
                             LOG.error(
@@ -661,6 +660,12 @@ class UpCommand(Command):
                     "Up cluster {} succ, related node num {}".format(
                         args.NAME, related_node_num)))
 
+        ls_cmd = "python docker/runtime/doris-compose/doris-compose.py ls " + cluster.name
+        LOG.info("Inspect command: " + utils.render_green(ls_cmd) + "\n")
+        LOG.info(
+            "Master fe query address: " +
+            utils.render_green(CLUSTER.get_master_fe_endpoint(cluster.name)) +
+            "\n")
         return {
             "fe": {
                 "add_list": add_fe_ids,
@@ -1066,8 +1071,7 @@ class ListCommand(Command):
                 if services is None:
                     return COMPOSE_BAD, {}
                 return COMPOSE_GOOD, {
-                    service:
-                    ComposeService(
+                    service: ComposeService(
                         service,
                         list(service_conf["networks"].values())[0]
                         ["ipv4_address"], service_conf["image"])

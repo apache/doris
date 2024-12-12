@@ -38,6 +38,16 @@
 
 namespace doris {
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(host_cpu_num, MetricUnit::NOUNIT);
+struct CpuNumberMetrics {
+    CpuNumberMetrics(MetricEntity* ent) : entity(ent) {
+        INT_ATOMIC_COUNTER_METRIC_REGISTER(entity, host_cpu_num);
+    }
+
+    IntAtomicCounter* host_cpu_num {nullptr};
+    MetricEntity* entity = nullptr;
+};
+
 #define DEFINE_CPU_COUNTER_METRIC(metric)                                            \
     DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cpu_##metric, MetricUnit::PERCENT, "", cpu, \
                                          Labels({{"mode", #metric}}));
@@ -386,11 +396,22 @@ void SystemMetrics::update() {
 
 void SystemMetrics::_install_cpu_metrics() {
     get_cpu_name();
+
+    int cpu_num = 0;
     for (auto cpu_name : _cpu_names) {
+        // NOTE: cpu_name comes from /proc/stat which named 'cpu' is not a real cpu name, it should be skipped.
+        if (cpu_name != "cpu") {
+            cpu_num++;
+        }
         auto cpu_entity = _registry->register_entity(cpu_name, {{"device", cpu_name}});
         CpuMetrics* metrics = new CpuMetrics(cpu_entity.get());
         _cpu_metrics.emplace(cpu_name, metrics);
     }
+
+    auto cpu_num_entity = _registry->register_entity("doris_be_host_cpu_num");
+    _cpu_num_metrics = std::make_unique<CpuNumberMetrics>(cpu_num_entity.get());
+
+    _cpu_num_metrics->host_cpu_num->set_value(cpu_num);
 }
 
 #ifdef BE_TEST
