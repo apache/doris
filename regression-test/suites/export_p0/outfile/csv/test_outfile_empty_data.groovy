@@ -67,8 +67,8 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
         // select ... into outfile ...
         def uuid = UUID.randomUUID().toString()
 
-        hdfs_outfile_path = "/user/doris/tmp_data/${uuid}"
-        uri = "${defaultFS}" + "${hdfs_outfile_path}/exp_"
+        def hdfs_outfile_path = "/user/doris/tmp_data/${uuid}"
+        def uri = "${defaultFS}" + "${hdfs_outfile_path}/exp_"
 
         def res = sql """
             SELECT * FROM ${export_table_name} t ORDER BY user_id
@@ -88,7 +88,7 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
         def uuid = UUID.randomUUID().toString()
 
         hdfs_outfile_path = "/user/doris/tmp_data/${uuid}"
-        uri = "${defaultFS}" + "${hdfs_outfile_path}/exp_"
+        def uri = "${defaultFS}" + "${hdfs_outfile_path}/exp_"
 
         def res = sql """
             SELECT * FROM ${export_table_name} t ORDER BY user_id
@@ -107,7 +107,7 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
     def outfile_to_S3_directly = {
         // select ... into outfile ...
         s3_outfile_path = "${bucket}/outfile/csv/test-outfile-empty/"
-        uri = "s3://${s3_outfile_path}/exp_"
+        def uri = "s3://${s3_outfile_path}/exp_"
 
         def res = sql """
             SELECT * FROM ${export_table_name} t ORDER BY user_id
