@@ -201,7 +201,7 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
 
     logAndExecuteSql """GRANT USAGE_PRIV ON COMPUTE GROUP '${group1}' TO '${user2}'"""
     logAndExecuteSql """GRANT USAGE_PRIV ON COMPUTE GROUP '${validCluster}' TO '${user2}'"""
-    show_group_2 = connect("${user2}", 'Cloud12345', context.config.jdbcUrl) {
+    def show_group_2 = connect("${user2}", 'Cloud12345', context.config.jdbcUrl) {
             getCluster(validCluster)
     }
 
