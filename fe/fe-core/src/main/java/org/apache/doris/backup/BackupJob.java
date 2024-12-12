@@ -600,13 +600,12 @@ public class BackupJob extends AbstractJob {
                 Partition partition = olapTable.getPartition(partName, false); // exclude tmp partitions
                 if (partition == null) {
                     if (olapTable.getPartition(partName, true) != null) {
-                        status = new Status(ErrCode.NOT_FOUND, "backup tmp partition " + partName
+                        return new Status(ErrCode.NOT_FOUND, "backup tmp partition " + partName
                                 + " in table " + backupTableRef.getName().getTbl() + " is not supported");
                     } else {
-                        status = new Status(ErrCode.NOT_FOUND, "partition " + partName
+                        return new Status(ErrCode.NOT_FOUND, "partition " + partName
                                 + " does not exist in table " + backupTableRef.getName().getTbl());
                     }
-                    return;
                 }
             }
         }
