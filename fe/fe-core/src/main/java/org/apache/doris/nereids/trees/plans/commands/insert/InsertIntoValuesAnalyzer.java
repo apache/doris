@@ -31,6 +31,8 @@ import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
+import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -46,7 +48,7 @@ import java.util.List;
 
 /** InsertIntoValuesAnalyzer */
 public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
-    public static final List<RewriteJob> JOBS = jobs(
+    public static final List<RewriteJob> INSERT_JOBS = jobs(
             bottomUp(
                     new InlineTableToUnionOrOneRowRelation(),
                     new BindSink(),
@@ -62,13 +64,30 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
             )
     );
 
-    public InsertIntoValuesAnalyzer(CascadesContext cascadesContext) {
+    public static final List<RewriteJob> BATCH_INSERT_JOBS = jobs(
+            bottomUp(
+                    new InlineTableToUnionOrOneRowRelation(),
+                    new BindSink(),
+                    new MergeProjects(),
+                    new PushProjectIntoUnion(),
+                    new PushProjectIntoOneRowRelation(),
+                    new RewriteBatchInsertIntoExpressions(ExpressionRewrite.bottomUp(
+                            ConvertAggStateCast.INSTANCE,
+                            FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE
+                    ))
+            )
+    );
+
+    private final boolean batchInsert;
+
+    public InsertIntoValuesAnalyzer(CascadesContext cascadesContext, boolean batchInsert) {
         super(cascadesContext);
+        this.batchInsert = batchInsert;
     }
 
     @Override
     public List<RewriteJob> getJobs() {
-        return JOBS;
+        return batchInsert ? BATCH_INSERT_JOBS : INSERT_JOBS;
     }
 
     // we only rewrite the project's expression
@@ -81,6 +100,21 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
         public List<Rule> buildRules() {
             return ImmutableList.of(
                     new ProjectExpressionRewrite().build()
+            );
+        }
+    }
+
+    // we only rewrite the project's and one row relation expression
+    private static class RewriteBatchInsertIntoExpressions extends ExpressionRewrite {
+        public RewriteBatchInsertIntoExpressions(ExpressionRewriteRule... rules) {
+            super(rules);
+        }
+
+        @Override
+        public List<Rule> buildRules() {
+            return ImmutableList.of(
+                    new ProjectExpressionRewrite().build(),
+                    new OneRowRelationExpressionRewrite().build()
             );
         }
     }

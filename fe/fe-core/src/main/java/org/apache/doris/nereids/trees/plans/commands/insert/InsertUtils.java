@@ -610,6 +610,14 @@ public class InsertUtils {
             logicalQuery, InsertUtils.getTargetTable(logicalQuery, ctx), analyzeContext, Optional.empty());
     }
 
+    /** supportFastInsertIntoValues */
+    public static boolean supportFastInsertIntoValues(
+            LogicalPlan logicalPlan, TableIf targetTableIf, ConnectContext ctx) {
+        return logicalPlan instanceof UnboundTableSink && logicalPlan.child(0) instanceof InlineTable
+                && targetTableIf instanceof OlapTable
+                && ctx != null && ctx.getSessionVariable().isEnableFastAnalyzeInsertIntoValues();
+    }
+
     // check for insert into t1(a,b,gen_col) select 1,2,3;
     private static void checkGeneratedColumnForInsertIntoSelect(TableIf table,
             UnboundLogicalSink<? extends Plan> unboundLogicalSink, Optional<InsertCommandContext> insertCtx) {

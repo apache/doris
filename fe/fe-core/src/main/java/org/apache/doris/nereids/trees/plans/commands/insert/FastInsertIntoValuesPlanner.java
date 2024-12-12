@@ -44,11 +44,18 @@ public class FastInsertIntoValuesPlanner extends NereidsPlanner {
             .build();
     private final AtomicReference<Group> rootGroupRef = new AtomicReference<>();
 
-    private final boolean fastInsertIntoValues;
+    protected final boolean fastInsertIntoValues;
+    protected final boolean batchInsert;
 
     public FastInsertIntoValuesPlanner(StatementContext statementContext, boolean fastInsertIntoValues) {
+        this(statementContext, fastInsertIntoValues, false);
+    }
+
+    public FastInsertIntoValuesPlanner(
+            StatementContext statementContext, boolean fastInsertIntoValues, boolean batchInsert) {
         super(statementContext);
         this.fastInsertIntoValues = fastInsertIntoValues;
+        this.batchInsert = batchInsert;
     }
 
     @Override
@@ -59,7 +66,7 @@ public class FastInsertIntoValuesPlanner extends NereidsPlanner {
         }
         CascadesContext cascadesContext = getCascadesContext();
         keepOrShowPlanProcess(showPlanProcess, () -> {
-            InsertIntoValuesAnalyzer analyzer = new InsertIntoValuesAnalyzer(cascadesContext);
+            InsertIntoValuesAnalyzer analyzer = new InsertIntoValuesAnalyzer(cascadesContext, batchInsert);
             analyzer.execute();
         });
     }

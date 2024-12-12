@@ -46,7 +46,6 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -411,11 +410,5 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     @Override
     public StmtType stmtType() {
         return StmtType.INSERT;
-    }
-
-    public boolean supportFastInsertIntoValues(LogicalPlan logicalPlan, TableIf targetTableIf, ConnectContext ctx) {
-        return logicalPlan instanceof UnboundTableSink && logicalPlan.child(0) instanceof InlineTable
-                && targetTableIf instanceof OlapTable
-                && ctx != null && ctx.getSessionVariable().isEnableFastAnalyzeInsertIntoValues();
     }
 }

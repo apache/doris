@@ -372,7 +372,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             LogicalPlanAdapter logicalPlanAdapter, TableIf targetTableIf) throws Throwable {
         LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
 
-        boolean supportFastInsertIntoValues = supportFastInsertIntoValues(logicalPlan, targetTableIf, ctx);
+        boolean supportFastInsertIntoValues = InsertUtils.supportFastInsertIntoValues(logicalPlan, targetTableIf, ctx);
         // the key logical when use new coordinator:
         // 1. use NereidsPlanner to generate PhysicalPlan
         // 2. use PhysicalPlan to select InsertExecutorFactory, some InsertExecutors want to control
@@ -431,7 +431,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     public Optional<NereidsPlanner> getExplainPlanner(LogicalPlan logicalPlan, StatementContext ctx) {
         ConnectContext connectContext = ctx.getConnectContext();
         TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, connectContext);
-        boolean supportFastInsertIntoValues = supportFastInsertIntoValues(logicalPlan, targetTableIf, connectContext);
+        boolean supportFastInsertIntoValues
+                = InsertUtils.supportFastInsertIntoValues(logicalPlan, targetTableIf, connectContext);
         return Optional.of(new FastInsertIntoValuesPlanner(ctx, supportFastInsertIntoValues));
     }
 
@@ -451,12 +452,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     @Override
     public StmtType stmtType() {
         return StmtType.INSERT;
-    }
-
-    public boolean supportFastInsertIntoValues(LogicalPlan logicalPlan, TableIf targetTableIf, ConnectContext ctx) {
-        return logicalPlan instanceof UnboundTableSink && logicalPlan.child(0) instanceof InlineTable
-                && targetTableIf instanceof OlapTable
-                && ctx != null && ctx.getSessionVariable().isEnableFastAnalyzeInsertIntoValues();
     }
 
     /**
