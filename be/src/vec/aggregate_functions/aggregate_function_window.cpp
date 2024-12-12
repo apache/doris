@@ -40,6 +40,8 @@ AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
     WhichDataType which(*type);
 
     bool arg_ignore_null_value = false;
+    // FE have rewrite case first_value(k1,false)--->first_value(k1)
+    // so size is 2, must will be arg_ignore_null_value
     if (argument_types.size() == 2) {
         DCHECK(name == "first_value" || name == "last_value") << "invalid function name: " << name;
         arg_ignore_null_value = true;
