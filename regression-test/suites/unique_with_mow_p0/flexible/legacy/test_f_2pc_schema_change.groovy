@@ -37,14 +37,15 @@ import org.apache.http.util.EntityUtils
 suite("test_f_2pc_schema_change", "p0") {
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
-
+    def user = context.config.jdbcUser
+    def password = context.config.jdbcPassword
     if (isCloudMode()) {
         return
     }
 
     for (def use_row_store : [false, true]) {
         logger.info("current params: use_row_store: ${use_row_store}")
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect( user, password, context.config.jdbcUrl) {
             sql "use ${db};"
 
             def tableName = "test_f_2pc_schema_change"

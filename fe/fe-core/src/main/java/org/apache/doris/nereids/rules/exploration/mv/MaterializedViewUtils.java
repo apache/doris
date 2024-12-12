@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -497,13 +498,14 @@ public class MaterializedViewUtils {
                 return null;
             }
             MTMVRelatedTableIf relatedTable = (MTMVRelatedTableIf) table;
-            PartitionType type = relatedTable.getPartitionType(Optional.empty());
+            PartitionType type = relatedTable.getPartitionType(MvccUtil.getSnapshotFromContext(relatedTable));
             if (PartitionType.UNPARTITIONED.equals(type)) {
                 context.addFailReason(String.format("related base table is not partition table, the table is %s",
                         table.getName()));
                 return null;
             }
-            Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns(Optional.empty()));
+            Set<Column> partitionColumnSet = new HashSet<>(
+                    relatedTable.getPartitionColumns(MvccUtil.getSnapshotFromContext(relatedTable)));
             Column mvReferenceColumn = contextPartitionColumn.getColumn().get();
             Expr definExpr = mvReferenceColumn.getDefineExpr();
             if (definExpr instanceof SlotRef) {

@@ -52,6 +52,7 @@ import org.apache.doris.proto.Types.PStructField;
 import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -301,8 +302,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     @Override
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new TVFScanNode(id, desc, false);
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
+        return new TVFScanNode(id, desc, false, sv);
     }
 
     @Override

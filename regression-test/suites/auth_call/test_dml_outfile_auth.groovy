@@ -58,7 +58,7 @@ suite("test_dml_outfile_auth","p0,auth_call") {
     String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName")
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """
                 SELECT * FROM ${dbName}.${tableName} t ORDER BY id
@@ -74,7 +74,7 @@ suite("test_dml_outfile_auth","p0,auth_call") {
         }
     }
     sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """
             SELECT * FROM ${dbName}.${tableName} t ORDER BY id
             INTO OUTFILE "s3://${bucket}/outfile/auth/exp_"

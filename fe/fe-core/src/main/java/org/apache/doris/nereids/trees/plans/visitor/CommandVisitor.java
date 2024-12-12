@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
@@ -46,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
@@ -91,6 +94,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
@@ -107,19 +111,23 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
@@ -217,6 +225,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(adminCompactTableCommand, context);
     }
 
+    default R visitAdminCleanTrashCommand(AdminCleanTrashCommand adminCleanTrashCommand, C context) {
+        return visitCommand(adminCleanTrashCommand, context);
+    }
+
     default R visitDropConstraintCommand(DropConstraintCommand dropConstraintCommand, C context) {
         return visitCommand(dropConstraintCommand, context);
     }
@@ -291,6 +303,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowProcedureStatusCommand(ShowProcedureStatusCommand showProcedureStatusCommand, C context) {
         return visitCommand(showProcedureStatusCommand, context);
+    }
+
+    default R visitShowWarningErrorsCommand(ShowWarningErrorsCommand showWarningErrorsCommand, C context) {
+        return visitCommand(showWarningErrorsCommand, context);
     }
 
     default R visitShowCreateProcedureCommand(ShowCreateProcedureCommand showCreateProcedureCommand, C context) {
@@ -561,6 +577,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showTableIdCommand, context);
     }
 
+    default R visitCreateWorkloadGroupCommand(CreateWorkloadGroupCommand createWorkloadGroupCommand, C context) {
+        return visitCommand(createWorkloadGroupCommand, context);
+    }
+
     default R visitShowEncryptKeysCommand(ShowEncryptKeysCommand showEncryptKeysCommand, C context) {
         return visitCommand(showEncryptKeysCommand, context);
     }
@@ -599,5 +619,27 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowProcessListCommand(ShowProcessListCommand showProcessListCommand, C context) {
         return visitCommand(showProcessListCommand, context);
+    }
+
+    default R visitAdminCheckTabletsCommand(AdminCheckTabletsCommand adminCheckTabletsCommand, C context) {
+        return visitCommand(adminCheckTabletsCommand, context);
+    }
+
+    default R visitShowDataSkewCommand(ShowDataSkewCommand showDataSkewCommand, C context) {
+        return visitCommand(showDataSkewCommand, context);
+    }
+
+    default R visitShowTableCreationCommand(ShowTableCreationCommand showTableCreationCommand, C context) {
+        return visitCommand(showTableCreationCommand, context);
+    }
+
+    default R visitShowTabletStorageFormatCommand(ShowTabletStorageFormatCommand showTabletStorageFormatCommand,
+                                                  C context) {
+        return visitCommand(showTabletStorageFormatCommand, context);
+    }
+
+    default R visitShowQueryProfileCommand(ShowQueryProfileCommand showQueryProfileCommand,
+                                           C context) {
+        return visitCommand(showQueryProfileCommand, context);
     }
 }

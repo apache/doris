@@ -298,6 +298,8 @@ DECLARE_mInt32(max_download_speed_kbps);
 DECLARE_mInt32(download_low_speed_limit_kbps);
 // download low speed time(seconds)
 DECLARE_mInt32(download_low_speed_time);
+// whether to download small files in batch.
+DECLARE_mBool(enable_batch_download);
 
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
@@ -1293,6 +1295,7 @@ DECLARE_mBool(exit_on_exception);
 DECLARE_mString(doris_cgroup_cpu_path);
 DECLARE_mBool(enable_be_proc_monitor);
 DECLARE_mInt32(be_proc_monitor_interval_ms);
+DECLARE_Int32(workload_group_metrics_interval_ms);
 
 DECLARE_mBool(enable_workload_group_memory_gc);
 

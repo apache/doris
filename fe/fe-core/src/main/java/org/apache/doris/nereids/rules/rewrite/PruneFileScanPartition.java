@@ -36,7 +36,6 @@ import org.apache.commons.collections.CollectionUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -74,8 +73,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
     private SelectedPartitions pruneExternalPartitions(ExternalTable externalTable,
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
-        // todo: real snapshotId
-        if (CollectionUtils.isEmpty(externalTable.getPartitionColumns(Optional.empty()))) {
+        if (CollectionUtils.isEmpty(externalTable.getPartitionColumns(
+                ctx.getStatementContext().getSnapshot(externalTable)))) {
             // non partitioned table, return NOT_PRUNED.
             // non partition table will be handled in HiveScanNode.
             return SelectedPartitions.NOT_PRUNED;
@@ -83,8 +82,8 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         Map<String, Slot> scanOutput = scan.getOutput()
                 .stream()
                 .collect(Collectors.toMap(slot -> slot.getName().toLowerCase(), Function.identity()));
-        // todo: real snapshotId
-        List<Slot> partitionSlots = externalTable.getPartitionColumns(Optional.empty())
+        List<Slot> partitionSlots = externalTable.getPartitionColumns(
+                        ctx.getStatementContext().getSnapshot(externalTable))
                 .stream()
                 .map(column -> scanOutput.get(column.getName().toLowerCase()))
                 .collect(Collectors.toList());

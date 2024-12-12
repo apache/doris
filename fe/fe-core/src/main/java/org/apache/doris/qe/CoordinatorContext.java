@@ -84,7 +84,6 @@ public class CoordinatorContext {
     // these are some constant parameters
     public final NereidsCoordinator coordinator;
     public final List<PlanFragment> fragments;
-    public final boolean isBlockQuery;
     public final DataSink dataSink;
     public final ExecutionProfile executionProfile;
     public final ConnectContext connectContext;
@@ -120,7 +119,6 @@ public class CoordinatorContext {
     private CoordinatorContext(
             NereidsCoordinator coordinator,
             ConnectContext connectContext,
-            boolean isBlockQuery,
             List<PipelineDistributedPlan> distributedPlans,
             List<PlanFragment> fragments,
             List<RuntimeFilter> runtimeFilters,
@@ -131,7 +129,6 @@ public class CoordinatorContext {
             TQueryOptions queryOptions,
             TDescriptorTable descriptorTable) {
         this.connectContext = connectContext;
-        this.isBlockQuery = isBlockQuery;
         this.fragments = fragments;
         this.distributedPlans = distributedPlans;
         this.topDistributedPlan = distributedPlans.get(distributedPlans.size() - 1);
@@ -161,7 +158,6 @@ public class CoordinatorContext {
             TDescriptorTable descriptorTable,
             ExecutionProfile executionProfile) {
         this.coordinator = coordinator;
-        this.isBlockQuery = true;
         this.fragments = fragments;
         this.distributedPlans = distributedPlans;
         this.topDistributedPlan = distributedPlans.get(distributedPlans.size() - 1);
@@ -290,7 +286,7 @@ public class CoordinatorContext {
                         .collect(Collectors.toList())
         );
         return new CoordinatorContext(
-                coordinator, connectContext, planner.isBlockQuery(),
+                coordinator, connectContext,
                 planner.getDistributedPlans().valueList(),
                 planner.getFragments(), planner.getRuntimeFilters(), planner.getTopnFilters(),
                 planner.getScanNodes(), executionProfile, queryGlobals, queryOptions, descriptorTable

@@ -969,17 +969,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return columns;
     }
 
-    public List<Column> getMvColumns(boolean full) {
-        List<Column> columns = Lists.newArrayList();
-        for (Long indexId : indexIdToMeta.keySet()) {
-            if (indexId == baseIndexId) {
-                continue;
-            }
-            columns.addAll(getSchemaByIndexId(indexId, full));
-        }
-        return columns;
-    }
-
     public List<Column> getBaseSchemaKeyColumns() {
         return getKeyColumnsByIndexId(baseIndexId);
     }
@@ -2032,6 +2021,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     }
                 }
             }
+        }
+
+        if (isForBackup) {
+            // drop all tmp partitions in copied table
+            for (Partition partition : copied.tempPartitions.getAllPartitions()) {
+                copied.partitionInfo.dropPartition(partition.getId());
+            }
+            copied.tempPartitions = new TempPartitions();
         }
 
         if (reservedPartitions == null || reservedPartitions.isEmpty()) {

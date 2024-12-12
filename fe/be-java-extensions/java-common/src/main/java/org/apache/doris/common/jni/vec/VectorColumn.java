@@ -28,6 +28,8 @@ import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -77,6 +79,19 @@ public class VectorColumn {
     // For struct, only support to read all fields in struct now
     // todo: support pruned struct fields
     private List<Integer> structFieldIndex;
+
+
+    public static final InetAddress DEFAULT_IPV4;
+    public static final InetAddress DEFAULT_IPV6;
+
+    static {
+        try {
+            DEFAULT_IPV4 = InetAddress.getByName("127.0.0.1");
+            DEFAULT_IPV6 = InetAddress.getByName("::1");
+        } catch (UnknownHostException e) {
+            throw new RuntimeException("Failed to initialize default InetAddress values", e);
+        }
+    }
 
     // Create writable column
     private VectorColumn(ColumnType columnType, int capacity) {
@@ -376,6 +391,10 @@ public class VectorColumn {
                 return appendLong(0);
             case LARGEINT:
                 return appendBigInteger(BigInteger.ZERO);
+            case IPV4:
+                return appendInetAddress(DEFAULT_IPV4);
+            case IPV6:
+                return appendInetAddress(DEFAULT_IPV6);
             case FLOAT:
                 return appendFloat(0);
             case DOUBLE:
@@ -855,6 +874,56 @@ public class VectorColumn {
             }
         }
         return result;
+    }
+
+    public byte[] getInetAddressBytes(int rowId) {
+        int typeSize = columnType.getTypeSize();
+        byte[] bytes = new byte[typeSize];
+        OffHeap.copyMemory(null, data + (long) rowId * typeSize, bytes, OffHeap.BYTE_ARRAY_OFFSET, typeSize);
+        return bytes;
+    }
+
+    public InetAddress getInetAddress(int rowId) {
+        return TypeNativeBytes.getInetAddress(getInetAddressBytes(rowId));
+    }
+
+    public InetAddress[] getInetAddressColumn(int start, int end) {
+        InetAddress[] result = new InetAddress[end - start];
+        for (int i = start; i < end; ++i) {
+            if (!isNullAt(i)) {
+                result[i - start] = getInetAddress(i);
+            }
+        }
+        return result;
+    }
+
+    public int appendInetAddress(InetAddress v) {
+        reserve(appendIndex + 1);
+        putInetAddress(appendIndex, v);
+        return appendIndex++;
+    }
+
+    public void appendInetAddress(InetAddress[] batch, boolean isNullable) {
+        reserve(appendIndex + batch.length);
+        for (InetAddress v : batch) {
+            if (v == null) {
+                putNull(appendIndex);
+                if (columnType.isIpv4()) {
+                    putInetAddress(appendIndex, DEFAULT_IPV4);
+                } else {
+                    putInetAddress(appendIndex, DEFAULT_IPV6);
+                }
+            } else {
+                putInetAddress(appendIndex, v);
+            }
+            appendIndex++;
+        }
+    }
+
+    private void putInetAddress(int rowId, InetAddress v) {
+        int typeSize = columnType.getTypeSize();
+        byte[] bytes = TypeNativeBytes.getInetAddressBytes(v);
+        OffHeap.copyMemory(bytes, OffHeap.BYTE_ARRAY_OFFSET, null, data + (long) rowId * typeSize, typeSize);
     }
 
     public int appendDecimal(BigDecimal v) {
@@ -1382,6 +1451,9 @@ public class VectorColumn {
                 return new Long[size];
             case LARGEINT:
                 return new BigInteger[size];
+            case IPV4:
+            case IPV6:
+                return new InetAddress[size];
             case FLOAT:
                 return new Float[size];
             case DOUBLE:
@@ -1430,6 +1502,10 @@ public class VectorColumn {
                 break;
             case LARGEINT:
                 appendBigInteger((BigInteger[]) batch, isNullable);
+                break;
+            case IPV4:
+            case IPV6:
+                appendInetAddress((InetAddress[]) batch, isNullable);
                 break;
             case FLOAT:
                 appendFloat((Float[]) batch, isNullable);
@@ -1493,6 +1569,9 @@ public class VectorColumn {
                 return getLongColumn(start, end);
             case LARGEINT:
                 return getBigIntegerColumn(start, end);
+            case IPV4:
+            case IPV6:
+                return getInetAddressColumn(start, end);
             case FLOAT:
                 return getFloatColumn(start, end);
             case DOUBLE:
