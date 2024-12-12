@@ -120,7 +120,6 @@ suite("test_grant_revoke_compute_group_to_user", "cloud_auth") {
 
     // 2. grant group
     def group1 = "groupA"
-    def result
 
     logAndExecuteSql "sync"
 

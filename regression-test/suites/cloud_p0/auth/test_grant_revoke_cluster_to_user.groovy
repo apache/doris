@@ -113,7 +113,6 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
 
     // 2. grant cluster
     def cluster1 = "clusterA"
-    def result
 
     sql "sync"
 
