@@ -85,6 +85,11 @@ public class Checkpoint extends MasterDaemon {
     // public for unit test, so that we can trigger checkpoint manually.
     // DO NOT call it manually outside the unit test.
     public synchronized void doCheckpoint() throws CheckpointException {
+        if (!Config.enable_checkpoint) {
+            LOG.warn("checkpoint is disabled. please enable the config 'enable_checkpoint'.");
+            return;
+        }
+
         if (!Env.getServingEnv().isHttpReady()) {
             LOG.info("Http server is not ready.");
             return;
