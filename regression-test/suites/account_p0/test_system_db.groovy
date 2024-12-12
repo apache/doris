@@ -25,10 +25,22 @@ suite("test_system_db","p0,auth") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
     sql """
-        grant select_priv on __internal_schema.*,information_schema.*,mysql.* to  `${user}`;
+        grant select_priv on __internal_schema.* to `${user}`;
     """
     sql """
-        revoke select_priv on __internal_schema.*,information_schema.*,mysql.* from  `${user}`;
+        grant select_priv on information_schema.* to `${user}`;
+    """
+    sql """
+        grant select_priv on mysql.* to `${user}`;
+    """
+    sql """
+        revoke select_priv on __internal_schema.* from `${user}`;
+    """
+    sql """
+        revoke select_priv on information_schema.* from `${user}`;
+    """
+    sql """
+        revoke select_priv on mysql.* from `${user}`;
     """
     try_sql("DROP USER ${user}")
 }
