@@ -355,6 +355,10 @@ struct TQueryOptions {
   140: optional i64 orc_max_merge_distance_bytes = 1048576;
 
   141: optional bool ignore_runtime_filter_error = false;
+
+  // upgrade options. keep them same in every branch.
+  200: optional bool new_is_ip_address_in_range = false;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
