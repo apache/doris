@@ -120,8 +120,13 @@ protected:
             // so no need to concat with prefix
             abs_path = path;
         } else {
+            std::string path_str = _root_path.string();
+            if (!path_str.empty() && path_str[0] == '/') {
+                path_str.erase(0, 1); // remove first '/'
+            }
             // path with no schema
             abs_path = _prefix / path;
+            return std::filesystem::path(path_str) / path;
         }
         return Status::OK();
     }

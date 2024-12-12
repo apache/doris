@@ -2025,6 +2025,18 @@ Status Tablet::cooldown(RowsetSharedPtr rowset) {
     return Status::OK();
 }
 
+Status Tablet::download(RowsetSharedPtr rowset, const std::string& dir) {
+    std::shared_ptr<io::RemoteFileSystem> dest_fs;
+    RETURN_IF_ERROR(get_remote_file_system(storage_policy_id(), &dest_fs));
+    Status st;
+
+    if (st = rowset->download(dest_fs.get(), dir); !st.ok()) {
+        return st;
+    }
+
+    return Status::OK();
+}
+
 // hold SHARED `cooldown_conf_lock`
 Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
     DCHECK(_cooldown_conf.cooldown_replica_id == replica_id());

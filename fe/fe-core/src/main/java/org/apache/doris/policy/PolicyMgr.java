@@ -272,7 +272,7 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    private List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
+    public List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
         if (typeToPolicyMap == null) {
             return new ArrayList<>();
         }
@@ -317,6 +317,11 @@ public class PolicyMgr implements Writable {
             addTablePolicies((RowPolicy) policy);
         }
 
+    }
+
+    public void replayDrop(StoragePolicy policy) {
+        DropPolicyLog log = new DropPolicyLog(policy.getType(), policy.getPolicyName());
+        replayDrop(log);
     }
 
     public void replayDrop(DropPolicyLog log) {

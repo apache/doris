@@ -38,6 +38,7 @@
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "io/fs/broker_file_system.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
@@ -48,6 +49,7 @@
 #include "olap/data_dir.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "runtime/client_cache.h"
@@ -120,6 +122,137 @@ Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& l
 
 SnapshotLoader::~SnapshotLoader() = default;
 
+static Status list_segment_inverted_index_file(io::RemoteFileSystem* cold_fs,
+                                               const std::string& dir, const std::string& rowset,
+                                               std::vector<std::string>* remote_files) {
+    bool exists = true;
+    std::vector<io::FileInfo> files;
+    RETURN_IF_ERROR(cold_fs->list(dir, true, &files, &exists));
+    for (auto& tmp_file : files) {
+        io::Path path(tmp_file.file_name);
+        std::string file_name = path.filename();
+
+        if (file_name.substr(0, rowset.length()).compare(rowset) != 0 ||
+            !_end_with(file_name, ".idx")) {
+            continue;
+        }
+        remote_files->push_back(file_name);
+    }
+
+    return Status::OK();
+}
+
+static Status download_and_upload_one_file(io::RemoteFileSystem& dest_fs,
+                                           io::RemoteFileSystem* cold_fs,
+                                           const std::string& remote_seg_path,
+                                           const std::string& local_seg_path,
+                                           const std::string& dest_seg_path) {
+    RETURN_IF_ERROR(cold_fs->download(remote_seg_path, local_seg_path));
+
+    // calc md5sum of localfile
+    std::string md5sum;
+    RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(local_seg_path, &md5sum));
+
+    RETURN_IF_ERROR(upload_with_checksum(dest_fs, local_seg_path, dest_seg_path, md5sum));
+
+    //delete local file
+    RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(local_seg_path));
+
+    return Status::OK();
+}
+
+static Status upload_remote_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet_id,
+                                   const std::string& local_path, const std::string& dest_path,
+                                   io::RemoteFileSystem* cold_fs, const std::string& rowset,
+                                   int segments, int have_inverted_index) {
+    Status res = Status::OK();
+
+    for (int i = 0; i < segments; i++) {
+        std::string remote_seg_path =
+                fmt::format("{}/{}_{}.dat", remote_tablet_path(tablet_id), rowset, i);
+        std::string local_seg_path = fmt::format("{}/{}_{}.dat", local_path, rowset, i);
+        std::string dest_seg_path = fmt::format("{}/{}_{}.dat", dest_path, rowset, i);
+
+        RETURN_IF_ERROR(download_and_upload_one_file(dest_fs, cold_fs, remote_seg_path,
+                                                     local_seg_path, dest_seg_path));
+    }
+
+    if (!have_inverted_index) {
+        return res;
+    }
+
+    std::vector<std::string> remote_index_files;
+    RETURN_IF_ERROR(list_segment_inverted_index_file(cold_fs, remote_tablet_path(tablet_id), rowset,
+                                                     &remote_index_files));
+
+    for (auto& index_file : remote_index_files) {
+        std::string remote_index_path =
+                fmt::format("{}/{}", remote_tablet_path(tablet_id), index_file);
+        std::string local_seg_path = fmt::format("{}/{}", local_path, index_file);
+        std::string dest_seg_path = fmt::format("{}/{}", dest_path, index_file);
+
+        RETURN_IF_ERROR(download_and_upload_one_file(dest_fs, cold_fs, remote_index_path,
+                                                     local_seg_path, dest_seg_path));
+    }
+    return res;
+}
+
+static Status upload_remote_file(io::RemoteFileSystem& dest_fs, int64_t tablet_id,
+                                 const std::string& local_path, const std::string& dest_path,
+                                 const std::string& remote_file) {
+    io::FileReaderSPtr file_reader;
+    Status res = Status::OK();
+
+    std::string full_remote_path = local_path + '/' + remote_file;
+    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(full_remote_path, &file_reader));
+    size_t bytes_read = 0;
+    char* buff = (char*)malloc(file_reader->size() + 1);
+    RETURN_IF_ERROR(file_reader->read_at(0, {buff, file_reader->size()}, &bytes_read));
+    string str(buff, file_reader->size());
+    size_t start = 0;
+    string delimiter = "|";
+    size_t end = str.find(delimiter);
+    int64_t tablet_id_tmp = std::stol(str.substr(start, end - start));
+    start = end + delimiter.length();
+
+    if (tablet_id_tmp != tablet_id) {
+        return Status::InternalError("Invalid tablet {}", tablet_id_tmp);
+    }
+
+    end = str.find(delimiter, start); //
+    int64_t storage_policy_id = std::stol(str.substr(start, end - start));
+    start = end + delimiter.length();
+
+    string rowset_id;
+    int segments;
+    int have_inverted_index;
+
+    std::shared_ptr<io::RemoteFileSystem> colddata_fs;
+    RETURN_IF_ERROR(get_remote_file_system(storage_policy_id, &colddata_fs));
+
+    while (end != std::string::npos) {
+        end = str.find(delimiter, start); //
+        rowset_id = str.substr(start, end - start);
+        start = end + delimiter.length();
+
+        end = str.find(delimiter, start);
+        segments = std::stoi(str.substr(start, end - start));
+        start = end + delimiter.length();
+
+        end = str.find(delimiter, start);
+        have_inverted_index = std::stoi(str.substr(start, end - start));
+        start = end + delimiter.length();
+
+        if (segments > 0) {
+            RETURN_IF_ERROR(upload_remote_rowset(dest_fs, tablet_id, local_path, dest_path,
+                                                 colddata_fs.get(), rowset_id, segments,
+                                                 have_inverted_index));
+        }
+    }
+
+    return res;
+}
+
 Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_dest_path,
                               std::map<int64_t, std::vector<std::string>>* tablet_files) {
     if (!_remote_fs) {
@@ -169,6 +302,11 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
                                           TTaskType::type::UPLOAD));
 
+            const std::string& local_file = *it;
+            if (local_file.compare("remote_file_info") == 0) {
+                RETURN_IF_ERROR(upload_remote_file(*_remote_fs, tablet_id, src_path, dest_path,
+                                                   local_file));
+            }
             // calc md5sum of localfile
             std::string md5sum;
             RETURN_IF_ERROR(
@@ -286,12 +424,17 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             const FileStat& file_stat = iter.second;
             auto find = std::find(local_files.begin(), local_files.end(), remote_file);
             if (find == local_files.end()) {
+                if (remote_file.compare(REMOTE_FILE_INFO) == 0) {
+                    continue;
+                }
                 // remote file does not exist in local, download it
                 need_download = true;
             } else {
                 if (_end_with(remote_file, ".hdr")) {
                     // this is a header file, download it.
                     need_download = true;
+                } else if (remote_file.compare(REMOTE_FILE_INFO) == 0) {
+                    continue;
                 } else {
                     // check checksum
                     std::string local_md5sum;

@@ -39,6 +39,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
@@ -461,6 +462,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                                     "missed version is a cooldowned rowset, must make full "
                                     "snapshot. missed_version={}, tablet_id={}",
                                     missed_version, ref_tablet->tablet_id());
+                            //todozy
                             break;
                         }
                         consistent_rowsets.push_back(rowset);
@@ -492,8 +494,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     LOG(WARNING) << "currently not support backup tablet with cooldowned remote "
                                     "data. tablet="
                                  << request.tablet_id;
-                    return Status::NotSupported(
-                            "currently not support backup tablet with cooldowned remote data");
+                    // return Status::NotSupported(
+                    //         "currently not support backup tablet with cooldowned remote data");
                 }
                 /// not all missing versions are found, fall back to full snapshot.
                 res = Status::OK();         // reset res
@@ -566,6 +568,10 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         }
 
         std::vector<RowsetMetaSharedPtr> rs_metas;
+        RowsetMetaSharedPtr rsm;
+        bool have_remote_file = false;
+        io::FileWriterPtr file_writer;
+
         for (auto& rs : consistent_rowsets) {
             if (rs->is_local()) {
                 // local rowset
@@ -573,12 +579,56 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 if (!res.ok()) {
                     break;
                 }
+                rsm = rs->rowset_meta();
+            } else {
+                std::string rowset_meta_str;
+                RowsetMetaPB rs_meta_pb;
+                rs->rowset_meta()->to_rowset_pb(&rs_meta_pb);
+                rs_meta_pb.SerializeToString(&rowset_meta_str);
+
+                RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+                rowset_meta->init(rowset_meta_str);
+
+                rsm = rowset_meta;
+
+                // save_remote_file info
+                // tableid|storage_policy_id|
+                // rowset_id|num_segments|has_inverted_index|
+                // ......
+                // rowset_id|num_segments|has_inverted_index
+                {
+                    // write file
+                    std::string delimeter = "|";
+
+                    if (!have_remote_file) {
+                        auto romote_file_info =
+                                fmt::format("{}/{}", schema_full_path, REMOTE_FILE_INFO);
+                        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(romote_file_info,
+                                                                                   &file_writer));
+                        RETURN_IF_ERROR(file_writer->append(
+                                std::to_string(rs->rowset_meta()->tablet_id())));
+                        RETURN_IF_ERROR(file_writer->append(delimeter));
+                        RETURN_IF_ERROR(file_writer->append(
+                                std::to_string(ref_tablet->tablet_meta()->storage_policy_id())));
+                        have_remote_file = true;
+                    }
+                    RETURN_IF_ERROR(file_writer->append(delimeter));
+                    RETURN_IF_ERROR(file_writer->append(rs->rowset_id().to_string()));
+                    RETURN_IF_ERROR(file_writer->append(delimeter));
+                    RETURN_IF_ERROR(file_writer->append(std::to_string(rs->num_segments())));
+                    RETURN_IF_ERROR(file_writer->append(delimeter));
+                    RETURN_IF_ERROR(file_writer->append(
+                            std::to_string(rs->tablet_schema()->has_inverted_index())));
+                }
             }
-            rs_metas.push_back(rs->rowset_meta());
+            rs_metas.push_back(rsm);
             VLOG_NOTICE << "add rowset meta to clone list. "
-                        << " start version " << rs->rowset_meta()->start_version()
-                        << " end version " << rs->rowset_meta()->end_version() << " empty "
-                        << rs->rowset_meta()->empty();
+                        << " start version " << rsm->start_version() << " end version "
+                        << rsm->end_version() << " empty " << rsm->empty();
+        }
+
+        if (have_remote_file) {
+            RETURN_IF_ERROR(file_writer->close());
         }
         if (!res.ok()) {
             LOG(WARNING) << "fail to create hard link. path=" << snapshot_id_path
@@ -595,6 +645,9 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             ref_tablet->enable_unique_key_merge_on_write()) {
             new_tablet_meta->revise_delete_bitmap_unlocked(delete_bitmap_snapshot);
         }
+
+        //clear cooldown meta
+        new_tablet_meta->revise_clear_resource_id();
 
         if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION2) {
             res = new_tablet_meta->save(header_path);

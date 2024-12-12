@@ -42,6 +42,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -261,8 +262,9 @@ public class RestoreJobTest {
 
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();
+        List<StoragePolicy> storagePolicys = Lists.newArrayList();
         tbls.add(expectedRestoreTbl);
-        backupMeta = new BackupMeta(tbls, resources);
+        backupMeta = new BackupMeta(tbls, resources, storagePolicys);
     }
 
     @Test
