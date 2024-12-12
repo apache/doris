@@ -116,7 +116,8 @@ public:
     }
 
     AggregateFunctionPtr transmit_to_stable() override {
-        return nested_function->transmit_to_stable();
+        return AggregateFunctionNullBaseInline(nested_function->transmit_to_stable(),
+                                               IAggregateFunction::argument_types);
     }
 
     size_t size_of_data() const override { return prefix_size + nested_function->size_of_data(); }
@@ -170,7 +171,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         if constexpr (result_is_nullable) {
-            ColumnNullable& to_concrete = assert_cast<ColumnNullable&>(to);
+            auto& to_concrete = assert_cast<ColumnNullable&>(to);
             if (get_flag(place)) {
                 nested_function->insert_result_into(nested_place(place),
                                                     to_concrete.get_nested_column());
@@ -202,7 +203,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
-        const ColumnNullable* column =
+        const auto* column =
                 assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0]);
         if (!column->is_null_at(row_num)) {
             this->set_flag(place);
