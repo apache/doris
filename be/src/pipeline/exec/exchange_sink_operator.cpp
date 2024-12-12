@@ -595,13 +595,15 @@ std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::get_sink_buffer(
                                    _dest_is_merge, _child->get_name());
         }
         return _create_buffer({sender_ins_id});
-    } else if (auto op = std::dynamic_pointer_cast<LocalExchangeSourceOperatorX>(_child);
-               op->is_merge_sort()) {
-        if (!_dest_is_merge) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "_dest_is_merge {}.   child name {}",
-                                   _dest_is_merge, _child->get_name());
+    } else if (auto op = std::dynamic_pointer_cast<LocalExchangeSourceOperatorX>(_child)) {
+        if (op->is_merge_sort()) {
+            if (!_dest_is_merge) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "_dest_is_merge {}.   child name {}", _dest_is_merge,
+                                       _child->get_name());
+            }
+            return _create_buffer({sender_ins_id});
         }
-        return _create_buffer({sender_ins_id});
     }
     if (_dest_is_merge) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "_dest_is_merge {}.   child name {}",
