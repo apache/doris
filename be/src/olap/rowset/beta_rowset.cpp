@@ -432,7 +432,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
     return Status::OK();
 }
 
-Status BetaRowset::download(io::RemoteFileSystem* fs, const std::string& dir) {
+Status BetaRowset::download(const StorageResource& dest_fs, const std::string& dir) {
     if (is_local()) {
         DCHECK(false) << _rowset_meta->tablet_id() << ' ' << rowset_id();
         return Status::InternalError("should be remote rowset. tablet_id={} rowset_id={}",
@@ -453,7 +453,7 @@ Status BetaRowset::download(io::RemoteFileSystem* fs, const std::string& dir) {
                 paths.emplace_back(file);
                 LOG(WARNING) << "will delete download success file " << file << " due to error";
             }
-            static_cast<void>(fs->batch_delete(paths));
+            static_cast<void>(dest_fs.fs->batch_delete(paths));
             LOG(WARNING) << "done delete download success files due to error " << status;
         }
     }};
@@ -461,43 +461,48 @@ Status BetaRowset::download(io::RemoteFileSystem* fs, const std::string& dir) {
     for (int i = 0; i < num_segments(); ++i) {
         // Note: Here we use relative path for remote.
         auto remote_seg_path =
-                remote_segment_path(_rowset_meta->tablet_id(), rowset_id().to_string(), i);
+                dest_fs.remote_segment_path(_rowset_meta->tablet_id(), rowset_id().to_string(), i);
 
-        auto local_seg_path = segment_file_path(dir, rowset_id(), i);
+        auto local_seg_path = local_segment_path(dir, rowset_id().to_string(), i);
 
-        RETURN_IF_ERROR(fs->download(remote_seg_path, local_seg_path));
+        RETURN_IF_ERROR(dest_fs.fs->download(remote_seg_path, local_seg_path));
 
         linked_success_files.push_back(local_seg_path);
 
         if (_schema->get_inverted_index_storage_format() != InvertedIndexStorageFormatPB::V1) {
             if (_schema->has_inverted_index()) {
                 std::string inverted_index_src_file =
-                        InvertedIndexDescriptor::get_index_file_name(remote_seg_path);
+                        InvertedIndexDescriptor::get_index_file_path_v2(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(remote_seg_path));
 
                 std::string inverted_index_dst_file_path =
-                        InvertedIndexDescriptor::get_index_file_name(local_seg_path);
+                        InvertedIndexDescriptor::get_index_file_path_v2(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(local_seg_path));
 
                 RETURN_IF_ERROR(
-                        fs->download(inverted_index_src_file, inverted_index_dst_file_path));
+                        dest_fs.fs->download(inverted_index_src_file, inverted_index_dst_file_path));
 
                 linked_success_files.push_back(inverted_index_dst_file_path);
             }
         } else {
-            for (const auto& index : _schema->indexes()) {
-                if (index.index_type() != IndexType::INVERTED) {
+            for (const auto& index : _schema->inverted_indexes()) {
+                if (index->index_type() != IndexType::INVERTED) {
                     continue;
                 }
 
-                auto index_id = index.index_id();
-                std::string inverted_index_src_file = InvertedIndexDescriptor::get_index_file_name(
-                        remote_seg_path, index_id, index.get_index_suffix());
+                auto index_id = index->index_id();
+                std::string inverted_index_src_file =
+                        InvertedIndexDescriptor::get_index_file_path_v1(
+                                    InvertedIndexDescriptor::get_index_file_path_prefix(remote_seg_path),
+                                    index_id, index->get_index_suffix());
 
                 std::string inverted_index_dst_file_path =
-                        InvertedIndexDescriptor::get_index_file_name(local_seg_path, index_id,
-                                                                     index.get_index_suffix());
+                        InvertedIndexDescriptor::get_index_file_path_v1(
+                                    InvertedIndexDescriptor::get_index_file_path_prefix(local_seg_path),
+                                    index_id, index->get_index_suffix());
 
                 RETURN_IF_ERROR(
-                        fs->download(inverted_index_src_file, inverted_index_dst_file_path));
+                        dest_fs.fs->download(inverted_index_src_file, inverted_index_dst_file_path));
 
                 linked_success_files.push_back(inverted_index_dst_file_path);
                 LOG(INFO) << "success to download. from=" << inverted_index_src_file << ", "

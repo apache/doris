@@ -2026,11 +2026,10 @@ Status Tablet::cooldown(RowsetSharedPtr rowset) {
 }
 
 Status Tablet::download(RowsetSharedPtr rowset, const std::string& dir) {
-    std::shared_ptr<io::RemoteFileSystem> dest_fs;
-    RETURN_IF_ERROR(get_remote_file_system(storage_policy_id(), &dest_fs));
     Status st;
+    auto storage_resource = DORIS_TRY(get_resource_by_storage_policy_id(storage_policy_id()));
 
-    if (st = rowset->download(dest_fs.get(), dir); !st.ok()) {
+    if (st = rowset->download(storage_resource, dir); !st.ok()) {
         return st;
     }
 

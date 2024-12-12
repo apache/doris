@@ -167,9 +167,11 @@ static Status upload_remote_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet
                                    int segments, int have_inverted_index) {
     Status res = Status::OK();
 
+    std::string remote_tablet_path = fmt::format("{}/{}", DATA_PREFIX, tablet_id);
+
     for (int i = 0; i < segments; i++) {
         std::string remote_seg_path =
-                fmt::format("{}/{}_{}.dat", remote_tablet_path(tablet_id), rowset, i);
+                fmt::format("{}/{}_{}.dat", remote_tablet_path, rowset, i);
         std::string local_seg_path = fmt::format("{}/{}_{}.dat", local_path, rowset, i);
         std::string dest_seg_path = fmt::format("{}/{}_{}.dat", dest_path, rowset, i);
 
@@ -182,12 +184,12 @@ static Status upload_remote_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet
     }
 
     std::vector<std::string> remote_index_files;
-    RETURN_IF_ERROR(list_segment_inverted_index_file(cold_fs, remote_tablet_path(tablet_id), rowset,
+    RETURN_IF_ERROR(list_segment_inverted_index_file(cold_fs, remote_tablet_path, rowset,
                                                      &remote_index_files));
 
     for (auto& index_file : remote_index_files) {
         std::string remote_index_path =
-                fmt::format("{}/{}", remote_tablet_path(tablet_id), index_file);
+                fmt::format("{}/{}", remote_tablet_path, index_file);
         std::string local_seg_path = fmt::format("{}/{}", local_path, index_file);
         std::string dest_seg_path = fmt::format("{}/{}", dest_path, index_file);
 
@@ -227,8 +229,7 @@ static Status upload_remote_file(io::RemoteFileSystem& dest_fs, int64_t tablet_i
     int segments;
     int have_inverted_index;
 
-    std::shared_ptr<io::RemoteFileSystem> colddata_fs;
-    RETURN_IF_ERROR(get_remote_file_system(storage_policy_id, &colddata_fs));
+    auto storage_resource = DORIS_TRY(get_resource_by_storage_policy_id(storage_policy_id));
 
     while (end != std::string::npos) {
         end = str.find(delimiter, start); //
@@ -245,7 +246,7 @@ static Status upload_remote_file(io::RemoteFileSystem& dest_fs, int64_t tablet_i
 
         if (segments > 0) {
             RETURN_IF_ERROR(upload_remote_rowset(dest_fs, tablet_id, local_path, dest_path,
-                                                 colddata_fs.get(), rowset_id, segments,
+                                                 storage_resource.fs.get(), rowset_id, segments,
                                                  have_inverted_index));
         }
     }
@@ -301,8 +302,6 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
         for (auto& local_file : local_files) {
             RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
                                           TTaskType::type::UPLOAD));
-
-            const std::string& local_file = *it;
             if (local_file.compare("remote_file_info") == 0) {
                 RETURN_IF_ERROR(upload_remote_file(*_remote_fs, tablet_id, src_path, dest_path,
                                                    local_file));
