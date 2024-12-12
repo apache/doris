@@ -41,8 +41,8 @@ suite("test_show_user_properties_command", "query,nereids") {
 
     // Test SHOW ALL PROPERTIES with wildWhere condition
     try {
-        checkNereidsExecute("""SHOW ALL PROPERTIES WHERE name LIKE 'property%';""")
+        checkNereidsExecute("""SHOW ALL PROPERTIES LIKE 'property%';""")
     } catch (Exception e) {
-        log.error("Failed to execute SHOW ALL PROPERTIES command with WHERE clause", e)
+        log.error("Failed to execute SHOW ALL PROPERTIES command with LIKE clause", e)
     }
 }

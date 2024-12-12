@@ -4830,30 +4830,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowUserProperties(ShowUserPropertiesContext ctx) {
         String user = ctx.user != null ? stripQuotes(ctx.user.getText()) : null;
-        String wild = null;
-        if (ctx.wildWhere() != null) {
-            if (ctx.wildWhere().LIKE() != null) {
-                wild = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
-            } else if (ctx.wildWhere().WHERE() != null) {
-                wild = ctx.wildWhere().expression().getText();
-            }
+        String pattern = null;
+        if (ctx.LIKE() != null) {
+            pattern = stripQuotes(ctx.STRING_LITERAL().getText());
         }
-
-        return new ShowUserPropertyCommand(user, wild, false);
+        return new ShowUserPropertyCommand(user, pattern, false);
     }
 
     @Override
     public LogicalPlan visitShowAllProperties(ShowAllPropertiesContext ctx) {
-        String wild = null;
-        if (ctx.wildWhere() != null) {
-            if (ctx.wildWhere().LIKE() != null) {
-                wild = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
-            } else if (ctx.wildWhere().WHERE() != null) {
-                wild = ctx.wildWhere().expression().getText();
-            }
+        String pattern = null;
+        if (ctx.LIKE() != null) {
+            pattern = stripQuotes(ctx.STRING_LITERAL().getText());
         }
-
-        return new ShowUserPropertyCommand(null, wild, true);
+        return new ShowUserPropertyCommand(null, pattern, true);
     }
 
     @Override
