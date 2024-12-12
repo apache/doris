@@ -924,24 +924,35 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new CreateJobCommand(createJobInfo);
     }
 
+    private void checkJobNameKey(String key, String keyFormat) {
+        if (key.isEmpty() || !key.equals(keyFormat)) {
+            throw new ParseException(keyFormat + " should be: '" + keyFormat + "'");
+        }
+    }
+
     @Override
     public LogicalPlan visitPauseJob(DorisParser.PauseJobContext ctx) {
+        checkJobNameKey(stripQuotes(ctx.jobNameKey.getText()), "jobName");
         return new PauseJobCommand(stripQuotes(ctx.jobNameValue.getText()));
     }
 
     @Override
     public LogicalPlan visitDropJob(DorisParser.DropJobContext ctx) {
+        checkJobNameKey(stripQuotes(ctx.jobNameKey.getText()), "jobName");
         boolean ifExists = ctx.EXISTS() != null;
         return new DropJobCommand(stripQuotes(ctx.jobNameValue.getText()), ifExists);
     }
 
     @Override
     public LogicalPlan visitResumeJob(DorisParser.ResumeJobContext ctx) {
+        checkJobNameKey(stripQuotes(ctx.jobNameKey.getText()), "jobName");
         return new ResumeJobCommand(stripQuotes(ctx.jobNameValue.getText()));
     }
 
     @Override
     public LogicalPlan visitCancelJobTask(DorisParser.CancelJobTaskContext ctx) {
+        checkJobNameKey(stripQuotes(ctx.jobNameKey.getText()), "jobName");
+        checkJobNameKey(stripQuotes(ctx.taskIdKey.getText()), "taskId");
         String jobName = stripQuotes(ctx.jobNameValue.getText());
         Long taskId = Long.valueOf(ctx.taskIdValue.getText());
         return new CancelJobTaskCommand(jobName, taskId);
