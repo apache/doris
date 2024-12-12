@@ -173,11 +173,14 @@ suite("test_ip_basic") {
     // create table like
     // insert into table
     // alter new ip column with default value
-    qt_sql """ show create table table_ip_default """
-    qt_sql """ desc table_ip_default """
+    def result = sql """ show create table table_ip_default """
+    log.info("show result : ${result}")
+    assertTrue(result.toString().containsIgnoreCase("`col4` ipv6 NULL DEFAULT \"::\""))
+    assertTrue(result.toString().containsIgnoreCase("`col24` ipv4 NULL DEFAULT \"127.0.0.1\""))
+    qt_sql """ desc table_ip_default all"""
     sql """ DROP TABLE IF EXISTS table_ip_default_like """
     sql """ create table table_ip_default_like like table_ip_default """
-    qt_sql """ desc table_ip_default_like"""
+    qt_sql """ desc table_ip_default_like all"""
     qt_sql """ insert into table_ip_default_like select * from table_ip_default """
     qt_sql """ select * from table_ip_default_like order by col0 """
     qt_sql """ alter table table_ip_default_like add column col25 ipv6 NULL DEFAULT "::" """
