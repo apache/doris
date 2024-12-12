@@ -119,20 +119,20 @@ public:
         return Status::InternalError(expr_name() + " is not ready when execute");
     }
 
-    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
+    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const = 0;
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
-    virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+    virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const {
         return Status::OK();
     }
 
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
-                                    uint32_t segment_num_rows);
+                                    uint32_t segment_num_rows) const;
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
     virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
-                                          int* result_column_id, ColumnNumbers& args) {
+                                          int* result_column_id, ColumnNumbers& args) const {
         return execute(context, block, result_column_id);
     };
 
@@ -253,7 +253,7 @@ public:
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
     bool fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
-                      int* result_column_id);
+                      int* result_column_id) const;
 
     virtual bool can_push_down_to_index() const { return false; }
     virtual bool equals(const VExpr& other);
@@ -279,10 +279,12 @@ protected:
         return res;
     }
 
-    bool is_const_and_have_executed() { return (is_constant() && (_constant_col != nullptr)); }
+    bool is_const_and_have_executed() const {
+        return (is_constant() && (_constant_col != nullptr));
+    }
 
     Status get_result_from_const(vectorized::Block* block, const std::string& expr_name,
-                                 int* result_column_id);
+                                 int* result_column_id) const;
 
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
 
@@ -328,7 +330,6 @@ protected:
 
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
-    bool _can_fast_execute = false;
     bool _enable_inverted_index_query = true;
 };
 

@@ -47,14 +47,14 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
         ColumnNumbers arguments;
         return _do_execute(context, block, result_column_id, arguments);
     }
 
     Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
                                   doris::vectorized::Block* block, int* result_column_id,
-                                  ColumnNumbers& args) override {
+                                  ColumnNumbers& args) const override {
         return _do_execute(context, block, result_column_id, args);
     }
 
@@ -64,7 +64,7 @@ public:
 
 private:
     Status _do_execute(VExprContext* context, Block* block, int* result_column_id,
-                       ColumnNumbers& arguments) {
+                       ColumnNumbers& arguments) const {
         DCHECK(_open_finished || _getting_const_col);
         arguments.resize(_children.size());
         for (int i = 0; i < _children.size(); ++i) {

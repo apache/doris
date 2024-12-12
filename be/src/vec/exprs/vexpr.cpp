@@ -614,7 +614,7 @@ Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const 
 }
 
 Status VExpr::get_result_from_const(vectorized::Block* block, const std::string& expr_name,
-                                    int* result_column_id) {
+                                    int* result_column_id) const {
     *result_column_id = block->columns();
     auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
     block->insert({std::move(column), _data_type, expr_name});
@@ -622,7 +622,7 @@ Status VExpr::get_result_from_const(vectorized::Block* block, const std::string&
 }
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
-                                       uint32_t segment_num_rows) {
+                                       uint32_t segment_num_rows) const {
     // Pre-allocate vectors based on an estimated or known size
     std::vector<segment_v2::InvertedIndexIterator*> iterators;
     std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
@@ -736,13 +736,13 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
             index_context->set_true_for_inverted_index_status(this, column_id);
         }
         // set fast_execute when expr evaluated by inverted index correctly
-        _can_fast_execute = true;
+        context->can_fast_execute = true;
     }
     return Status::OK();
 }
 
 bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
-                         int* result_column_id) {
+                         int* result_column_id) const {
     if (context->get_inverted_index_context() &&
         context->get_inverted_index_context()->get_inverted_index_result_column().contains(this)) {
         uint32_t num_columns_without_result = block->columns();

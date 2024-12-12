@@ -42,7 +42,7 @@ class VInPredicate final : public VExpr {
 public:
     VInPredicate(const TExprNode& node);
     ~VInPredicate() override = default;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -51,12 +51,12 @@ public:
 
     std::string debug_string() const override;
 
-    size_t skip_constant_args_size() const;
+    size_t skip_constant_args_size(VExprContext* context) const;
 
     const FunctionBasePtr function() { return _function; }
 
     bool is_not_in() const { return _is_not_in; };
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const override;
 
 private:
     FunctionBasePtr _function;

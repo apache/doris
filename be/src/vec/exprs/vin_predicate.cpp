@@ -87,7 +87,7 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
 
     const auto in_list_value_count = _children.size() - 1;
     // When the number of values in the IN condition exceeds this threshold, fast_execute will not be used
-    _can_fast_execute = in_list_value_count <= _in_list_value_count_threshold;
+    context->can_fast_execute = in_list_value_count <= _in_list_value_count_threshold;
     return Status::OK();
 }
 
@@ -108,8 +108,8 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-size_t VInPredicate::skip_constant_args_size() const {
-    if (_is_args_all_constant && !_can_fast_execute) {
+size_t VInPredicate::skip_constant_args_size(VExprContext* context) const {
+    if (_is_args_all_constant && !context->can_fast_execute) {
         // This is an optimization. For expressions like colA IN (1, 2, 3, 4),
         // where all values inside the IN clause are constants,
         // a hash set is created during open, and it will not be accessed again during execute
@@ -124,21 +124,23 @@ void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateSc
     VExpr::close(context, scope);
 }
 
-Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+Status VInPredicate::evaluate_inverted_index(VExprContext* context,
+                                             uint32_t segment_num_rows) const {
     DCHECK_GE(get_num_children(), 2);
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
-Status VInPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+Status VInPredicate::execute(VExprContext* context, Block* block, int* result_column_id) const {
     if (is_const_and_have_executed()) { // const have execute in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
-    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+    if (context->can_fast_execute && fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     DCHECK(_open_finished || _getting_const_col);
-    doris::vectorized::ColumnNumbers arguments(skip_constant_args_size());
-    for (int i = 0; i < skip_constant_args_size(); ++i) {
+    const size_t args_size = skip_constant_args_size(context);
+    doris::vectorized::ColumnNumbers arguments(args_size);
+    for (int i = 0; i < args_size; ++i) {
         int column_id = -1;
         RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
         arguments[i] = column_id;

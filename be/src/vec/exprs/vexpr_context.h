@@ -271,6 +271,8 @@ public:
         return *this;
     }
 
+    bool can_fast_execute = false;
+
 private:
     // Close method is called in vexpr context dector, not need call expicility
     void close();

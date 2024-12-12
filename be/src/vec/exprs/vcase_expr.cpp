@@ -96,7 +96,7 @@ void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
     VExpr::close(context, scope);
 }
 
-Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
+Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) const {
     if (is_const_and_have_executed()) { // const have execute in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }

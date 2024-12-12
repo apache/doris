@@ -138,18 +138,19 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
     VExpr::close(context, scope);
 }
 
-Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context,
+                                                 uint32_t segment_num_rows) const {
     DCHECK_GE(get_num_children(), 1);
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
                                      doris::vectorized::Block* block, int* result_column_id,
-                                     ColumnNumbers& args) {
+                                     ColumnNumbers& args) const {
     if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
-    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+    if (context->can_fast_execute && fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {
@@ -192,12 +193,12 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
 
 Status VectorizedFnCall::execute_runtime_fitler(doris::vectorized::VExprContext* context,
                                                 doris::vectorized::Block* block,
-                                                int* result_column_id, ColumnNumbers& args) {
+                                                int* result_column_id, ColumnNumbers& args) const {
     return _do_execute(context, block, result_column_id, args);
 }
 
 Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
-                                 int* result_column_id) {
+                                 int* result_column_id) const {
     ColumnNumbers arguments;
     return _do_execute(context, block, result_column_id, arguments);
 }

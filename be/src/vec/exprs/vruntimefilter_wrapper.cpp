@@ -85,7 +85,8 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
     _impl->close(context, scope);
 }
 
-Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* result_column_id) {
+Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block,
+                                      int* result_column_id) const {
     DCHECK(_open_finished || _getting_const_col);
     DCHECK(_expr_filtered_rows_counter && _expr_input_rows_counter && _always_true_counter)
             << "rf counter must be initialized";

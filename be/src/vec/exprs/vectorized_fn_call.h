@@ -46,11 +46,11 @@ class VectorizedFnCall : public VExpr {
 
 public:
     VectorizedFnCall(const TExprNode& node);
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
     Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
                                   doris::vectorized::Block* block, int* result_column_id,
-                                  ColumnNumbers& args) override;
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+                                  ColumnNumbers& args) const override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -77,7 +77,7 @@ protected:
 
 private:
     Status _do_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
-                       int* result_column_id, ColumnNumbers& args);
+                       int* result_column_id, ColumnNumbers& args) const;
 };
 
 #include "common/compile_check_end.h"

@@ -60,7 +60,8 @@ Status VTupleIsNullPredicate::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-Status VTupleIsNullPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+Status VTupleIsNullPredicate::execute(VExprContext* context, Block* block,
+                                      int* result_column_id) const {
     DCHECK(_open_finished || _getting_const_col);
     *result_column_id = _column_to_check;
     return Status::OK();

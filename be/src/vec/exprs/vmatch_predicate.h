@@ -49,12 +49,12 @@ class VMatchPredicate final : public VExpr {
 public:
     VMatchPredicate(const TExprNode& node);
     ~VMatchPredicate() override;
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
-    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) const override;
     const std::string& expr_name() const override;
     const std::string& function_name() const;
 
