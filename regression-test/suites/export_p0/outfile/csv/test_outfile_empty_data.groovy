@@ -106,7 +106,7 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
 
     def outfile_to_S3_directly = {
         // select ... into outfile ...
-        s3_outfile_path = "${bucket}/outfile/csv/test-outfile-empty/"
+        def s3_outfile_path = "${bucket}/outfile/csv/test-outfile-empty/"
         def uri = "s3://${s3_outfile_path}/exp_"
 
         def res = sql """
