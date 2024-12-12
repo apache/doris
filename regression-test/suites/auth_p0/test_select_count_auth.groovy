@@ -19,7 +19,7 @@ import org.junit.Assert;
 
 suite("test_select_count_auth","p0,auth") {
     String suiteName = "test_select_count_auth"
-    String user = '${suiteName}_user'
+    String user = "${suiteName}_user"
     String pwd = 'C123_567p'
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""

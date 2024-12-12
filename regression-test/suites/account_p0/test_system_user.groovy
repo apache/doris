@@ -17,7 +17,7 @@
 
 import org.junit.Assert;
 
-suite("test_system_user") {
+suite("test_system_user","p0,auth") {
     test {
           sql """
               create user `root`;

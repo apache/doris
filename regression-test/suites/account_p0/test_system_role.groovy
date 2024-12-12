@@ -17,7 +17,7 @@
 
 import org.junit.Assert;
 
-suite("test_system_role") {
+suite("test_system_role","p0,auth") {
     test {
           sql """
               drop role operator;

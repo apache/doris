@@ -17,9 +17,9 @@
 
 import org.junit.Assert;
 
-suite("test_system_db") {
+suite("test_system_db","p0,auth") {
     String suiteName = "test_system_db"
-    String user = '${suiteName}_user'
+    String user = "${suiteName}_user"
     String pwd = 'C123_567p'
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
