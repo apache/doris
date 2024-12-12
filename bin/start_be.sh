@@ -182,9 +182,9 @@ if [[ "${RUN_VERSION}" -eq 1 ]]; then
     exit 0
 fi
 
-IS_SKIP_CHECK_ULIMIT=${SKIP_CHECK_ULIMIT}
 
-if [[ "${IS_SKIP_CHECK_ULIMIT}" != "true" ]]; then
+
+if [[ "${SKIP_CHECK_ULIMIT:-"false"}" != "true" ]]; then
     if [[ "$(uname -s)" != 'Darwin' ]]; then
         MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
         if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
