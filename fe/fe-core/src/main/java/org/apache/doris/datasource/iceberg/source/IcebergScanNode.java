@@ -66,12 +66,13 @@ import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.TableScanUtil;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -80,7 +81,7 @@ import java.util.OptionalLong;
 public class IcebergScanNode extends FileQueryScanNode {
 
     public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
-    private static final Logger log = LoggerFactory.getLogger(IcebergScanNode.class);
+    private static final Logger LOG = LogManager.getLogger(IcebergScanNode.class);
 
     private IcebergSource source;
     private Table icebergTable;
@@ -211,6 +212,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         // get splits
         List<Split> splits = new ArrayList<>();
         int formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
+        HashSet<String> partitionPathSet = new HashSet<>();
         boolean isPartitionedTable = icebergTable.spec().isPartitioned();
 
         long realFileSplitSize = getRealFileSplitSize(0);
@@ -244,7 +246,7 @@ public class IcebergScanNode extends FileQueryScanNode {
              ALTER TABLE iceberg_tb DROP COLUMNS col2 STRING;
         Link: https://github.com/apache/iceberg/pull/10755
         */
-            log.warn("Iceberg TableScanUtil.splitFiles throw NullPointerException. Cause : ", e);
+            LOG.warn("Iceberg TableScanUtil.splitFiles throw NullPointerException. Cause : ", e);
             throw new NotSupportedException("Unable to read Iceberg table with dropped old partition column.");
         }
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
@@ -253,7 +255,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 if (isPartitionedTable) {
                     StructLike structLike = splitTask.file().partition();
                     // Counts the number of partitions read
-                    selectedPartitionNum = structLike.size();
+                    partitionPathSet.add(structLike.toString());
                 }
                 String originalPath = splitTask.file().path().toString();
                 LocationPath locationPath = new LocationPath(originalPath, source.getCatalog().getProperties());
@@ -298,7 +300,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 return pushDownCountSplits;
             }
         }
-
+        selectedPartitionNum = partitionPathSet.size();
         return splits;
     }
 

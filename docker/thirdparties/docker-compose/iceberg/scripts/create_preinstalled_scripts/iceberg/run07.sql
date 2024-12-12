@@ -81,26 +81,5 @@ ALTER TABLE iceberg_evolution_partition DROP PARTITION FIELD truncate(5, address
 INSERT INTO iceberg_evolution_partition VALUES (8, 'Hank', 40, "zz"), (9, 'Ivy', 22, "aaaaaa");
 ALTER TABLE iceberg_evolution_partition DROP COLUMNS address;
 -- INSERT INTO iceberg_evolution_partition VALUES (10, 'Jack', 35), (11, 'Kara', 30);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+-- spark error.
 
