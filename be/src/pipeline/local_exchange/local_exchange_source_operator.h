@@ -81,6 +81,8 @@ public:
 
     bool is_source() const override { return true; }
 
+    bool is_merge_sort() const { return _exchange_type == ExchangeType::LOCAL_MERGE_SORT; }
+
 private:
     friend class LocalExchangeSourceLocalState;
 

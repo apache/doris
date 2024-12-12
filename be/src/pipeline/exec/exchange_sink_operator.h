@@ -260,6 +260,7 @@ private:
     int _writer_count = 1;
     const bool _enable_local_merge_sort;
     const std::vector<TUniqueId>& _fragment_instance_ids;
+    const bool _dest_is_merge;
 };
 
 } // namespace pipeline
