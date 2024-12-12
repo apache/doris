@@ -155,7 +155,7 @@ public class JobExecutionConfiguration {
             return 0L;
         }
 
-        return (startTimeMs - currentTimeMs) / 1000;
+        return (startTimeMs * 1000 / 1000 - currentTimeMs) / 1000;
     }
 
     // Returns a list of delay times in seconds for executing the job within the specified window
