@@ -313,7 +313,7 @@ TIME_FUNCTION_TWO_ARGS_IMPL(ToYearWeekTwoArgsImpl, yearweek, year_week(mysql_wee
                             DataTypeInt32);
 TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImpl, week, week(mysql_week_mode(mode)), DataTypeInt8);
 
-// only use for FunctionDateOrDateTimeComputation
+// only use for FunctionDateOrDateTimeComputation. FromTypes are NativeTypes.
 template <typename FromType0, typename FromType1, typename ToType, typename Transform>
 struct DateTimeOp {
     static void vector_vector(const PaddedPODArray<FromType0>& vec_from0,
@@ -509,17 +509,17 @@ public:
         // vector-const or vector-vector
         if (const auto* sources =
                     check_and_get_column<ColumnVector<FromType0>>(src_nested_col.get())) {
-            const IColumn& nest_col1 = *remove_nullable(col1);
+            const ColumnPtr nest_col1 = remove_nullable(col1);
             bool rconst = false;
             // vector-const
-            if (const auto* nest_col1_const = check_and_get_column<ColumnConst>(&nest_col1)) {
+            if (const auto* nest_col1_const = check_and_get_column<ColumnConst>(*nest_col1)) {
                 rconst = true;
                 const auto col1_inside_const = assert_cast<const ColumnVector<FromType1>&>(
                         nest_col1_const->get_data_column());
                 Op::vector_constant(sources->get_data(), res_col->get_data(),
                                     col1_inside_const.get_data()[0], nullmap0, nullmap1);
             } else { // vector-vector
-                const auto concrete_col1 = assert_cast<const ColumnVector<FromType1>&>(nest_col1);
+                const auto concrete_col1 = assert_cast<const ColumnVector<FromType1>&>(*nest_col1);
                 Op::vector_vector(sources->get_data(), concrete_col1.get_data(),
                                   res_col->get_data(), nullmap0, nullmap1);
             }
@@ -544,8 +544,8 @@ public:
             // const-vector
             const auto col0_inside_const =
                     assert_cast<const ColumnVector<FromType0>&>(sources_const->get_data_column());
-            const IColumn& nested_col1 = *remove_nullable(col1);
-            const auto concrete_col1 = assert_cast<const ColumnVector<FromType1>&>(nested_col1);
+            const ColumnPtr nested_col1 = remove_nullable(col1);
+            const auto concrete_col1 = assert_cast<const ColumnVector<FromType1>&>(*nested_col1);
             Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(),
                                 concrete_col1.get_data(), nullmap0, nullmap1);
 
