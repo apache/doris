@@ -2714,4 +2714,13 @@ class Suite implements GroovyInterceptable {
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
     }
+
+    def check_fold_consistency = { test_sql ->
+        def re_fe = order_sql "select /*+SET_VAR(enable_fold_constant_by_be=false)*/ ${test_sql}"
+        def re_be = order_sql "select /*+SET_VAR(enable_fold_constant_by_be=true)*/ ${test_sql}"
+        def re_no_fold = order_sql "select /*+SET_VAR(debug_skip_fold_constant=true)*/ ${test_sql}"
+        logger.info("check sql: ${test_sql}")
+        assertEquals(re_fe, re_be)
+        assertEquals(re_fe, re_no_fold)
+    }
 }
