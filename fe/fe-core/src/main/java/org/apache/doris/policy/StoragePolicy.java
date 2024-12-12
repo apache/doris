@@ -25,8 +25,12 @@ import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -37,18 +41,22 @@ import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.zip.Adler32;
 
 /**
  * Save policy for storage migration.
  **/
 @Data
-public class StoragePolicy extends Policy {
+public class StoragePolicy extends Policy implements Writable, GsonPostProcessable {
     public static final String DEFAULT_STORAGE_POLICY_NAME = "default_storage_policy";
 
     public static boolean checkDefaultStoragePolicyValid(final String storagePolicyName, Optional<Policy> defaultPolicy)
@@ -183,6 +191,20 @@ public class StoragePolicy extends Policy {
         if (!addResourceReference() && !ifNotExists) {
             throw new AnalysisException("this policy has been added to s3 or hdfs resource, policy has been created.");
         }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
+    }
+
+    /**
+     * Read Policy from file.
+     **/
+    public static StoragePolicy read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, StoragePolicy.class);
     }
 
     private static Resource checkResourceIsExist(final String storageResource) throws AnalysisException {
@@ -390,5 +412,38 @@ public class StoragePolicy extends Policy {
             }
         }
         return false;
+    }
+
+    public int getSignature(int signatureVersion) {
+        Adler32 adler32 = new Adler32();
+        adler32.update(signatureVersion);
+        final String charsetName = "UTF-8";
+
+        //ignore check id, version, cooldownTimestampMs, cooldownTtl
+        try {
+            // policy name
+            adler32.update(policyName.getBytes(charsetName));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. policy name: {}", policyName);
+            }
+            // storageResource name
+            adler32.update(storageResource.getBytes(charsetName));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. storageResource name: {}", storageResource);
+            }
+            // type
+            adler32.update(String.valueOf(getType()).getBytes(charsetName));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. type : {}", getType());
+            }
+        } catch (UnsupportedEncodingException e) {
+            LOG.error("encoding error", e);
+            return -1;
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("signature: {}", Math.abs((int) adler32.getValue()));
+        }
+        return Math.abs((int) adler32.getValue());
     }
 }

@@ -133,6 +133,10 @@ bool RowsetMeta::has_variant_type_in_schema() const {
     return _schema && _schema->num_variant_columns() > 0;
 }
 
+void RowsetMeta::clear_resource_id() {
+    _rowset_meta_pb.clear_resource_id();
+}
+
 void RowsetMeta::to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema) const {
     *rs_meta_pb = _rowset_meta_pb;
     if (_schema) [[likely]] {

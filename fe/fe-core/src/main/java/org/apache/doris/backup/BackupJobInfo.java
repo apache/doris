@@ -29,6 +29,7 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
@@ -41,6 +42,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Joiner;
@@ -335,6 +337,10 @@ public class BackupJobInfo implements Writable, GsonPostProcessable {
         public List<BackupOdbcTableInfo> odbcTableList = Lists.newArrayList();
         @SerializedName("odbc_resource_list")
         public List<BackupOdbcResourceInfo> odbcResourceList = Lists.newArrayList();
+        @SerializedName("s3_resource_list")
+        public List<BackupS3ResourceInfo> s3ResourceList = Lists.newArrayList();
+        @SerializedName("storage_policy_list")
+        public List<StoragePolicy> storagePolicyList = Lists.newArrayList();
 
         public static BriefBackupJobInfo fromBackupJobInfo(BackupJobInfo backupJobInfo) {
             BriefBackupJobInfo briefBackupJobInfo = new BriefBackupJobInfo();
@@ -352,6 +358,8 @@ public class BackupJobInfo implements Writable, GsonPostProcessable {
             briefBackupJobInfo.viewList = backupJobInfo.newBackupObjects.views;
             briefBackupJobInfo.odbcTableList = backupJobInfo.newBackupObjects.odbcTables;
             briefBackupJobInfo.odbcResourceList = backupJobInfo.newBackupObjects.odbcResources;
+            briefBackupJobInfo.s3ResourceList = backupJobInfo.newBackupObjects.s3Resources;
+            briefBackupJobInfo.storagePolicyList = backupJobInfo.newBackupObjects.storagePolicies;
             return briefBackupJobInfo;
         }
     }
@@ -370,6 +378,10 @@ public class BackupJobInfo implements Writable, GsonPostProcessable {
         public List<BackupOdbcTableInfo> odbcTables = Lists.newArrayList();
         @SerializedName("odbc_resources")
         public List<BackupOdbcResourceInfo> odbcResources = Lists.newArrayList();
+        @SerializedName("s3_resources")
+        public List<BackupS3ResourceInfo> s3Resources = Lists.newArrayList();
+        @SerializedName("storage_policy")
+        public List<StoragePolicy> storagePolicies = Lists.newArrayList();
     }
 
     public static class BackupOlapTableInfo {
@@ -484,6 +496,11 @@ public class BackupJobInfo implements Writable, GsonPostProcessable {
     }
 
     public static class BackupOdbcResourceInfo {
+        @SerializedName("name")
+        public String name;
+    }
+
+    public static class BackupS3ResourceInfo {
         @SerializedName("name")
         public String name;
     }
@@ -687,6 +704,19 @@ public class BackupJobInfo implements Writable, GsonPostProcessable {
                 backupOdbcResourceInfo.name = odbcCatalogResource.getName();
                 jobInfo.newBackupObjects.odbcResources.add(backupOdbcResourceInfo);
             }
+
+            if (resource instanceof S3Resource) {
+                S3Resource s3Resource = (S3Resource) resource;
+                BackupS3ResourceInfo backupS3ResourceInfo = new BackupS3ResourceInfo();
+                backupS3ResourceInfo.name = s3Resource.getName();
+                jobInfo.newBackupObjects.s3Resources.add(backupS3ResourceInfo);
+            }
+        }
+
+        // storage policies
+        Collection<StoragePolicy> storagePolicies = backupMeta.getStoragePolicyNameMap().values();
+        for (StoragePolicy storagePolicy : storagePolicies) {
+            jobInfo.newBackupObjects.storagePolicies.add(storagePolicy.clone());
         }
 
         return jobInfo;

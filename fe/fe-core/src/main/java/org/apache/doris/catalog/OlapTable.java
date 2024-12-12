@@ -769,7 +769,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc,
-            boolean reserveReplica, String srcDbName) {
+            boolean reserveReplica, boolean reserveStoragePolicy, String srcDbName) {
         // ATTN: The meta of the restore may come from different clusters, so the
         // original ID in the meta may conflict with the ID of the new cluster. For
         // example, if a newly allocated ID happens to be the same as an original ID,
@@ -818,7 +818,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         boolean isSinglePartition = partitionInfo.getType() != PartitionType.RANGE
                 && partitionInfo.getType() != PartitionType.LIST;
         partitionInfo.resetPartitionIdForRestore(partitionMap,
-                reserveReplica ? null : restoreReplicaAlloc, isSinglePartition);
+                reserveReplica ? null : restoreReplicaAlloc, reserveStoragePolicy, isSinglePartition);
 
         // for each partition, reset rollup index map
         Map<Tag, Integer> nextIndexes = Maps.newHashMap();
@@ -2011,7 +2011,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 // set storage medium to HDD for backup job, because we want that the backuped table
                 // can be able to restored to another Doris cluster without SSD disk.
                 // But for other operation such as truncate table, keep the origin storage medium.
-                copied.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
+                copied.getPartitionInfo().getDataProperty(partition.getId()).setStorageMedium(TStorageMedium.HDD);
             }
             for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
                 idx.setState(IndexState.NORMAL);

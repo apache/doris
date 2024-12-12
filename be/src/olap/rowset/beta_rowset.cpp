@@ -438,7 +438,6 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
         return Status::InternalError("should be local rowset. tablet_id={} rowset_id={}",
                                      _rowset_meta->tablet_id(), rowset_id().to_string());
     }
-
     if (num_segments() < 1) {
         return Status::OK();
     }

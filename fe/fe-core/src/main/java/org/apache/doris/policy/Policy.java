@@ -99,6 +99,10 @@ public abstract class Policy implements Writable, GsonPostProcessable {
         this.version = 0;
     }
 
+    public String getName() {
+        return policyName;
+    }
+
     /**
      * Trans stmt to Policy.
      **/

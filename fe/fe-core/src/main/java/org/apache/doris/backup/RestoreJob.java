@@ -49,6 +49,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ResourceMgr;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
@@ -68,8 +69,13 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyMgr;
+import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -100,6 +106,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -110,6 +117,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -123,6 +131,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private static final String PROP_CLEAN_TABLES = RestoreStmt.PROP_CLEAN_TABLES;
     private static final String PROP_CLEAN_PARTITIONS = RestoreStmt.PROP_CLEAN_PARTITIONS;
     private static final String PROP_ATOMIC_RESTORE = RestoreStmt.PROP_ATOMIC_RESTORE;
+    private static final String PROP_STORAGE_RESOURCE = RestoreStmt.PROP_STORAGE_RESOURCE;
+    private static final String PROP_RESERVE_STORAGE_POLICY = RestoreStmt.PROP_RESERVE_STORAGE_POLICY;
     private static final String ATOMIC_RESTORE_TABLE_PREFIX = "__doris_atomic_restore_prefix__";
 
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
@@ -182,6 +192,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private List<Table> restoredTbls = Lists.newArrayList();
     @SerializedName("rr")
     private List<Resource> restoredResources = Lists.newArrayList();
+    @SerializedName("sp")
+    private List<StoragePolicy> storagePolicies = Lists.newArrayList();
 
     // save all restored partitions' version info which are already exist in catalog
     // table id -> partition id -> (version, version hash)
@@ -210,7 +222,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private boolean isCleanPartitions = false;
     // Whether to restore the data into a temp table, and then replace the origin one.
     private boolean isAtomicRestore = false;
-
+    // the target storage resource
+    private String storageResource = null;
+    // whether to reserve storage policy
+    private boolean reserveStoragePolicy = false;
     // restore properties
     @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
@@ -228,7 +243,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
             boolean reserveDynamicPartitionEnable, boolean isBeingSynced, boolean isCleanTables,
-            boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId) {
+            boolean isCleanPartitions, boolean isAtomicRestore, String storageResource,
+            boolean reserveStoragePolicy, Env env, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
@@ -246,21 +262,26 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         this.isCleanTables = isCleanTables;
         this.isCleanPartitions = isCleanPartitions;
         this.isAtomicRestore = isAtomicRestore;
+        this.storageResource = storageResource;
+        this.reserveStoragePolicy = reserveStoragePolicy;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
         properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
         properties.put(PROP_IS_BEING_SYNCED, String.valueOf(isBeingSynced));
         properties.put(PROP_CLEAN_TABLES, String.valueOf(isCleanTables));
         properties.put(PROP_CLEAN_PARTITIONS, String.valueOf(isCleanPartitions));
         properties.put(PROP_ATOMIC_RESTORE, String.valueOf(isAtomicRestore));
+        properties.put(PROP_STORAGE_RESOURCE, String.valueOf(storageResource));
+        properties.put(PROP_RESERVE_STORAGE_POLICY, String.valueOf(reserveStoragePolicy));
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
             boolean reserveDynamicPartitionEnable, boolean isBeingSynced, boolean isCleanTables,
-            boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId, BackupMeta backupMeta) {
+            boolean isCleanPartitions, boolean isAtomicRestore, String storageResource,
+            boolean reserveStoragePolicy, Env env, long repoId, BackupMeta backupMeta) {
         this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
-                reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions, isAtomicRestore, env,
-                repoId);
+                reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions, isAtomicRestore,
+                storageResource, reserveStoragePolicy, env, repoId);
         this.backupMeta = backupMeta;
     }
 
@@ -665,6 +686,32 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
+        for (BackupJobInfo.BackupS3ResourceInfo backupS3ResourceInfo : jobInfo.newBackupObjects.s3Resources) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(storageResource != null
+                    ? storageResource : backupS3ResourceInfo.name);
+            if (resource == null) {
+                continue;
+            }
+            if (resource.getType() != Resource.ResourceType.S3) {
+                status = new Status(ErrCode.COMMON_ERROR,
+                    "The local resource " + resource.getName()
+                        + " with the same name but a different type of backup meta.");
+                return;
+            }
+        }
+
+        for (StoragePolicy  backupStoragePolicy : jobInfo.newBackupObjects.storagePolicies) {
+            String backupStoragePoliceName = backupStoragePolicy.getName();
+            Optional<Policy> localPolicy = Env.getCurrentEnv().getPolicyMgr().findPolicy(backupStoragePoliceName,
+                    PolicyTypeEnum.STORAGE);
+            if (localPolicy.isPresent() && localPolicy.get().getType() != PolicyTypeEnum.STORAGE) {
+                status = new Status(ErrCode.COMMON_ERROR,
+                    "The local policy " + backupStoragePoliceName
+                        + " with the same name but a different type of backup meta.");
+                return;
+            }
+        }
+
         // the new tablets -> { local tablet, schema hash, storage medium }, used in atomic restore.
         Map<Long, TabletRef> tabletBases = new HashMap<>();
 
@@ -721,6 +768,16 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             BackupPartitionInfo backupPartInfo = partitionEntry.getValue();
                             Partition localPartition = localOlapTbl.getPartition(partitionName);
                             Partition remotePartition = remoteOlapTbl.getPartition(partitionName);
+
+                            String policyName = remoteOlapTbl.getPartitionInfo()
+                                    .getDataProperty(remotePartition.getId()).getStoragePolicy();
+                            if (StringUtils.isNotEmpty(policyName)) {
+                                status = new Status(ErrCode.COMMON_ERROR, "Can't restore remote partition "
+                                        + partitionName + " in table " + remoteTbl.getName() + " with storage policy "
+                                        + policyName + " when local table " + localTbl.getName() + " exist."
+                                        + " Please drop old table and restore again.");
+                                return;
+                            }
                             if (localPartition != null) {
                                 // Partition already exist.
                                 PartitionInfo localPartInfo = localOlapTbl.getPartitionInfo();
@@ -806,7 +863,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                     // reset all ids in this table
                     String srcDbName = jobInfo.dbName;
-                    Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica, srcDbName);
+                    Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc,
+                            reserveReplica, reserveStoragePolicy, srcDbName);
                     if (!st.ok()) {
                         status = st;
                         return;
@@ -897,6 +955,18 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             if (isAtomicRestore && !restoredPartitions.isEmpty()) {
                 throw new RuntimeException("atomic restore is set, but the restored partitions is not empty");
             }
+
+            // check and restore resources
+            checkAndRestoreResources();
+            if (!status.ok()) {
+                return;
+            }
+            // check and restore storage policies, should before createReplicas to get storage_policy_id
+            checkAndRestoreStoragePolicies();
+            if (!status.ok()) {
+                return;
+            }
+
             for (Pair<String, Partition> entry : restoredPartitions) {
                 OlapTable localTbl = (OlapTable) db.getTableNullable(entry.first);
                 Preconditions.checkNotNull(localTbl, localTbl.getName());
@@ -952,11 +1022,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             db.readUnlock();
         }
 
-        // check and restore resources
-        checkAndRestoreResources();
-        if (!status.ok()) {
-            return;
-        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("finished to restore resources. {}", this.jobId);
         }
@@ -1253,12 +1318,105 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             } else {
                 try {
                     // restore resource
-                    resourceMgr.createResource(remoteOdbcResource, false);
+                    resourceMgr.createResource(remoteOdbcResource);
                 } catch (DdlException e) {
                     status = new Status(ErrCode.COMMON_ERROR, e.getMessage());
                     return;
                 }
                 restoredResources.add(remoteOdbcResource);
+            }
+        }
+
+        if (!reserveStoragePolicy) {
+            return;
+        }
+
+        for (BackupJobInfo.BackupS3ResourceInfo backupS3ResourceInfo : jobInfo.newBackupObjects.s3Resources) {
+            String backupResourceName = backupS3ResourceInfo.name;
+            Resource localResource = resourceMgr.getResource(storageResource != null
+                    ? storageResource : backupResourceName);
+            S3Resource remoteS3Resource = (S3Resource) backupMeta.getResource(backupResourceName);
+
+            if (storageResource != null) {
+                if (localResource != null) {
+                    if (localResource.getType() != Resource.ResourceType.S3) {
+                        status = new Status(ErrCode.COMMON_ERROR, "The type of local resource "
+                            + backupResourceName + " is not same as restored resource");
+                        return;
+                    }
+                    S3Resource localS3Resource = (S3Resource) localResource;
+                    if (localS3Resource.getProperty(S3Properties.ENDPOINT)
+                            .equals(remoteS3Resource.getProperty(S3Properties.ENDPOINT))
+                            && localS3Resource.getProperty(S3Properties.BUCKET)
+                            .equals(remoteS3Resource.getProperty(S3Properties.BUCKET))
+                            && localS3Resource.getProperty(S3Properties.ROOT_PATH)
+                            .equals(remoteS3Resource.getProperty(S3Properties.ROOT_PATH))) {
+                        status = new Status(ErrCode.COMMON_ERROR, "local S3 resource "
+                                + storageResource + " root path " + localS3Resource.getProperty(S3Properties.ROOT_PATH)
+                                + " should not same as restored resource root path");
+                        return;
+                    }
+                } else {
+                    status = new Status(ErrCode.COMMON_ERROR,
+                            "The local resource " + storageResource + " is not exist.");
+                    return;
+                }
+            } else {
+                if (localResource != null) {
+                    if (localResource.getType() != Resource.ResourceType.S3) {
+                        status = new Status(ErrCode.COMMON_ERROR, "The type of local resource "
+                                + backupResourceName + " is not same as restored resource");
+                        return;
+                    }
+                    S3Resource localS3Resource = (S3Resource) localResource;
+                    if (localS3Resource.getSignature(BackupHandler.SIGNATURE_VERSION)
+                            != remoteS3Resource.getSignature(BackupHandler.SIGNATURE_VERSION)) {
+                        status = new Status(ErrCode.COMMON_ERROR, "S3 resource "
+                                + jobInfo.getAliasByOriginNameIfSet(backupResourceName)
+                                + " already exist but with different properties");
+                        return;
+                    }
+                } else {
+                    status = new Status(ErrCode.COMMON_ERROR, "Local resource "
+                            + backupResourceName + " is not exist");
+                    return;
+                }
+            }
+        }
+    }
+
+    private void checkAndRestoreStoragePolicies() {
+        if (!reserveStoragePolicy) {
+            return;
+        }
+        PolicyMgr policyMgr = Env.getCurrentEnv().getPolicyMgr();
+        for (StoragePolicy backupStoragePolicy : jobInfo.newBackupObjects.storagePolicies) {
+            String backupStoragePoliceName = backupStoragePolicy.getName();
+            Optional<Policy> localPolicy = policyMgr.findPolicy(backupStoragePoliceName,
+                    PolicyTypeEnum.STORAGE);
+            // use specified storageResource
+            if (storageResource != null) {
+                backupStoragePolicy.setStorageResource(storageResource);
+            }
+            if (localPolicy.isPresent()) {
+                StoragePolicy localStoargePolicy = (StoragePolicy) localPolicy.get();
+                // storage policy name and resource name should be same
+                if (localStoargePolicy.getSignature(BackupHandler.SIGNATURE_VERSION)
+                        != backupStoragePolicy.getSignature(BackupHandler.SIGNATURE_VERSION)) {
+                    status = new Status(ErrCode.COMMON_ERROR, "Storage policy "
+                        + jobInfo.getAliasByOriginNameIfSet(backupStoragePoliceName)
+                        + " already exist but with different properties");
+                    return;
+                }
+
+            } else {
+                // restore storage policy
+                try {
+                    policyMgr.createStoragePolicy(backupStoragePolicy);
+                } catch (Exception e) {
+                    LOG.error("restore storage policy fail should not happen", e);
+                }
+                storagePolicies.add(backupStoragePolicy);
             }
         }
     }
@@ -1326,6 +1484,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
+                    String storagePolicy = "";
+                    if (reserveStoragePolicy) {
+                        storagePolicy = localTbl.getPartitionInfo()
+                                .getDataProperty(restorePart.getId()).getStoragePolicy();
+                    }
                     CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendIdWithoutException(), dbId,
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                             restoreTablet.getId(), restoreReplica.getId(), indexMeta.getShortKeyColumnCount(),
@@ -1338,7 +1501,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
                             null,
                             localTbl.getCompressionType(),
-                            localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
+                            localTbl.getEnableUniqueKeyMergeOnWrite(),
+                            storagePolicy,
                             localTbl.disableAutoCompaction(),
                             localTbl.enableSingleReplicaCompaction(),
                             localTbl.skipWriteIndexOnLoad(),
@@ -1553,6 +1717,22 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
+        // restored resource
+        ResourceMgr resourceMgr = Env.getCurrentEnv().getResourceMgr();
+        for (Resource resource : restoredResources) {
+            resourceMgr.replayCreateResource(resource);
+        }
+
+        // restored storage policy
+        PolicyMgr policyMgr = Env.getCurrentEnv().getPolicyMgr();
+        for (StoragePolicy storagePolicy : storagePolicies) {
+            Optional<Policy> localPolicy = policyMgr.findPolicy(storagePolicy.getPolicyName(),
+                    PolicyTypeEnum.STORAGE);
+            if (!localPolicy.isPresent()) {
+                policyMgr.replayCreate(storagePolicy);
+            }
+        }
+
         // restored partitions
         for (Pair<String, Partition> entry : restoredPartitions) {
             OlapTable localTbl = (OlapTable) db.getTableNullable(entry.first);
@@ -1622,12 +1802,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             } finally {
                 olapRestoreTbl.writeUnlock();
             }
-        }
-
-        // restored resource
-        ResourceMgr resourceMgr = Env.getCurrentEnv().getResourceMgr();
-        for (Resource resource : restoredResources) {
-            resourceMgr.replayCreateResource(resource);
         }
 
         LOG.info("replay check and prepare meta. {}", this);
@@ -2100,6 +2274,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             restoredPartitions.clear();
             restoredTbls.clear();
             restoredResources.clear();
+            storagePolicies.clear();
 
             // release snapshot before clearing snapshotInfos
             releaseSnapshots();
@@ -2366,6 +2541,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             for (Resource resource : restoredResources) {
                 LOG.info("remove restored resource when cancelled: {}", resource.getName());
                 resourceMgr.dropResource(resource);
+            }
+
+            // remove restored storage policy
+            PolicyMgr policyMgr = Env.getCurrentEnv().getPolicyMgr();
+            for (StoragePolicy storagePolicy : storagePolicies) {
+                LOG.info("remove restored storage polciy when cancelled: {}", storagePolicy.getName());
+                policyMgr.replayDrop(storagePolicy);
             }
         }
 
@@ -2647,6 +2829,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanTables = Boolean.parseBoolean(properties.get(PROP_CLEAN_TABLES));
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
+        storageResource = properties.get(PROP_STORAGE_RESOURCE);
+        reserveStoragePolicy = Boolean.parseBoolean(properties.get(PROP_RESERVE_STORAGE_POLICY));
     }
 
     @Override
@@ -2657,6 +2841,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanTables = Boolean.parseBoolean(properties.get(PROP_CLEAN_TABLES));
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
+        storageResource = properties.get(PROP_STORAGE_RESOURCE);
+        reserveStoragePolicy = Boolean.parseBoolean(properties.get(PROP_RESERVE_STORAGE_POLICY));
     }
 
     @Override

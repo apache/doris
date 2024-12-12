@@ -43,6 +43,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.SnapshotTask;
@@ -213,7 +214,8 @@ public class BackupHandlerTest {
                 List<Table> tbls = Lists.newArrayList();
                 tbls.add(tbl);
                 List<Resource> resources = Lists.newArrayList();
-                BackupMeta backupMeta = new BackupMeta(tbls, resources);
+                List<StoragePolicy> storagePolicys = Lists.newArrayList();
+                BackupMeta backupMeta = new BackupMeta(tbls, resources, storagePolicys);
                 Map<Long, SnapshotInfo> snapshotInfos = Maps.newHashMap();
                 for (Partition part : tbl.getPartitions()) {
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {

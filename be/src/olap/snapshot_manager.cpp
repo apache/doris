@@ -39,6 +39,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
@@ -140,7 +141,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 
 Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
         const std::string& clone_dir, int64_t tablet_id, int64_t replica_id, int64_t table_id,
-        int64_t partition_id, int32_t schema_hash) {
+        int64_t partition_id, int32_t schema_hash, bool is_restore, int64_t storage_policy_id) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     std::vector<PendingRowsetGuard> guards;
     // check clone dir existed
@@ -170,6 +171,10 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     new_tablet_meta_pb.set_tablet_id(tablet_id);
     *new_tablet_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
     new_tablet_meta_pb.set_replica_id(replica_id);
+    if (is_restore) {
+        new_tablet_meta_pb.set_storage_policy_id(storage_policy_id);
+        new_tablet_meta_pb.clear_cooldown_meta_id();
+    }
     if (table_id > 0) {
         new_tablet_meta_pb.set_table_id(table_id);
     }
@@ -202,6 +207,9 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
         } else {
             // remote rowset
             *rowset_meta = visible_rowset;
+            if (is_restore) {
+                rowset_meta->clear_resource_id();
+            }
         }
 
         rowset_meta->set_tablet_id(tablet_id);
@@ -489,11 +497,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             if (!is_single_rowset_clone && (!res.ok() || request.missing_version.empty())) {
                 if (!request.__isset.missing_version &&
                     ref_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
-                    LOG(WARNING) << "currently not support backup tablet with cooldowned remote "
-                                    "data. tablet="
-                                 << request.tablet_id;
-                    return Status::NotSupported(
-                            "currently not support backup tablet with cooldowned remote data");
+                    LOG(INFO) << "Backup tablet with cooldowned remote data. tablet="
+                              << request.tablet_id;
                 }
                 /// not all missing versions are found, fall back to full snapshot.
                 res = Status::OK();         // reset res

@@ -42,6 +42,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -256,13 +257,14 @@ public class RestoreJobTest {
         db.unregisterTable(expectedRestoreTbl.getName());
 
         job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(), jobInfo, false,
-                new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false, false, false,
+                new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false, false, false, null, false,
                 env, repo.getId());
 
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();
+        List<StoragePolicy> storagePolicys = Lists.newArrayList();
         tbls.add(expectedRestoreTbl);
-        backupMeta = new BackupMeta(tbls, resources);
+        backupMeta = new BackupMeta(tbls, resources, storagePolicys);
     }
 
     @Test
