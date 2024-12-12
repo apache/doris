@@ -463,7 +463,7 @@ Status StorageEngine::_check_file_descriptor_number() {
                      << ", use default configuration instead.";
         return Status::OK();
     }
-    if (getenv("DORIS_HOME") == nullptr) {
+    if (getenv("SKIP_CHECK_ULIMIT") == nullptr) {
         LOG(INFO) << "will check ‘ulimit’ value."
     } else if (std::string(getenv("SKIP_CHECK_ULIMIT")) == "true") {
         LOG(INFO) << "the ‘ulimit’ value check is skipped"
