@@ -20,11 +20,11 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        brokerName = getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
-        hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
-        externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        def brokerName = getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
+        def hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
+        def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         def test_dir = "user/doris/preinstalled_data/data_case/autoinc"
 

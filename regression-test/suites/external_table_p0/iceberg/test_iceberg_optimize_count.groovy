@@ -42,10 +42,10 @@ suite("test_iceberg_optimize_count", "p0,external,doris,external_docker,external
         sql """ switch ${catalog_name} """
         sql """ use format_v2 """
 
-        sqlstr1 = """ select count(*) from sample_cow_orc; """
-        sqlstr2 = """ select count(*) from sample_cow_parquet; """
-        sqlstr3 = """ select count(*) from sample_mor_orc; """
-        sqlstr4 = """ select count(*) from sample_mor_parquet; """
+        def sqlstr1 = """ select count(*) from sample_cow_orc; """
+        def sqlstr2 = """ select count(*) from sample_cow_parquet; """
+        def sqlstr3 = """ select count(*) from sample_mor_orc; """
+        def sqlstr4 = """ select count(*) from sample_mor_parquet; """
 
         // use push down count
         sql """ set enable_count_push_down_for_external_table=true; """

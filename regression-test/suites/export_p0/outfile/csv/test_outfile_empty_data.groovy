@@ -45,7 +45,7 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
-    String region = region = getS3Region()
+    String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
     // broker

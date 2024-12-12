@@ -20,11 +20,11 @@ suite("test_primary_key_partial_update_broker_load", "p0,external,hive,external_
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        brokerName = getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
-        hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
-        externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        def brokerName = getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
+        def hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
+        def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         def load_from_hdfs = {testTable, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
             def result1= sql """
                             LOAD LABEL ${label} (
