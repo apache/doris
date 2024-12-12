@@ -885,9 +885,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (this.indexes != null) {
             List<Index> indexes = this.indexes.getIndexes();
             for (Index idx : indexes) {
-                long newIdxId = idx.getIndexId();
+                long newIdxId;
                 if (Config.restore_reset_index_id) {
                     newIdxId = env.getNextId();
+                } else {
+                    // The index id from the upstream is used, if restore_reset_index_id is not set.
+                    //
+                    // This is because the index id is used as a part of inverted file name/header
+                    // in BE. During restore, the inverted file is copied from the upstream to the
+                    // downstream. If the index id is changed, it might cause the BE to fail to find
+                    // the inverted files.
+                    newIdxId = idx.getIndexId();
                 }
                 idx.setIndexId(newIdxId);
             }
