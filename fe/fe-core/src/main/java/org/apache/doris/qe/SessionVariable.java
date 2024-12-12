@@ -656,6 +656,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
             "enable_cooldown_replica_affinity";
+
+    public static final String NEW_IS_IP_ADDRESS_IN_RANGE = "new_is_ip_address_in_range";
     /**
      * Inserting overwrite for auto partition table allows creating partition for
      * datas which cannot find partition to overwrite.
@@ -2214,6 +2216,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COOLDOWN_REPLICA_AFFINITY, needForward = true)
     public boolean enableCooldownReplicaAffinity = true;
 
+    // only to control some function behaviour. not visible or mutable.
+    @VariableMgr.VarAttr(name = NEW_IS_IP_ADDRESS_IN_RANGE, needForward = true, flag = VariableMgr.INVISIBLE
+            | VariableMgr.READ_ONLY)
+    public boolean newIsIpAddressInRange = true;
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -3771,6 +3778,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcTinyStripeThresholdBytes(orcTinyStripeThresholdBytes);
         tResult.setOrcMaxMergeDistanceBytes(orcMaxMergeDistanceBytes);
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
+
+        tResult.setNewIsIpAddressInRange(newIsIpAddressInRange);
 
         return tResult;
     }

@@ -338,6 +338,10 @@ struct TQueryOptions {
   138: optional i64 orc_tiny_stripe_threshold_bytes = 8388608;
   139: optional i64 orc_once_max_read_bytes = 8388608;
   140: optional i64 orc_max_merge_distance_bytes = 1048576;
+
+  // upgrade options. keep them same in every branch.
+  200: optional bool new_is_ip_address_in_range = false;
+
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }

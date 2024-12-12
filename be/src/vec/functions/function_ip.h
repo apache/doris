@@ -643,7 +643,7 @@ public:
 // old version throw exception when meet null value
 class FunctionIsIPAddressInRangeOld : public IFunction {
 public:
-    static constexpr auto name = "is_ip_address_in_range";
+    static constexpr auto name = "__is_ip_address_in_range_OLD__";
     static FunctionPtr create() { return std::make_shared<FunctionIsIPAddressInRange>(); }
 
     String get_name() const override { return name; }

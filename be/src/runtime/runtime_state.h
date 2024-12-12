@@ -174,6 +174,11 @@ public:
         return _query_options.__isset.enable_decimal256 && _query_options.enable_decimal256;
     }
 
+    bool new_is_ip_address_in_range() const {
+        return _query_options.__isset.new_is_ip_address_in_range &&
+               _query_options.new_is_ip_address_in_range;
+    }
+
     bool enable_common_expr_pushdown() const {
         return _query_options.__isset.enable_common_expr_pushdown &&
                _query_options.enable_common_expr_pushdown;

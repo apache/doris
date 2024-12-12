@@ -162,6 +162,11 @@ public:
                                  int be_version = BeExecVersionManager::get_newest_version()) {
         std::string key_str = name;
 
+        // special function replacement
+        if (key_str == "is_ip_address_in_range" && !attr.new_is_ip_address_in_range) [[unlikely]] {
+            key_str = "__is_ip_address_in_range_OLD__";
+        }
+
         if (function_alias.contains(name)) {
             key_str = function_alias[name];
         }
