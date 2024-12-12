@@ -136,12 +136,13 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
         Multimap<Expression, ValueDesc> groupByReference
                 = Multimaps.newListMultimap(new LinkedHashMap<>(), ArrayList::new);
         for (Expression predicate : predicates) {
+            // EmptyValue(a) = IsNull(a) and null,  it doesn't equals to IsNull(a).
+            // Only the and expression contains at least a null literal in its conjunctions,
+            // then EmptyValue(a) can equivalent to IsNull(a).
+            // so for expression and(IsNull(a), IsNull(b), ..., null), a, b can convert to EmptyValue.
+            // What's more, if a is not nullable, then EmptyValue(a) always equals to IsNull(a),
+            // but we don't consider this case here, we should fold IsNull(a) to FALSE using other rule.
             ValueDesc valueDesc = null;
-            // we can override visitIsNull(expr, context) => EmptyValue,
-            // but it will make origin expression always add 'and null'.
-            // for example, origin expr is IsNull(a), then the result is 'IsNull(a) and null'.
-            // we don't want to add redundant 'and null' to the rewrite expr,
-            // so only convert is null to empty value only when origin expr indeed contains an "and null".
             if (convertIsNullToEmptyValue && predicate instanceof IsNull) {
                 valueDesc = new EmptyValue(context, ((IsNull) predicate).child(), predicate);
             } else {
@@ -474,6 +475,9 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         public ValueDesc union(ValueDesc other) {
+            if (other instanceof EmptyValue) {
+                return other.union(this);
+            }
             Expression originExpr = FoldConstantRuleOnFE.evaluate(
                     ExpressionUtils.or(toExpr, other.toExpr), context);
             return new UnknownValue(context, originExpr,
@@ -482,6 +486,9 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         public ValueDesc intersect(ValueDesc other) {
+            if (other instanceof EmptyValue) {
+                return other.intersect(this);
+            }
             Expression originExpr = FoldConstantRuleOnFE.evaluate(
                     ExpressionUtils.and(toExpr, other.toExpr), context);
             return new UnknownValue(context, originExpr,
