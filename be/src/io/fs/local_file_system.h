@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
@@ -33,6 +34,7 @@ namespace doris::io {
 class LocalFileSystem final : public FileSystem {
 public:
     static std::shared_ptr<LocalFileSystem> create(Path path, std::string id = "");
+    static Status convert_to_abs_path(const Path& path, Path& abs_path);
     ~LocalFileSystem() override;
 
     /// hard link dest file to src file
@@ -97,6 +99,10 @@ protected:
     Status get_space_info_impl(const Path& path, size_t* capacity, size_t* available);
     Status copy_path_impl(const Path& src, const Path& dest);
     Status permission_impl(const Path& file, std::filesystem::perms prms);
+
+    Status absolute_path(const Path& path, Path& abs_path) const override {
+        return convert_to_abs_path(path, abs_path);
+    }
 
 private:
     // a wrapper for glob(), return file list in "res"

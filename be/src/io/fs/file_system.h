@@ -144,11 +144,13 @@ protected:
     /// rename file from orig_name to new_name
     virtual Status rename_impl(const Path& orig_name, const Path& new_name) = 0;
 
-    virtual Path absolute_path(const Path& path) const {
+    virtual Status absolute_path(const Path& path, Path& abs_path) const {
         if (path.is_absolute()) {
-            return path;
+            abs_path = path;
+        } else {
+            abs_path = _root_path / path;
         }
-        return _root_path / path;
+        return Status::OK();
     }
 
     FileSystem(Path&& root_path, std::string&& id, FileSystemType type)

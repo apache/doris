@@ -137,6 +137,9 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
             return Status::InvalidArgument("Duplicated field name: {}", _fields[i].name);
         }
         _name_to_field.emplace(_fields[i].name, &_fields[i]);
+        if (_fields[i].field_id != -1) {
+            _field_id_name_mapping.emplace(_fields[i].field_id, _fields[i].name);
+        }
     }
 
     if (_next_schema_pos != t_schemas.size()) {
@@ -145,6 +148,14 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
     }
 
     return Status::OK();
+}
+
+const doris::Slice FieldDescriptor::get_column_name_from_field_id(int32_t id) const {
+    auto const it = _field_id_name_mapping.find(id);
+    if (it == _field_id_name_mapping.end()) {
+        return {};
+    }
+    return {it->second.data()};
 }
 
 Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaElement>& t_schemas,
@@ -172,6 +183,7 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
         node_field->type.add_sub_type(child->type);
         node_field->is_nullable = false;
         _next_schema_pos = curr_pos + 1;
+        node_field->field_id = t_schema.__isset.field_id ? t_schema.field_id : -1;
     } else {
         bool is_optional = is_optional_node(t_schema);
         if (is_optional) {
@@ -194,6 +206,7 @@ void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physic
     auto type = get_doris_type(physical_schema);
     physical_field->type = type.first;
     physical_field->is_type_compatibility = type.second;
+    physical_field->field_id = physical_schema.__isset.field_id ? physical_schema.field_id : -1;
 }
 
 std::pair<TypeDescriptor, bool> FieldDescriptor::get_doris_type(
@@ -465,6 +478,7 @@ Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElem
         group_field->type.type = TYPE_ARRAY;
         group_field->type.add_sub_type(struct_field->type);
         group_field->is_nullable = false;
+        group_field->field_id = group_schema.__isset.field_id ? group_schema.field_id : -1;
     } else {
         RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, group_field));
     }
@@ -533,6 +547,7 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
     list_field->type.type = TYPE_ARRAY;
     list_field->type.add_sub_type(list_field->children[0].type);
     list_field->is_nullable = is_optional;
+    list_field->field_id = first_level.__isset.field_id ? first_level.field_id : -1;
 
     return Status::OK();
 }
@@ -597,6 +612,7 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     map_field->type.add_sub_type(map_kv_field->type.children[0]);
     map_field->type.add_sub_type(map_kv_field->type.children[1]);
     map_field->is_nullable = is_optional;
+    map_field->field_id = map_schema.__isset.field_id ? map_schema.field_id : -1;
 
     return Status::OK();
 }
@@ -619,6 +635,8 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     struct_field->name = to_lower(struct_schema.name);
     struct_field->is_nullable = is_optional;
     struct_field->type.type = TYPE_STRUCT;
+    struct_field->field_id = struct_schema.__isset.field_id ? struct_schema.field_id : -1;
+
     for (int i = 0; i < num_children; ++i) {
         struct_field->type.add_sub_type(struct_field->children[i].type,
                                         struct_field->children[i].name);
