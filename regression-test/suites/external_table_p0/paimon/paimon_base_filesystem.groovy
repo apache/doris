@@ -54,16 +54,16 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
                 "s3.endpoint" = "cos.ap-beijing.myqcloud.com"
             );
         """
-        // sql """
-        //     create catalog if not exists ${catalog_cosn} properties (
-        //         "type" = "paimon",
-        //         "paimon.catalog.type"="filesystem",
-        //         "warehouse" = "cosn://doris-build-1308700295/regression/paimon1",
-        //         "cosn.access_key" = "${txYunAk}",
-        //         "cosn.secret_key" = "${txYunSk}",
-        //         "cosn.endpoint" = "cos.ap-beijing.myqcloud.com"
-        //     );
-        // """
+        sql """
+            create catalog if not exists ${catalog_cosn} properties (
+                "type" = "paimon",
+                "paimon.catalog.type"="filesystem",
+                "warehouse" = "cosn://doris-build-1308700295/regression/paimon1",
+                "s3.access_key" = "${txYunAk}",
+                "s3.secret_key" = "${txYunSk}",
+                "s3.endpoint" = "cos.ap-beijing.myqcloud.com"
+            );
+        """
         sql """
             create catalog if not exists ${catalog_oss} properties (
                 "type" = "paimon",
@@ -93,12 +93,13 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         qt_oss oss
         qt_obs obs
         qt_cos cos
-        // qt_cosn cosn
+        qt_cosn cosn
 
         sql """set force_jni_scanner=true"""
         qt_oss oss
         qt_obs obs
         qt_cos cos
+        // java.lang.ClassNotFoundException: Class org.apache.hadoop.fs.CosFileSystem not found
         // qt_cosn cosn
 
     } finally {
