@@ -43,13 +43,17 @@ public class ColStatsMeta {
     @SerializedName("trigger")
     public JobType jobType;
 
+    @SerializedName("tv")
+    public long tableVersion;
+
     public ColStatsMeta(long updatedTime, AnalysisMethod analysisMethod,
-            AnalysisType analysisType, JobType jobType, long queriedTimes) {
+            AnalysisType analysisType, JobType jobType, long queriedTimes, long tableVersion) {
         this.updatedTime = updatedTime;
         this.analysisMethod = analysisMethod;
         this.analysisType = analysisType;
         this.jobType = jobType;
         this.queriedTimes.addAndGet(queriedTimes);
+        this.tableVersion = tableVersion;
     }
 
     public void clear() {

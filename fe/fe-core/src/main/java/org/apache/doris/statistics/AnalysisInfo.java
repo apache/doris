@@ -195,6 +195,13 @@ public class AnalysisInfo implements Writable {
 
     @SerializedName("rowCount")
     public final long rowCount;
+
+    @SerializedName("priority")
+    public final JobPriority priority;
+
+    @SerializedName("tv")
+    public final long tableVersion;
+
     /**
      *
      * Used to store the newest partition version of tbl when creating this job.
@@ -214,7 +221,7 @@ public class AnalysisInfo implements Writable {
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
             boolean usingSqlForPartitionColumn, long tblUpdateTime, boolean emptyJob, boolean userInject,
-            long rowCount) {
+            long rowCount, JobPriority priority, long tableVersion) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -253,6 +260,8 @@ public class AnalysisInfo implements Writable {
         this.emptyJob = emptyJob;
         this.userInject = userInject;
         this.rowCount = rowCount;
+        this.priority = priority;
+        this.tableVersion = tableVersion;
     }
 
     @Override
@@ -295,6 +304,8 @@ public class AnalysisInfo implements Writable {
         sj.add("forceFull: " + forceFull);
         sj.add("usingSqlForPartitionColumn: " + usingSqlForPartitionColumn);
         sj.add("emptyJob: " + emptyJob);
+        sj.add("priority: " + priority.name());
+        sj.add("tableVersion: " + tableVersion);
         return sj.toString();
     }
 

@@ -15,28 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.disruptor;
+package org.apache.doris.statistics;
 
-import org.apache.doris.job.base.JobExecutionConfiguration;
-import org.apache.doris.job.task.AbstractTask;
-
-import com.lmax.disruptor.EventFactory;
-import lombok.Data;
-
-@Data
-public class ExecuteTaskEvent<T extends AbstractTask> {
-
-    private T task;
-
-    private JobExecutionConfiguration jobConfig;
-
-    public static <T extends AbstractTask> EventFactory<ExecuteTaskEvent<T>> factory() {
-        return ExecuteTaskEvent::new;
-    }
-
-    public void clear() {
-        this.task = null;
-        this.jobConfig = null;
-    }
-
+public enum JobPriority {
+    HIGH,
+    LOW,
+    MANUAL,
+    MANUAL_AUTO;
 }

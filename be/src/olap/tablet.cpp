@@ -537,6 +537,15 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset) {
     return Status::OK();
 }
 
+bool Tablet::rowset_exists_unlocked(const RowsetSharedPtr& rowset) {
+    if (auto it = _rs_version_map.find(rowset->version()); it == _rs_version_map.end()) {
+        return false;
+    } else if (rowset->rowset_id() != it->second->rowset_id()) {
+        return false;
+    }
+    return true;
+}
+
 Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                               std::vector<RowsetSharedPtr>& to_delete, bool check_delete) {
     // the compaction process allow to compact the single version, eg: version[4-4].

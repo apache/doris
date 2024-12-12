@@ -99,6 +99,7 @@ import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -144,7 +145,8 @@ public class AnalysisManager implements Writable {
         return statisticsCache;
     }
 
-    public void createAnalyze(AnalyzeStmt analyzeStmt, boolean proxy) throws DdlException, AnalysisException {
+    public void createAnalyze(AnalyzeStmt analyzeStmt, boolean proxy)
+            throws DdlException, AnalysisException, ExecutionException, InterruptedException {
         if (!StatisticsUtil.statsTblAvailable() && !FeConstants.runningUnitTest) {
             throw new DdlException("Stats table not available, please make sure your cluster status is normal");
         }
@@ -157,10 +159,8 @@ public class AnalysisManager implements Writable {
 
     public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws DdlException, AnalysisException {
         DatabaseIf<TableIf> db = analyzeDBStmt.getDb();
-        // Using auto analyzer if user specifies.
         if (analyzeDBStmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
-            Env.getCurrentEnv().getStatisticsAutoCollector().analyzeDb(db);
-            return;
+            throw new DdlException("Analyze database doesn't support use.auto.analyzer property.");
         }
         List<AnalysisInfo> analysisInfos = buildAnalysisInfosForDB(db, analyzeDBStmt.getAnalyzeProperties());
         if (!analyzeDBStmt.isSync()) {
@@ -208,22 +208,12 @@ public class AnalysisManager implements Writable {
     }
 
     // Each analyze stmt corresponding to an analysis job.
-    public void createAnalysisJob(AnalyzeTblStmt stmt, boolean proxy) throws DdlException, AnalysisException {
+    public void createAnalysisJob(AnalyzeTblStmt stmt, boolean proxy)
+            throws DdlException, AnalysisException, ExecutionException, InterruptedException {
         // Using auto analyzer if user specifies.
         if (stmt.getAnalyzeProperties().getProperties().containsKey("use.auto.analyzer")) {
             StatisticsAutoCollector autoCollector = Env.getCurrentEnv().getStatisticsAutoCollector();
-            if (autoCollector.skip(stmt.getTable())) {
-                return;
-            }
-            List<AnalysisInfo> jobs = new ArrayList<>();
-            autoCollector.createAnalyzeJobForTbl(stmt.getDb(), jobs, stmt.getTable());
-            if (jobs.isEmpty()) {
-                return;
-            }
-            AnalysisInfo job = autoCollector.getNeedAnalyzeColumns(jobs.get(0));
-            if (job != null) {
-                Env.getCurrentEnv().getStatisticsAutoCollector().createSystemAnalysisJob(job);
-            }
+            autoCollector.processOneJob(stmt.getTable(), JobPriority.MANUAL_AUTO);
             return;
         }
         AnalysisInfo jobInfo = buildAndAssignJob(stmt);
@@ -347,7 +337,6 @@ public class AnalysisManager implements Writable {
         infoBuilder.setAnalysisMode(analysisMode);
         infoBuilder.setAnalysisMethod(analysisMethod);
         infoBuilder.setScheduleType(scheduleType);
-        infoBuilder.setLastExecTimeInMs(0);
         infoBuilder.setCronExpression(cronExpression);
         infoBuilder.setForceFull(stmt.forceFull());
         infoBuilder.setUsingSqlForPartitionColumn(stmt.usingSqlForPartitionColumn());
@@ -377,6 +366,8 @@ public class AnalysisManager implements Writable {
                 && analysisMethod.equals(AnalysisMethod.SAMPLE));
         long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount();
         infoBuilder.setRowCount(rowCount);
+        infoBuilder.setPriority(JobPriority.MANUAL);
+        infoBuilder.setTableVersion(table instanceof OlapTable ? ((OlapTable) table).getVisibleVersion() : 0);
         return infoBuilder.build();
     }
 

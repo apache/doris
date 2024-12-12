@@ -146,7 +146,8 @@ Status LocalFileSystem::delete_directory_impl(const Path& dir) {
 }
 
 Status LocalFileSystem::delete_directory_or_file(const Path& path) {
-    auto the_path = absolute_path(path);
+    Path the_path;
+    RETURN_IF_ERROR(absolute_path(path, the_path));
     FILESYSTEM_M(delete_directory_or_file_impl(the_path));
 }
 
@@ -248,8 +249,10 @@ Status LocalFileSystem::rename_impl(const Path& orig_name, const Path& new_name)
 }
 
 Status LocalFileSystem::link_file(const Path& src, const Path& dest) {
-    auto src_file = absolute_path(src);
-    auto dest_file = absolute_path(dest);
+    Path src_file;
+    RETURN_IF_ERROR(absolute_path(src, src_file));
+    Path dest_file;
+    RETURN_IF_ERROR(absolute_path(dest, dest_file));
     FILESYSTEM_M(link_file_impl(src_file, dest_file));
 }
 
@@ -272,7 +275,8 @@ Status LocalFileSystem::canonicalize(const Path& path, std::string* real_path) {
 }
 
 Status LocalFileSystem::is_directory(const Path& path, bool* res) {
-    auto tmp_path = absolute_path(path);
+    Path tmp_path;
+    RETURN_IF_ERROR(absolute_path(path, tmp_path));
     std::error_code ec;
     *res = std::filesystem::is_directory(tmp_path, ec);
     if (ec) {
@@ -282,7 +286,8 @@ Status LocalFileSystem::is_directory(const Path& path, bool* res) {
 }
 
 Status LocalFileSystem::md5sum(const Path& file, std::string* md5sum) {
-    auto path = absolute_path(file);
+    Path path;
+    RETURN_IF_ERROR(absolute_path(file, path));
     FILESYSTEM_M(md5sum_impl(path, md5sum));
 }
 
@@ -318,8 +323,9 @@ Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
 
 Status LocalFileSystem::iterate_directory(const std::string& dir,
                                           const std::function<bool(const FileInfo& file)>& cb) {
-    auto path = absolute_path(dir);
-    FILESYSTEM_M(iterate_directory_impl(dir, cb));
+    Path path;
+    RETURN_IF_ERROR(absolute_path(dir, path));
+    FILESYSTEM_M(iterate_directory_impl(path, cb));
 }
 
 Status LocalFileSystem::iterate_directory_impl(
@@ -336,7 +342,8 @@ Status LocalFileSystem::iterate_directory_impl(
 }
 
 Status LocalFileSystem::get_space_info(const Path& dir, size_t* capacity, size_t* available) {
-    auto path = absolute_path(dir);
+    Path path;
+    RETURN_IF_ERROR(absolute_path(dir, path));
     FILESYSTEM_M(get_space_info_impl(path, capacity, available));
 }
 
@@ -353,8 +360,10 @@ Status LocalFileSystem::get_space_info_impl(const Path& path, size_t* capacity, 
 }
 
 Status LocalFileSystem::copy_path(const Path& src, const Path& dest) {
-    auto src_path = absolute_path(src);
-    auto dest_path = absolute_path(dest);
+    Path src_path;
+    RETURN_IF_ERROR(absolute_path(src, src_path));
+    Path dest_path;
+    RETURN_IF_ERROR(absolute_path(dest, dest_path));
     FILESYSTEM_M(copy_path_impl(src_path, dest_path));
 }
 
@@ -455,7 +464,8 @@ Status LocalFileSystem::_glob(const std::string& pattern, std::vector<std::strin
 }
 
 Status LocalFileSystem::permission(const Path& file, std::filesystem::perms prms) {
-    auto path = absolute_path(file);
+    Path path;
+    RETURN_IF_ERROR(absolute_path(file, path));
     FILESYSTEM_M(permission_impl(path, prms));
 }
 
@@ -465,6 +475,56 @@ Status LocalFileSystem::permission_impl(const Path& file, std::filesystem::perms
     if (ec) {
         return localfs_error(ec, fmt::format("failed to change file permission {}", file.native()));
     }
+    return Status::OK();
+}
+
+Status LocalFileSystem::convert_to_abs_path(const Path& input_path_str, Path& abs_path) {
+    // valid path include:
+    //   1. abc/def                         will return abc/def
+    //   2. /abc/def                        will return /abc/def
+    //   3. file:/abc/def                   will return /abc/def
+    //   4. file://<authority>/abc/def      will return /abc/def
+    std::string path_str = input_path_str;
+    size_t slash = path_str.find('/');
+    if (slash == 0) {
+        abs_path = input_path_str;
+        return Status::OK();
+    }
+
+    // Initialize scheme and authority
+    std::string scheme;
+    size_t start = 0;
+
+    // Parse URI scheme
+    size_t colon = path_str.find(':');
+    if (colon != std::string::npos && (slash == std::string::npos || colon < slash)) {
+        // Has a scheme
+        scheme = path_str.substr(0, colon);
+        if (scheme != "file") {
+            return Status::InternalError(
+                    "Only supports `file` type scheme, like 'file:///path', 'file:/path'.");
+        }
+        start = colon + 1;
+    }
+
+    // Parse URI authority, if any
+    if (path_str.compare(start, 2, "//") == 0 && path_str.length() - start > 2) {
+        // Has authority
+        // such as : path_str = "file://authority/abc/def"
+        // and now : start = 5
+        size_t next_slash = path_str.find('/', start + 2);
+        // now : next_slash = 16
+        if (next_slash == std::string::npos) {
+            return Status::InternalError(
+                    "This input string only has authority, but has no path information");
+        }
+        // We will skit authority
+        // now : start = 16
+        start = next_slash;
+    }
+
+    // URI path is the rest of the string
+    abs_path = path_str.substr(start);
     return Status::OK();
 }
 
