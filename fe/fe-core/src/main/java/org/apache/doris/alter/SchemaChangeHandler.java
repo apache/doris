@@ -2914,8 +2914,9 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (alterIndexes != null) {
             if (!isReplay) {
-                TableAddOrDropInvertedIndicesInfo info = new TableAddOrDropInvertedIndicesInfo(rawSql, db.getId(),
-                        olapTable.getId(), indexSchemaMap, indexes, alterIndexes, isDropIndex, jobId);
+                TableAddOrDropInvertedIndicesInfo info = new TableAddOrDropInvertedIndicesInfo(
+                        rawSql, db.getId(), olapTable.getId(), olapTable.getName(),
+                        indexSchemaMap, indexes, alterIndexes, isDropIndex, jobId);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
                 }

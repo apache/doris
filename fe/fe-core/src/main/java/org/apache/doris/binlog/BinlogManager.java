@@ -410,6 +410,11 @@ public class BinlogManager {
     }
 
     public void addModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info, long commitSeq) {
+        if (StringUtils.isEmpty(info.getTableName())) {
+            LOG.warn("skip modify table add or drop inverted indices binlog, because tableName is empty. info: {}", info);
+            return;
+        }
+
         long dbId = info.getDbId();
         List<Long> tableIds = Lists.newArrayList();
         tableIds.add(info.getTableId());

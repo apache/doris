@@ -40,6 +40,8 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
     private long dbId;
     @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "tableName")
+    private String tableName; // not included in equals, default value is null
     @SerializedName(value = "indexSchemaMap")
     private Map<Long, LinkedList<Column>> indexSchemaMap;
     @SerializedName(value = "indexes")
@@ -53,13 +55,14 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
     @SerializedName(value = "rawSql")
     private String rawSql;
 
-    public TableAddOrDropInvertedIndicesInfo(String rawSql, long dbId, long tableId,
+    public TableAddOrDropInvertedIndicesInfo(String rawSql, long dbId, long tableId, String tableName,
             Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes,
             List<Index> alterInvertedIndexes, boolean isDropInvertedIndex,
             long jobId) {
         this.rawSql = rawSql;
         this.dbId = dbId;
         this.tableId = tableId;
+        this.tableName = tableName;
         this.indexSchemaMap = indexSchemaMap;
         this.indexes = indexes;
         this.alterInvertedIndexes = alterInvertedIndexes;
@@ -73,6 +76,10 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
 
     public long getTableId() {
         return tableId;
+    }
+
+    public String getTableName() {
+        return tableName;
     }
 
     public Map<Long, LinkedList<Column>> getIndexSchemaMap() {
@@ -120,7 +127,7 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
 
         TableAddOrDropInvertedIndicesInfo info = (TableAddOrDropInvertedIndicesInfo) obj;
 
-        return (dbId == info.dbId && tableId == tableId
+        return (dbId == info.dbId && tableId == info.tableId
                 && indexSchemaMap.equals(info.indexSchemaMap)
                 && indexes.equals(info.indexes)
                 && alterInvertedIndexes.equals(info.alterInvertedIndexes)
