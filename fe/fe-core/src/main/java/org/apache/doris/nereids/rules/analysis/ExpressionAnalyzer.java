@@ -77,6 +77,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
@@ -583,10 +584,26 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return visit(realExpr, context);
     }
 
+    // Register placeholder id to related slot in comparison predicate.
+    // Used to replace expression in ShortCircuit plan
+    private void registerPlaceholdIdToSlot(ComparisonPredicate cp,
+                    ExpressionRewriteContext context, Expression left, Expression right) {
+        // Used to replace expression in ShortCircuit plan
+        if (cp.right() instanceof Placeholder && left instanceof SlotReference) {
+            PlaceholderId id = ((Placeholder) cp.right()).getPlaceholderId();
+            context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) left);
+        } else if (cp.left() instanceof Placeholder && right instanceof SlotReference) {
+            PlaceholderId id = ((Placeholder) cp.left()).getPlaceholderId();
+            context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) right);
+        }
+    }
+
     @Override
     public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
         Expression left = cp.left().accept(this, context);
         Expression right = cp.right().accept(this, context);
+        // Used to replace expression in ShortCircuit plan
+        registerPlaceholdIdToSlot(cp, context, left, right);
         cp = (ComparisonPredicate) cp.withChildren(left, right);
         return TypeCoercionUtils.processComparisonPredicate(cp);
     }
