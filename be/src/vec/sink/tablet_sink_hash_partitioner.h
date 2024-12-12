@@ -31,6 +31,7 @@ namespace doris::vectorized {
 class TabletSinkHashPartitioner final : public PartitionerBase {
 public:
     using HashValType = int64_t;
+    ENABLE_FACTORY_CREATOR(TabletSinkHashPartitioner);
     TabletSinkHashPartitioner(size_t partition_count, int64_t txn_id,
                               const TOlapTableSchemaParam& tablet_sink_schema,
                               const TOlapTablePartitionParam& tablet_sink_partition,
@@ -52,6 +53,10 @@ public:
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
     Status close(RuntimeState* state) override;
+
+    std::string debug_string() const override {
+        return fmt::format("TabletSinkHashPartitioner({})", _partition_count);
+    }
 
 private:
     static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {

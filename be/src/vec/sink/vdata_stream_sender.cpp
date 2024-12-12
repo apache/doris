@@ -92,7 +92,8 @@ Status Channel::init(RuntimeState* state) {
     return Status::OK();
 }
 
-Status Channel::open(RuntimeState* state) {
+Status Channel::open(RuntimeState* state, bool need_to_accumulate_data) {
+    _need_to_accumulate_data = need_to_accumulate_data;
     if (_is_local) {
         auto st = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
                 _fragment_instance_id, _dest_node_id, &_local_recvr);
@@ -135,18 +136,13 @@ int64_t Channel::mem_usage() const {
     return mem_usage;
 }
 
-Status Channel::send_remote_block(std::unique_ptr<PBlock>&& block, bool eos) {
+Status Channel::send_remote_block(Block* block, bool eos) {
     COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
 
-    if (eos) {
-        if (_eos_send) {
-            return Status::OK();
-        } else {
-            _eos_send = true;
-        }
-    }
-    if (eos || block->column_metas_size()) {
-        RETURN_IF_ERROR(_buffer->add_block({this, std::move(block), eos, Status::OK()}));
+    auto pblock = std::make_unique<PBlock>();
+    RETURN_IF_ERROR(_serializer.serialize_block(block, pblock.get()));
+    if (eos || pblock->column_metas_size()) {
+        RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock), eos, Status::OK()}));
     }
     return Status::OK();
 }
@@ -165,40 +161,48 @@ Status Channel::send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& blo
     return Status::OK();
 }
 
-Status Channel::_send_current_block(bool eos) {
-    if (is_local()) {
-        return _send_local_block(eos);
+Status Channel::send_block(MutableBlock* block, bool* sent) {
+    DCHECK(block);
+    if (is_receiver_eof()) {
+        return _receiver_status;
     }
-    return send_remote_block(std::move(_pblock), eos);
+    if (_need_to_accumulate_data && block->rows() < _state->batch_size()) {
+        return Status::OK();
+    }
+
+    *sent = true;
+    auto res = block->to_block();
+    if (is_local()) {
+        RETURN_IF_ERROR(send_local_block(&res, false));
+    } else {
+        RETURN_IF_ERROR(send_remote_block(&res, false));
+    }
+    block->set_mutable_columns(res.mutate_columns());
+
+    return Status::OK();
 }
 
-Status Channel::_send_local_block(bool eos) {
-    Block block;
-    if (_serializer.get_block() != nullptr) {
-        block = _serializer.get_block()->to_block();
-        _serializer.get_block()->set_mutable_columns(block.clone_empty_columns());
+Status Channel::_send_last_block(Block* block) {
+    if (_eos_send) {
+        return Status::OK();
+    } else {
+        _eos_send = true;
+    }
+    if (is_receiver_eof()) {
+        return _receiver_status;
     }
 
-    if (!block.empty() || eos) {
-        RETURN_IF_ERROR(send_local_block(&block, eos, true));
+    if (is_local()) {
+        RETURN_IF_ERROR(send_local_block(block, true));
+    } else {
+        RETURN_IF_ERROR(send_remote_block(block, true));
     }
     return Status::OK();
 }
 
-Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
+Status Channel::send_local_block(Block* block, bool eos) {
     SCOPED_TIMER(_parent->local_send_timer());
 
-    if (eos) {
-        if (_eos_send) {
-            return Status::OK();
-        } else {
-            _eos_send = true;
-        }
-    }
-
-    if (is_receiver_eof()) {
-        return _receiver_status;
-    }
     auto receiver_status = _recvr_status();
     // _local_recvr depdend on pipeline::ExchangeLocalState* _parent to do some memory counter settings
     // but it only owns a raw pointer, so that the ExchangeLocalState object may be deconstructed.
@@ -220,7 +224,7 @@ Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
 
         const auto sender_id = _parent->sender_id();
         if (!block->empty()) [[likely]] {
-            _local_recvr->add_block(block, sender_id, can_be_moved);
+            _local_recvr->add_block(block, sender_id);
         }
 
         if (eos) [[unlikely]] {
@@ -235,7 +239,7 @@ Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
     }
 }
 
-Status Channel::close(RuntimeState* state) {
+Status Channel::close(RuntimeState* state, Status status) {
     if (_closed) {
         return Status::OK();
     }
@@ -248,37 +252,42 @@ Status Channel::close(RuntimeState* state) {
     if (is_receiver_eof()) {
         _serializer.reset_block();
         return Status::OK();
-    } else {
-        return _send_current_block(true);
+    } else if (status.ok()) {
+        Block block;
+        if (_serializer.get_block() != nullptr) {
+            block = _serializer.get_block()->to_block();
+        }
+        return _send_last_block(&block);
     }
+    return Status::OK();
 }
 
 BlockSerializer::BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool is_local)
-        : _parent(parent), _is_local(is_local), _batch_size(parent->state()->batch_size()) {}
+        : _parent(parent), _is_local(is_local), _batch_size(parent->state()->batch_size()) {
+    _mutable_block = MutableBlock::create_unique();
+    _result_block = Block::create_unique();
+}
 
-Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t num_receivers,
-                                              bool* serialized, bool eos, const uint32_t* data,
-                                              const uint32_t offset, const uint32_t size) {
-    if (_mutable_block == nullptr) {
+Status BlockSerializer::next_serialized_block(Block* block, bool* serialized, bool eos) {
+    if (_mutable_block == nullptr || _mutable_block->columns() == 0) {
         _mutable_block = MutableBlock::create_unique(block->clone_empty());
     }
 
     {
         SCOPED_TIMER(_parent->merge_block_timer());
-        if (data) {
-            if (size > 0) {
-                RETURN_IF_ERROR(
-                        _mutable_block->add_rows(block, data + offset, data + offset + size));
+        if (!block->empty()) {
+            if (_mutable_block->empty()) {
+                auto tmp_block = _mutable_block->to_block();
+                _mutable_block = MutableBlock::create_unique(block);
+                *block = tmp_block;
+            } else {
+                RETURN_IF_ERROR(_mutable_block->merge(*block));
+                block->clear_column_data();
             }
-        } else if (!block->empty()) {
-            RETURN_IF_ERROR(_mutable_block->merge(*block));
         }
     }
 
     if (_mutable_block->rows() >= _batch_size || eos) {
-        if (!_is_local) {
-            RETURN_IF_ERROR(serialize_block(dest, num_receivers));
-        }
         *serialized = true;
         return Status::OK();
     }
@@ -298,6 +307,9 @@ Status BlockSerializer::serialize_block(PBlock* dest, size_t num_receivers) {
 }
 
 Status BlockSerializer::serialize_block(const Block* src, PBlock* dest, size_t num_receivers) {
+    if (src->empty()) {
+        return Status::OK();
+    }
     SCOPED_TIMER(_parent->_serialize_batch_timer);
     dest->Clear();
     size_t uncompressed_bytes = 0, compressed_bytes = 0;

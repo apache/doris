@@ -203,7 +203,7 @@ Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, 
     return Status::OK();
 }
 
-void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
+void VDataStreamRecvr::SenderQueue::add_block(Block* block) {
     if (block->rows() == 0) {
         return;
     }
@@ -213,18 +213,8 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
             return;
         }
     }
-    BlockUPtr nblock = Block::create_unique(block->get_columns_with_type_and_name());
-
-    // local exchange should copy the block contented if use move == false
-    if (use_move) {
-        block->clear();
-    } else {
-        auto rows = block->rows();
-        for (int i = 0; i < nblock->columns(); ++i) {
-            nblock->get_by_position(i).column =
-                    nblock->get_by_position(i).column->clone_resized(rows);
-        }
-    }
+    BlockUPtr nblock = Block::create_unique();
+    nblock->swap(*block);
     materialize_block_inplace(*nblock);
 
     auto block_mem_size = nblock->allocated_bytes();
@@ -395,9 +385,9 @@ Status VDataStreamRecvr::add_block(std::unique_ptr<PBlock> pblock, int sender_id
                                                     wait_for_worker, time_to_find_recvr);
 }
 
-void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
+void VDataStreamRecvr::add_block(Block* block, int sender_id) {
     int use_sender_id = _is_merging ? sender_id : 0;
-    _sender_queues[use_sender_id]->add_block(block, use_move);
+    _sender_queues[use_sender_id]->add_block(block);
 }
 
 std::shared_ptr<pipeline::Dependency> VDataStreamRecvr::get_local_channel_dependency(

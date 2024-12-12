@@ -421,7 +421,7 @@ Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
         _build_exprs.emplace_back(eq_join_conjunct.right);
         partition_exprs.emplace_back(eq_join_conjunct.right);
     }
-    _partitioner = std::make_unique<SpillPartitionerType>(_partition_count);
+    _partitioner = SpillPartitionerType::create_unique(_partition_count);
     RETURN_IF_ERROR(_partitioner->init(_build_exprs));
 
     return Status::OK();

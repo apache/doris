@@ -66,6 +66,9 @@ void BroadcastPBlockHolderMemLimiter::acquire(BroadcastPBlockHolder& holder) {
     DCHECK(_broadcast_dependency != nullptr);
     holder.set_parent_creator(shared_from_this());
     auto size = holder._pblock->column_values().size();
+    if (size == 0) {
+        return;
+    }
     _total_queue_buffer_size += size;
     _total_queue_blocks_count++;
     if (_total_queue_buffer_size >= config::exchg_node_buffer_size_bytes ||
@@ -78,6 +81,9 @@ void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holde
     std::unique_lock l(_holders_lock);
     DCHECK(_broadcast_dependency != nullptr);
     auto size = holder._pblock->column_values().size();
+    if (size == 0) {
+        return;
+    }
     _total_queue_buffer_size -= size;
     _total_queue_blocks_count--;
     if (_total_queue_buffer_size <= 0) {

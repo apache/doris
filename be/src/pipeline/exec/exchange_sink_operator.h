@@ -37,6 +37,87 @@ class TDataSink;
 
 namespace pipeline {
 
+using ChannelId = int;
+using ChannelIds = std::vector<ChannelId>;
+class ChannelSelector {
+public:
+    virtual ~ChannelSelector() = default;
+    virtual ChannelIds& next_channel_ids() = 0;
+    virtual void process_next_block(size_t data_size) = 0;
+    virtual void reset_selected_channel() {}
+    virtual void select_channel(ChannelId idx) {}
+};
+
+class AllChannelsSelector final : public ChannelSelector {
+public:
+    AllChannelsSelector(size_t num_channels) : ChannelSelector(), _all_channel_ids(num_channels) {
+        for (int i = 0; i < num_channels; i++) {
+            _all_channel_ids[i] = i;
+        }
+    }
+    ~AllChannelsSelector() override = default;
+    ChannelIds& next_channel_ids() override { return _all_channel_ids; }
+    void process_next_block(size_t data_size) override {}
+
+private:
+    ChannelIds _all_channel_ids;
+};
+
+class SelectedChannelsSelector final : public ChannelSelector {
+public:
+    SelectedChannelsSelector(size_t num_channels)
+            : ChannelSelector(), _selected_channel_ids(num_channels) {}
+    ~SelectedChannelsSelector() override = default;
+    ChannelIds& next_channel_ids() override { return _selected_channel_ids; }
+    void process_next_block(size_t data_size) override {}
+    void reset_selected_channel() override { _selected_channel_ids.clear(); }
+    void select_channel(ChannelId idx) override { _selected_channel_ids.push_back(idx); }
+
+private:
+    ChannelIds _selected_channel_ids;
+};
+
+class RoundRobinSelector final : public ChannelSelector {
+public:
+    RoundRobinSelector(const size_t num_channels)
+            : ChannelSelector(), _next_channel_ids(1, -1), _num_channels(num_channels) {}
+    ~RoundRobinSelector() override = default;
+    ChannelIds& next_channel_ids() override { return _next_channel_ids; }
+
+    void process_next_block(size_t data_size) override {
+        _next_channel_ids[0] = (_next_channel_ids[0] + 1) % _num_channels;
+    }
+
+private:
+    ChannelIds _next_channel_ids;
+    const size_t _num_channels;
+};
+
+class TableSinkRandomSelector final : public ChannelSelector {
+public:
+    TableSinkRandomSelector(const size_t num_channels)
+            : ChannelSelector(), _next_channel_ids(1, -1), _num_channels(num_channels) {}
+    ~TableSinkRandomSelector() override = default;
+    ChannelIds& next_channel_ids() override { return _next_channel_ids; }
+    void process_next_block(size_t data_size) override {
+        _data_processed += data_size;
+        _next_channel_ids[0] = (_next_channel_ids[0] + 1) % _writer_count;
+        if (_writer_count < _num_channels) {
+            if (_data_processed >=
+                _writer_count *
+                        config::table_sink_non_partition_write_scaling_data_processed_threshold) {
+                _writer_count++;
+            }
+        }
+    }
+
+private:
+    ChannelIds _next_channel_ids;
+    const size_t _num_channels;
+    int _writer_count = 1;
+    size_t _data_processed = 0;
+};
+
 class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
     using Base = PipelineXSinkLocalState<>;
@@ -103,11 +184,18 @@ public:
         return _distribute_rows_into_channels_timer;
     }
     std::vector<std::shared_ptr<vectorized::Channel>> channels;
-    int current_channel_idx {0}; // index of current channel to send to if _random == true
-    bool only_local_exchange {false};
+    bool only_local_exchange = false;
+    int channel_id() const { return _channel_id; }
+    ChannelSelector* channel_selector() { return _channel_selector.get(); }
+    RuntimeProfile::Counter* copy_shuffled_data_timer() { return _copy_shuffled_data_timer; }
 
     void on_channel_finished(InstanceLoId channel_id);
     vectorized::PartitionerBase* partitioner() const { return _partitioner.get(); }
+    ExchangerBase* exchanger() { return _exchanger.get(); }
+    RuntimeProfile::Counter* enqueue_blocks_counter() { return _enqueue_blocks_counter; }
+    RuntimeProfile::Counter* dequeue_blocks_counter() { return _dequeue_blocks_counter; }
+    RuntimeProfile::Counter* get_block_failed_counter() { return _get_block_failed_counter; }
+    TPartitionType::type& part_type() { return _part_type; }
 
 private:
     friend class ExchangeSinkOperatorX;
@@ -134,6 +222,16 @@ private:
     RuntimeProfile::Counter* _wait_queue_timer = nullptr;
     RuntimeProfile::Counter* _wait_broadcast_buffer_timer = nullptr;
     std::vector<RuntimeProfile::Counter*> _wait_channel_timer;
+    RuntimeProfile::Counter* _copy_shuffled_data_timer = nullptr;
+    RuntimeProfile::Counter* _enqueue_blocks_counter = nullptr;
+    RuntimeProfile::Counter* _dequeue_blocks_counter = nullptr;
+    RuntimeProfile::Counter* _get_block_failed_counter = nullptr;
+
+    RuntimeProfile::Counter* _test_timer1 = nullptr;
+    RuntimeProfile::Counter* _test_timer2 = nullptr;
+    RuntimeProfile::Counter* _test_timer3 = nullptr;
+    RuntimeProfile::Counter* _test_timer4 = nullptr;
+    RuntimeProfile::Counter* _test_timer5 = nullptr;
 
     // Sender instance id, unique within a fragment.
     int _sender_id;
@@ -165,7 +263,6 @@ private:
      */
     std::vector<std::shared_ptr<Dependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
-    std::unique_ptr<Writer> _writer;
     size_t _partition_count;
 
     std::shared_ptr<Dependency> _finish_dependency;
@@ -176,11 +273,15 @@ private:
     TPartitionType::type _part_type;
 
     std::atomic<bool> _reach_limit = false;
-    int _last_local_channel_idx = -1;
 
     std::atomic_int _working_channels_count = 0;
     std::set<InstanceLoId> _finished_channels;
     std::mutex _finished_channels_mutex;
+    std::unique_ptr<ChannelSelector> _channel_selector;
+    int _channel_id = 0;
+    std::shared_ptr<ExchangerBase> _exchanger = nullptr;
+    bool _could_be_moved = false;
+    bool _init_block = false;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
@@ -207,13 +308,12 @@ public:
     // In a merge sort scenario, there are only n RPCs, so a shared sink buffer is not needed.
     std::shared_ptr<ExchangeSinkBuffer> get_sink_buffer(InstanceLoId sender_ins_id);
     vectorized::VExprContextSPtrs& tablet_sink_expr_ctxs() { return _tablet_sink_expr_ctxs; }
+    bool is_broadcast() const {
+        return _part_type == TPartitionType::UNPARTITIONED || _dests.size() == 1;
+    }
 
 private:
     friend class ExchangeSinkLocalState;
-
-    template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
-
     // Use ExchangeSinkOperatorX to create a sink buffer.
     // The sink buffer can be shared among multiple ExchangeSinkLocalState instances,
     // or each ExchangeSinkLocalState can have its own sink buffer.
@@ -228,11 +328,6 @@ private:
     TTupleId _output_tuple_id = -1;
 
     TPartitionType::type _part_type;
-
-    // serialized batches for broadcasting; we need two so we can write
-    // one while the other one is still being sent
-    PBlock _pb_block1;
-    PBlock _pb_block2;
 
     const std::vector<TPlanFragmentDestination> _dests;
 
@@ -249,20 +344,17 @@ private:
     const TOlapTablePartitionParam _tablet_sink_partition;
     const TOlapTableLocationParam _tablet_sink_location;
     const TTupleId _tablet_sink_tuple_id;
-    int64_t _tablet_sink_txn_id = -1;
+    const int64_t _tablet_sink_txn_id = -1;
     std::shared_ptr<ObjectPool> _pool;
     vectorized::VExprContextSPtrs _tablet_sink_expr_ctxs;
     const std::vector<TExpr>* _t_tablet_sink_exprs = nullptr;
 
-    // for external table sink random partition
-    // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
-    size_t _data_processed = 0;
-    int _writer_count = 1;
     const bool _enable_local_merge_sort;
     // If dest_is_merge is true, it indicates that the corresponding receiver is a VMERGING-EXCHANGE.
     // The receiver will sort the collected data, so the sender must ensure that the data sent is ordered.
     const bool _dest_is_merge;
     const std::vector<TUniqueId>& _fragment_instance_ids;
+    std::unique_ptr<Writer> _writer = nullptr;
 };
 
 } // namespace pipeline

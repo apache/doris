@@ -17,97 +17,99 @@
 
 #include "writer.h"
 
+#include "pipeline/exec/exchange_sink_buffer.h"
 #include "pipeline/exec/exchange_sink_operator.h"
+#include "pipeline/local_exchange/local_exchanger.h"
 #include "vec/core/block.h"
+#include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
-template <typename ChannelPtrType>
-void Writer::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const {
-    channel->set_receiver_eof(st);
-    // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
-    static_cast<void>(channel->close(state));
-}
-
 Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,
                      vectorized::Block* block, bool eos) const {
-    auto rows = block->rows();
-    {
-        SCOPED_TIMER(local_state->split_block_hash_compute_timer());
-        RETURN_IF_ERROR(local_state->partitioner()->do_partitioning(state, block));
-    }
-    int64_t old_channel_mem_usage = 0;
-    for (const auto& channel : local_state->channels) {
-        old_channel_mem_usage += channel->mem_usage();
-    }
-    {
-        SCOPED_TIMER(local_state->distribute_rows_into_channels_timer());
-        const auto& channel_filed = local_state->partitioner()->get_channel_ids();
-        if (channel_filed.len == sizeof(uint32_t)) {
-            RETURN_IF_ERROR(_channel_add_rows(state, local_state->channels,
-                                              local_state->channels.size(),
-                                              channel_filed.get<uint32_t>(), rows, block, eos));
-        } else {
-            RETURN_IF_ERROR(_channel_add_rows(state, local_state->channels,
-                                              local_state->channels.size(),
-                                              channel_filed.get<int64_t>(), rows, block, eos));
-        }
-    }
-    int64_t new_channel_mem_usage = 0;
-    for (const auto& channel : local_state->channels) {
-        new_channel_mem_usage += channel->mem_usage();
-    }
-    COUNTER_UPDATE(local_state->memory_used_counter(),
-                   new_channel_mem_usage - old_channel_mem_usage);
+    RETURN_IF_ERROR(local_state->exchanger()->sink(
+            state, block, eos,
+            {local_state->split_block_hash_compute_timer(),
+             local_state->distribute_rows_into_channels_timer(), nullptr,
+             local_state->enqueue_blocks_counter(), nullptr, nullptr},
+            {local_state->channel_id(), local_state->partitioner(), nullptr,
+             local_state->channel_selector()}));
+
     return Status::OK();
 }
 
-template <typename ChannelIdType>
-Status Writer::_channel_add_rows(RuntimeState* state,
-                                 std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-                                 size_t partition_count,
-                                 const ChannelIdType* __restrict channel_ids, size_t rows,
-                                 vectorized::Block* block, bool eos) const {
-    std::vector<uint32_t> partition_rows_histogram;
-    auto row_idx = vectorized::PODArray<uint32_t>(rows);
-    {
-        partition_rows_histogram.assign(partition_count + 2, 0);
-        for (size_t i = 0; i < rows; ++i) {
-            partition_rows_histogram[channel_ids[i] + 1]++;
-        }
-        for (size_t i = 1; i <= partition_count + 1; ++i) {
-            partition_rows_histogram[i] += partition_rows_histogram[i - 1];
-        }
-        for (int32_t i = cast_set<int32_t>(rows) - 1; i >= 0; --i) {
-            row_idx[partition_rows_histogram[channel_ids[i] + 1] - 1] = i;
-            partition_rows_histogram[channel_ids[i] + 1]--;
-        }
-    }
-#define HANDLE_CHANNEL_STATUS(state, channel, status)    \
-    do {                                                 \
-        if (status.is<ErrorCode::END_OF_FILE>()) {       \
-            _handle_eof_channel(state, channel, status); \
-        } else {                                         \
-            RETURN_IF_ERROR(status);                     \
-        }                                                \
-    } while (0)
-    Status status = Status::OK();
-    for (size_t i = 0; i < partition_count; ++i) {
-        uint32_t start = partition_rows_histogram[i + 1];
-        uint32_t size = partition_rows_histogram[i + 2] - start;
-        if (!channels[i]->is_receiver_eof() && size > 0) {
-            status = channels[i]->add_rows(block, row_idx.data(), start, size, false);
-            HANDLE_CHANNEL_STATUS(state, channels[i], status);
-        }
-    }
-    if (eos) {
-        for (int i = 0; i < partition_count; ++i) {
-            if (!channels[i]->is_receiver_eof()) {
-                status = channels[i]->add_rows(block, row_idx.data(), 0, 0, true);
-                HANDLE_CHANNEL_STATUS(state, channels[i], status);
+Status Writer::send_to_channels(
+        ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Channel* channel,
+        int channel_id, bool eos,
+        std::shared_ptr<vectorized::BroadcastPBlockHolder> broadcasted_block,
+        RuntimeProfile::Counter* test_timer1, RuntimeProfile::Counter* test_timer2,
+        RuntimeProfile::Counter* test_timer3, RuntimeProfile::Counter* test_timer4) const {
+    if (!channel->is_receiver_eof()) {
+        Status status;
+        int64_t old_channel_mem_usage = channel->mem_usage();
+        {
+            SCOPED_TIMER(test_timer4);
+            RETURN_IF_ERROR(local_state->exchanger()->get_block(
+                    state, channel->serializer()->get_result_block(), &eos,
+                    {nullptr, nullptr, local_state->copy_shuffled_data_timer(), nullptr,
+                     local_state->dequeue_blocks_counter(),
+                     local_state->get_block_failed_counter()},
+                    {channel_id, nullptr, channel->serializer()->get_block()}));
+            if (channel->serializer()->get_block()->data_types().empty()) {
+                // Initialize this block.
+                *channel->serializer()->get_block() =
+                        channel->serializer()->get_result_block()->clone_empty();
+            } else if (!channel->serializer()->get_block()->empty() &&
+                       channel->serializer()->get_result_block()->empty()) {
+                DCHECK_EQ(local_state->part_type(),
+                          TPartitionType::TABLET_SINK_SHUFFLE_PARTITIONED);
+                // TODO: `TABLET_SINK_SHUFFLE_PARTITIONED` has a strange logics here. For a new
+                //  partition, partitioner will enter `ExchangeSinkOperatorX::sink` twice using the
+                //  same block. For the second entrance, this selected channel may get nothing so we
+                //  just keep the origin block.
+            } else {
+                // Data is stored in `channel->serializer()->get_result_block()` and
+                // `channel->serializer()->get_block()` just keep empty columns.
+                // So we just move the result columns here.
+                channel->serializer()->get_block()->set_mutable_columns(
+                        channel->serializer()->get_result_block()->mutate_columns());
+                channel->serializer()->get_result_block()->clear();
             }
         }
+        {
+            if (broadcasted_block && !channel->is_local()) {
+                SCOPED_TIMER(test_timer1);
+                status = channel->send_broadcast_block(broadcasted_block, eos);
+            } else {
+                bool sent = false;
+                SCOPED_TIMER(test_timer3);
+                status = channel->send_block(channel->serializer()->get_block(), &sent);
+                // If block is sent by a local channel, it will be moved to downstream fragment, and
+                // we should never share the columns otherwise we just clear the data and keep the
+                // memory.
+                if (!channel->is_local() && sent) {
+                    channel->serializer()->get_block()->clear_column_data();
+                }
+            }
+        }
+
+        if (status.is<ErrorCode::END_OF_FILE>()) {
+            channel->set_receiver_eof(status);
+            RETURN_IF_ERROR(finish(local_state->exchanger(), state, channel, channel_id, status));
+        } else {
+            RETURN_IF_ERROR(status);
+        }
+        int64_t new_channel_mem_usage = channel->mem_usage();
+        COUNTER_UPDATE(local_state->memory_used_counter(),
+                       new_channel_mem_usage - old_channel_mem_usage);
     }
+    return Status::OK();
+}
+
+Status Writer::finish(ExchangerBase* exchanger, RuntimeState* state, vectorized::Channel* channel,
+                      int channel_id, Status status) const {
+    exchanger->close({channel_id, nullptr});
+    RETURN_IF_ERROR(channel->close(state, status));
     return Status::OK();
 }
 

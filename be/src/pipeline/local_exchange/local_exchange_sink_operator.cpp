@@ -58,13 +58,15 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
                 _shuffle_idx_to_instance_idx[i] = {i, i};
             }
         }
-        _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                _num_partitions));
+        _partitioner =
+                vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>::create_unique(
+                        _num_partitions);
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     } else if (_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         DCHECK_GT(num_buckets, 0);
-        _partitioner.reset(
-                new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(num_buckets));
+        _partitioner =
+                vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>::create_unique(
+                        num_buckets);
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     }
     return Status::OK();
@@ -86,6 +88,7 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     SCOPED_TIMER(_init_timer);
     _compute_hash_value_timer = ADD_TIMER(profile(), "ComputeHashValueTime");
     _distribute_timer = ADD_TIMER(profile(), "DistributeDataTime");
+    _enqueue_blocks_counter = ADD_COUNTER(profile(), "EnqueueRows", TUnit::UNIT);
     if (_parent->cast<LocalExchangeSinkOperatorX>()._type == ExchangeType::HASH_SHUFFLE) {
         _profile->add_info_string(
                 "UseGlobalShuffle",
@@ -110,6 +113,7 @@ Status LocalExchangeSinkLocalState::open(RuntimeState* state) {
         auto& p = _parent->cast<LocalExchangeSinkOperatorX>();
         RETURN_IF_ERROR(p._partitioner->clone(state, _partitioner));
     }
+    _channel_selector = std::make_unique<RoundRobinSelector>(_exchanger->num_sources());
 
     return Status::OK();
 }
@@ -144,10 +148,13 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
+    local_state._channel_selector->process_next_block(0);
     RETURN_IF_ERROR(local_state._exchanger->sink(
             state, in_block, eos,
-            {local_state._compute_hash_value_timer, local_state._distribute_timer, nullptr},
-            {&local_state._channel_id, local_state._partitioner.get(), &local_state}));
+            {local_state._compute_hash_value_timer, local_state._distribute_timer, nullptr,
+             local_state._enqueue_blocks_counter, nullptr, nullptr},
+            {local_state._channel_id, local_state._partitioner.get(), &local_state,
+             local_state._channel_selector.get()}));
 
     // If all exchange sources ended due to limit reached, current task should also finish
     if (local_state._exchanger->_running_source_operators == 0) {

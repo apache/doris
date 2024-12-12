@@ -89,7 +89,7 @@ public:
                      int64_t packet_seq, ::google::protobuf::Closure** done,
                      const int64_t wait_for_worker, const uint64_t time_to_find_recvr);
 
-    void add_block(Block* block, int sender_id, bool use_move);
+    void add_block(Block* block, int sender_id);
 
     Status get_next(Block* block, bool* eos);
 
@@ -184,7 +184,7 @@ public:
                      ::google::protobuf::Closure** done, const int64_t wait_for_worker,
                      const uint64_t time_to_find_recvr);
 
-    void add_block(Block* block, bool use_move);
+    void add_block(Block* block);
 
     void decrement_senders(int sender_id);
 
