@@ -100,10 +100,8 @@ protected:
     Status copy_path_impl(const Path& src, const Path& dest);
     Status permission_impl(const Path& file, std::filesystem::perms prms);
 
-    Path absolute_path(const Path& path) const override {
-        Path abs_path;
-        THROW_IF_ERROR(convert_to_abs_path(path, abs_path));
-        return abs_path;
+    Status absolute_path(const Path& path, Path& abs_path) const override {
+        return convert_to_abs_path(path, abs_path);
     }
 
 private:

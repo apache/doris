@@ -146,7 +146,8 @@ Status LocalFileSystem::delete_directory_impl(const Path& dir) {
 }
 
 Status LocalFileSystem::delete_directory_or_file(const Path& path) {
-    auto the_path = absolute_path(path);
+    Path the_path;
+    RETURN_IF_ERROR(absolute_path(path, the_path));
     FILESYSTEM_M(delete_directory_or_file_impl(the_path));
 }
 
@@ -248,8 +249,10 @@ Status LocalFileSystem::rename_impl(const Path& orig_name, const Path& new_name)
 }
 
 Status LocalFileSystem::link_file(const Path& src, const Path& dest) {
-    auto src_file = absolute_path(src);
-    auto dest_file = absolute_path(dest);
+    Path src_file;
+    RETURN_IF_ERROR(absolute_path(src, src_file));
+    Path dest_file;
+    RETURN_IF_ERROR(absolute_path(dest, dest_file));
     FILESYSTEM_M(link_file_impl(src_file, dest_file));
 }
 
@@ -272,7 +275,8 @@ Status LocalFileSystem::canonicalize(const Path& path, std::string* real_path) {
 }
 
 Status LocalFileSystem::is_directory(const Path& path, bool* res) {
-    auto tmp_path = absolute_path(path);
+    Path tmp_path;
+    RETURN_IF_ERROR(absolute_path(path, tmp_path));
     std::error_code ec;
     *res = std::filesystem::is_directory(tmp_path, ec);
     if (ec) {
@@ -282,7 +286,8 @@ Status LocalFileSystem::is_directory(const Path& path, bool* res) {
 }
 
 Status LocalFileSystem::md5sum(const Path& file, std::string* md5sum) {
-    auto path = absolute_path(file);
+    Path path;
+    RETURN_IF_ERROR(absolute_path(file, path));
     FILESYSTEM_M(md5sum_impl(path, md5sum));
 }
 
@@ -318,8 +323,9 @@ Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
 
 Status LocalFileSystem::iterate_directory(const std::string& dir,
                                           const std::function<bool(const FileInfo& file)>& cb) {
-    auto path = absolute_path(dir);
-    FILESYSTEM_M(iterate_directory_impl(dir, cb));
+    Path path;
+    RETURN_IF_ERROR(absolute_path(dir, path));
+    FILESYSTEM_M(iterate_directory_impl(path, cb));
 }
 
 Status LocalFileSystem::iterate_directory_impl(
@@ -336,7 +342,8 @@ Status LocalFileSystem::iterate_directory_impl(
 }
 
 Status LocalFileSystem::get_space_info(const Path& dir, size_t* capacity, size_t* available) {
-    auto path = absolute_path(dir);
+    Path path;
+    RETURN_IF_ERROR(absolute_path(dir, path));
     FILESYSTEM_M(get_space_info_impl(path, capacity, available));
 }
 
@@ -353,8 +360,10 @@ Status LocalFileSystem::get_space_info_impl(const Path& path, size_t* capacity, 
 }
 
 Status LocalFileSystem::copy_path(const Path& src, const Path& dest) {
-    auto src_path = absolute_path(src);
-    auto dest_path = absolute_path(dest);
+    Path src_path;
+    RETURN_IF_ERROR(absolute_path(src, src_path));
+    Path dest_path;
+    RETURN_IF_ERROR(absolute_path(dest, dest_path));
     FILESYSTEM_M(copy_path_impl(src_path, dest_path));
 }
 
@@ -455,7 +464,8 @@ Status LocalFileSystem::_glob(const std::string& pattern, std::vector<std::strin
 }
 
 Status LocalFileSystem::permission(const Path& file, std::filesystem::perms prms) {
-    auto path = absolute_path(file);
+    Path path;
+    RETURN_IF_ERROR(absolute_path(file, path));
     FILESYSTEM_M(permission_impl(path, prms));
 }
 
