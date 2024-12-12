@@ -208,12 +208,15 @@ public:
     }
 
     IAggregateFunction* transmit_to_stable() override {
+        auto f = AggregateFunctionNullBaseInline<
+                         NestFuction, result_is_nullable,
+                         AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>>::
+                         nested_function->transmit_to_stable();
+        if (!f) {
+            return nullptr;
+        }
         return new AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>(
-                AggregateFunctionNullBaseInline<
-                        NestFuction, result_is_nullable,
-                        AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>>::
-                        nested_function->transmit_to_stable(),
-                IAggregateFunction::argument_types);
+                f, IAggregateFunction::argument_types);
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* __restrict places, size_t place_offset,
@@ -310,12 +313,15 @@ public:
     }
 
     IAggregateFunction* transmit_to_stable() override {
+        auto f = AggregateFunctionNullBaseInline<
+                         NestFuction, result_is_nullable,
+                         AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable>>::
+                         nested_function->transmit_to_stable();
+        if (!f) {
+            return nullptr;
+        }
         return new AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>(
-                AggregateFunctionNullBaseInline<
-                        NestFuction, result_is_nullable,
-                        AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable>>::
-                        nested_function->transmit_to_stable(),
-                IAggregateFunction::argument_types);
+                f, IAggregateFunction::argument_types);
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
