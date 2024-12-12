@@ -63,7 +63,7 @@ under the License.
             <id>protoc_rosetta</id>
             <activation>
                 <os>
-                    <name>Mac OS X</name>
+                    <family>mac</family>
                     <arch>aarch64</arch>
                 </os>
             </activation>
@@ -347,6 +347,7 @@ under the License.
             <groupId>com.alibaba.otter</groupId>
             <artifactId>canal.client</artifactId>
             <version>1.1.6</version>
+            <scope>provided</scope>
             <exclusions>
                 <exclusion>
                     <groupId>ch.qos.logback</groupId>
@@ -501,6 +502,18 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- tencent cloud sts -->
+        <dependency>
+            <groupId>com.tencentcloudapi</groupId>
+            <artifactId>tencentcloud-sdk-java-sts</artifactId>
+            <version>3.1.678</version>
+        </dependency>
+        <!-- huawei cloud sts -->
+        <dependency>
+            <groupId>com.huaweicloud.sdk</groupId>
+            <artifactId>huaweicloud-sdk-iam</artifactId>
+            <version>3.1.20</version>
+        </dependency>
         <!-- Fix it-->
         <dependency>
             <groupId>org.awaitility</groupId>
@@ -514,6 +527,10 @@ under the License.
         <dependency>
             <groupId>hu.webarticum</groupId>
             <artifactId>tree-printer</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty-shaded</artifactId>
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
@@ -551,6 +568,82 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-auth</artifactId>
+        </dependency>
+
+        <!-- lakesoul -->
+        <dependency>
+            <groupId>com.dmetasoul</groupId>
+            <artifactId>lakesoul-io-java</artifactId>
+            <version>${lakesoul.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-vector</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-memory-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-memory-netty</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-memory-netty-buffer-patch</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-format</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.spark</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.datatype</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.commons</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.scala-lang</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.json4s</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.ow2.asm</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.postgresql</groupId>
+                    <artifactId>postgresql</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.3</version>
+        </dependency>
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-library</artifactId>
+            <version>${scala.version}</version>
+            <scope>compile</scope>
         </dependency>
 
         <dependency>
@@ -664,11 +757,57 @@ under the License.
             <artifactId>HikariCP</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>com.qcloud</groupId>
+            <artifactId>cos_api</artifactId>
+            <version>5.6.211</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>ch.qos.logback</groupId>
+                    <artifactId>logback-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.thoughtworks.xstream</groupId>
+                    <artifactId>xstream</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcprov-jdk15on</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.qcloud</groupId>
+            <artifactId>qcloud-java-sdk</artifactId>
+            <version>2.0.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.huaweicloud</groupId>
+            <artifactId>esdk-obs-java-bundle</artifactId>
+            <version>[3.21.11,)</version>
+            <scope>${obs.dependency.scope}</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.baidubce</groupId>
+            <artifactId>bce-java-sdk</artifactId>
+            <version>0.10.212</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>ch.qos.logback</groupId>
+                    <artifactId>logback-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>ch.qos.logback</groupId>
+                    <artifactId>logback-classic</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
         <!-- for fe recognize files stored on gcs -->
         <dependency>
             <groupId>com.google.cloud.bigdataoss</groupId>
             <artifactId>gcs-connector</artifactId>
-            <version>hadoop2-2.2.8</version>
+            <version>hadoop3-2.2.21</version>
             <classifier>shaded</classifier>
             <scope>${gcs.dependency.scope}</scope>
             <exclusions>
@@ -761,6 +900,10 @@ under the License.
             <artifactId>value</artifactId>
         </dependency>
         <dependency>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-main</artifactId>
+        </dependency>
+        <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>concurrent</artifactId>
         </dependency>
@@ -779,9 +922,17 @@ under the License.
             <version>2.5.2-hadoop3</version>
         </dependency>
         <dependency>
-            <groupId>me.bechberger</groupId>
-            <artifactId>ap-loader-all</artifactId>
-            <version>3.0-8</version>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-blob</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-identity</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-blob-batch</artifactId>
+            <version>${azure.sdk.batch.version}</version>
         </dependency>
     </dependencies>
     <repositories>
@@ -801,18 +952,18 @@ under the License.
                 </excludes>
             </resource>
             <resource>
-               <directory>src/main/resources</directory>
-               <includes>
-                  <include>**/*.*</include>
-               </includes>
+                <directory>src/main/resources</directory>
+                <includes>
+                    <include>**/*.*</include>
+                </includes>
             </resource>
         </resources>
         <plugins>
             <!--aspectj-->
             <plugin>
-                <groupId>org.codehaus.mojo</groupId>
+                <groupId>dev.aspectj</groupId>
                 <artifactId>aspectj-maven-plugin</artifactId>
-                <version>1.14.0</version>
+                <version>1.13.1</version>
                 <executions>
                     <execution>
                         <phase>process-classes</phase>
@@ -1009,6 +1160,9 @@ under the License.
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>8</release>
+                </configuration>
                 <executions>
                     <!-- first: compile annotation and annotation processor -->
                     <execution>
