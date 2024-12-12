@@ -67,7 +67,7 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
     // 1. change user
     // ${user1} admin role
     sql """create user ${user1} identified by 'Cloud12345' default role 'admin'"""
-    result = sql_return_maparray """show grants for '${user1}'"""
+    def result = sql_return_maparray """show grants for '${user1}'"""
     commonAuth result, "'${user1}'@'%'" as String, "Yes", "admin", "Admin_priv"
     assertNull(result.CloudClusterPrivs[0])
 

@@ -22,6 +22,7 @@ suite("test_disable_revoke_admin_auth", "cloud_auth") {
     sql """create user ${user} identified by 'Cloud12345' default role 'admin'"""
 
     sql "sync"
+    def result
 
     try {
         result = sql """revoke 'admin' from 'admin'""";

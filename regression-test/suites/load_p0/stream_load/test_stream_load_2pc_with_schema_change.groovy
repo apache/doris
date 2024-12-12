@@ -30,8 +30,8 @@ suite("test_stream_load_2pc_with_schema_change", "p0") {
         log.info("http_stream execute 2pc: ${command}")
 
         def process = command.execute()
-        code = process.waitFor()
-        out = process.text
+        def code = process.waitFor()
+        def out = process.text
         log.info("http_stream 2pc result: ${out}".toString())
         def json2pc = parseJson(out)
         return json2pc

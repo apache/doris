@@ -68,7 +68,7 @@ suite("test_drop_catalog_recycle_bin") {
 
     def pre_res = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = "p1000" """
     assertTrue(pre_res.size() > 0)
-    partition_id = pre_res[0][4]
+    def partition_id = pre_res[0][4]
     sql "DROP CATALOG RECYCLE BIN WHERE 'PartitionId' = ${partition_id};"
     cur_res = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = "p1000" """
     assertTrue(pre_res.size() - cur_res.size() == 1)

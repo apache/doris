@@ -117,6 +117,8 @@ suite("test_map_load_and_compaction", "p0") {
         def compactJson = parseJson(out.trim())
         assertEquals("success", compactJson.status.toLowerCase())
 
+        def running = false
+
         // wait compactions done
         do {
             Thread.sleep(1000)
