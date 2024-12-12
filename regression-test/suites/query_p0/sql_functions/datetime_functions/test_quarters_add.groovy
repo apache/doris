@@ -17,24 +17,24 @@
 
 suite("test_quarters_add") {
     // this table has nothing todo. just make it eaiser to generate query
-    sql " drop table if exists hits_two_args "
-    sql """ create table hits_two_args(
+    sql " drop table if exists hits_two_args_quar_add "
+    sql """ create table hits_two_args_quar_add(
                 nothing boolean
             )
             properties("replication_num" = "1");
     """
-    sql "insert into hits_two_args values(true);"
+    sql "insert into hits_two_args_quar_add values(true);"
 
-    sql " drop table if exists arg1_two_args"
+    sql " drop table if exists quarter_add_table"
     sql """
-        create table arg1_two_args (
+        create table quarter_add_table (
             k0 int,
             d1 date not null,
             d2 date null,
-            dt1 datetime null,
-            dt2 datetime null,
+            dt1 datetime(3) not null,
+            dt2 datetime(6) null,
             c1 int not null,
-            c1 int null
+            c2 int null
         )
         DISTRIBUTED BY HASH(k0)
         PROPERTIES
@@ -43,58 +43,112 @@ suite("test_quarters_add") {
         );
     """
 
-    order_qt_empty_nullable "select atan2(a, a) from arg1_two_args"
-    order_qt_empty_not_nullable "select atan2(b, b) from arg1_two_args"
-    order_qt_empty_partial_nullable "select atan2(a, b) from arg1_two_args"
+    order_qt_empty_nullable "select quarters_add(d2, c2) from quarter_add_table"
+    order_qt_empty_not_nullable "select quarters_add(dt1, c1) from quarter_add_table"
+    order_qt_empty_partial_nullable "select quarters_add(dt2, c1) from quarter_add_table"
 
-    sql "insert into arg1_two_args values (1, 1, null), (1, 1, null), (1, 1, null)"
-    order_qt_all_null "select atan2(b, b) from arg1_two_args"
+    sql """insert into quarter_add_table values (1, '2020-12-12', null, '2020-12-12', null, 1, null),
+    (2, '2020-12-12', null, '2020-12-12', null, 1, null), (3, '2020-12-12', null, '2020-12-12', null, 1, null)"""
+    order_qt_all_null "select quarters_add(dt2, c2) from quarter_add_table"
 
-    sql "truncate table arg1_two_args"
-    sql """ insert into arg1_two_args values (1, 1e-100, 1e-100), (2, -1e100, -1e100), (3, 1e100, 1e100), (4, 1, 1), (5, -1, -1),
-        (6, 0, 0), (7, -0, -0), (8, 123, 123),
-        (9, 0.1, 0.1), (10, -0.1, -0.1), (11, 1e-15, 1e-15), (12, 0, null);
+    sql "truncate table quarter_add_table"
+    sql """ insert into quarter_add_table values
+            (1, '2020-12-12', '2020-12-12', '2020-12-12 12:12:12.123456', '2020-12-12 12:12:12.123456', 1, 1),
+            (2, '4000-12-31', '4000-12-31', '4000-12-31 12:12:12.123456', '4000-12-31 12:12:12.123456', -1, -1),
+            (3, '1900-01-01', '1900-01-01', '1900-01-01 00:00:00.000001', '1900-01-01 00:00:00.000001', 100, 100),
+            (4, '0900-12-01', '0900-12-01', '0900-12-01 12:12:12.123456', '0900-12-01 12:12:12.123456', -100, -100),
+            (5, '1900-02-28', '1900-02-28', '1900-02-28 00:00:00.000001', '1900-02-28 00:00:00.000001', 4, 4),
+            (6, '2000-02-28', '2000-02-28', '2000-02-28 23:59:59.999000', '2000-02-28 23:59:59.999000', -400, -400),
+            (7, '2000-02-29', '2000-02-29', '2000-02-29 23:59:59.999000', '2000-02-29 23:59:59.999000', 123, 123),
+            (8, '2100-02-28', null, '2020-12-12 12:12:12.123456', null, 2, null);
     """
 
-    /// all values
-    order_qt_nullable """
-        SELECT atan2(t.arg1_two_args, t.ARG2) as result
+    /// all values. consider nullity.
+    order_qt_nullable_d """
+        SELECT quarters_add(t.quarter_add_table, t.ARG2) as result
         FROM (
-            SELECT hits_two_args.nothing, TABLE1.arg1_two_args, TABLE1.order1, TABLE2.ARG2, TABLE2.order2
-            FROM hits_two_args
+            SELECT hits_two_args_quar_add.nothing, TABLE1.quarter_add_table, TABLE1.order1, TABLE2.ARG2, TABLE2.order2
+            FROM hits_two_args_quar_add
             CROSS JOIN (
-                SELECT b as arg1_two_args, k0 as order1
-                FROM arg1_two_args
+                SELECT d2 as quarter_add_table, k0 as order1
+                FROM quarter_add_table
             ) as TABLE1
             CROSS JOIN (
-                SELECT b as ARG2, k0 as order2
-                FROM arg1_two_args
+                SELECT c2 as ARG2, k0 as order2
+                FROM quarter_add_table
+            ) as TABLE2
+        )t;
+    """
+    order_qt_partial_nullable_dt """
+        SELECT quarters_add(t.quarter_add_table, t.ARG2) as result
+        FROM (
+            SELECT hits_two_args_quar_add.nothing, TABLE1.quarter_add_table, TABLE1.order1, TABLE2.ARG2, TABLE2.order2
+            FROM hits_two_args_quar_add
+            CROSS JOIN (
+                SELECT dt2 as quarter_add_table, k0 as order1
+                FROM quarter_add_table
+            ) as TABLE1
+            CROSS JOIN (
+                SELECT c1 as ARG2, k0 as order2
+                FROM quarter_add_table
+            ) as TABLE2
+        )t;
+    """
+    order_qt_not_null_dt """
+        SELECT quarters_add(t.quarter_add_table, t.ARG2) as result
+        FROM (
+            SELECT hits_two_args_quar_add.nothing, TABLE1.quarter_add_table, TABLE1.order1, TABLE2.ARG2, TABLE2.order2
+            FROM hits_two_args_quar_add
+            CROSS JOIN (
+                SELECT d1 as quarter_add_table, k0 as order1
+                FROM quarter_add_table
+            ) as TABLE1
+            CROSS JOIN (
+                SELECT c1 as ARG2, k0 as order2
+                FROM quarter_add_table
+            ) as TABLE2
+        )t;
+    """
+    order_qt_partial_nullable_d """
+        SELECT quarters_add(t.quarter_add_table, t.ARG2) as result
+        FROM (
+            SELECT hits_two_args_quar_add.nothing, TABLE1.quarter_add_table, TABLE1.order1, TABLE2.ARG2, TABLE2.order2
+            FROM hits_two_args_quar_add
+            CROSS JOIN (
+                SELECT dt1 as quarter_add_table, k0 as order1
+                FROM quarter_add_table
+            ) as TABLE1
+            CROSS JOIN (
+                SELECT c2 as ARG2, k0 as order2
+                FROM quarter_add_table
             ) as TABLE2
         )t;
     """
 
     /// nullables
-    order_qt_not_nullable "select atan2(a, a) from arg1_two_args"
-    order_qt_partial_nullable "select atan2(a, b) from arg1_two_args"
-    order_qt_nullable_no_null "select atan2(a, nullable(a)) from arg1_two_args"
-    /// if you set `use_default_implementation_for_nulls` to false, add:
-    // order_qt_nullable1 " SELECT b as arg1_two_args...)as TABLE1 ... SELECT a as arg1_two_args...)as TABLE1
-    // order_qt_nullable2 " SELECT a as arg1_two_args...)as TABLE1 ... SELECT b as arg1_two_args...)as TABLE1
+    order_qt_not_nullable "select quarters_add(d1, c1) from quarter_add_table"
+    order_qt_partial_nullable "select quarters_add(dt2, c2) from quarter_add_table"
+    order_qt_nullable_no_null "select quarters_add(dt1, nullable(c1)) from quarter_add_table"
 
     /// consts. most by BE-UT
-    order_qt_const_nullable "select atan2(NULL, NULL) from arg1_two_args"
-    order_qt_partial_const_nullable "select atan2(NULL, b) from arg1_two_args"
-    order_qt_const_not_nullable "select atan2(0.5, 100) from arg1_two_args"
-    order_qt_const_other_nullable "select atan2(10, b) from arg1_two_args"
-    order_qt_const_other_not_nullable "select atan2(a, 10) from arg1_two_args"
-    order_qt_const_nullable_no_null "select atan2(nullable(1e100), nullable(1e-10))"
-    order_qt_const_nullable_no_null_multirows "select atan2(nullable(1e100), nullable(1e-10))"
-    order_qt_const_partial_nullable_no_null "select atan2(1e100, nullable(1e-10))"
+    order_qt_const_nullable "select quarters_add(NULL, NULL) from quarter_add_table"
+    order_qt_partial_const_nullable "select quarters_add(NULL, c1) from quarter_add_table"
+    order_qt_const_not_nullable "select quarters_add('1800-12-31', 100) from quarter_add_table"
+    order_qt_const_other_nullable "select quarters_add('9000-12-31', c2) from quarter_add_table"
+    order_qt_const_other_not_nullable "select quarters_add(dt1, 10) from quarter_add_table"
+    order_qt_const_nullable_no_null "select quarters_add(nullable('2015-10-10'), nullable(-100))"
+    order_qt_const_nullable_no_null_multirows "select quarters_add(nullable('9999-01-01'), nullable(-100)) from quarter_add_table"
+    order_qt_const_partial_nullable_no_null "select quarters_add('1234-01-01', nullable(-100))"
 
     /// folding
-    check_fold_consistency "atan2(-1, -2)"
-    check_fold_consistency "atan2(-1e100, 3.14)"
-    check_fold_consistency "atan2(0, 0)"
-    check_fold_consistency "atan2(1e100, 1e100)"
-    check_fold_consistency "atan2(-0.5, 0.5)"
+    check_fold_consistency "quarters_add('2000-02-29', 3)"
+    check_fold_consistency "quarters_add('2000-02-29', -300)"
+    check_fold_consistency "quarters_add('0000-01-01', 1000)"
+    check_fold_consistency "quarters_add('1999-02-28', 4)"
+    check_fold_consistency "quarters_add('1900-02-28', -400)"
+
+    /// special grammar
+    qt_datediff1 "select date_sub('2020-12-12', interval 1 quarter)"
+    qt_datediff2 "select date_add('2020-12-12', interval 1 quarter)"
+    //TODO: after #45265 merged add some exception test.
 }

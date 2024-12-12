@@ -142,7 +142,7 @@ struct AddQuartersImpl {
         return date_time_add<TimeUnit::MONTH, ArgType, ReturnType>(t, 3 * delta, is_null);
     }
 
-    static DataTypes get_variadic_argument_types() { return {std::make_shared<ArgType>()}; }
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeInt32>()}; }
 };
 
 template <typename Transform, typename DateType>
@@ -156,7 +156,7 @@ struct SubtractIntervalImpl {
     }
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DateType>(), std::make_shared<DataTypeInt32>()};
+        return Transform::get_variadic_argument_types();
     }
 };
 

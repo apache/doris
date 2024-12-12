@@ -2369,6 +2369,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Expression start = (Expression) visit(ctx.startTimestamp);
         Expression end = (Expression) visit(ctx.endTimestamp);
         String unit = ctx.unit.getText();
+        // TODO: support quarters_diff
         if ("YEAR".equalsIgnoreCase(unit)) {
             return new YearsDiff(end, start);
         } else if ("MONTH".equalsIgnoreCase(unit)) {
@@ -2413,7 +2414,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         throw new ParseException("Unsupported time stamp add time unit: " + unit
                 + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
-
     }
 
     @Override

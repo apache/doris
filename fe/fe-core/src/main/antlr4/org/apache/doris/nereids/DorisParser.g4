@@ -1507,9 +1507,10 @@ valueExpression
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     ;
 
-datetimeUnit
-    : YEAR | MONTH
-    | WEEK | DAY
+datetimeUnit:
+	YEAR
+	| MONTH
+	| QUARTER | WEEK | DAY
     | HOUR | MINUTE | SECOND
     ;
 
@@ -1703,9 +1704,15 @@ interval
     : INTERVAL value=expression unit=unitIdentifier
     ;
 
-unitIdentifier
-    : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
-    ;
+unitIdentifier:
+	YEAR
+	| QUARTER
+	| MONTH
+	| WEEK
+	| DAY
+	| HOUR
+	| MINUTE
+	| SECOND ;
 
 dataTypeWithNullable
     : dataType ((NOT)? NULL)?
@@ -2057,7 +2064,8 @@ nonReserved
     | PROPERTIES
     | PROPERTY
     | QUANTILE_STATE
-    | QUANTILE_UNION
+	| QUANTILE_UNION
+	| QUARTER
     | QUERY
     | QUOTA
     | QUALIFY
