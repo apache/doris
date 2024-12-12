@@ -490,6 +490,7 @@ import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
@@ -694,7 +695,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
-import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -921,7 +921,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             command = new InsertOverwriteTableCommand(sink, labelName, cte);
         } else {
             if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()
-                    && sink.child() instanceof LogicalInlineTable
+                    && sink.child() instanceof InlineTable) {
                     && sink.child().getExpressions().stream().allMatch(Expression::isConstant)) {
                 // FIXME: In legacy, the `insert into select 1` is handled as `insert into values`.
                 //  In nereids, the original way is throw an AnalysisException and fallback to legacy.

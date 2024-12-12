@@ -36,9 +36,9 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.NoForward;
-import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -90,7 +90,7 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         UnboundTableSink<? extends Plan> unboundTableSink = (UnboundTableSink<? extends Plan>) logicalQuery;
         Plan query = unboundTableSink.child();
-        if (!(query instanceof LogicalInlineTable)) {
+        if (!(query instanceof InlineTable)) {
             throw new AnalysisException("Insert into ** select is not supported in a transaction");
         }
 
