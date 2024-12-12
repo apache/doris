@@ -75,32 +75,32 @@ suite("agg_group_concat") {
         exception "doesn't support order by expression"
     }
 
-    qt_test """select multi_distinct_sum(kint) from agg_group_concat_table;"""
+    qt_test """select multi_distinct_sum(kint) from agg_group_concat_table order by 1;"""
 
-    qt_test """select group_concat(distinct kstr order by kint), group_concat(distinct kstr2 order by kbint) from agg_group_concat_table;"""
-    qt_test """select multi_distinct_group_concat(kstr order by kint), multi_distinct_group_concat(kstr2 order by kbint) from agg_group_concat_table;"""
-    qt_test """select group_concat(distinct kstr), group_concat(distinct kstr2) from agg_group_concat_table;"""
-    qt_test """select multi_distinct_group_concat(kstr), multi_distinct_group_concat(kstr2) from agg_group_concat_table;"""
+    qt_test """select group_concat(distinct kstr order by kint), group_concat(distinct kstr2 order by kbint) from agg_group_concat_table order by 1,2;"""
+    qt_test """select multi_distinct_group_concat(kstr order by kint), multi_distinct_group_concat(kstr2 order by kbint) from agg_group_concat_table order by 1,2;"""
+    qt_test """select group_concat(distinct kstr), group_concat(distinct kstr2) from agg_group_concat_table order by 1,2;"""
+    qt_test """select multi_distinct_group_concat(kstr), multi_distinct_group_concat(kstr2) from agg_group_concat_table order by 1,2;"""
 
-    qt_test """select group_concat(distinct kstr order by kint), group_concat(distinct kstr2 order by kbint) from agg_group_concat_table group by kbint;"""
-    qt_test """select multi_distinct_group_concat(kstr order by kint), multi_distinct_group_concat(kstr2 order by kbint) from agg_group_concat_table group by kbint;"""
-    qt_test """select group_concat(distinct kstr), group_concat(distinct kstr2) from agg_group_concat_table group by kbint;"""
-    qt_test """select multi_distinct_group_concat(kstr), multi_distinct_group_concat(kstr2) from agg_group_concat_table group by kbint;"""
+    qt_test """select group_concat(distinct kstr order by kint), group_concat(distinct kstr2 order by kbint) from agg_group_concat_table group by kbint order by 1,2;"""
+    qt_test """select multi_distinct_group_concat(kstr order by kint), multi_distinct_group_concat(kstr2 order by kbint) from agg_group_concat_table group by kbint order by 1,2;"""
+    qt_test """select group_concat(distinct kstr), group_concat(distinct kstr2) from agg_group_concat_table group by kbint order by 1,2;"""
+    qt_test """select multi_distinct_group_concat(kstr), multi_distinct_group_concat(kstr2) from agg_group_concat_table group by kbint order by 1,2;"""
 
-    qt_test """select group_concat(distinct kstr order by kbint), group_concat(distinct kstr2 order by kint) from agg_group_concat_table group by kint;"""
-    qt_test """select multi_distinct_group_concat(kstr order by kbint), multi_distinct_group_concat(kstr2 order by kint) from agg_group_concat_table group by kint;"""
-    qt_test """select group_concat(distinct kstr), group_concat(distinct kstr2) from agg_group_concat_table group by kint;"""
-    qt_test """select multi_distinct_group_concat(kstr), multi_distinct_group_concat(kstr2) from agg_group_concat_table group by kint;"""
+    qt_test """select group_concat(distinct kstr order by kbint), group_concat(distinct kstr2 order by kint) from agg_group_concat_table group by kint order by 1,2;"""
+    qt_test """select multi_distinct_group_concat(kstr order by kbint), multi_distinct_group_concat(kstr2 order by kint) from agg_group_concat_table group by kint order by 1,2;"""
+    qt_test """select group_concat(distinct kstr), group_concat(distinct kstr2) from agg_group_concat_table group by kint order by 1,2;"""
+    qt_test """select multi_distinct_group_concat(kstr), multi_distinct_group_concat(kstr2) from agg_group_concat_table group by kint order by 1,2;"""
 
-    qt_test """select group_concat(distinct kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table;"""
-    qt_test """select multi_distinct_group_concat(kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table;"""
-    qt_test """select group_concat(distinct kstr), group_concat(kstr2) from agg_group_concat_table;"""
-    qt_test """select multi_distinct_group_concat(kstr), group_concat(kstr2) from agg_group_concat_table;"""
+    qt_test """select group_concat(distinct kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table order by 1,2;"""
+    qt_test """select multi_distinct_group_concat(kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table order by 1,2;"""
+    qt_test """select group_concat(distinct kstr), group_concat(kstr2) from agg_group_concat_table order by 1,2;"""
+    qt_test """select multi_distinct_group_concat(kstr), group_concat(kstr2) from agg_group_concat_table order by 1,2;"""
 
-    qt_test """select group_concat(distinct kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table group by kbint;"""
-    qt_test """select multi_distinct_group_concat(kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table group by kbint;"""
-    qt_test """select group_concat(distinct kstr), group_concat(kstr2) from agg_group_concat_table group by kbint;"""
-    qt_test """select multi_distinct_group_concat(kstr), group_concat(kstr2) from agg_group_concat_table group by kbint;"""
+    qt_test """select group_concat(distinct kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table group by kbint order by 1,2;"""
+    qt_test """select multi_distinct_group_concat(kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table group by kbint order by 1,2;"""
+    qt_test """select group_concat(distinct kstr), group_concat(kstr2) from agg_group_concat_table group by kbint order by 1,2;"""
+    qt_test """select multi_distinct_group_concat(kstr), group_concat(kstr2) from agg_group_concat_table group by kbint order by 1,2;"""
 
     sql "drop table if exists test_distinct_multi"
     sql """
@@ -109,5 +109,5 @@ suite("agg_group_concat") {
     sql """
     insert into test_distinct_multi values(1,2,3,'abc','2024-01-02'),(1,2,4,'abc','2024-01-03'),(2,2,4,'abcd','2024-01-02'),(1,2,3,'abcd','2024-01-04'),(1,2,4,'eee','2024-02-02'),(2,2,4,'abc','2024-01-02'); 
     """
-    qt_test "select group_concat( distinct d order by d) from test_distinct_multi; "
+    qt_test "select group_concat( distinct d order by d) from test_distinct_multi order by 1; "
 }

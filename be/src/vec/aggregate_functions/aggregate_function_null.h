@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/aggregate_function_distinct.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -215,7 +216,8 @@ public:
         if (!f) {
             return nullptr;
         }
-        return new AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>(
+        return new AggregateFunctionNullUnaryInline<
+                typename FunctionStableTransfer<NestFuction>::FunctionStable, result_is_nullable>(
                 f, IAggregateFunction::argument_types);
     }
 
@@ -320,7 +322,8 @@ public:
         if (!f) {
             return nullptr;
         }
-        return new AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>(
+        return new AggregateFunctionNullUnaryInline<
+                typename FunctionStableTransfer<NestFuction>::FunctionStable, result_is_nullable>(
                 f, IAggregateFunction::argument_types);
     }
 

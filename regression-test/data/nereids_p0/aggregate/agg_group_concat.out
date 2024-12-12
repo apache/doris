@@ -15,32 +15,32 @@ string3,string1,string2	string3,string1,string2
 string3,string1,string2	string3,string1,string2
 
 -- !test --
-string3	string2
-string2	string1
 string1	string3
+string2	string1
+string3	string2
 
 -- !test --
-string3	string2
 string1	string3
 string2	string1
+string3	string2
 
 -- !test --
-string3	string2
-string2	string1
 string1	string3
+string2	string1
+string3	string2
 
 -- !test --
-string3	string2
-string2	string1
 string1	string3
+string2	string1
+string3	string2
 
 -- !test --
 string1,string2	string3,string1
 string3	string2
 
 -- !test --
-string3	string2
 string1,string2	string3,string1
+string3	string2
 
 -- !test --
 string1,string2	string3,string1
@@ -57,10 +57,15 @@ string1,string2,string3	string3,string3,string1,string1,string2,string2
 string1,string2,string3	string3,string3,string1,string1,string2,string2
 
 -- !test --
-string3,string1,string2	string3,string3,string1,string1,string2,string2
+string3,string1,string2	string2,string2,string3,string3,string1,string1
 
 -- !test --
-string3,string1,string2	string3,string3,string1,string1,string2,string2
+string3,string1,string2	string2,string2,string3,string3,string1,string1
+
+-- !test --
+string1	string3,string3
+string2	string1,string1
+string3	string2,string2
 
 -- !test --
 string1	string3,string3
@@ -73,14 +78,9 @@ string2	string1,string1
 string3	string2,string2
 
 -- !test --
-string3	string2,string2
 string1	string3,string3
 string2	string1,string1
-
--- !test --
 string3	string2,string2
-string1	string3,string3
-string2	string1,string1
 
 -- !test --
 abc,abcd,eee

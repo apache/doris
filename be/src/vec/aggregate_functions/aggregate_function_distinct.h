@@ -347,6 +347,16 @@ public:
     }
 };
 
+template <typename T>
+struct FunctionStableTransfer {
+    using FunctionStable = T;
+};
+
+template <template <bool stable> typename Data>
+struct FunctionStableTransfer<AggregateFunctionDistinct<Data, false>> {
+    using FunctionStable = AggregateFunctionDistinct<Data, true>;
+};
+
 } // namespace doris::vectorized
 
 #include "common/compile_check_end.h"
