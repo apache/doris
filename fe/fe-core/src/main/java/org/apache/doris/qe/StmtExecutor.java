@@ -2073,9 +2073,6 @@ public class StmtExecutor {
             }
 
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
-            if (statisticsForAuditLog != null && context != null && context.getSessionVariable().isEnableHboTracker()) {
-                historyBasedPlanStatisticsTracker.updateStatistics();
-            }
             context.getState().setEof();
             profile.getSummaryProfile().setQueryFetchResultFinishTime();
         } catch (Exception e) {

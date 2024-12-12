@@ -368,6 +368,9 @@ public abstract class ConnectProcessor {
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
                             true);
                     LOG.debug("Write audit logs for query {}", DebugUtil.printId(ctx.queryId));
+                    if (executor.getQueryStatisticsForAuditLog() != null && ctx.getSessionVariable().isEnableHboTracker()) {
+                        executor.getHistoryBasedPlanStatisticsTracker().updateStatistics();
+                    }
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                         break;
