@@ -249,7 +249,7 @@ supportedShowStatement
     | SHOW FILE ((FROM | IN) database=multipartIdentifier)?                         #showSmallFiles 
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE CATALOG name=identifier                                           #showCreateCatalog
-    | SHOW PROPERTY (FOR user=identifierOrText)? wildWhere?                         #showUserProperties
+    | SHOW PROPERTY (FOR user=identifierOrText)? (LIKE STRING_LITERAL)?                         #showUserProperties
     | SHOW ALL PROPERTIES wildWhere?                                                #showAllProperties
     | SHOW COLLATION wildWhere?                                                     #showCollation
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
