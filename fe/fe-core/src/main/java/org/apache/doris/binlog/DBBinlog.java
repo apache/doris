@@ -25,6 +25,7 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
@@ -124,7 +125,7 @@ public class DBBinlog {
 
         allBinlogs.add(binlog);
         binlogSize += BinlogUtils.getApproximateMemoryUsage(binlog);
-        recordDroppedResources(binlog);
+        recordDroppedOrRecoveredResources(binlog);
 
         if (tableIds == null) {
             return;
@@ -178,7 +179,7 @@ public class DBBinlog {
                 return;
             }
 
-            recordDroppedResources(binlog, raw);
+            recordDroppedOrRecoveredResources(binlog, raw);
 
             switch (binlog.getType()) {
                 case CREATE_TABLE:
@@ -623,16 +624,16 @@ public class DBBinlog {
         }
     }
 
-    private void recordDroppedResources(TBinlog binlog) {
-        recordDroppedResources(binlog, null);
+    private void recordDroppedOrRecoveredResources(TBinlog binlog) {
+        recordDroppedOrRecoveredResources(binlog, null);
     }
 
     // A method to record the dropped tables, indexes, and partitions.
-    private void recordDroppedResources(TBinlog binlog, Object raw) {
-        recordDroppedResources(binlog.getType(), binlog.getCommitSeq(), binlog.getData(), raw);
+    private void recordDroppedOrRecoveredResources(TBinlog binlog, Object raw) {
+        recordDroppedOrRecoveredResources(binlog.getType(), binlog.getCommitSeq(), binlog.getData(), raw);
     }
 
-    private void recordDroppedResources(TBinlogType binlogType, long commitSeq, String data, Object raw) {
+    private void recordDroppedOrRecoveredResources(TBinlogType binlogType, long commitSeq, String data, Object raw) {
         if (raw == null) {
             switch (binlogType) {
                 case DROP_PARTITION:
@@ -656,6 +657,9 @@ public class DBBinlog {
                 case BARRIER:
                     raw = BarrierLog.fromJson(data);
                     break;
+                case RECOVER_INFO:
+                    raw = RecoverInfo.fromJson(data);
+                    break;
                 default:
                     break;
             }
@@ -664,10 +668,10 @@ public class DBBinlog {
             }
         }
 
-        recordDroppedResources(binlogType, commitSeq, raw);
+        recordDroppedOrRecoveredResources(binlogType, commitSeq, raw);
     }
 
-    private void recordDroppedResources(TBinlogType binlogType, long commitSeq, Object raw) {
+    private void recordDroppedOrRecoveredResources(TBinlogType binlogType, long commitSeq, Object raw) {
         if (binlogType == TBinlogType.DROP_PARTITION && raw instanceof DropPartitionInfo) {
             long partitionId = ((DropPartitionInfo) raw).getPartitionId();
             if (partitionId > 0) {
@@ -706,7 +710,16 @@ public class DBBinlog {
             BarrierLog log = (BarrierLog) raw;
             // keep compatible with doris 2.0/2.1
             if (log.hasBinlog()) {
-                recordDroppedResources(log.getBinlogType(), commitSeq, log.getBinlog(), null);
+                recordDroppedOrRecoveredResources(log.getBinlogType(), commitSeq, log.getBinlog(), null);
+            }
+        } else if ((binlogType == TBinlogType.RECOVER_INFO) && (raw instanceof RecoverInfo)) {
+            RecoverInfo recoverInfo = (RecoverInfo) raw;
+            long partitionId = recoverInfo.getPartitionId();
+            long tableId = recoverInfo.getTableId();
+            if (partitionId > 0) {
+                droppedPartitions.removeIf(entry -> (entry.first == partitionId));
+            } else if (tableId > 0) {
+                droppedTables.removeIf(entry -> (entry.first == tableId));
             }
         }
     }
