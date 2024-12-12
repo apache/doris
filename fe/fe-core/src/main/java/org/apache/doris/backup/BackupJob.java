@@ -1126,7 +1126,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
             try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
                 try (DataInputStream stream = new DataInputStream(gzipStream)) {
-                    readOthers(in);
+                    readOthers(stream);
                 }
             }
         } else {
