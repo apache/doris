@@ -84,7 +84,7 @@ suite("test_stream_load_2pc_with_schema_change", "p0") {
 
     Thread.sleep(5000) // 5s
 
-    json2pc = do_streamload_2pc_commit_by_txn_id.call(txnId)
+    def json2pc = do_streamload_2pc_commit_by_txn_id.call(txnId)
     assertEquals("success", json2pc.status.toLowerCase())
 
     waitForSchemaChangeDone {

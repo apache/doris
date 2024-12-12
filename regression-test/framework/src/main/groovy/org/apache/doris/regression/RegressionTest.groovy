@@ -93,9 +93,9 @@ class RegressionTest {
         boolean success = true
         Integer totalFailure = 0
         Integer failureLimit = Integer.valueOf(config.otherConfigs.getOrDefault("max_failure_num", "-1").toString())
-        //if (failureLimit <= 0) {
+        if (failureLimit <= 0) {
             failureLimit = Integer.MAX_VALUE
-        //}
+        }
 
         for (int i = 0; i < config.times; i++) {
             log.info("=== run ${i} time ===")

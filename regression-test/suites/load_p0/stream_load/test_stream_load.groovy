@@ -1344,9 +1344,9 @@ suite("test_stream_load", "p0") {
         def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H Transfer-Encoding:chunked -H columns:k1,k2,v1,v2,v3  -T ${context.dataPath}/test_chunked_transfer.csv http://${context.config.feHttpAddress}/api/${db}/${tableName16}/_stream_load"
         log.info("test chunked transfer command: ${command}")
         def process = command.execute()
-        code = process.waitFor()
-        out = process.text
-        json2pc = parseJson(out)
+        def code = process.waitFor()
+        def out = process.text
+        def json2pc = parseJson(out)
         log.info("test chunked transfer result: ${out}".toString())
         sql "sync"
         qt_sql_chunked_transfer_csv "select * from ${tableName16} order by k1"
@@ -1372,9 +1372,9 @@ suite("test_stream_load", "p0") {
         def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H Transfer-Encoding:chunked -H format:json -H read_json_by_line:true -T ${context.dataPath}/test_chunked_transfer.json http://${context.config.feHttpAddress}/api/${db}/${tableName16}/_stream_load"
         log.info("test chunked transfer command: ${command}")
         def process = command.execute()
-        code = process.waitFor()
-        out = process.text
-        json2pc = parseJson(out)
+        def code = process.waitFor()
+        def out = process.text
+        def json2pc = parseJson(out)
         log.info("test chunked transfer result: ${out}".toString())
         sql "sync"
         qt_sql_chunked_transfer_json "select * from ${tableName16} order by k1"

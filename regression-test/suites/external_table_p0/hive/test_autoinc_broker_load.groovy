@@ -28,7 +28,7 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
 
         def test_dir = "user/doris/preinstalled_data/data_case/autoinc"
 
-        def load_from_hdfs = {columns, testTable, label, testFile, format, brokerName, hdfsUser, hdfsPasswd ->
+        def load_from_hdfs = {columns, testTable, label, testFile, format ->
             def result1= sql """ LOAD LABEL ${label} (
                                 DATA INFILE("hdfs://${externalEnvIp}:${hdfs_port}/${test_dir}/${testFile}")
                                 INTO TABLE ${testTable}
@@ -78,7 +78,7 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
             "enable_unique_key_merge_on_write" = "true") """
         
         def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-        load_from_hdfs("name, value", table, test_load_label, "auto_inc_basic.csv", "csv", brokerName, hdfsUser, hdfsPasswd)
+        load_from_hdfs("name, value", table, test_load_label, "auto_inc_basic.csv", "csv")
         wait_for_load_result(test_load_label, table)
         qt_sql "select * from ${table};"
         sql """ insert into ${table} values(0, "Bob", 123), (2, "Tom", 323), (4, "Carter", 523);"""
@@ -102,7 +102,7 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
             "storage_format" = "V2",
             "enable_unique_key_merge_on_write" = "true");"""
         test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-        load_from_hdfs("id, name, value", table, test_load_label, "auto_inc_with_null.csv", "csv", brokerName, hdfsUser, hdfsPasswd)
+        load_from_hdfs("id, name, value", table, test_load_label, "auto_inc_with_null.csv", "csv")
         wait_for_load_result(test_load_label, table)
         sql "sync"
         qt_sql "select * from ${table};"

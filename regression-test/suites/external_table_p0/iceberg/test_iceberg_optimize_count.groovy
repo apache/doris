@@ -99,7 +99,7 @@ suite("test_iceberg_optimize_count", "p0,external,doris,external_docker,external
 
         // There has `dangling delete` after rewrite
         sql """ set enable_count_push_down_for_external_table=true; """
-        sqlstr5 = """ select count(*) from ${catalog_name}.test_db.dangling_delete_after_write; """
+        def sqlstr5 = """ select count(*) from ${catalog_name}.test_db.dangling_delete_after_write; """
 
         qt_q09 """${sqlstr5}""" 
 

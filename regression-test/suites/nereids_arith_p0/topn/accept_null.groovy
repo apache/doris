@@ -86,7 +86,7 @@ suite ("accept_null") {
       def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
       logger.info("tablet"+tablet_info)
       def table_id = tablet_info[0].TableId
-      backend_id = tablet.BackendId
+      def backend_id = tablet.BackendId
       def times = 1
       def code, out, err
       do{

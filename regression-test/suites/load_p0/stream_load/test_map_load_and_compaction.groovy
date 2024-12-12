@@ -133,7 +133,7 @@ suite("test_map_load_and_compaction", "p0") {
         checkCompactionStatus.call(compactionStatus, 1)
 
         // finally check backend alive
-        backends = sql """ show backends; """
+        def backends = sql """ show backends; """
         assertTrue(backends.size() > 0)
         for (String[] b : backends) {
             assertEquals("true", b[9])

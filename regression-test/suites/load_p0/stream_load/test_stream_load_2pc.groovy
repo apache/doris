@@ -522,7 +522,7 @@ suite("test_stream_load_2pc", "p0") {
 
             def count = 0
             while (true) {
-                res = sql "select count(*) from ${tbl}"
+                def res = sql "select count(*) from ${tbl}"
                 if (res[0][0] > 0) {
                     break
                 }

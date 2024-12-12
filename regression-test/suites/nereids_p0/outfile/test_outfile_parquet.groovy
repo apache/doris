@@ -169,7 +169,7 @@ suite("test_outfile_parquet") {
             path.delete();
         }
 
-        cmd = "rm -rf ${parquetFiles}"
+        def cmd = "rm -rf ${parquetFiles}"
         sshExec ("root", urlHost, cmd)
     }
 }

@@ -171,7 +171,7 @@ PROPERTIES (
     qt_select """ select count(*) from $loadAttribute.dataDesc.tableName """
 
     def profileString = getProfile(jobId)
-    profileJson = new JsonSlurper().parseText(profileString)
+    def profileJson = new JsonSlurper().parseText(profileString)
     assertEquals(0, profileJson.code)
     profileDataString = profileJson.data
     logger.info("profileDataString:" + profileDataString)
