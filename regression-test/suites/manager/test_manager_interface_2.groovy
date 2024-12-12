@@ -183,7 +183,7 @@ suite('test_manager_interface_2',"p0") {
     
         sql """ALTER SYSTEM ADD BACKEND "${address}:${notExistPort}";"""
 
-        result = sql """SHOW BACKENDS;"""
+        def result = sql """SHOW BACKENDS;"""
         logger.info("result = ${result}" )
         def x = 0 
         for(int i  =0 ;i<result.size();i++) {

@@ -87,7 +87,7 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
         // select ... into outfile ...
         def uuid = UUID.randomUUID().toString()
 
-        hdfs_outfile_path = "/user/doris/tmp_data/${uuid}"
+        def hdfs_outfile_path = "/user/doris/tmp_data/${uuid}"
         def uri = "${defaultFS}" + "${hdfs_outfile_path}/exp_"
 
         def res = sql """

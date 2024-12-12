@@ -61,7 +61,7 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
             }
         }
 
-        table = "test_autoinc_broker_load"
+        def table = "test_autoinc_broker_load"
         sql "drop table if exists ${table}"
         sql """ CREATE TABLE IF NOT EXISTS `${table}` (
             `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT "用户 ID",

@@ -1652,8 +1652,8 @@ suite("test_stream_load", "p0") {
        def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H ${db}:${tableName16} -H Content-Length:0  -H Transfer-Encoding:chunked -H columns:k1,k2,v1,v2,v3 -T ${context.dataPath}/test_chunked_transfer.csv http://${beHost}:${beHttpPort}/api/${db}/${tableName16}/_stream_load"
        log.info("test chunked transfer command: ${command}")
        def process = command.execute()
-       code = process.waitFor()
-       out = process.text
+       def code = process.waitFor()
+       def out = process.text
        log.info("test chunked transfer result: ${out}".toString())
        def json = parseJson(out)
        assertEquals("fail", json.Status.toLowerCase())
@@ -1682,8 +1682,8 @@ suite("test_stream_load", "p0") {
         def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H ${db}:${tableName16} -H Content-Length:  -H Transfer-Encoding: -T ${context.dataPath}/test_chunked_transfer.csv http://${beHost}:${beHttpPort}/api/${db}/${tableName16}/_stream_load"
         log.info("test chunked transfer command: ${command}")
         def process = command.execute()
-        code = process.waitFor()
-        out = process.text
+        def code = process.waitFor()
+        def out = process.text
         log.info("test chunked transfer result: ${out}".toString())
         def json = parseJson(out)
         assertEquals("fail", json.Status.toLowerCase())

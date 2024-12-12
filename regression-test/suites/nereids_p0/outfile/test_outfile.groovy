@@ -146,7 +146,7 @@ suite("test_outfile") {
             path.delete();
         }
 
-        cmd = "rm -rf ${csvFiles}"
+        def cmd = "rm -rf ${csvFiles}"
         sshExec ("root", urlHost, cmd)
     }
 

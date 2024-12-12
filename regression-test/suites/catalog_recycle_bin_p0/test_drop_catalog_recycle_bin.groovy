@@ -89,7 +89,7 @@ suite("test_drop_catalog_recycle_bin") {
     sql "ALTER TABLE `test_drop_catalog_recycle_bin_db`.`test_drop_catalog_recycle_bin_tb1` DROP PARTITION p222;"
     sql "DROP TABLE `test_drop_catalog_recycle_bin_db`.`test_drop_catalog_recycle_bin_tb1`;"
 
-    pre_tb_res = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = "test_drop_catalog_recycle_bin_tb1" """
+    def pre_tb_res = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = "test_drop_catalog_recycle_bin_tb1" """
     assertTrue(pre_tb_res.size() > 0)
     pre_pt_res = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = "p222" """
     assertTrue(pre_pt_res.size() > 0)
