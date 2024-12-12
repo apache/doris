@@ -201,7 +201,10 @@ DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
 // modify this parameter to crash when large memory allocation occur will help
 DECLARE_mInt64(crash_in_alloc_large_memory_bytes);
 
-// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+// The actual meaning of this parameter is `debug_memory`.
+// 1. crash in memory tracker inaccurate, if memory tracker value is inaccurate, BE will crash.
+//    usually used in test environments, default value is false.
+// 2. print more memory logs.
 DECLARE_mBool(crash_in_memory_tracker_inaccurate);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
@@ -279,6 +282,8 @@ DECLARE_mInt32(max_download_speed_kbps);
 DECLARE_mInt32(download_low_speed_limit_kbps);
 // download low speed time(seconds)
 DECLARE_mInt32(download_low_speed_time);
+// whether to download small files in batch.
+DECLARE_mBool(enable_batch_download);
 
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
@@ -465,6 +470,7 @@ DECLARE_mDouble(base_compaction_min_data_ratio);
 DECLARE_mInt64(base_compaction_dup_key_max_file_size_mbytes);
 
 DECLARE_Bool(enable_skip_tablet_compaction);
+DECLARE_mInt32(skip_tablet_compaction_second);
 // output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 DECLARE_mInt64(compaction_promotion_size_mbytes);
@@ -1470,6 +1476,7 @@ DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
 // MB
 DECLARE_Int32(query_cache_size);
+DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
 DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
 

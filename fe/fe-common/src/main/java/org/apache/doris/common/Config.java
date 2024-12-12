@@ -2903,7 +2903,7 @@ public class Config extends ConfigBase {
             "Columns that have not been collected within the specified interval will trigger automatic analyze. "
                 + "0 means not trigger."
     })
-    public static long auto_analyze_interval_seconds = 0;
+    public static long auto_analyze_interval_seconds = 86400; // 24 hours.
 
     //==========================================================================
     //                    begin of cloud config

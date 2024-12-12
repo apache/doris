@@ -75,6 +75,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
+#include "runtime/process_profile.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
@@ -449,6 +450,7 @@ Status ExecEnv::_init_mem_env() {
     bool is_percent = false;
     std::stringstream ss;
     // 1. init mem tracker
+    _process_profile = ProcessProfile::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
@@ -813,6 +815,8 @@ void ExecEnv::destroy() {
 
     // dns cache is a global instance and need to be released at last
     SAFE_DELETE(_dns_cache);
+
+    SAFE_DELETE(_process_profile);
 
     _s_tracking_memory = false;
 

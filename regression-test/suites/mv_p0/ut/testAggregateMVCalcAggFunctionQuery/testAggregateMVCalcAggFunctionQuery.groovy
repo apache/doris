@@ -50,6 +50,7 @@ suite ("testAggregateMVCalcAggFunctionQuery") {
     qt_select_mv "select deptno, sum(salary + 1) from emps where deptno > 10 group by deptno order by deptno;"
 
     sql """set enable_stats=true;"""
+    sql """alter table emps modify column time_col set stats ('row_count'='4');"""
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 
     mv_rewrite_fail("select deptno, sum(salary + 1) from emps where deptno > 10 group by deptno;", "emps_mv")

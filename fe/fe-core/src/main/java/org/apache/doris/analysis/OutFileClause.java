@@ -36,7 +36,6 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
@@ -302,11 +301,8 @@ public class OutFileClause {
                 break;
             case HLL:
             case BITMAP:
-                if (!(ConnectContext.get() != null && ConnectContext.get()
-                        .getSessionVariable().isReturnObjectDataAsBinary())) {
-                    break;
-                }
-                orcType = "string";
+            case QUANTILE_STATE:
+                orcType = "binary";
                 break;
             case DATEV2:
                 orcType = "date";
@@ -327,6 +323,8 @@ public class OutFileClause {
             case DATE:
             case DATETIME:
             case IPV6:
+            case VARIANT:
+            case JSONB:
                 orcType = "string";
                 break;
             case DECIMALV2:
@@ -445,6 +443,8 @@ public class OutFileClause {
                 case DATE:
                 case DATETIME:
                 case IPV6:
+                case VARIANT:
+                case JSONB:
                     checkOrcType(schema.second, "string", true, resultType.getPrimitiveType().toString());
                     break;
                 case DECIMAL32:
@@ -455,13 +455,8 @@ public class OutFileClause {
                     break;
                 case HLL:
                 case BITMAP:
-                    if (ConnectContext.get() != null && ConnectContext.get()
-                            .getSessionVariable().isReturnObjectDataAsBinary()) {
-                        checkOrcType(schema.second, "string", true, resultType.getPrimitiveType().toString());
-                    } else {
-                        throw new AnalysisException("Orc format does not support column type: "
-                                + resultType.getPrimitiveType());
-                    }
+                case QUANTILE_STATE:
+                    checkOrcType(schema.second, "binary", true, resultType.getPrimitiveType().toString());
                     break;
                 case STRUCT:
                     checkOrcType(schema.second, "struct", false, resultType.getPrimitiveType().toString());

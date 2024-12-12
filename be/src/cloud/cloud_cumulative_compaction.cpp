@@ -33,6 +33,7 @@
 #include "util/uuid_generator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> cumu_output_size("cumu_compaction", "output_size");
@@ -490,8 +491,10 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
     }
 
     int64_t max_score = config::cumulative_compaction_max_deltas;
-    auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
-    bool memory_usage_high = process_memory_usage > MemInfo::soft_mem_limit() * 0.8;
+    double process_memory_usage =
+            static_cast<double>(doris::GlobalMemoryArbitrator::process_memory_usage());
+    bool memory_usage_high =
+            process_memory_usage > static_cast<double>(MemInfo::soft_mem_limit()) * 0.8;
     if (cloud_tablet()->last_compaction_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
         memory_usage_high) {
         max_score = std::max(config::cumulative_compaction_max_deltas /
@@ -621,4 +624,5 @@ void CloudCumulativeCompaction::do_lease() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

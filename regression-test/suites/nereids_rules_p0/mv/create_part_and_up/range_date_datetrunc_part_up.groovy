@@ -71,6 +71,7 @@ suite("mtmv_range_date_datetrunc_date_part_up") {
     (1, 2, 3, null, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-29 03:00:00'),
     (2, 3, 2, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', null, '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-29 04:00:00');
     """
+    sql """alter table ${tb_name} modify column l_comment set stats ('row_count'='5');"""
 
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"

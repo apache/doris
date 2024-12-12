@@ -69,6 +69,8 @@ public:
     // set the cancel flag, tasks already started will not be cancelled.
     bool cancel();
 
+    void init_mem_tracker(const RowsetWriterContext& rowset_writer_context);
+
 private:
     Status _create_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end);
@@ -95,6 +97,7 @@ private:
     // for unique key mow table
     std::unique_ptr<SimpleRowIdConversion> _rowid_conversion;
     DeleteBitmapPtr _converted_delete_bitmap;
+    std::shared_ptr<MemTrackerLimiter> _seg_compact_mem_tracker = nullptr;
 
     // the state is not mutable when 1)actual compaction operation started or 2) cancelled
     std::atomic<bool> _is_compacting_state_mutable = true;

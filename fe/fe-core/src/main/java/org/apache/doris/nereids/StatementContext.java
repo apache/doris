@@ -174,6 +174,8 @@ public class StatementContext implements Closeable {
 
     private String disableJoinReorderReason;
 
+    private boolean privChecked;
+
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     public StatementContext() {
@@ -598,5 +600,13 @@ public class StatementContext implements Closeable {
 
     public void setDisableJoinReorderReason(String disableJoinReorderReason) {
         this.disableJoinReorderReason = disableJoinReorderReason;
+    }
+
+    public boolean isPrivChecked() {
+        return privChecked;
+    }
+
+    public void setPrivChecked(boolean privChecked) {
+        this.privChecked = privChecked;
     }
 }

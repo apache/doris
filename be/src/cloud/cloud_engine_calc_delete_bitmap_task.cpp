@@ -34,6 +34,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 CloudEngineCalcDeleteBitmapTask::CloudEngineCalcDeleteBitmapTask(
         CloudStorageEngine& engine, const TCalcDeleteBitmapRequest& cal_delete_bitmap_req,
@@ -218,7 +219,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
                              .base_compaction_cnt = _ms_base_compaction_cnt,
                              .cumulative_compaction_cnt = _ms_cumulative_compaction_cnt,
                              .cumulative_point = _ms_cumulative_point};
-    auto update_delete_bitmap_time_us = 0;
+    int64_t update_delete_bitmap_time_us = 0;
     if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
         _version == previous_publish_info.publish_version &&
         _ms_base_compaction_cnt == previous_publish_info.base_compaction_cnt &&
@@ -253,4 +254,5 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     return status;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

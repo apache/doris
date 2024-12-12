@@ -56,6 +56,8 @@ int main(int argc, char** argv) {
                                                     "BE-UT");
     doris::thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(test_tracker);
     doris::ExecEnv::GetInstance()->set_cache_manager(doris::CacheManager::create_global_instance());
+    doris::ExecEnv::GetInstance()->set_process_profile(
+            doris::ProcessProfile::create_global_instance());
     doris::ExecEnv::GetInstance()->set_dummy_lru_cache(std::make_shared<doris::DummyLRUCache>());
     doris::ExecEnv::GetInstance()->set_storage_page_cache(
             doris::StoragePageCache::create_global_cache(1 << 30, 10, 0));

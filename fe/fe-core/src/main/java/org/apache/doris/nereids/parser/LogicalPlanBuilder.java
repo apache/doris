@@ -3413,10 +3413,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Expression outExpression;
             switch (ctx.kind.getType()) {
                 case DorisParser.BETWEEN:
-                    outExpression = new And(
-                            new GreaterThanEqual(valueExpression, getExpression(ctx.lower)),
-                            new LessThanEqual(valueExpression, getExpression(ctx.upper))
-                    );
+                    Expression lower = getExpression(ctx.lower);
+                    Expression upper = getExpression(ctx.upper);
+                    if (lower.equals(upper)) {
+                        outExpression = new EqualTo(valueExpression, lower);
+                    } else {
+                        outExpression = new And(
+                                new GreaterThanEqual(valueExpression, getExpression(ctx.lower)),
+                                new LessThanEqual(valueExpression, getExpression(ctx.upper))
+                        );
+                    }
                     break;
                 case DorisParser.LIKE:
                     outExpression = new Like(

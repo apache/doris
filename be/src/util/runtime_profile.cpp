@@ -274,7 +274,7 @@ void RuntimeProfile::compute_time_in_profile(int64_t total) {
 
 RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool indent, bool prepend) {
     std::lock_guard<std::mutex> l(_children_lock);
-    DCHECK(_child_map.find(name) == _child_map.end());
+    DCHECK(_child_map.find(name) == _child_map.end()) << ", name: " << name;
     RuntimeProfile* child = _pool->add(new RuntimeProfile(name));
     if (this->is_set_metadata()) {
         child->set_metadata(this->metadata());
@@ -285,8 +285,8 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     if (_children.empty()) {
         add_child_unlock(child, indent, nullptr);
     } else {
-        ChildVector::iterator pos = prepend ? _children.begin() : _children.end();
-        add_child_unlock(child, indent, (*pos).first);
+        auto* pos = prepend ? _children.begin()->first : nullptr;
+        add_child_unlock(child, indent, pos);
     }
     return child;
 }
@@ -577,8 +577,6 @@ void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree) {
 }
 
 void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
-    nodes->reserve(nodes->size() + _children.size());
-
     int index = nodes->size();
     nodes->push_back(TRuntimeProfileNode());
     TRuntimeProfileNode& node = (*nodes)[index];
@@ -605,10 +603,13 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
 
     ChildVector children;
     {
+        // _children may be modified during to_thrift(),
+        // so we have to lock and copy _children to avoid race condition
         std::lock_guard<std::mutex> l(_children_lock);
         children = _children;
     }
     node.num_children = children.size();
+    nodes->reserve(nodes->size() + children.size());
 
     for (int i = 0; i < children.size(); ++i) {
         int child_idx = nodes->size();

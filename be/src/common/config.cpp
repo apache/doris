@@ -152,7 +152,10 @@ DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
 
-// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+// The actual meaning of this parameter is `debug_memory`.
+// 1. crash in memory tracker inaccurate, if memory tracker value is inaccurate, BE will crash.
+//    usually used in test environments, default value is false.
+// 2. print more memory logs.
 DEFINE_mBool(crash_in_memory_tracker_inaccurate, "false");
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
@@ -229,6 +232,8 @@ DEFINE_mInt32(max_download_speed_kbps, "50000");
 DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 // download low speed time(seconds)
 DEFINE_mInt32(download_low_speed_time, "300");
+// whether to download small files in batch
+DEFINE_mBool(enable_batch_download, "false");
 
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
@@ -413,6 +418,8 @@ DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
 DEFINE_Bool(enable_skip_tablet_compaction, "true");
+DEFINE_mInt32(skip_tablet_compaction_second, "10");
+
 // output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 DEFINE_mInt64(compaction_promotion_size_mbytes, "1024");
@@ -445,10 +452,10 @@ DEFINE_mInt32(cumulative_compaction_max_deltas_factor, "10");
 DEFINE_mInt32(multi_get_max_threads, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
-DEFINE_mInt64(total_permits_for_compaction_score, "10000");
+DEFINE_mInt64(total_permits_for_compaction_score, "1000000");
 
 // sleep interval in ms after generated compaction tasks
-DEFINE_mInt32(generate_compaction_tasks_interval_ms, "10");
+DEFINE_mInt32(generate_compaction_tasks_interval_ms, "100");
 
 // sleep interval in second after update replica infos
 DEFINE_mInt32(update_replica_infos_interval_seconds, "60");
@@ -1389,6 +1396,7 @@ DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
 
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");
+DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 
 // clang-format off
 #ifdef BE_TEST

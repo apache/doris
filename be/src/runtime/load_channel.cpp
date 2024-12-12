@@ -45,8 +45,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
           _backend_id(backend_id),
           _enable_profile(enable_profile) {
     std::shared_ptr<QueryContext> query_context =
-            ExecEnv::GetInstance()->fragment_mgr()->get_or_erase_query_ctx_with_lock(
-                    _load_id.to_thrift());
+            ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(_load_id.to_thrift());
     std::shared_ptr<MemTrackerLimiter> mem_tracker = nullptr;
     WorkloadGroupPtr wg_ptr = nullptr;
 
@@ -135,7 +134,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
                                                            _is_high_priority, _self_profile);
             }
             {
-                std::lock_guard<SpinLock> l(_tablets_channels_lock);
+                std::lock_guard<std::mutex> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
             }
         }
@@ -237,7 +236,7 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     if (finished) {
         std::lock_guard<std::mutex> l(_lock);
         {
-            std::lock_guard<SpinLock> l(_tablets_channels_lock);
+            std::lock_guard<std::mutex> l(_tablets_channels_lock);
             _tablets_channels_rows.insert(std::make_pair(
                     index_id,
                     std::make_pair(channel->total_received_rows(), channel->num_rows_filtered())));
@@ -263,7 +262,7 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
     _self_profile->set_timestamp(_last_updated_time);
 
     {
-        std::lock_guard<SpinLock> l(_tablets_channels_lock);
+        std::lock_guard<std::mutex> l(_tablets_channels_lock);
         for (auto& it : _tablets_channels) {
             it.second->refresh_profile();
         }

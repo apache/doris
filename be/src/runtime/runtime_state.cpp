@@ -299,7 +299,7 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
 }
 
 std::weak_ptr<QueryContext> RuntimeState::get_query_ctx_weak() {
-    return _exec_env->fragment_mgr()->get_or_erase_query_ctx_with_lock(_query_ctx->query_id());
+    return _exec_env->fragment_mgr()->get_query_ctx(_query_ctx->query_id());
 }
 
 void RuntimeState::init_mem_trackers(const std::string& name, const TUniqueId& id) {

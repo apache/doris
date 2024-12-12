@@ -634,6 +634,9 @@ public class PropertyAnalyzer {
             }
 
             String[] bfColumnArr = bfColumnsStr.split(COMMA_SEPARATOR);
+            if (bfColumnArr.length == 0) {
+                return bfColumns;
+            }
             Set<String> bfColumnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             for (String bfColumn : bfColumnArr) {
                 bfColumn = bfColumn.trim();
@@ -642,11 +645,8 @@ public class PropertyAnalyzer {
                     if (column.getName().equalsIgnoreCase(bfColumn)) {
                         PrimitiveType type = column.getDataType();
 
-                        // tinyint/float/double columns don't support
                         // key columns and none/replace aggregate non-key columns support
-                        if (type == PrimitiveType.TINYINT || type == PrimitiveType.FLOAT
-                                || type == PrimitiveType.DOUBLE || type == PrimitiveType.BOOLEAN
-                                || type.isComplexType()) {
+                        if (!column.isSupportBloomFilter()) {
                             throw new AnalysisException(type + " is not supported in bloom filter index. "
                                     + "invalid column: " + bfColumn);
                         } else if (keysType != KeysType.AGG_KEYS || column.isKey()) {
