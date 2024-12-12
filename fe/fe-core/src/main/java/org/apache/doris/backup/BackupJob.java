@@ -597,11 +597,16 @@ public class BackupJob extends AbstractJob {
         // check backup table again
         if (backupTableRef.getPartitionNames() != null) {
             for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName);
+                Partition partition = olapTable.getPartition(partName, false); // exclude tmp partitions
                 if (partition == null) {
-                    status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                            + " does not exist  in table" + backupTableRef.getName().getTbl());
-                    return status;
+                    if (olapTable.getPartition(partName, true) != null) {
+                        status = new Status(ErrCode.NOT_FOUND, "backup tmp partition " + partName
+                                + " in table " + backupTableRef.getName().getTbl() + " is not supported");
+                    } else {
+                        status = new Status(ErrCode.NOT_FOUND, "partition " + partName
+                                + " does not exist in table " + backupTableRef.getName().getTbl());
+                    }
+                    return;
                 }
             }
         }
@@ -609,10 +614,10 @@ public class BackupJob extends AbstractJob {
         // create snapshot tasks
         List<Partition> partitions = Lists.newArrayList();
         if (backupTableRef.getPartitionNames() == null) {
-            partitions.addAll(olapTable.getPartitions());
+            partitions.addAll(olapTable.getPartitions()); // no temp partitions in OlapTable.getPartitions()
         } else {
             for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName);
+                Partition partition = olapTable.getPartition(partName, false);  // exclude tmp partitions
                 partitions.add(partition);
             }
         }

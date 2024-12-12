@@ -1590,6 +1590,15 @@ public class Config extends ConfigBase {
     public static boolean ignore_backup_not_support_table_type = false;
 
     /**
+     * whether to ignore temp partitions when backup, and not report exception.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "是否忽略备份临时分区，不报异常",
+        "Whether to ignore temp partitions when backup, and not report exception."
+    })
+    public static boolean ignore_backup_tmp_partitions = false;
+
+    /**
      * A internal config, to control the update interval of backup handler. Only used to speed up tests.
      */
     @ConfField(mutable = false)
