@@ -21,11 +21,9 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.qe.ConnectContext;
@@ -34,7 +32,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
-import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -56,62 +54,27 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 >= limit.getLimit() + limit.getOffset())
                         .then(limit -> {
                             LogicalAggregate<? extends Plan> agg = limit.child();
-                            Optional<OrderKey> orderKeysOpt = tryGenerateOrderKeyByTheFirstGroupKey(agg);
-                            if (!orderKeysOpt.isPresent()) {
-                                return null;
-                            }
-                            List<OrderKey> orderKeys = Lists.newArrayList(orderKeysOpt.get());
+                            List<OrderKey> orderKeys = generateOrderKeyByGroupKey(agg);
                             return new LogicalTopN<>(orderKeys, limit.getLimit(), limit.getOffset(), agg);
                         }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG),
-                //limit->project->agg to topn->project->agg
+                //limit->project->agg to project->topn->agg
                 logicalLimit(logicalProject(logicalAggregate()))
                         .when(limit -> ConnectContext.get() != null
                                 && ConnectContext.get().getSessionVariable().pushTopnToAgg
                                 && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                 >= limit.getLimit() + limit.getOffset())
+                        .when(limit -> limit.child().isAllSlots())
                         .then(limit -> {
                             LogicalProject<? extends Plan> project = limit.child();
                             LogicalAggregate<? extends Plan> agg
                                     = (LogicalAggregate<? extends Plan>) project.child();
-                            Optional<OrderKey> orderKeysOpt = tryGenerateOrderKeyByTheFirstGroupKey(agg);
-                            if (!orderKeysOpt.isPresent()) {
-                                return null;
-                            }
-                            List<OrderKey> orderKeys = Lists.newArrayList(orderKeysOpt.get());
-                            Plan result;
-
-                            if (outputAllGroupKeys(limit, agg)) {
-                                result = new LogicalTopN<>(orderKeys, limit.getLimit(),
-                                        limit.getOffset(), project);
-                            } else {
-                                // add the first group by key to topn, and prune this key by upper project
-                                // topn order keys are prefix of group by keys
-                                // refer to PushTopnToAgg.tryGenerateOrderKeyByGroupKeyAndTopnKey()
-                                Expression firstGroupByKey = agg.getGroupByExpressions().get(0);
-                                if (!(firstGroupByKey instanceof SlotReference)) {
-                                    return null;
-                                }
-                                boolean shouldPruneFirstGroupByKey = true;
-                                if (project.getOutputs().contains(firstGroupByKey)) {
-                                    shouldPruneFirstGroupByKey = false;
-                                } else {
-                                    List<NamedExpression> bottomProjections = Lists.newArrayList(project.getProjects());
-                                    bottomProjections.add((SlotReference) firstGroupByKey);
-                                    project = project.withProjects(bottomProjections);
-                                }
-                                LogicalTopN topn = new LogicalTopN<>(orderKeys, limit.getLimit(),
-                                        limit.getOffset(), project);
-                                if (shouldPruneFirstGroupByKey) {
-                                    List<NamedExpression> limitOutput = limit.getOutput().stream()
-                                            .map(e -> (NamedExpression) e).collect(Collectors.toList());
-                                    result = new LogicalProject<>(limitOutput, topn);
-                                } else {
-                                    result = topn;
-                                }
-                            }
-                            return result;
+                            List<OrderKey> orderKeys = generateOrderKeyByGroupKey(agg);
+                            LogicalTopN topn = new LogicalTopN<>(orderKeys, limit.getLimit(),
+                                    limit.getOffset(), agg);
+                            project = (LogicalProject<? extends Plan>) project.withChildren(topn);
+                            return project;
                         }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG),
-                // topn -> agg: add all group key to sort key, if sort key is prefix of group key
+                // topn -> agg: append group key(if it is not sort key) to sort key
                 logicalTopN(logicalAggregate())
                         .when(topn -> ConnectContext.get() != null
                                 && ConnectContext.get().getSessionVariable().pushTopnToAgg
@@ -119,44 +82,60 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 >= topn.getLimit() + topn.getOffset())
                         .then(topn -> {
                             LogicalAggregate<? extends Plan> agg = (LogicalAggregate<? extends Plan>) topn.child();
-                            List<OrderKey> newOrders = tryGenerateOrderKeyByGroupKeyAndTopnKey(topn, agg);
-                            if (newOrders.isEmpty()) {
-                                return topn;
-                            } else {
-                                return topn.withOrderKeys(newOrders);
+                            List<OrderKey> newOrders = Lists.newArrayList(topn.getOrderKeys());
+                            Set<Expression> orderExprs = topn.getOrderKeys().stream()
+                                    .map(orderKey -> orderKey.getExpr()).collect(Collectors.toSet());
+                            boolean orderKeyChanged = false;
+                            for (Expression expr : agg.getGroupByExpressions()) {
+                                if (!orderExprs.contains(expr)) {
+                                    // after NormalizeAggregate, expr should be SlotReference
+                                    if (expr instanceof SlotReference) {
+                                        orderKeyChanged = true;
+                                        newOrders.add(new OrderKey(expr, true, true));
+                                    }
+                                }
                             }
-                        }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG));
+                            return orderKeyChanged ? topn.withOrderKeys(newOrders) : topn;
+                        }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG),
+                //topn -> project ->agg: add all group key to sort key, and prune column
+                logicalTopN(logicalProject(logicalAggregate()))
+                        .when(topn -> ConnectContext.get() != null
+                                && ConnectContext.get().getSessionVariable().pushTopnToAgg
+                                && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
+                                >= topn.getLimit() + topn.getOffset())
+                        .when(topn -> topn.child().isAllSlots())
+                        .then(topn -> {
+                            LogicalProject project = topn.child();
+                            LogicalAggregate<? extends Plan> agg = (LogicalAggregate) project.child();
+                            List<OrderKey> newOrders = Lists.newArrayList(topn.getOrderKeys());
+                            Set<Expression> orderExprs = topn.getOrderKeys().stream()
+                                    .map(orderKey -> orderKey.getExpr()).collect(Collectors.toSet());
+                            boolean orderKeyChanged = false;
+                            for (Expression expr : agg.getGroupByExpressions()) {
+                                if (!orderExprs.contains(expr)) {
+                                    // after NormalizeAggregate, expr should be SlotReference
+                                    if (expr instanceof SlotReference) {
+                                        orderKeyChanged = true;
+                                        newOrders.add(new OrderKey(expr, true, true));
+                                    }
+                                }
+                            }
+                            Plan result;
+                            if (orderKeyChanged) {
+                                topn = (LogicalTopN) topn.withChildren(agg);
+                                topn.withOrderKeys(newOrders);
+                                result = (Plan) project.withChildren(topn);
+                            } else {
+                                result = topn;
+                            }
+                            return result;
+                        }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG)
+        );
     }
 
-    private List<OrderKey> tryGenerateOrderKeyByGroupKeyAndTopnKey(LogicalTopN<? extends Plan> topN,
-            LogicalAggregate<? extends Plan> agg) {
-        List<OrderKey> orderKeys = Lists.newArrayListWithCapacity(agg.getGroupByExpressions().size());
-        if (topN.getOrderKeys().size() > agg.getGroupByExpressions().size()) {
-            return orderKeys;
-        }
-        List<Expression> topnKeys = topN.getOrderKeys().stream()
-                .map(OrderKey::getExpr).collect(Collectors.toList());
-        for (int i = 0; i < topN.getOrderKeys().size(); i++) {
-            // prefix check
-            if (!topnKeys.get(i).equals(agg.getGroupByExpressions().get(i))) {
-                return Lists.newArrayList();
-            }
-            orderKeys.add(topN.getOrderKeys().get(i));
-        }
-        for (int i = topN.getOrderKeys().size(); i < agg.getGroupByExpressions().size(); i++) {
-            orderKeys.add(new OrderKey(agg.getGroupByExpressions().get(i), true, false));
-        }
-        return orderKeys;
-    }
-
-    private boolean outputAllGroupKeys(LogicalLimit limit, LogicalAggregate agg) {
-        return limit.getOutputSet().containsAll(agg.getGroupByExpressions());
-    }
-
-    private Optional<OrderKey> tryGenerateOrderKeyByTheFirstGroupKey(LogicalAggregate<? extends Plan> agg) {
-        if (agg.getGroupByExpressions().isEmpty()) {
-            return Optional.empty();
-        }
-        return Optional.of(new OrderKey(agg.getGroupByExpressions().get(0), true, false));
+    private List<OrderKey> generateOrderKeyByGroupKey(LogicalAggregate<? extends Plan> agg) {
+        return agg.getGroupByExpressions().stream()
+            .map(key -> new OrderKey(key, true, false))
+            .collect(Collectors.toList());
     }
 }

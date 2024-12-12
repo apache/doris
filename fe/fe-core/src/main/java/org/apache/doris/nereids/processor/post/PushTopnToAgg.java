@@ -46,7 +46,7 @@ import java.util.stream.Collectors;
  * plan: topn(1) -> aggGlobal -> shuffle -> aggLocal -> scan
  * optimization: aggLocal and aggGlobal only need to generate the smallest row with respect to o_clerk.
  *
- * TODO: the following case is not covered:
+ * Attention: the following case is error-prone
  * sql: select sum(o_shippriority) from orders group by o_clerk limit 1;
  * plan: limit -> aggGlobal -> shuffle -> aggLocal -> scan
  * aggGlobal may receive partial aggregate results, and hence is not supported now
@@ -55,18 +55,13 @@ import java.util.stream.Collectors;
  * (2,1),(1,1) => limit => may output (2, 1), which is not complete, missing (2, 2) in instance2
  *
  *TOPN:
- *  Precondition: topn orderkeys are the prefix of group keys
- *  TODO: topnKeys could be subset of groupKeys. This will be implemented in future
  *  Pattern 2-phase agg:
  *     topn -> aggGlobal -> distribute -> aggLocal
  *     =>
- *     topn(n) -> aggGlobal(topn=n) -> distribute -> aggLocal(topn=n)
+ *     topn(n) -> aggGlobal(topNInfo) -> distribute -> aggLocal(topNInfo)
  *  Pattern 1-phase agg:
- *     topn->agg->Any(not agg) -> topn -> agg(topn=n) -> any
- *
- *  LIMIT:
- *  Pattern 1: limit->agg(1phase)->any
- *  Pattern 2: limit->agg(global)->gather->agg(local)
+ *     topn->agg->Any(not agg) -> topn -> agg(topNInfo) -> any
+
  */
 public class PushTopnToAgg extends PlanPostProcessor {
     @Override
@@ -81,9 +76,8 @@ public class PushTopnToAgg extends PlanPostProcessor {
         }
         if (topnChild instanceof PhysicalHashAggregate) {
             PhysicalHashAggregate<? extends Plan> upperAgg = (PhysicalHashAggregate<? extends Plan>) topnChild;
-            List<OrderKey> orderKeys = tryGenerateOrderKeyByGroupKeyAndTopnKey(topN, upperAgg);
+            List<OrderKey> orderKeys = generateOrderKeyByGroupKeyAndTopNKey(topN, upperAgg);
             if (!orderKeys.isEmpty()) {
-
                 if (upperAgg.getAggPhase().isGlobal() && upperAgg.getAggMode() == AggMode.BUFFER_TO_RESULT) {
                     upperAgg.setTopnPushInfo(new TopnPushInfo(
                             orderKeys,
@@ -107,27 +101,21 @@ public class PushTopnToAgg extends PlanPostProcessor {
         return topN;
     }
 
-    /**
-     return true, if topn order-key is prefix of agg group-key, ignore asc/desc and null_first
-     TODO order-key can be subset of group-key. BE does not support now.
-     */
-    private List<OrderKey> tryGenerateOrderKeyByGroupKeyAndTopnKey(PhysicalTopN<? extends Plan> topN,
-            PhysicalHashAggregate<? extends Plan> agg) {
+    private List<OrderKey> generateOrderKeyByGroupKeyAndTopNKey(PhysicalTopN<? extends Plan> topN,
+                                                                PhysicalHashAggregate<? extends Plan> agg) {
         List<OrderKey> orderKeys = Lists.newArrayListWithCapacity(agg.getGroupByExpressions().size());
-        if (topN.getOrderKeys().size() > agg.getGroupByExpressions().size()) {
-            return orderKeys;
+        if (topN.getOrderKeys().size() < agg.getGroupByExpressions().size()) {
+            return Lists.newArrayList();
         }
-        List<Expression> topnKeys = topN.getOrderKeys().stream()
-                .map(OrderKey::getExpr).collect(Collectors.toList());
-        for (int i = 0; i < topN.getOrderKeys().size(); i++) {
-            // prefix check
-            if (!topnKeys.get(i).equals(agg.getGroupByExpressions().get(i))) {
-                return Lists.newArrayList();
+        for (int i = 0; i < agg.getGroupByExpressions().size(); i++) {
+            Expression groupByKey = agg.getGroupByExpressions().get(i);
+            Expression orderKey = topN.getOrderKeys().get(i).getExpr();
+            if (groupByKey.equals(orderKey)) {
+                orderKeys.add(topN.getOrderKeys().get(i));
+            } else {
+                orderKeys.clear();
+                break;
             }
-            orderKeys.add(topN.getOrderKeys().get(i));
-        }
-        for (int i = topN.getOrderKeys().size(); i < agg.getGroupByExpressions().size(); i++) {
-            orderKeys.add(new OrderKey(agg.getGroupByExpressions().get(i), true, false));
         }
         return orderKeys;
     }
