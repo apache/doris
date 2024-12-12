@@ -139,6 +139,7 @@ github:
         strict: false
         contexts:
           - License Check
+          - CheckStyle
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
