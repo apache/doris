@@ -41,7 +41,6 @@ RUN_DAEMON=0
 RUN_CONSOLE=0
 RUN_VERSION=0
 RUN_BENCHMARK=0
-RUN_SKIP_CHECK_ULIMIT=0
 
 while true; do
     case "$1" in
@@ -183,7 +182,9 @@ if [[ "${RUN_VERSION}" -eq 1 ]]; then
     exit 0
 fi
 
-if [[ "${SKIP_CHECK_ULIMIT}" != "true" ]]; then
+IS_SKIP_CHECK_ULIMIT=${SKIP_CHECK_ULIMIT}
+
+if [[ "${IS_SKIP_CHECK_ULIMIT}" != "true" ]]; then
     if [[ "$(uname -s)" != 'Darwin' ]]; then
         MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
         if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
