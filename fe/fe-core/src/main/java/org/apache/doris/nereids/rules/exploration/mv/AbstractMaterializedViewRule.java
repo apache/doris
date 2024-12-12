@@ -42,6 +42,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -137,6 +138,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         rewrittenPlans.addAll(doRewrite(queryStructInfo, cascadesContext, context));
                     }
                 } catch (Exception exception) {
+                    LOG.warn("Materialized view rule exec fail", exception);
                     context.recordFailReason(queryStructInfo,
                             "Materialized view rule exec fail", exception::toString);
                 }
@@ -608,8 +610,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 // if contains any slot to rewrite, which means can not be rewritten by target,
                 // expressionShuttledToRewrite is slot#0 > '2024-01-01' but mv plan output is date_trunc(slot#0, 'day')
                 // which would try to rewrite
+                if (viewExprParamToDateTruncMap.isEmpty()
+                        || expressionShuttledToRewrite.children().isEmpty()
+                        || !(expressionShuttledToRewrite instanceof ComparisonPredicate)) {
+                    // view doesn't have date_trunc, or
+                    // expressionShuttledToRewrite is not ComparisonPredicate, bail out
+                    return ImmutableList.of();
+                }
                 Expression queryShuttledExprParam = expressionShuttledToRewrite.child(0);
-
                 Expression queryOriginalExpr = sourceExpressionsToWrite.get(exprIndex);
                 if (!queryExprToInfoMap.containsKey(queryOriginalExpr)
                         || !viewExprParamToDateTruncMap.containsKey(queryShuttledExprParam)) {
