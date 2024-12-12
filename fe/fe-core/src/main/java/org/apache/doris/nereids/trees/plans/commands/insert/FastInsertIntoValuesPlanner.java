@@ -42,10 +42,9 @@ import java.util.concurrent.atomic.AtomicReference;
 public class FastInsertIntoValuesPlanner extends NereidsPlanner {
     private static final Rule toPhysicalOlapTableSink = new LogicalOlapTableSinkToPhysicalOlapTableSink()
             .build();
-    private final AtomicReference<Group> rootGroupRef = new AtomicReference<>();
-
     protected final boolean fastInsertIntoValues;
     protected final boolean batchInsert;
+    private final AtomicReference<Group> rootGroupRef = new AtomicReference<>();
 
     public FastInsertIntoValuesPlanner(StatementContext statementContext, boolean fastInsertIntoValues) {
         this(statementContext, fastInsertIntoValues, false);
