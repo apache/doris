@@ -1639,6 +1639,15 @@ public class Config extends ConfigBase {
     public static boolean ignore_backup_not_support_table_type = false;
 
     /**
+     * whether to ignore temp partitions when backup, and not report exception.
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "是否忽略备份临时分区，不报异常",
+        "Whether to ignore temp partitions when backup, and not report exception."
+    })
+    public static boolean ignore_backup_tmp_partitions = false;
+
+    /**
      * A internal config, to control the update interval of backup handler. Only used to speed up tests.
      */
     @ConfField(mutable = false)
@@ -2949,6 +2958,12 @@ public class Config extends ConfigBase {
                 + "0 means not trigger."
     })
     public static long auto_analyze_interval_seconds = 86400; // 24 hours.
+
+    // A internal config to control whether to enable the checkpoint.
+    //
+    // ATTN: it only used in test environment.
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_checkpoint = true;
 
     //==========================================================================
     //                    begin of cloud config
