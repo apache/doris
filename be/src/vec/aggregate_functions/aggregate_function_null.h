@@ -322,7 +322,7 @@ public:
         if (!f) {
             return nullptr;
         }
-        return new AggregateFunctionNullUnaryInline<
+        return new AggregateFunctionNullVariadicInline<
                 typename FunctionStableTransfer<NestFuction>::FunctionStable, result_is_nullable>(
                 f, IAggregateFunction::argument_types);
     }
