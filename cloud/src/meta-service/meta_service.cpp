@@ -2209,7 +2209,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                                   tablet_idx.partition_id(), tablet_idx.tablet_id()});
         std::string stats_val;
         TxnErrorCode err = txn->get(stats_key, &stats_val);
-        TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_update_lock.get_compaction_cnts_inject_error", &err);
+        TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_update_lock.get_compaction_cnts_inject_error",
+                                 &err);
         if (err == TxnErrorCode::TXN_TOO_OLD) {
             code = MetaServiceCode::OK;
             err = txn_kv_->create_txn(&txn);
