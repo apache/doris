@@ -1292,7 +1292,7 @@ DECLARE_mInt32(tablet_schema_cache_capacity);
 DECLARE_mBool(exit_on_exception);
 
 // cgroup
-DECLARE_mString(doris_cgroup_cpu_path);
+DECLARE_String(doris_cgroup_cpu_path);
 DECLARE_mBool(enable_be_proc_monitor);
 DECLARE_mInt32(be_proc_monitor_interval_ms);
 DECLARE_Int32(workload_group_metrics_interval_ms);

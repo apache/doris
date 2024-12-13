@@ -111,6 +111,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
@@ -125,6 +126,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
@@ -300,6 +302,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowProcedureStatusCommand(ShowProcedureStatusCommand showProcedureStatusCommand, C context) {
         return visitCommand(showProcedureStatusCommand, context);
+    }
+
+    default R visitShowWarningErrorsCommand(ShowWarningErrorsCommand showWarningErrorsCommand, C context) {
+        return visitCommand(showWarningErrorsCommand, context);
     }
 
     default R visitShowCreateProcedureCommand(ShowCreateProcedureCommand showCreateProcedureCommand, C context) {
@@ -625,5 +631,10 @@ public interface CommandVisitor<R, C> {
     default R visitShowTabletStorageFormatCommand(ShowTabletStorageFormatCommand showTabletStorageFormatCommand,
                                                   C context) {
         return visitCommand(showTabletStorageFormatCommand, context);
+    }
+
+    default R visitShowQueryProfileCommand(ShowQueryProfileCommand showQueryProfileCommand,
+                                           C context) {
+        return visitCommand(showQueryProfileCommand, context);
     }
 }

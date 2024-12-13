@@ -239,18 +239,18 @@ BlockSerializer::BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool 
         : _parent(parent), _is_local(is_local), _batch_size(parent->state()->batch_size()) {}
 
 Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t num_receivers,
-                                              bool* serialized, bool eos,
-                                              const std::vector<uint32_t>* rows) {
+                                              bool* serialized, bool eos, const uint32_t* data,
+                                              const uint32_t offset, const uint32_t size) {
     if (_mutable_block == nullptr) {
         _mutable_block = MutableBlock::create_unique(block->clone_empty());
     }
 
     {
         SCOPED_TIMER(_parent->merge_block_timer());
-        if (rows) {
-            if (!rows->empty()) {
-                const auto* begin = rows->data();
-                RETURN_IF_ERROR(_mutable_block->add_rows(block, begin, begin + rows->size()));
+        if (data) {
+            if (size > 0) {
+                RETURN_IF_ERROR(
+                        _mutable_block->add_rows(block, data + offset, data + offset + size));
             }
         } else if (!block->empty()) {
             RETURN_IF_ERROR(_mutable_block->merge(*block));

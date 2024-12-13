@@ -255,7 +255,8 @@ supportedShowStatement
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
-        ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
+        ON tableName=multipartIdentifier                                            #showCreateMaterializedView  
+    | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWarningErrors
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers    
@@ -271,6 +272,7 @@ supportedShowStatement
     | SHOW TABLE CREATION ((FROM | IN) database=multipartIdentifier)?
         (LIKE STRING_LITERAL)?                                                      #showTableCreation
     | SHOW TABLET STORAGE FORMAT VERBOSE?                                           #showTabletStorageFormat
+    | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL                                 #showQueryProfile
     ;
 
 supportedLoadStatement
@@ -327,7 +329,6 @@ unsupportedShowStatement
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
     | SHOW ((CHAR SET) | CHARSET) wildWhere?                                        #showCharset
     | SHOW COUNT LEFT_PAREN ASTERISK RIGHT_PAREN (WARNINGS | ERRORS)                #showWaringErrorCount
-    | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWaringErrors
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
         wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW STREAM? LOAD ((FROM | IN) database=multipartIdentifier)? wildWhere?
@@ -359,7 +360,6 @@ unsupportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
-    | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL                                 #showQueryProfile
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
     | SHOW CATALOG RECYCLE BIN wildWhere?                                           #showCatalogRecycleBin
