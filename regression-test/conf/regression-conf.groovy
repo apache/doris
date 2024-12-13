@@ -211,6 +211,8 @@ extMinioHost = "***.**.**.**"
 extMinioPort = 9000
 extMinioAk = "minioadmin"
 extMinioSk = "minioadmin"
+extMinioRegion = "us-east-1"
+extMinioBucket = "test-bucket"
 
 enableExternalHudiTest = false
 hudiEmrCatalog = "***********"
