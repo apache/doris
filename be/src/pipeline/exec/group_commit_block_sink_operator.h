@@ -24,7 +24,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 class OlapTableBlockConvertor;
-}
+} // namespace doris::vectorized
 
 namespace doris::pipeline {
 
