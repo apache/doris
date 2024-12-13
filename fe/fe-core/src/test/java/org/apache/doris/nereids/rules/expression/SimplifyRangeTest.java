@@ -284,51 +284,51 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
             bottomUp(SimplifyRange.INSTANCE)
         ));
-//        assertRewrite("CA", "CA");
-//        assertRewrite(
-//                "(CA >= timestamp '2024-01-01 00:00:00' and CA <= timestamp '2024-01-03 00:00:00') or (CA > timestamp '2024-01-05 00:00:00' and CA < timestamp '2024-01-07 00:00:00')",
-//                "(CA >= timestamp '2024-01-01 00:00:00' and CA <= timestamp '2024-01-03 00:00:00') or (CA > timestamp '2024-01-05 00:00:00' and CA < timestamp '2024-01-07 00:00:00')");
-//        assertRewriteNotNull(
-//                "(CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 00:00:10') or (CA > timestamp '2024-01-07 00:00:10'and CA < timestamp '2024-01-05 00:00:10')",
-//                "FALSE");
-//        assertRewrite(
-//                "(CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 00:00:10') or (CA > timestamp '2024-01-07 00:00:10'and CA < timestamp '2024-01-05 00:00:10')",
-//                "CA is null and null");
-//        assertRewriteNotNull("CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 01:00:00'", "FALSE");
-//        assertRewrite("CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 01:00:00'", "CA is null and null");
-//        assertRewrite("CA >= timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-01 00:00:10'",
-//                "CA >= timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-01 00:00:10'");
-//        assertRewriteNotNull("CA = timestamp '2024-01-01 10:00:10' and CA > timestamp '2024-01-10 00:00:10'", "FALSE");
-//        assertRewrite("CA = timestamp '2024-01-01 10:00:10' and CA > timestamp '2024-01-10 00:00:10'", "CA is null and null");
-//        assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-01 00:00:10'",
-//                "CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-01 00:00:10'");
-//        assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA > timestamp '2024-01-01 00:00:10' or CA > timestamp '2024-01-10 00:00:10'",
-//                "CA > timestamp '2024-01-01 00:00:10'");
-//        assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA > timestamp '2024-01-01 00:00:10' or CA < timestamp '2024-01-10 00:00:10'", "CA is not null or null");
-//        assertRewriteNotNull("CA > timestamp '2024-01-05 00:00:10' or CA > timestamp '2024-01-01 00:00:10' or CA < timestamp '2024-01-10 00:00:10'", "TRUE");
-//        assertRewrite("CA > timestamp '2024-01-05 00:00:10' and CA > timestamp '2024-01-01 00:00:10' and CA > timestamp '2024-01-10 00:00:15'",
-//                "CA > timestamp '2024-01-10 00:00:15'");
-//        assertRewrite("CA > timestamp '2024-01-05 00:00:10' and CA > timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-10 00:00:10'",
-//                "CA > timestamp '2024-01-05 00:00:10' and CA < timestamp '2024-01-10 00:00:10'");
-//        assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-05 00:00:10'",
-//                "CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-05 00:00:10'");
-//        assertRewrite("CA > timestamp '2024-01-01 00:02:10' or CA < timestamp '2024-01-10 00:02:10'", "CA is not null or null");
-//        assertRewriteNotNull("CA > timestamp '2024-01-01 00:00:00' or CA < timestamp '2024-01-10 00:00:00'", "TRUE");
-//        assertRewrite("CA > timestamp '2024-01-05 01:00:00' and CA < timestamp '2024-01-10 01:00:00'",
-//                "CA > timestamp '2024-01-05 01:00:00' and CA < timestamp '2024-01-10 01:00:00'");
-//        assertRewrite("CA > timestamp '2024-01-05 01:00:00' and CA > timestamp '2024-01-10 01:00:00'", "CA > timestamp '2024-01-10 01:00:00'");
-//        assertRewrite("(CA > timestamp '2024-01-01 01:00:00' and CA > timestamp '2024-01-10 01:00:00') or CA > timestamp '2024-01-20 01:00:00'",
-//                "CA > timestamp '2024-01-10 01:00:00'");
-//        assertRewrite("(CA > timestamp '2024-01-01 01:00:00' or CA > timestamp '2024-01-10 01:00:00') and CA > timestamp '2024-01-20 01:00:00'",
-//                "CA > timestamp '2024-01-20 01:00:00'");
-//        assertRewrite("CA > timestamp '2024-01-05 01:00:00' or CA > timestamp '2024-01-05 01:00:00'", "CA > timestamp '2024-01-05 01:00:00'");
-//        assertRewrite(
-//                "(CA > timestamp '2024-01-10 01:00:00' or CA > timestamp '2024-01-20 01:00:00') and (CB > timestamp '2024-01-10 01:00:00' and CB < timestamp '2024-01-20 01:00:00')",
-//                "CA > timestamp '2024-01-10 01:00:00' and (CB > timestamp '2024-01-10 01:00:00' and CB < timestamp '2024-01-20 01:00:00') ");
-//        assertRewriteNotNull("CA in (timestamp '2024-01-01 01:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 03:00:00') and CA > timestamp '2024-01-10 01:00:00'",
-//                "FALSE");
-//        assertRewrite("CA in (timestamp '2024-01-01 01:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 03:00:00') and CA > timestamp '2024-01-10 01:00:00'",
-//                "CA is null and null");
+        assertRewrite("CA", "CA");
+        assertRewrite(
+                "(CA >= timestamp '2024-01-01 00:00:00' and CA <= timestamp '2024-01-03 00:00:00') or (CA > timestamp '2024-01-05 00:00:00' and CA < timestamp '2024-01-07 00:00:00')",
+                "(CA >= timestamp '2024-01-01 00:00:00' and CA <= timestamp '2024-01-03 00:00:00') or (CA > timestamp '2024-01-05 00:00:00' and CA < timestamp '2024-01-07 00:00:00')");
+        assertRewriteNotNull(
+                "(CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 00:00:10') or (CA > timestamp '2024-01-07 00:00:10'and CA < timestamp '2024-01-05 00:00:10')",
+                "FALSE");
+        assertRewrite(
+                "(CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 00:00:10') or (CA > timestamp '2024-01-07 00:00:10'and CA < timestamp '2024-01-05 00:00:10')",
+                "CA is null and null");
+        assertRewriteNotNull("CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 01:00:00'", "FALSE");
+        assertRewrite("CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 01:00:00'", "CA is null and null");
+        assertRewrite("CA >= timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-01 00:00:10'",
+                "CA >= timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-01 00:00:10'");
+        assertRewriteNotNull("CA = timestamp '2024-01-01 10:00:10' and CA > timestamp '2024-01-10 00:00:10'", "FALSE");
+        assertRewrite("CA = timestamp '2024-01-01 10:00:10' and CA > timestamp '2024-01-10 00:00:10'", "CA is null and null");
+        assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-01 00:00:10'",
+                "CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-01 00:00:10'");
+        assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA > timestamp '2024-01-01 00:00:10' or CA > timestamp '2024-01-10 00:00:10'",
+                "CA > timestamp '2024-01-01 00:00:10'");
+        assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA > timestamp '2024-01-01 00:00:10' or CA < timestamp '2024-01-10 00:00:10'", "CA is not null or null");
+        assertRewriteNotNull("CA > timestamp '2024-01-05 00:00:10' or CA > timestamp '2024-01-01 00:00:10' or CA < timestamp '2024-01-10 00:00:10'", "TRUE");
+        assertRewrite("CA > timestamp '2024-01-05 00:00:10' and CA > timestamp '2024-01-01 00:00:10' and CA > timestamp '2024-01-10 00:00:15'",
+                "CA > timestamp '2024-01-10 00:00:15'");
+        assertRewrite("CA > timestamp '2024-01-05 00:00:10' and CA > timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-10 00:00:10'",
+                "CA > timestamp '2024-01-05 00:00:10' and CA < timestamp '2024-01-10 00:00:10'");
+        assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-05 00:00:10'",
+                "CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-05 00:00:10'");
+        assertRewrite("CA > timestamp '2024-01-01 00:02:10' or CA < timestamp '2024-01-10 00:02:10'", "CA is not null or null");
+        assertRewriteNotNull("CA > timestamp '2024-01-01 00:00:00' or CA < timestamp '2024-01-10 00:00:00'", "TRUE");
+        assertRewrite("CA > timestamp '2024-01-05 01:00:00' and CA < timestamp '2024-01-10 01:00:00'",
+                "CA > timestamp '2024-01-05 01:00:00' and CA < timestamp '2024-01-10 01:00:00'");
+        assertRewrite("CA > timestamp '2024-01-05 01:00:00' and CA > timestamp '2024-01-10 01:00:00'", "CA > timestamp '2024-01-10 01:00:00'");
+        assertRewrite("(CA > timestamp '2024-01-01 01:00:00' and CA > timestamp '2024-01-10 01:00:00') or CA > timestamp '2024-01-20 01:00:00'",
+                "CA > timestamp '2024-01-10 01:00:00'");
+        assertRewrite("(CA > timestamp '2024-01-01 01:00:00' or CA > timestamp '2024-01-10 01:00:00') and CA > timestamp '2024-01-20 01:00:00'",
+                "CA > timestamp '2024-01-20 01:00:00'");
+        assertRewrite("CA > timestamp '2024-01-05 01:00:00' or CA > timestamp '2024-01-05 01:00:00'", "CA > timestamp '2024-01-05 01:00:00'");
+        assertRewrite(
+                "(CA > timestamp '2024-01-10 01:00:00' or CA > timestamp '2024-01-20 01:00:00') and (CB > timestamp '2024-01-10 01:00:00' and CB < timestamp '2024-01-20 01:00:00')",
+                "CA > timestamp '2024-01-10 01:00:00' and (CB > timestamp '2024-01-10 01:00:00' and CB < timestamp '2024-01-20 01:00:00') ");
+        assertRewriteNotNull("CA in (timestamp '2024-01-01 01:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 03:00:00') and CA > timestamp '2024-01-10 01:00:00'",
+                "FALSE");
+        assertRewrite("CA in (timestamp '2024-01-01 01:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 03:00:00') and CA > timestamp '2024-01-10 01:00:00'",
+                "CA is null and null");
         assertRewrite("CA in (timestamp '2024-01-01 01:00:00',timestamp '2024-01-02 01:50:00',timestamp '2024-01-03 02:00:00') and CA >= timestamp '2024-01-01'",
                 "CA in (timestamp '2024-01-01 01:00:00',timestamp '2024-01-02 01:50:00',timestamp '2024-01-03 02:00:00')");
         assertRewrite("CA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') and CA > timestamp '2024-01-01 02:10:00'",
