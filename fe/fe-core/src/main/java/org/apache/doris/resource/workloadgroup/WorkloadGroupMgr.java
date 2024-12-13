@@ -49,7 +49,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -62,6 +61,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -379,40 +379,62 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     //  when create/alter workload group with same tag.
     //  when oldWg is null it means caller is an alter stmt.
     private void checkGlobalUnlock(WorkloadGroup newWg, WorkloadGroup oldWg) throws DdlException {
-        String wgTag = newWg.getTag();
-        double sumOfAllMemLimit = 0;
-        int sumOfAllCpuHardLimit = 0;
-        for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
-            WorkloadGroup wg = entry.getValue();
-            if (!StringUtils.equals(wgTag, wg.getTag())) {
-                continue;
-            }
-
-            if (oldWg != null && entry.getKey() == oldWg.getId()) {
-                continue;
-            }
-
-            if (wg.getCpuHardLimit() > 0) {
-                sumOfAllCpuHardLimit += wg.getCpuHardLimit();
-            }
-            if (wg.getMemoryLimitPercent() > 0) {
-                sumOfAllMemLimit += wg.getMemoryLimitPercent();
-            }
+        Optional<Set<String>> newWgTag = newWg.getTag();
+        Set<String> newWgTagSet = null;
+        if (newWgTag.isPresent()) {
+            newWgTagSet = newWgTag.get();
+        } else {
+            newWgTagSet = new HashSet<>();
+            newWgTagSet.add(null);
         }
 
-        sumOfAllMemLimit += newWg.getMemoryLimitPercent();
-        sumOfAllCpuHardLimit += newWg.getCpuHardLimit();
+        for (String newWgOneTag : newWgTagSet) {
+            double sumOfAllMemLimit = 0;
+            int sumOfAllCpuHardLimit = 0;
 
-        if (sumOfAllMemLimit > 100.0 + 1e-6) {
-            throw new DdlException(
-                    "The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT + " within tag " + wgTag
-                            + " cannot be greater than 100.0%.");
-        }
+            // 1 get sum value of all wg which has same tag without current wg
+            for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
+                WorkloadGroup wg = entry.getValue();
+                Optional<Set<String>> wgTag = wg.getTag();
 
-        if (sumOfAllCpuHardLimit > 100) {
-            throw new DdlException(
-                    "sum of all workload group " + WorkloadGroup.CPU_HARD_LIMIT + " within tag "
-                            + wgTag + " can not be greater than 100% ");
+                if (oldWg != null && entry.getKey() == oldWg.getId()) {
+                    continue;
+                }
+
+                if (newWgOneTag == null) {
+                    if (wgTag.isPresent()) {
+                        continue;
+                    }
+                } else if (!wgTag.isPresent() || (!wgTag.get().contains(newWgOneTag))) {
+                    continue;
+                }
+
+                if (wg.getCpuHardLimitWhenCalSum() > 0) {
+                    sumOfAllCpuHardLimit += wg.getCpuHardLimitWhenCalSum();
+                }
+                if (wg.getMemoryLimitPercentWhenCalSum() > 0) {
+                    sumOfAllMemLimit += wg.getMemoryLimitPercentWhenCalSum();
+                }
+            }
+
+            // 2 sum current wg value
+            sumOfAllMemLimit += newWg.getMemoryLimitPercentWhenCalSum();
+            sumOfAllCpuHardLimit += newWg.getCpuHardLimitWhenCalSum();
+
+            // 3 check total sum
+            if (sumOfAllMemLimit > 100.0 + 1e-6) {
+                throw new DdlException(
+                        "The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT + " within tag " + (
+                                newWgTag.isPresent() ? newWgTag.get() : "")
+                                + " cannot be greater than 100.0%. current sum val:" + sumOfAllMemLimit);
+            }
+
+            if (sumOfAllCpuHardLimit > 100) {
+                throw new DdlException(
+                        "sum of all workload group " + WorkloadGroup.CPU_HARD_LIMIT + " within tag " + (
+                                newWgTag.isPresent()
+                                        ? newWgTag.get() : "") + " can not be greater than 100% ");
+            }
         }
     }
 
