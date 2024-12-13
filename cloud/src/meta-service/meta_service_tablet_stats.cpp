@@ -169,7 +169,6 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
                                TabletStatsPB& stats, bool snapshot) {
     TabletStats detached_stats;
     internal_get_tablet_stats(code, msg, txn, instance_id, idx, stats, detached_stats, snapshot);
-    TEST_SYNC_POINT_CALLBACK("internal_get_tablet_stats.inject_error", &code, &msg);
     merge_tablet_stats(stats, detached_stats);
 }
 
