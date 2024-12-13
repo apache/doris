@@ -113,7 +113,7 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
         auto* _opaque = static_cast<std::string*>(opaque);
         _opaque->append(buf);
     };
-    jemalloc_stats_print(write_cb, &tmp, "a");
+    malloc_stats_print(write_cb, &tmp, "a");
     boost::replace_all(tmp, "\n", "<br>");
     (*output) << tmp << "</pre>";
 #else
