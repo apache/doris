@@ -105,7 +105,7 @@ suite("test_schema_change_storge_format", "p0") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    tablets = sql_return_maparray """ show tablets from ${table_name}; """
+    def tablets = sql_return_maparray """ show tablets from ${table_name}; """
     String tablet_id = tablets[0].TabletId
     String backend_id = tablets[0].BackendId
     String ip = backendId_to_backendIP.get(backend_id)

@@ -205,7 +205,7 @@ suite("test_index_match_select", "inverted_index_select"){
         }
 
         // cas2.2 test varchar standard match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
+        for (int test_times = 0; test_times < 5; test_times++) {
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any 'zhang yi' order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_all "zhang yi" order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any '"zhang yi"' order by name """
@@ -215,7 +215,7 @@ suite("test_index_match_select", "inverted_index_select"){
         }
 
         // case3: test char standard match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
+        for (int test_times = 0; test_times < 5; test_times++) {
             qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_any 'tall:100cm, weight: 30kg, hobbies:' order by name """
             qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_all "tall:100cm, weight: 30kg, hobbies:" order by name """
             qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_any '"tall:100cm, weight: 30kg, hobbies:"' order by name """
@@ -225,7 +225,7 @@ suite("test_index_match_select", "inverted_index_select"){
         }
 
         // case4: test string simple match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
+        for (int test_times = 0; test_times < 5; test_times++) {
             qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_all 'A naughty boy' order by name """
             qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_any "A naughty boy" order by name """
             qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_any '"A naughty boy"' order by name """
@@ -234,7 +234,7 @@ suite("test_index_match_select", "inverted_index_select"){
         }
 
         // case5: test text standard match same term with different way and repeate 5 times
-        for (test_times = 0; test_times < 5; test_times++) {
+        for (int test_times = 0; test_times < 5; test_times++) {
             qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_all 'i just want go outside' order by name """
             qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_any "i just want go outside" order by name """
             qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_all '"i just want go outside"' order by name """

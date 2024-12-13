@@ -21,7 +21,7 @@ suite("topn_2pr_rule") {
 
     def create_table = { table_name, key_type="DUPLICATE" ->
         sql "DROP TABLE IF EXISTS ${table_name}"
-        value_type = "v string"
+        def value_type = "v string"
         if ("${key_type}" == "AGGREGATE") {
             value_type = "v string REPLACE_IF_NOT_NULL NULL" 
         }

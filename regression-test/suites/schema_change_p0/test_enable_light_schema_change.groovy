@@ -76,7 +76,7 @@ suite("test_enable_light_schema_change", "p0") {
 
     sql """ alter table ${tableName1} order by (k1, k2, k4, k3) """
 
-    max_try_num = 60
+    def max_try_num = 60
     while (max_try_num--) {
         String res = getJobState(tableName1)
         if (res == "FINISHED" || res == "CANCELLED") {

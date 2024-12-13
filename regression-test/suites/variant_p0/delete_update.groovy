@@ -72,19 +72,19 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     // delete & insert concurrently
     sql "set enable_unique_key_partial_update=true;"
     sql "sync"
-    t1 = Thread.startDaemon {
+    def t1 = Thread.startDaemon {
         for (int k = 1; k <= 60; k++) {
             int x = new Random().nextInt(61) % 10;
             sql """insert into ${table_name}(k,vs) values(${x}, '{"k${x}" : ${x}}'),(${x+1}, '{"k${x+1}" : ${x+1}}'),(${x+2}, '{"k${x+2}" : ${x+2}}'),(${x+3}, '{"k${x+3}" : ${x+3}}')"""
         } 
     }
-    t2 = Thread.startDaemon {
+    def t2 = Thread.startDaemon {
         for (int k = 1; k <= 60; k++) {
             int x = new Random().nextInt(61) % 10;
             sql """insert into ${table_name}(k,v) values(${x}, '{"k${x}" : ${x}}'),(${x+1}, '{"k${x+1}" : ${x+1}}'),(${x+2}, '{"k${x+2}" : ${x+2}}'),(${x+3}, '{"k${x+3}" : ${x+3}}')"""
         } 
     }
-    t3 = Thread.startDaemon {
+    def t3 = Thread.startDaemon {
         for (int k = 1; k <= 60; k++) {
             int x = new Random().nextInt(61) % 10;
             sql """insert into ${table_name}(k,v) values(${x}, '{"k${x}" : ${x}}'),(${x+1}, '{"k${x+1}" : ${x+1}}'),(${x+2}, '{"k${x+2}" : ${x+2}}'),(${x+3}, '{"k${x+3}" : ${x+3}}')"""

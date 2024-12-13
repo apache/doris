@@ -114,7 +114,7 @@ suite("test_mysql_load", "p0") {
     """
 
     sql "sync"
-    rowCount = sql "select count(1) from ${tableName}"
+    def rowCount = sql "select count(1) from ${tableName}"
     assertEquals(3, rowCount[0][0])
 
 

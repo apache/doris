@@ -51,7 +51,7 @@ suite("test_alter_uniq_null") {
 
     sql """alter table ${tableName} modify column `v2` INT NULL"""
     sleep(10)
-    max_try_num = 1000
+    def max_try_num = 1000
     while (max_try_num--) {
         String res = getJobState(tableName)
         if (res == "FINISHED" || res == "CANCELLED") {
