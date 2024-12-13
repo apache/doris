@@ -7,7 +7,6 @@ CREATE TABLE iceberg_add_partition (
 ) USING iceberg;
 INSERT INTO iceberg_add_partition VALUES(1, 'Alice', 30),(2, 'Bob', 25);
 ALTER TABLE iceberg_add_partition ADD PARTITION FIELD age;
-INSERT INTO iceberg_add_partition VALUES (3, 'Diana', 30, '456');
 ALTER TABLE iceberg_add_partition ADD COLUMNS address STRING;
 INSERT INTO iceberg_add_partition VALUES (4, 'Charlie', 45, '123 Street Name');
 ALTER TABLE iceberg_add_partition ADD PARTITION FIELD bucket(10, id);
@@ -70,7 +69,6 @@ CREATE TABLE iceberg_evolution_partition (
 ) USING iceberg;
 INSERT INTO iceberg_evolution_partition VALUES(1, 'Alice', 30),(2, 'Bob', 25);
 ALTER TABLE iceberg_evolution_partition ADD PARTITION FIELD age;
-INSERT INTO iceberg_evolution_partition VALUES (3, 'Diana', 30, '456');
 ALTER TABLE iceberg_evolution_partition ADD COLUMNS address STRING;
 INSERT INTO iceberg_evolution_partition VALUES (4, 'Charlie', 45, '123 Street Name');
 ALTER TABLE iceberg_evolution_partition ADD PARTITION FIELD bucket(10, id);
