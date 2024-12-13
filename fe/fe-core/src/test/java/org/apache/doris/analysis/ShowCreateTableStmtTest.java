@@ -32,7 +32,11 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
         createDatabase("test");
         useDatabase("test");
         createTable("create table table1\n"
-                + "(k1 int comment 'test column k1', k2 int comment 'test column k2', `timestamp` DATE NOT NULL COMMENT '[''0000-01-01'', ''9999-12-31'']')  comment 'test table1' "
+                + "(`k1` int comment 'test column k1', "
+                + "`k2` int comment 'test column k2', "
+                + "`k3` varchar NOT NULL DEFAULT \"xxx\\\"xxx\\\"\", "
+                + "`timestamp` DATE NOT NULL COMMENT '[''0000-01-01'', ''9999-12-31'']')\n"
+                + "comment 'test table1'"
                 + "PARTITION BY RANGE(`k1`)\n"
                 + "(\n"
                 + "    PARTITION `p01` VALUES LESS THAN (\"10\"),\n"
@@ -60,6 +64,14 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
         Assertions.assertTrue(showSql.contains("`k1` int NULL COMMENT \"test column k1\""));
         Assertions.assertTrue(showSql.contains("`k2` int NULL COMMENT \"test column k2\""));
         Assertions.assertTrue(showSql.contains("`timestamp` date NOT NULL COMMENT \"['0000-01-01', '9999-12-31']\""));
+    }
+
+    @Test
+    public void testColumnDefault() throws Exception {
+        String sql = "show create table table1";
+        ShowResultSet showResultSet = showCreateTable(sql);
+        String showSql = showResultSet.getResultRows().get(0).get(1);
+        Assertions.assertTrue(showSql.contains("`k3` varchar(65533) NOT NULL DEFAULT \"xxx\\\"xxx\\\"\""));
     }
 
     @Test
