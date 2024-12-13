@@ -27,21 +27,27 @@
 
 namespace doris::segment_v2 {
 
-Status InvertedIndexFileReader::init(int32_t read_buffer_size) {
+Status InvertedIndexFileReader::init(int32_t read_buffer_size, const io::IOContext* io_ctx) {
     if (!_inited) {
         _read_buffer_size = read_buffer_size;
         if (_storage_format >= InvertedIndexStorageFormatPB::V2) {
-            auto st = _init_from(read_buffer_size);
+            auto st = _init_from(read_buffer_size, io_ctx);
             if (!st.ok()) {
                 return st;
             }
         }
         _inited = true;
+    } else {
+        if (_storage_format == InvertedIndexStorageFormatPB::V2) {
+            if (_stream) {
+                _stream->setIoContext(io_ctx);
+            }
+        }
     }
     return Status::OK();
 }
 
-Status InvertedIndexFileReader::_init_from(int32_t read_buffer_size) {
+Status InvertedIndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext* io_ctx) {
     auto index_file_full_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
 
     std::unique_lock<std::shared_mutex> lock(_mutex); // Lock for writing
@@ -76,6 +82,7 @@ Status InvertedIndexFileReader::_init_from(int32_t read_buffer_size) {
                     err.what());
         }
         _stream = std::unique_ptr<CL_NS(store)::IndexInput>(index_input);
+        _stream->setIoContext(io_ctx);
 
         // 3. read file
         int32_t version = _stream->readInt(); // Read version number
