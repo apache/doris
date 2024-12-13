@@ -35,6 +35,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class ScannerDelegate;
 }
 
@@ -436,4 +437,5 @@ protected:
     std::vector<int> topn_filter_source_node_ids;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

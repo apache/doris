@@ -21,6 +21,7 @@
 #include "vec/sink/writer/vhive_table_writer.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class HiveTableSinkOperatorX;
 
@@ -83,4 +84,5 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline
