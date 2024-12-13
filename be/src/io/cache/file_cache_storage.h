@@ -52,7 +52,8 @@ public:
     // finalize the block
     virtual Status finalize(const FileCacheKey& key) = 0;
     // read the block
-    virtual Status read(const FileCacheKey& key, size_t value_offset, Slice result) = 0;
+    virtual Status read(const FileCacheKey& key, size_t value_offset, Slice result,
+                        const IOContext* io_ctx) = 0;
     // remove the block
     virtual Status remove(const FileCacheKey& key) = 0;
     // change the block meta

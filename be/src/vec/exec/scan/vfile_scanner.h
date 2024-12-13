@@ -95,6 +95,8 @@ protected:
     // and the current load is a flexible partial update
     bool _should_process_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
 
+    void _update_bytes_and_rows_read() override;
+
 protected:
     const TFileScanRangeParams* _params = nullptr;
     std::shared_ptr<vectorized::SplitSourceConnector> _split_source;

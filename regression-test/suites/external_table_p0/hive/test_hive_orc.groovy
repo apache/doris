@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
+
 suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_docker_hive") {
     // Ensure that all types are parsed correctly
     def select_top50 = {
@@ -98,6 +101,17 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         return;
     }
 
+    // test audit log
+    try {
+        sql "set global enable_audit_plugin = true"
+        sql "set global audit_plugin_max_batch_interval_sec = 2"
+    } catch (Exception e) {
+        log.warn("skip this case, because " + e.getMessage())
+        assertTrue(e.getMessage().toUpperCase().contains("ADMIN"))
+        return
+    }
+    
+    String uuid = UUID.randomUUID().toString();
     for (String hivePrefix : ["hive2", "hive3"]) {
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
@@ -121,6 +135,9 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             string_col_dict_plain_mixed()
             predicate_pushdown()
 
+            // this is for testing audit log
+            order_qt_audit_sql01 """select * from orc_decimal_table where decimal_col2="123456789123.000000" and "a" != "${uuid}";"""
+            
             sql """drop catalog if exists ${catalog_name}"""
 
             // test old create-catalog syntax for compatibility
@@ -132,9 +149,21 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             """
             sql """use `${catalog_name}`.`default`"""
             select_top50()
-            sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }
     }
+
+    // wait for audit log
+    Awaitility.await().atMost(10, TimeUnit.SECONDS).with().pollDelay(3000, TimeUnit.MILLISECONDS).await().until(() -> {
+        def result01 = sql """select * from internal.__internal_schema.audit_log where stmt like "%${uuid}%" and (local_scan_bytes > 0 or remote_scan_bytes > 0)"""
+        if (result01.size() >= 2) {
+            return true;
+        }
+        return false;
+    });
+
+    sql "set global enable_audit_plugin = false"
+    sql "set global audit_plugin_max_sql_length = 4096"
+    sql "set global audit_plugin_max_batch_interval_sec = 60"
 }
 

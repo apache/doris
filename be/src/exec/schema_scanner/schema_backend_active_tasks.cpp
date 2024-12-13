@@ -34,6 +34,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_
         {"TASK_CPU_TIME_MS", TYPE_BIGINT, sizeof(int64_t), false},
         {"SCAN_ROWS", TYPE_BIGINT, sizeof(int64_t), false},
         {"SCAN_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
+        {"LOCAL_SCAN_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
+        {"REMOTE_SCAN_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
         {"BE_PEAK_MEMORY_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
         {"CURRENT_USED_MEMORY_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
         {"SHUFFLE_SEND_BYTES", TYPE_BIGINT, sizeof(int64_t), false},

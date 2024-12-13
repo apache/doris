@@ -41,7 +41,7 @@ Status FileReader::read_at(size_t offset, Slice result, size_t* bytes_read,
 Result<FileReaderSPtr> create_cached_file_reader(FileReaderSPtr raw_reader,
                                                  const FileReaderOptions& opts) {
     switch (opts.cache_type) {
-    case io::FileCachePolicy::NO_CACHE:
+    case FileCachePolicy::NO_CACHE:
         return raw_reader;
     case FileCachePolicy::FILE_BLOCK_CACHE:
         return std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), opts);

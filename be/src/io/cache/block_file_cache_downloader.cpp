@@ -178,6 +178,9 @@ void FileCacheBlockDownloader::download_file_cache_block(
             }
         };
 
+        IOContext io_ctx;
+        io_ctx.is_index_data = meta.cache_type() == ::doris::FileCacheType::INDEX;
+        io_ctx.expiration_time = meta.expiration_time();
         DownloadFileMeta download_meta {
                 .path = storage_resource.value()->remote_segment_path(*find_it->second,
                                                                       meta.segment_id()),
@@ -186,11 +189,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
                 .offset = meta.offset(),
                 .download_size = meta.size(),
                 .file_system = storage_resource.value()->fs,
-                .ctx =
-                        {
-                                .is_index_data = meta.cache_type() == ::doris::FileCacheType::INDEX,
-                                .expiration_time = meta.expiration_time(),
-                        },
+                .ctx = io_ctx,
                 .download_done = std::move(download_done),
         };
         download_segment_file(download_meta);

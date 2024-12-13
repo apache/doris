@@ -88,6 +88,8 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     }
     // need to read index page
     OlapReaderStatistics tmp_stats;
+    io::IOContext ctx;
+    ctx.is_index_data = true;
     PageReadOptions opts {
             .use_page_cache = use_page_cache,
             .kept_in_memory = kept_in_memory,
@@ -97,7 +99,7 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
             // ordinal index page uses NO_COMPRESSION right now
             .codec = nullptr,
             .stats = &tmp_stats,
-            .io_ctx = io::IOContext {.is_index_data = true},
+            .io_ctx = ctx,
     };
 
     // read index page

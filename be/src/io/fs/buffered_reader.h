@@ -414,13 +414,11 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     enum class BufferStatus { RESET, PENDING, PREFETCHED, CLOSED };
 
     PrefetchBuffer(const PrefetchRange file_range, size_t buffer_size, size_t whole_buffer_size,
-                   io::FileReader* reader, const IOContext* io_ctx,
-                   std::function<void(PrefetchBuffer&)> sync_profile)
+                   io::FileReader* reader, std::function<void(PrefetchBuffer&)> sync_profile)
             : _file_range(file_range),
               _size(buffer_size),
               _whole_buffer_size(whole_buffer_size),
               _reader(reader),
-              _io_ctx(io_ctx),
               _buf(new char[buffer_size]),
               _sync_profile(std::move(sync_profile)) {}
 
@@ -431,7 +429,6 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
               _size(other._size),
               _whole_buffer_size(other._whole_buffer_size),
               _reader(other._reader),
-              _io_ctx(other._io_ctx),
               _buf(std::move(other._buf)),
               _sync_profile(std::move(other._sync_profile)) {}
 
@@ -447,7 +444,12 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     size_t _len {0};
     size_t _whole_buffer_size;
     io::FileReader* _reader = nullptr;
-    const IOContext* _io_ctx = nullptr;
+    // PrefetchBuffer is running in separate thread.
+    // MUST use self owned FileCacheStatistics and IOContext to avoid stack-use-after-scope error.
+    // And after reading finish, the caller should update the parent's
+    // FileCacheStatistics by using stats from this one.
+    FileCacheStatistics _owned_cache_stats;
+    IOContext _owned_io_ctx;
     std::unique_ptr<char[]> _buf;
     BufferStatus _buffer_status {BufferStatus::RESET};
     std::mutex _lock;
@@ -467,7 +469,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
 
     // @brief: reset the start offset of this buffer to offset
     // @param: the new start offset for this buffer
-    void reset_offset(size_t offset);
+    void reset_offset(size_t offset, const IOContext* io_ctx);
     // @brief: start to fetch the content between [_offset, _offset + _size)
     void prefetch_buffer();
     // @brief: used by BufferedReader to read the prefetched data
@@ -475,7 +477,8 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     // @param[buf] buffer to put the actual content
     // @param[buf_len] maximum len trying to read
     // @param[bytes_read] actual bytes read
-    Status read_buffer(size_t off, const char* buf, size_t buf_len, size_t* bytes_read);
+    Status read_buffer(size_t off, const char* buf, size_t buf_len, size_t* bytes_read,
+                       const IOContext* io_ctx);
     // @brief: shut down the buffer until the prior prefetching task is done
     void close();
     // @brief: to detect whether this buffer contains off
@@ -491,9 +494,9 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
 
     size_t merge_small_ranges(size_t off, int range_index) const;
 
-    void _collect_profile_at_runtime() override {}
-
     void _collect_profile_before_close() override;
+
+    void _update_and_reset_io_context(const IOContext* io_ctx);
 };
 
 constexpr int64_t s_max_pre_buffer_size = 4 * 1024 * 1024; // 4MB
@@ -516,8 +519,7 @@ constexpr int64_t s_max_pre_buffer_size = 4 * 1024 * 1024; // 4MB
 class PrefetchBufferedReader final : public io::FileReader {
 public:
     PrefetchBufferedReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
-                           PrefetchRange file_range, const IOContext* io_ctx = nullptr,
-                           int64_t buffer_size = -1L);
+                           PrefetchRange file_range, int64_t buffer_size = -1L);
     ~PrefetchBufferedReader() override;
 
     Status close() override;
@@ -554,14 +556,15 @@ private:
             int64_t cur_pos = position + i * s_max_pre_buffer_size;
             int cur_buf_pos = get_buffer_pos(cur_pos);
             // reset would do all the prefetch work
-            _pre_buffers[cur_buf_pos]->reset_offset(get_buffer_offset(cur_pos));
+            // reset all buffer is done only once when initializing,
+            // no need to pass IOContext.
+            _pre_buffers[cur_buf_pos]->reset_offset(get_buffer_offset(cur_pos), nullptr);
         }
     }
 
     io::FileReaderSPtr _reader;
     PrefetchRange _file_range;
     const std::vector<PrefetchRange>* _random_access_ranges = nullptr;
-    const IOContext* _io_ctx = nullptr;
     std::vector<std::shared_ptr<PrefetchBuffer>> _pre_buffers;
     int64_t _whole_pre_buffer_size;
     bool _initialized = false;

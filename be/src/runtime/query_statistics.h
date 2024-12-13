@@ -43,6 +43,8 @@ public:
             : scan_rows(0),
               scan_bytes(0),
               cpu_nanos(0),
+              _scan_bytes_from_local_storage(0),
+              _scan_bytes_from_remote_storage(0),
               returned_rows(0),
               max_peak_memory_bytes(0),
               current_used_memory_bytes(0),
