@@ -925,7 +925,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private void checkJobNameKey(String key, String keyFormat) {
-        if (key.isEmpty() || !key.equals(keyFormat)) {
+        if (key.isEmpty() || !key.equalsIgnoreCase(keyFormat)) {
             throw new ParseException(keyFormat + " should be: '" + keyFormat + "'");
         }
     }
