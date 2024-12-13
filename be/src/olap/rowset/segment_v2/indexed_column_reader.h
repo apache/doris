@@ -50,9 +50,12 @@ class EncodingInfo;
 class IndexedColumnReader : public MetadataAdder<IndexedColumnReader> {
 public:
     explicit IndexedColumnReader(io::FileReaderSPtr file_reader, const IndexedColumnMetaPB& meta)
-            : _file_reader(std::move(file_reader)), _meta(meta) {}
+            : _file_reader(std::move(file_reader)), _meta(meta) {
+        _ordinal_index_reader = std::make_unique<IndexPageReader>();
+        _value_index_reader = std::make_unique<IndexPageReader>();
+    }
 
-    ~IndexedColumnReader();
+    ~IndexedColumnReader() override;
 
     Status load(bool use_page_cache, bool kept_in_memory,
                 OlapReaderStatistics* index_load_stats = nullptr);
@@ -90,8 +93,8 @@ private:
     bool _has_index_page = false;
     // valid only when the column contains only one data page
     PagePointer _sole_data_page;
-    IndexPageReader _ordinal_index_reader;
-    IndexPageReader _value_index_reader;
+    std::unique_ptr<IndexPageReader> _ordinal_index_reader;
+    std::unique_ptr<IndexPageReader> _value_index_reader;
     PageHandle _ordinal_index_page_handle;
     PageHandle _value_index_page_handle;
 
@@ -108,8 +111,8 @@ public:
     explicit IndexedColumnIterator(const IndexedColumnReader* reader,
                                    OlapReaderStatistics* stats = nullptr)
             : _reader(reader),
-              _ordinal_iter(&reader->_ordinal_index_reader),
-              _value_iter(&reader->_value_index_reader),
+              _ordinal_iter(reader->_ordinal_index_reader.get()),
+              _value_iter(reader->_value_index_reader.get()),
               _stats(stats) {}
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.

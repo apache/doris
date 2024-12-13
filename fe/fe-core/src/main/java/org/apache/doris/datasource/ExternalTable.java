@@ -31,6 +31,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -240,6 +241,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
+    public long getIndexLength() {
+        return 0;
+    }
+
+    @Override
     public long getCreateTime() {
         return 0;
     }
@@ -312,8 +318,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      *
      * @return
      */
-    public Optional<SchemaCacheValue> initSchemaAndUpdateTime() {
+    public Optional<SchemaCacheValue> initSchemaAndUpdateTime(SchemaCacheKey key) {
         schemaUpdateTime = System.currentTimeMillis();
+        return initSchema(key);
+    }
+
+    public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         return initSchema();
     }
 
@@ -377,7 +387,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * @return
      */
     public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
-        if (!supportPartitionPruned()) {
+        if (!supportInternalPartitionPruned()) {
             return SelectedPartitions.NOT_PRUNED;
         }
         if (CollectionUtils.isEmpty(this.getPartitionColumns(snapshot))) {
@@ -410,11 +420,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     /**
-     * Does it support partition cpruned， If so, this method needs to be overridden in subclasses
+     * Does it support Internal partition pruned, If so, this method needs to be overridden in subclasses
+     * Internal partition pruned : Implement partition pruning logic without relying on external APIs.
      *
      * @return
      */
-    public boolean supportPartitionPruned() {
+    public boolean supportInternalPartitionPruned() {
         return false;
     }
 }

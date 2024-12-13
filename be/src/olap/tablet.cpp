@@ -512,6 +512,15 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset) {
     return Status::OK();
 }
 
+bool Tablet::rowset_exists_unlocked(const RowsetSharedPtr& rowset) {
+    if (auto it = _rs_version_map.find(rowset->version()); it == _rs_version_map.end()) {
+        return false;
+    } else if (rowset->rowset_id() != it->second->rowset_id()) {
+        return false;
+    }
+    return true;
+}
+
 Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                               std::vector<RowsetSharedPtr>& to_delete, bool check_delete) {
     // the compaction process allow to compact the single version, eg: version[4-4].
@@ -817,10 +826,13 @@ void Tablet::delete_expired_stale_rowset() {
         auto old_meta_size = _tablet_meta->all_stale_rs_metas().size();
 
         // do delete operation
+        std::vector<std::string> version_to_delete;
         auto to_delete_iter = stale_version_path_map.begin();
         while (to_delete_iter != stale_version_path_map.end()) {
             std::vector<TimestampedVersionSharedPtr>& to_delete_version =
                     to_delete_iter->second->timestamped_versions();
+            int64_t start_version = -1;
+            int64_t end_version = -1;
             for (auto& timestampedVersion : to_delete_version) {
                 auto it = _stale_rs_version_map.find(timestampedVersion->version());
                 if (it != _stale_rs_version_map.end()) {
@@ -841,10 +853,17 @@ void Tablet::delete_expired_stale_rowset() {
                                  << timestampedVersion->version().second
                                  << "] not find in stale rs version map";
                 }
+                if (start_version < 0) {
+                    start_version = timestampedVersion->version().first;
+                }
+                end_version = timestampedVersion->version().second;
                 _delete_stale_rowset_by_version(timestampedVersion->version());
             }
+            Version version(start_version, end_version);
+            version_to_delete.emplace_back(version.to_string());
             to_delete_iter++;
         }
+        _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue(version_to_delete);
 
         bool reconstructed = _reconstruct_version_tracker_if_necessary();
 
@@ -1692,6 +1711,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // tablet may not have cooldowned data, but the storage policy is set
         tablet_info->__set_cooldown_term(_cooldown_conf.term);
     }
+    tablet_info->__set_local_index_size(_tablet_meta->tablet_local_index_size());
+    tablet_info->__set_local_segment_size(_tablet_meta->tablet_local_segment_size());
+    tablet_info->__set_remote_index_size(_tablet_meta->tablet_remote_index_size());
+    tablet_info->__set_remote_segment_size(_tablet_meta->tablet_remote_segment_size());
 }
 
 void Tablet::report_error(const Status& st) {
@@ -1727,8 +1750,13 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         }
 
         if (!res.ok()) {
-            tablet->set_last_cumu_compaction_failure_time(UnixMillis());
             permits = 0;
+            // if we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
+            // no need to wait 5s.
+            if (!(res.msg() == "_last_delete_version.first not equal to -1") ||
+                config::enable_sleep_between_delete_cumu_compaction) {
+                tablet->set_last_cumu_compaction_failure_time(UnixMillis());
+            }
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 return Status::InternalError("prepare cumulative compaction with err: {}", res);
@@ -1736,6 +1764,12 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             // return OK if OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
+            LOG_INFO(
+                    "cumulative compaction meet delete rowset, increase cumu point without other "
+                    "operation.")
+                    .tag("tablet id:", tablet->tablet_id())
+                    .tag("after cumulative compaction, cumu point:",
+                         tablet->cumulative_layer_point());
             return Status::OK();
         }
     } else if (compaction_type == CompactionType::BASE_COMPACTION) {

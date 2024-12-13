@@ -32,6 +32,8 @@ suite("partition_key_minmax") {
 
         analyze table rangetable with sync;
     """
+    def columnStats = sql """show column cached stats rangetable"""
+    logger.info("rangetable cached stats: " + columnStats)
     explain {
         sql """memo plan
             select * from rangetable where a < 250;
@@ -55,6 +57,9 @@ suite("partition_key_minmax") {
 
     analyze table listtable with sync;
     """
+
+    columnStats = sql """show column cached stats listtable"""
+    logger.info("listtable cached stats: " + columnStats)
 
     explain {
         sql """

@@ -27,5 +27,6 @@ suite("test_show_commands_nereids") {
     checkNereidsExecute("""show whitelist;""")
     checkNereidsExecute("""show triggers;""")
     checkNereidsExecute("""show events;""")
-    checkNereidsExecute("""show load profile \"\\";""")
+    checkNereidsExecute("""show load profile "/";""")
+    checkNereidsExecute("""show query profile "/";""")
 }

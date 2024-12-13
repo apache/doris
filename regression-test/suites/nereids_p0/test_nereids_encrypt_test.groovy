@@ -20,9 +20,11 @@ suite("test_nereids_encrypt_test") {
     sql """ create database IF NOT EXISTS ${dbName}; """
     sql """ use ${dbName}; """
     checkNereidsExecute("drop encryptkey if exists ${encryptkeyName}")    
-    sql """CREATE ENCRYPTKEY ${encryptkeyName} AS "ABCD123456789";"""
+    checkNereidsExecute("""CREATE ENCRYPTKEY ${encryptkeyName} AS "ABCD123456789";""")
+    checkNereidsExecute("SHOW ENCRYPTKEYS FROM ${dbName}")
     qt_check_encrypt_1("SHOW ENCRYPTKEYS FROM ${dbName}")
     checkNereidsExecute("drop encryptkey ${encryptkeyName}")
+    checkNereidsExecute("SHOW ENCRYPTKEYS FROM ${dbName}")
     qt_check_encrypt_2("SHOW ENCRYPTKEYS FROM ${dbName}")    
     checkNereidsExecute("drop encryptkey if exists ${encryptkeyName}")
     qt_check_encrypt_3("SHOW ENCRYPTKEYS FROM ${dbName}")        

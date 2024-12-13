@@ -657,7 +657,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             fullNameToDb.put(db.getFullName(), db);
             idToDb.put(db.getId(), db);
             // log
-            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "");
+            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
             Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
             db.unmarkDropped();
         } finally {
@@ -1416,7 +1416,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     // we change it to tinyint nullable.
                     typeDef = TypeDef.create(PrimitiveType.TINYINT);
                 } else {
-                    typeDef = new TypeDef(resultExpr.getType());
+                    typeDef = new TypeDef(resultType);
                 }
                 if (i == 0) {
                     // If this is the first column, because olap table does not support the first column to be
@@ -2151,10 +2151,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             short shortKeyColumnCount = indexMeta.getShortKeyColumnCount();
             TStorageType storageType = indexMeta.getStorageType();
             List<Column> schema = indexMeta.getSchema();
-            List<Integer> clusterKeyIndexes = null;
+            List<Integer> clusterKeyUids = null;
             if (indexId == tbl.getBaseIndexId()) {
-                // only base and shadow index need cluster key indexes
-                clusterKeyIndexes = OlapTable.getClusterKeyIndexes(schema);
+                // only base and shadow index need cluster key unique column ids
+                clusterKeyUids = OlapTable.getClusterKeyUids(schema);
             }
             KeysType keysType = indexMeta.getKeysType();
             List<Index> indexes = indexId == tbl.getBaseIndexId() ? tbl.getCopiedIndexes() : null;
@@ -2188,10 +2188,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
-                    if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
-                        task.setClusterKeyIndexes(clusterKeyIndexes);
-                        LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key indexes: {}",
-                                tbl.getId(), partitionId, indexId, tabletId, clusterKeyIndexes);
+                    if (!CollectionUtils.isEmpty(clusterKeyUids)) {
+                        task.setClusterKeyUids(clusterKeyUids);
+                        LOG.info("table: {}, partition: {}, index: {}, tablet: {}, cluster key uids: {}",
+                                tbl.getId(), partitionId, indexId, tabletId, clusterKeyUids);
                     }
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.

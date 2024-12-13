@@ -30,6 +30,7 @@
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename ColVecType, bool arg_is_nullable>
 struct Value {
@@ -140,6 +141,8 @@ public:
     }
 
     bool has_set_value() { return _has_value; }
+
+    bool is_null() { return _data_value.is_null(); }
 
 protected:
     StoreType _data_value;
@@ -310,3 +313,4 @@ CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last_non_nul
 #undef CREATE_READER_FUNCTION_WITH_NAME_AND_DATA
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

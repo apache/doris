@@ -184,7 +184,6 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
         int64_t arena_memory_usage = hash_table_ctx.serialized_keys_size(false);
         COUNTER_SET(_parent->_probe_arena_memory_usage, arena_memory_usage);
         COUNTER_UPDATE(_parent->_memory_used_counter, arena_memory_usage);
-        COUNTER_SET(_parent->_peak_memory_usage_counter, _parent->_memory_used_counter->value());
     }
 
     return typename HashTableType::State(_parent->_probe_columns);

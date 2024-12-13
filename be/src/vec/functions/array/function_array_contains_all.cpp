@@ -231,8 +231,9 @@ private:
                         is_equal_value = false;
                     } else {
                         // all is not null, check the data is equal
-                        const auto* left_column = assert_cast<const T*>(left_data.nested_col);
-                        const auto* right_column = assert_cast<const T*>(right_data.nested_col);
+                        const auto* left_column = assert_cast<const T*>(left_data.nested_col.get());
+                        const auto* right_column =
+                                assert_cast<const T*>(right_data.nested_col.get());
                         auto res = left_column->compare_at(left_nested_loop_pos, right_pos,
                                                            *right_column, -1);
                         is_equal_value = (res == 0);

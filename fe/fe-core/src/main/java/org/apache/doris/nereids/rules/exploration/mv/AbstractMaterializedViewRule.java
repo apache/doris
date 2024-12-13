@@ -461,17 +461,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         // Collect the mv related base table partitions which query used
-        Map<BaseTableInfo, Set<Partition>> queryUsedBaseTablePartitions = new LinkedHashMap<>();
+        Map<BaseTableInfo, Set<String>> queryUsedBaseTablePartitions = new LinkedHashMap<>();
         queryUsedBaseTablePartitions.put(relatedPartitionTable, new HashSet<>());
         queryPlan.accept(new StructInfo.QueryScanPartitionsCollector(), queryUsedBaseTablePartitions);
         // Bail out, not check invalid partition if not olap scan, support later
         if (queryUsedBaseTablePartitions.isEmpty()) {
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
-        Set<String> queryUsedBaseTablePartitionNameSet = queryUsedBaseTablePartitions.get(relatedPartitionTable)
-                .stream()
-                .map(Partition::getName)
-                .collect(Collectors.toSet());
+        Set<String> queryUsedBaseTablePartitionNameSet = queryUsedBaseTablePartitions.get(relatedPartitionTable);
 
         Collection<Partition> mvValidPartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv,
                 cascadesContext.getConnectContext(), System.currentTimeMillis(), false);

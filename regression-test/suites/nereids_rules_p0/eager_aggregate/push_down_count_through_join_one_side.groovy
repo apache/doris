@@ -453,7 +453,6 @@ suite("push_down_count_through_join_one_side") {
     insert into dwd_tracking_sensor_init_tmp_ymd values(1, '2024-08-19', 'click'), (1, '2024-08-19', 'click');
     """
     sql """ 
-    set ENABLE_NEREIDS_RULES = "PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE";
     set disable_join_reorder=true;
     """
 

@@ -30,6 +30,7 @@
 #include "olap/rowset/rowset_meta.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class Tablet;
 struct Version;
@@ -44,7 +45,7 @@ public:
 
     virtual int64_t new_compaction_level(const std::vector<RowsetSharedPtr>& input_rowsets) = 0;
 
-    virtual int32_t pick_input_rowsets(CloudTablet* tablet,
+    virtual int64_t pick_input_rowsets(CloudTablet* tablet,
                                        const std::vector<RowsetSharedPtr>& candidate_rowsets,
                                        const int64_t max_compaction_score,
                                        const int64_t min_compaction_score,
@@ -71,7 +72,7 @@ public:
         return 0;
     }
 
-    int32_t pick_input_rowsets(CloudTablet* tablet,
+    int64_t pick_input_rowsets(CloudTablet* tablet,
                                const std::vector<RowsetSharedPtr>& candidate_rowsets,
                                const int64_t max_compaction_score,
                                const int64_t min_compaction_score,
@@ -106,7 +107,7 @@ public:
 
     int64_t new_compaction_level(const std::vector<RowsetSharedPtr>& input_rowsets) override;
 
-    int32_t pick_input_rowsets(CloudTablet* tablet,
+    int64_t pick_input_rowsets(CloudTablet* tablet,
                                const std::vector<RowsetSharedPtr>& candidate_rowsets,
                                const int64_t max_compaction_score,
                                const int64_t min_compaction_score,
@@ -115,4 +116,5 @@ public:
                                bool allow_delete = false) override;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

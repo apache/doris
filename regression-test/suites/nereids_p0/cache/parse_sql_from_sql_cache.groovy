@@ -151,7 +151,7 @@ suite("parse_sql_from_sql_cache") {
             assertNoCache "select * from test_use_plan_cache5"
         }),
         extraThread("testUpdate",{
-            createTestTable "test_use_plan_cache6", uniqueTable=true
+            createTestTable("test_use_plan_cache6", true)
 
             // after partition changed 10s, the sql cache can be used
             sleep(10000)
@@ -309,7 +309,7 @@ suite("parse_sql_from_sql_cache") {
 
 
             extraThread("test_cache_user1_thread", {
-                connect(user = "test_cache_user1", password="DORIS@2024") {
+                connect("test_cache_user1", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
@@ -345,7 +345,7 @@ suite("parse_sql_from_sql_cache") {
             sql "sync"
 
             extraThread("test_cache_user2_thread", {
-                connect(user = "test_cache_user2", password="DORIS@2024") {
+                connect("test_cache_user2", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
@@ -367,7 +367,7 @@ suite("parse_sql_from_sql_cache") {
 
             // after row policy changed, the cache is invalidate
             extraThread("test_cache_user2_thread2", {
-                connect(user = "test_cache_user2", password="DORIS@2024") {
+                connect("test_cache_user2", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
@@ -409,7 +409,7 @@ suite("parse_sql_from_sql_cache") {
             sleep(10000)
 
             extraThread("test_cache_user3_thread", {
-                connect(user = "test_cache_user3", password="DORIS@2024") {
+                connect("test_cache_user3", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
@@ -430,7 +430,7 @@ suite("parse_sql_from_sql_cache") {
 
             // after row policy changed, the cache is invalidate
             extraThread("test_cache_user3_thread2", {
-                connect(user = "test_cache_user3", password="DORIS@2024") {
+                connect("test_cache_user3", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
@@ -463,7 +463,7 @@ suite("parse_sql_from_sql_cache") {
             sql "sync"
 
             extraThread("test_cache_user4_thread", {
-                connect(user = "test_cache_user4", password="DORIS@2024") {
+                connect("test_cache_user4", "DORIS@2024") {
                     sql "use ${dbName}"
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
@@ -481,7 +481,7 @@ suite("parse_sql_from_sql_cache") {
 
             // after privileges changed, the cache is invalidate
             extraThread("test_cache_user4_thread2", {
-                connect(user = "test_cache_user4", password="DORIS@2024") {
+                connect("test_cache_user4", "DORIS@2024") {
                     sql "set enable_nereids_planner=true"
                     sql "set enable_fallback_to_original_planner=false"
                     sql "set enable_sql_cache=true"
@@ -638,7 +638,7 @@ suite("parse_sql_from_sql_cache") {
             def dbName = context.config.getDbNameByFile(context.file)
 
             log.info("connect to fe: ${fe1}")
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = "jdbc:mysql://${fe1}") {
+            connect( context.config.jdbcUser,  context.config.jdbcPassword,  "jdbc:mysql://${fe1}") {
                 sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
                 sql "use ${dbName}"
@@ -660,7 +660,7 @@ suite("parse_sql_from_sql_cache") {
             }
 
             log.info("connect to fe: ${fe2}")
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = "jdbc:mysql://${fe2}") {
+            connect( context.config.jdbcUser,  context.config.jdbcPassword,  "jdbc:mysql://${fe2}") {
                 sql  "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
 
                 sql "use ${dbName}"
@@ -827,6 +827,80 @@ suite("parse_sql_from_sql_cache") {
                 def result = sql "select FROM_UNIXTIME(UNIX_TIMESTAMP(), 'yyyy-MM-dd HH:mm:ss')"
                 assertNotEquals("yyyy-MM-dd HH:mm:ss", result[0][0])
             }
+        }),
+        extraThread("test_same_sql_with_different_db", {
+            def dbName1 = "test_db1"
+            def dbName2 = "test_db2"
+            def tableName = "test_cache_table"
+
+            sql "CREATE DATABASE IF NOT EXISTS ${dbName1}"
+            sql "DROP TABLE IF EXISTS ${dbName1}.${tableName}"
+            sql """
+                CREATE TABLE IF NOT EXISTS ${dbName1}.${tableName} (
+                  `k1` date NOT NULL COMMENT "",
+                  `k2` int(11) NOT NULL COMMENT ""
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`k1`, `k2`)
+                COMMENT "OLAP"
+                PARTITION BY RANGE(`k1`)
+                (PARTITION p202411 VALUES [('2024-11-01'), ('2024-12-01')))
+                DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1
+                PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+                )
+            """
+            sql "CREATE DATABASE IF NOT EXISTS ${dbName2}"
+            sql "DROP TABLE IF EXISTS ${dbName2}.${tableName}"
+            sql """
+                CREATE TABLE IF NOT EXISTS ${dbName2}.${tableName} (
+                  `k1` date NOT NULL COMMENT "",
+                  `k2` int(11) NOT NULL COMMENT ""
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`k1`, `k2`)
+                COMMENT "OLAP"
+                PARTITION BY RANGE(`k1`)
+                (PARTITION p202411 VALUES [('2024-11-01'), ('2024-12-01')))
+                DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1
+                PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+                )
+            """
+
+            sql """
+                INSERT INTO ${dbName1}.${tableName} VALUES 
+                        ("2024-11-29",0),
+                        ("2024-11-30",0)
+            """
+            // after partition changed 10s, the sql cache can be used
+            sleep(10000)
+            sql """
+                INSERT INTO ${dbName2}.${tableName} VALUES 
+                        ("2024-11-29",0)
+            """
+            // after partition changed 10s, the sql cache can be used
+            sleep(10000)
+
+            sql "set enable_sql_cache=true"
+            sql "use ${dbName1}"
+            List<List<Object>> result1 = sql """
+                SELECT COUNT(*) FROM ${tableName}
+            """
+            assertEquals(result1[0][0],2)
+
+            sql "use ${dbName2}"
+            List<List<Object>> result2 = sql """
+                SELECT COUNT(*) FROM ${tableName}
+            """
+            assertEquals(result2[0][0],1)
+
+            sql "DROP TABLE IF EXISTS ${dbName1}.${tableName}"
+            sql "DROP TABLE IF EXISTS ${dbName2}.${tableName}"
+            sql "DROP DATABASE IF EXISTS ${dbName1}"
+            sql "DROP DATABASE IF EXISTS ${dbName2}"
         })
     ).get()
 }

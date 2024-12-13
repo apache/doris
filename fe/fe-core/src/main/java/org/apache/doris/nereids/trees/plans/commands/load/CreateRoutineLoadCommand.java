@@ -21,7 +21,7 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.commands.NoForward;
+import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -68,7 +68,7 @@ import java.util.Objects;
       type of routine load:
           KAFKA
 */
-public class CreateRoutineLoadCommand extends Command implements NoForward {
+public class CreateRoutineLoadCommand extends Command implements ForwardWithSync {
     CreateRoutineLoadInfo createRoutineLoadInfo;
 
     public CreateRoutineLoadCommand(CreateRoutineLoadInfo createRoutineLoadInfo) {

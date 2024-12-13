@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
@@ -53,6 +54,7 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.system.Backend;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -150,6 +152,9 @@ public class StatementContext implements Closeable {
     // placeholder params for prepared statement
     private List<Placeholder> placeholders;
 
+    // tables used for plan replayer
+    private Map<List<String>, TableIf> tables = null;
+
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
     // and value is the new string used for replacement.
@@ -211,6 +216,30 @@ public class StatementContext implements Closeable {
         } else {
             this.sqlCacheContext = null;
         }
+    }
+
+    public Map<List<String>, TableIf> getTables() {
+        if (tables == null) {
+            tables = Maps.newHashMap();
+        }
+        return tables;
+    }
+
+    public void setTables(Map<List<String>, TableIf> tables) {
+        this.tables = tables;
+    }
+
+    /** get table by table name, try to get from information from dumpfile first */
+    public TableIf getTableInMinidumpCache(List<String> tableQualifier) {
+        if (!getConnectContext().getSessionVariable().isPlayNereidsDump()) {
+            return null;
+        }
+        Preconditions.checkState(tables != null, "tables should not be null");
+        TableIf table = tables.getOrDefault(tableQualifier, null);
+        if (getConnectContext().getSessionVariable().isPlayNereidsDump() && table == null) {
+            throw new AnalysisException("Minidump cache can not find table:" + tableQualifier);
+        }
+        return table;
     }
 
     public void setConnectContext(ConnectContext connectContext) {
@@ -526,7 +555,11 @@ public class StatementContext implements Closeable {
         }
         for (TableIf tableIf : tables.values()) {
             if (tableIf instanceof MvccTable) {
-                snapshots.put(new MvccTableInfo(tableIf), ((MvccTable) tableIf).loadSnapshot());
+                MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
+                // may be set by MTMV, we can not load again
+                if (!snapshots.containsKey(mvccTableInfo)) {
+                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot());
+                }
             }
         }
     }
@@ -534,11 +567,25 @@ public class StatementContext implements Closeable {
     /**
      * Obtain snapshot information of mvcc
      *
-     * @param mvccTable mvccTable
+     * @param tableIf tableIf
      * @return MvccSnapshot
      */
-    public MvccSnapshot getSnapshot(MvccTable mvccTable) {
-        return snapshots.get(new MvccTableInfo(mvccTable));
+    public Optional<MvccSnapshot> getSnapshot(TableIf tableIf) {
+        if (!(tableIf instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
+        return Optional.ofNullable(snapshots.get(mvccTableInfo));
+    }
+
+    /**
+     * Obtain snapshot information of mvcc
+     *
+     * @param mvccTableInfo mvccTableInfo
+     * @param snapshot snapshot
+     */
+    public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
+        snapshots.put(mvccTableInfo, snapshot);
     }
 
     private static class CloseableResource implements Closeable {
