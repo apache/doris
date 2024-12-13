@@ -124,21 +124,21 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
         public Rule build() {
             return inlineTable().then(inlineTable -> {
                 List<List<NamedExpression>> originConstants = inlineTable.getConstantExprsList();
-                Pair<List<List<NamedExpression>>, List<Boolean>> castedConstantsAndNullables
-                        = LogicalUnion.castCommonDataTypeAndNullableByConstants(originConstants);
-                List<List<NamedExpression>> castedRows = castedConstantsAndNullables.key();
-                List<Boolean> nullables = castedConstantsAndNullables.value();
-                List<NamedExpression> outputs = Lists.newArrayList();
-                List<NamedExpression> firstRow = originConstants.get(0);
-                for (int columnId = 0; columnId < firstRow.size(); columnId++) {
-                    String name = firstRow.get(columnId).getName();
-                    DataType commonDataType = castedRows.get(0).get(columnId).getDataType();
-                    outputs.add(new SlotReference(name, commonDataType, nullables.get(columnId)));
-                }
-                if (castedRows.size() > 1) {
+                if (originConstants.size() > 1) {
+                    Pair<List<List<NamedExpression>>, List<Boolean>> castedConstantsAndNullables
+                            = LogicalUnion.castCommonDataTypeAndNullableByConstants(originConstants);
+                    List<List<NamedExpression>> castedRows = castedConstantsAndNullables.key();
+                    List<Boolean> nullables = castedConstantsAndNullables.value();
+                    List<NamedExpression> outputs = Lists.newArrayList();
+                    List<NamedExpression> firstRow = originConstants.get(0);
+                    for (int columnId = 0; columnId < firstRow.size(); columnId++) {
+                        String name = firstRow.get(columnId).getName();
+                        DataType commonDataType = castedRows.get(0).get(columnId).getDataType();
+                        outputs.add(new SlotReference(name, commonDataType, nullables.get(columnId)));
+                    }
                     return new LogicalUnion(Qualifier.ALL, castedRows, ImmutableList.of()).withNewOutputs(outputs);
-                } else if (castedRows.size() == 1) {
-                    return new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(), castedRows.get(0));
+                } else if (originConstants.size() == 1) {
+                    return new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(), originConstants.get(0));
                 } else {
                     throw new AnalysisException("Illegal inline table with empty constants");
                 }
