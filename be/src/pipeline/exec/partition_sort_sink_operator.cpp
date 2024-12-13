@@ -213,7 +213,7 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                         };
 
                         SCOPED_TIMER(local_state._emplace_key_timer);
-                        auto row = num_rows;
+                        int64_t row = num_rows;
                         for (row = row - 1; row >= 0 && !local_state._is_need_passthrough; --row) {
                             auto& mapped = *agg_method.lazy_emplace(state, row, creator,
                                                                     creator_for_null_key);
