@@ -58,7 +58,7 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool dont_append_return_type_name_when_register_function() override { return true; }
+    bool dont_append_return_type_name_when_register_function() const override { return true; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         const DataTypeArray* array_type =
                 check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[0]).get());

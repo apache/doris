@@ -52,7 +52,7 @@ struct UDTFImpl {
 template <typename Impl>
 class FunctionFake : public IFunction {
 public:
-    bool dont_append_return_type_name_when_register_function() override {
+    bool dont_append_return_type_name_when_register_function() const override {
         return Impl::dont_append_return_type_name_when_register_function();
     }
 

@@ -60,7 +60,7 @@ class FunctionArrayZip : public IFunction {
 public:
     static constexpr auto name = "array_zip";
     static FunctionPtr create() { return std::make_shared<FunctionArrayZip>(); }
-    bool dont_append_return_type_name_when_register_function() override { return true; }
+    bool dont_append_return_type_name_when_register_function() const override { return true; }
 
     /// Get function name.
     String get_name() const override { return name; }

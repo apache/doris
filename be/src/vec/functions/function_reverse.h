@@ -29,7 +29,7 @@ public:
 
     String get_name() const override { return name; }
 
-    bool dont_append_return_type_name_when_register_function() override { return true; }
+    bool dont_append_return_type_name_when_register_function() const override { return true; }
 
     size_t get_number_of_arguments() const override { return 1; }
 

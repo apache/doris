@@ -42,7 +42,31 @@ suite("test_date_prune_mono") {
         contains("partitions=1/3 (p1)")
     }
     explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_date(b)<="2020-01-08" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where datev2(b)<="2020-01-08" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_datev2(b)<="2020-01-08" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
         sql """select * from mal_test_partition_range5_date_mono where date(b)<"2020-01-08" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_date(b)<"2020-01-08" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where datev2(b)<"2020-01-08" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_datev2(b)<"2020-01-08" """
         contains("partitions=1/3 (p1)")
     }
     explain {
@@ -50,7 +74,31 @@ suite("test_date_prune_mono") {
         contains("partitions=1/3 (p1)")
     }
     explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-08">=to_date(b)"""
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-08">=datev2(b)"""
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-08">=to_datev2(b)"""
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
         sql """select * from mal_test_partition_range5_date_mono where "2020-01-08" > date(b)"""
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-08" > to_date(b)"""
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-08" > datev2(b)"""
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-08" > to_datev2(b)"""
         contains("partitions=1/3 (p1)")
     }
     explain {
@@ -58,7 +106,31 @@ suite("test_date_prune_mono") {
         contains("partitions=1/3 (p1)")
     }
     explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_date(b)="2020-01-08" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where datev2(b)="2020-01-08" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_datev2(b)="2020-01-08" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
         sql """select * from mal_test_partition_range5_date_mono where "2020-01-08" = date(b)"""
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-08" = to_date(b)"""
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-08" = datev2(b)"""
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-08" = to_datev2(b)"""
         contains("partitions=1/3 (p1)")
     }
     explain {
@@ -66,7 +138,31 @@ suite("test_date_prune_mono") {
         contains("partitions=1/3 (p3)")
     }
     explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_date(b)>="2020-01-14" """
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where datev2(b)>="2020-01-14" """
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_datev2(b)>="2020-01-14" """
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
         sql """select * from mal_test_partition_range5_date_mono where date(b)>"2020-01-14" """
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_date(b)>"2020-01-14" """
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where datev2(b)>"2020-01-14" """
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_datev2(b)>"2020-01-14" """
         contains("partitions=1/3 (p3)")
     }
     explain {
@@ -74,7 +170,31 @@ suite("test_date_prune_mono") {
         contains("partitions=1/3 (p3)")
     }
     explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-14"<=to_date(b)"""
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-14"<=datev2(b)"""
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-14"<=to_datev2(b)"""
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
         sql """select * from mal_test_partition_range5_date_mono where "2020-01-14" < date(b)"""
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-14" < to_date(b)"""
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-14" < datev2(b)"""
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-14" < to_datev2(b)"""
         contains("partitions=1/3 (p3)")
     }
 
@@ -83,11 +203,47 @@ suite("test_date_prune_mono") {
         contains("partitions=2/3 (p2,p3)")
     }
     explain {
+        sql """select * from mal_test_partition_range5_date_mono where  to_date(b) in ("2020-01-13")"""
+        contains("partitions=2/3 (p2,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where  datev2(b) in ("2020-01-13")"""
+        contains("partitions=2/3 (p2,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where  to_datev2(b) in ("2020-01-13")"""
+        contains("partitions=2/3 (p2,p3)")
+    }
+    explain {
         sql """select * from mal_test_partition_range5_date_mono where "2020-01-14" <=> date(b)"""
         contains("partitions=1/3 (p3)")
     }
     explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-14" <=> to_date(b)"""
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-14" <=> datev2(b)"""
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where "2020-01-14" <=> to_datev2(b)"""
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
         sql """select * from mal_test_partition_range5_date_mono where  date(b) <=>"2020-01-14" """
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where  to_date(b) <=>"2020-01-14" """
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where  datev2(b) <=>"2020-01-14" """
+        contains("partitions=1/3 (p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where  to_datev2(b) <=>"2020-01-14" """
         contains("partitions=1/3 (p3)")
     }
 
@@ -97,26 +253,96 @@ suite("test_date_prune_mono") {
         contains("partitions=1/3 (p2)")
     }
     explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_date(b)>"2020-01-09"  and to_date(b) <"2020-01-13" """
+        contains("partitions=1/3 (p2)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where datev2(b)>"2020-01-09"  and datev2(b) <"2020-01-13" """
+        contains("partitions=1/3 (p2)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_datev2(b)>"2020-01-09"  and to_datev2(b) <"2020-01-13" """
+        contains("partitions=1/3 (p2)")
+    }
+    explain {
         sql """select * from mal_test_partition_range5_date_mono where date(b)>"2020-01-09"  or date(b) <"2020-01-13" """
+        contains("partitions=3/3 (p1,p2,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_date(b)>"2020-01-09"  or to_date(b) <"2020-01-13" """
+        contains("partitions=3/3 (p1,p2,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where datev2(b)>"2020-01-09"  or datev2(b) <"2020-01-13" """
+        contains("partitions=3/3 (p1,p2,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_datev2(b)>"2020-01-09"  or to_datev2(b) <"2020-01-13" """
         contains("partitions=3/3 (p1,p2,p3)")
     }
     explain {
         sql """select * from mal_test_partition_range5_date_mono where date(b)>"2020-01-14"  or date(b) <"2020-01-06" """
         contains("partitions=2/3 (p1,p3)")
     }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_date(b)>"2020-01-14"  or to_date(b) <"2020-01-06" """
+        contains("partitions=2/3 (p1,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where datev2(b)>"2020-01-14"  or datev2(b) <"2020-01-06" """
+        contains("partitions=2/3 (p1,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_datev2(b)>"2020-01-14"  or to_datev2(b) <"2020-01-06" """
+        contains("partitions=2/3 (p1,p3)")
+    }
 
     explain {
         sql """select * from mal_test_partition_range5_date_mono where date(b) between "2020-01-09"  and "2020-01-13" """
         contains("partitions=3/3 (p1,p2,p3)")
-
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_date(b) between "2020-01-09"  and "2020-01-13" """
+        contains("partitions=3/3 (p1,p2,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where datev2(b) between "2020-01-09"  and "2020-01-13" """
+        contains("partitions=3/3 (p1,p2,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_datev2(b) between "2020-01-09"  and "2020-01-13" """
+        contains("partitions=3/3 (p1,p2,p3)")
     }
     explain {
         sql """select * from mal_test_partition_range5_date_mono where date(b) between "2020-01-10"  and "2020-01-14" """
         contains("partitions=2/3 (p2,p3)")
-
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_date(b) between "2020-01-10"  and "2020-01-14" """
+        contains("partitions=2/3 (p2,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where datev2(b) between "2020-01-10"  and "2020-01-14" """
+        contains("partitions=2/3 (p2,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_datev2(b) between "2020-01-10"  and "2020-01-14" """
+        contains("partitions=2/3 (p2,p3)")
     }
     explain {
         sql """select * from mal_test_partition_range5_date_mono where date(b) between "2020-01-10"  and "2020-01-12" """
+        contains("partitions=1/3 (p2)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_date(b) between "2020-01-10"  and "2020-01-12" """
+        contains("partitions=1/3 (p2)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where datev2(b) between "2020-01-10"  and "2020-01-12" """
+        contains("partitions=1/3 (p2)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where to_datev2(b) between "2020-01-10"  and "2020-01-12" """
         contains("partitions=1/3 (p2)")
     }
 
@@ -205,6 +431,258 @@ suite("test_date_prune_mono") {
             contains("partitions=1/3 (p3)")
         }
     }
+    for (int i = 0; i < 2; i++) {
+        if (i == 0) {
+            // forbid rewrite not a>1 to a<=1
+            sql "set disable_nereids_rules = 'REWRITE_FILTER_EXPRESSION'"
+        } else {
+            sql "set disable_nereids_rules = ''"
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_date(b)<="2020-01-14" """
+            contains("partitions=1/3 (p3)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not to_date(b)<"2020-01-14" """
+            contains("partitions=1/3 (p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-14">=to_date(b)"""
+            contains("partitions=1/3 (p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-14" > to_date(b)"""
+            contains("partitions=1/3 (p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_date(b)="2020-01-08" """
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-08" = to_date(b)"""
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_date(b)>="2020-01-9" """
+            contains("partitions=1/3 (p1)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_date(b)>"2020-01-9" """
+            contains("partitions=2/3 (p1,p2)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-9"<=to_date(b)"""
+            contains("partitions=1/3 (p1)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-9" < to_date(b)"""
+            contains("partitions=2/3 (p1,p2)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where  not to_date(b) in ("2020-01-13 00:00:00")"""
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not "2020-01-14" <=> to_date(b)"""
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_date(b) <=>"2020-01-14" """
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not  (to_date(b)>"2020-01-09"  and to_date(b) <"2020-01-13") """
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not (to_date(b)>="2020-01-13"  or to_date(b) <="2020-01-9") """
+            contains("partitions=1/3 (p2)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not to_date(b)<="2020-01-14"  or to_date(b) <"2020-01-06" """
+            contains("partitions=2/3 (p1,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_date(b) between "2020-01-09"  and "2020-01-13" """
+            contains("partitions=2/3 (p1,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_date(b) between "2020-01-10"  and "2020-01-14" """
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where to_date(b) not between "2020-01-4"  and "2020-01-15" """
+            contains("partitions=1/3 (p3)")
+        }
+    }
+    for (int i = 0; i < 2; i++) {
+        if (i == 0) {
+            // forbid rewrite not a>1 to a<=1
+            sql "set disable_nereids_rules = 'REWRITE_FILTER_EXPRESSION'"
+        } else {
+            sql "set disable_nereids_rules = ''"
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not datev2(b)<="2020-01-14" """
+            contains("partitions=1/3 (p3)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not datev2(b)<"2020-01-14" """
+            contains("partitions=1/3 (p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-14">=datev2(b)"""
+            contains("partitions=1/3 (p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-14" > datev2(b)"""
+            contains("partitions=1/3 (p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not datev2(b)="2020-01-08" """
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-08" = datev2(b)"""
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not datev2(b)>="2020-01-9" """
+            contains("partitions=1/3 (p1)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not datev2(b)>"2020-01-9" """
+            contains("partitions=2/3 (p1,p2)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-9"<=datev2(b)"""
+            contains("partitions=1/3 (p1)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-9" < datev2(b)"""
+            contains("partitions=2/3 (p1,p2)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where  not datev2(b) in ("2020-01-13 00:00:00")"""
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not "2020-01-14" <=> datev2(b)"""
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not datev2(b) <=>"2020-01-14" """
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not  (datev2(b)>"2020-01-09"  and datev2(b) <"2020-01-13") """
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not (datev2(b)>="2020-01-13"  or datev2(b) <="2020-01-9") """
+            contains("partitions=1/3 (p2)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not datev2(b)<="2020-01-14"  or datev2(b) <"2020-01-06" """
+            contains("partitions=2/3 (p1,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not datev2(b) between "2020-01-09"  and "2020-01-13" """
+            contains("partitions=2/3 (p1,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not datev2(b) between "2020-01-10"  and "2020-01-14" """
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where datev2(b) not between "2020-01-4"  and "2020-01-15" """
+            contains("partitions=1/3 (p3)")
+        }
+    }    
+    for (int i = 0; i < 2; i++) {
+        if (i == 0) {
+            // forbid rewrite not a>1 to a<=1
+            sql "set disable_nereids_rules = 'REWRITE_FILTER_EXPRESSION'"
+        } else {
+            sql "set disable_nereids_rules = ''"
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_datev2(b)<="2020-01-14" """
+            contains("partitions=1/3 (p3)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not to_datev2(b)<"2020-01-14" """
+            contains("partitions=1/3 (p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-14">=to_datev2(b)"""
+            contains("partitions=1/3 (p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-14" > to_datev2(b)"""
+            contains("partitions=1/3 (p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_datev2(b)="2020-01-08" """
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-08" = to_datev2(b)"""
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_datev2(b)>="2020-01-9" """
+            contains("partitions=1/3 (p1)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_datev2(b)>"2020-01-9" """
+            contains("partitions=2/3 (p1,p2)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-9"<=to_datev2(b)"""
+            contains("partitions=1/3 (p1)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not "2020-01-9" < to_datev2(b)"""
+            contains("partitions=2/3 (p1,p2)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where  not to_datev2(b) in ("2020-01-13 00:00:00")"""
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not "2020-01-14" <=> to_datev2(b)"""
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_datev2(b) <=>"2020-01-14" """
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not  (to_datev2(b)>"2020-01-09"  and to_datev2(b) <"2020-01-13") """
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not (to_datev2(b)>="2020-01-13"  or to_datev2(b) <="2020-01-9") """
+            contains("partitions=1/3 (p2)")
+        }
+        explain {
+            sql """ select * from mal_test_partition_range5_date_mono where not to_datev2(b)<="2020-01-14"  or to_datev2(b) <"2020-01-06" """
+            contains("partitions=2/3 (p1,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_datev2(b) between "2020-01-09"  and "2020-01-13" """
+            contains("partitions=2/3 (p1,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where not to_datev2(b) between "2020-01-10"  and "2020-01-14" """
+            contains("partitions=3/3 (p1,p2,p3)")
+        }
+        explain {
+            sql """select * from mal_test_partition_range5_date_mono where to_datev2(b) not between "2020-01-4"  and "2020-01-15" """
+            contains("partitions=1/3 (p3)")
+        }
+    }
 
     // trunc(b) and b
     explain {
@@ -240,6 +718,105 @@ suite("test_date_prune_mono") {
         contains("partitions=2/3 (p1,p3)")
     }
 
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where (not to_date(b)<="2020-01-14") or b<"2020-01-9" """
+        contains("partitions=2/3 (p1,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where  to_date(b)<"2020-01-13" and  b>"2020-01-10" """
+        contains("partitions=1/3 (p2)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where  to_date(b)<"2020-01-13" and  b>"2020-01-9" """
+        contains("partitions=2/3 (p1,p2)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where ( to_date(b)<="2020-01-14" and b >"2020-01-12") or b<"2020-01-9" """
+        contains("partitions=3/3 (p1,p2,p3)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where ( to_date(b)<="2020-01-14" and b >"2020-01-19") or b<"2020-01-9" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where ( to_date(b)<="2020-01-14" and b >"2020-01-20") or b<"2020-01-9" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where ( not to_date(b)<="2020-01-14" or b >"2020-01-20") or b<"2020-01-9" """
+        contains("partitions=2/3 (p1,p3)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where (  to_date(b) between "2020-01-14" and "2020-01-20") or b<"2020-01-9" """
+        contains("partitions=2/3 (p1,p3)")
+    }
+
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where (not datev2(b)<="2020-01-14") or b<"2020-01-9" """
+        contains("partitions=2/3 (p1,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where  datev2(b)<"2020-01-13" and  b>"2020-01-10" """
+        contains("partitions=1/3 (p2)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where  datev2(b)<"2020-01-13" and  b>"2020-01-9" """
+        contains("partitions=2/3 (p1,p2)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where ( datev2(b)<="2020-01-14" and b >"2020-01-12") or b<"2020-01-9" """
+        contains("partitions=3/3 (p1,p2,p3)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where ( datev2(b)<="2020-01-14" and b >"2020-01-19") or b<"2020-01-9" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where ( datev2(b)<="2020-01-14" and b >"2020-01-20") or b<"2020-01-9" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where ( not datev2(b)<="2020-01-14" or b >"2020-01-20") or b<"2020-01-9" """
+        contains("partitions=2/3 (p1,p3)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where (  datev2(b) between "2020-01-14" and "2020-01-20") or b<"2020-01-9" """
+        contains("partitions=2/3 (p1,p3)")
+    }
+
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where (not to_datev2(b)<="2020-01-14") or b<"2020-01-9" """
+        contains("partitions=2/3 (p1,p3)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range5_date_mono where  to_datev2(b)<"2020-01-13" and  b>"2020-01-10" """
+        contains("partitions=1/3 (p2)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where  to_datev2(b)<"2020-01-13" and  b>"2020-01-9" """
+        contains("partitions=2/3 (p1,p2)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where ( to_datev2(b)<="2020-01-14" and b >"2020-01-12") or b<"2020-01-9" """
+        contains("partitions=3/3 (p1,p2,p3)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where ( to_datev2(b)<="2020-01-14" and b >"2020-01-19") or b<"2020-01-9" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where ( to_datev2(b)<="2020-01-14" and b >"2020-01-20") or b<"2020-01-9" """
+        contains("partitions=1/3 (p1)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where ( not to_datev2(b)<="2020-01-14" or b >"2020-01-20") or b<"2020-01-9" """
+        contains("partitions=2/3 (p1,p3)")
+    }
+    explain {
+        sql """ select * from mal_test_partition_range5_date_mono where (  to_datev2(b) between "2020-01-14" and "2020-01-20") or b<"2020-01-9" """
+        contains("partitions=2/3 (p1,p3)")
+    }
+
     // is null, can support but now not
     sql "drop table if exists null_range_date_mono"
     sql """
@@ -259,6 +836,18 @@ suite("test_date_prune_mono") {
         sql "select * from null_range_date_mono where date(k0) is null"
         contains("partitions=1/3 (p10)")
     }
+    explain {
+        sql "select * from null_range_date_mono where datev2(k0) is null"
+        contains("partitions=1/3 (p10)")
+    }
+    explain {
+        sql "select * from null_range_date_mono where to_date(k0) is null"
+        contains("partitions=1/3 (p10)")
+    }
+    explain {
+        sql "select * from null_range_date_mono where to_datev2(k0) is null"
+        contains("partitions=1/3 (p10)")
+    }
     // test infinite range
     explain {
         sql "select * from null_range_date_mono where date(k0) <'2022-1-3'"
@@ -266,6 +855,30 @@ suite("test_date_prune_mono") {
     }
     explain {
         sql "select * from null_range_date_mono where date(k0) >'2022-1-3'"
+        contains("partitions=2/3 (p100,pMAX)")
+    }
+    explain {
+        sql "select * from null_range_date_mono where datev2(k0) <'2022-1-3'"
+        contains("partitions=2/3 (p10,p100)")
+    }
+    explain {
+        sql "select * from null_range_date_mono where datev2(k0) >'2022-1-3'"
+        contains("partitions=2/3 (p100,pMAX)")
+    }
+    explain {
+        sql "select * from null_range_date_mono where to_date(k0) <'2022-1-3'"
+        contains("partitions=2/3 (p10,p100)")
+    }
+    explain {
+        sql "select * from null_range_date_mono where to_date(k0) >'2022-1-3'"
+        contains("partitions=2/3 (p100,pMAX)")
+    }
+    explain {
+        sql "select * from null_range_date_mono where to_datev2(k0) <'2022-1-3'"
+        contains("partitions=2/3 (p10,p100)")
+    }
+    explain {
+        sql "select * from null_range_date_mono where to_datev2(k0) >'2022-1-3'"
         contains("partitions=2/3 (p100,pMAX)")
     }
 
@@ -293,7 +906,6 @@ suite("test_date_prune_mono") {
         sql "select * from mal_test_partition_range2_two_date_int_date_mono where date(dt) > '2017-2-1  00:00:00' and id>100;"
         contains("partitions=2/3 (p201702_2000,p201703_all)")
     }
-
     explain {
         sql "select * from mal_test_partition_range2_two_date_int_date_mono where date(date_trunc(dt,'hour')) > '2017-2-1  00:00:00' and id>100;"
         contains("partitions=2/3 (p201702_2000,p201703_all)")
@@ -305,6 +917,70 @@ suite("test_date_prune_mono") {
     }
     explain {
         sql "select * from mal_test_partition_range2_two_date_int_date_mono where date_trunc(date(dt),'minute') > '2017-2-1  00:00:00' and id>100;"
+        contains("partitions=2/3 (p201702_2000,p201703_all)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range2_two_date_int_date_mono where to_date(dt) = '2017-2-1 00:00:00' and id>0 ;"""
+        contains ("partitions=2/3 (p201701_1000,p201702_2000)")
+    }
+    explain {
+        sql "select * from mal_test_partition_range2_two_date_int_date_mono where to_date(dt) > '2017-2-1  00:00:00' and id>100;"
+        contains("partitions=2/3 (p201702_2000,p201703_all)")
+    }
+    explain {
+        sql "select * from mal_test_partition_range2_two_date_int_date_mono where to_date(date_trunc(dt,'hour')) > '2017-2-1  00:00:00' and id>100;"
+        contains("partitions=2/3 (p201702_2000,p201703_all)")
+    }
+    // test nest function
+    explain {
+        sql "select * from mal_test_partition_range2_two_date_int_date_mono where to_date(date_trunc(dt,'minute')) > '2017-2-1  00:00:00' and id>100;"
+        contains("partitions=2/3 (p201702_2000,p201703_all)")
+    }
+    explain {
+        sql "select * from mal_test_partition_range2_two_date_int_date_mono where date_trunc(to_date(dt),'minute') > '2017-2-1  00:00:00' and id>100;"
+        contains("partitions=2/3 (p201702_2000,p201703_all)")
+    }
+    explain {
+        sql """select * from mal_test_partition_range2_two_date_int_date_mono where datev2(dt) = '2017-2-1 00:00:00' and id>0 ;"""
+        contains ("partitions=2/3 (p201701_1000,p201702_2000)")
+    }
+    explain {
+        sql "select * from mal_test_partition_range2_two_date_int_date_mono where datev2(dt) > '2017-2-1  00:00:00' and id>100;"
+        contains("partitions=2/3 (p201702_2000,p201703_all)")
+    }
+    explain {
+        sql "select * from mal_test_partition_range2_two_date_int_date_mono where datev2(date_trunc(dt,'hour')) > '2017-2-1  00:00:00' and id>100;"
+        contains("partitions=2/3 (p201702_2000,p201703_all)")
+    }
+    // test nest function
+    explain {
+        sql "select * from mal_test_partition_range2_two_date_int_date_mono where datev2(date_trunc(dt,'minute')) > '2017-2-1  00:00:00' and id>100;"
+        contains("partitions=2/3 (p201702_2000,p201703_all)")
+    }
+    explain {
+        sql "select * from mal_test_partition_range2_two_date_int_date_mono where date_trunc(datev2(dt),'minute') > '2017-2-1  00:00:00' and id>100;"
+        contains("partitions=2/3 (p201702_2000,p201703_all)")
+    }
+
+    explain {
+        sql """select * from mal_test_partition_range2_two_date_int_date_mono where to_datev2(dt) = '2017-2-1 00:00:00' and id>0 ;"""
+        contains ("partitions=2/3 (p201701_1000,p201702_2000)")
+    }
+    explain {
+        sql "select * from mal_test_partition_range2_two_date_int_date_mono where to_datev2(dt) > '2017-2-1  00:00:00' and id>100;"
+        contains("partitions=2/3 (p201702_2000,p201703_all)")
+    }
+    explain {
+        sql "select * from mal_test_partition_range2_two_date_int_date_mono where to_datev2(date_trunc(dt,'hour')) > '2017-2-1  00:00:00' and id>100;"
+        contains("partitions=2/3 (p201702_2000,p201703_all)")
+    }
+    // test nest function
+    explain {
+        sql "select * from mal_test_partition_range2_two_date_int_date_mono where to_datev2(date_trunc(dt,'minute')) > '2017-2-1  00:00:00' and id>100;"
+        contains("partitions=2/3 (p201702_2000,p201703_all)")
+    }
+    explain {
+        sql "select * from mal_test_partition_range2_two_date_int_date_mono where date_trunc(to_datev2(dt),'minute') > '2017-2-1  00:00:00' and id>100;"
         contains("partitions=2/3 (p201702_2000,p201703_all)")
     }
 }

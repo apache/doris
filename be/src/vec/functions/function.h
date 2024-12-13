@@ -237,6 +237,11 @@ public:
     virtual FunctionBasePtr build(const ColumnsWithTypeAndName& arguments,
                                   const DataTypePtr& return_type) const = 0;
 
+    // if a function's get_variadic_argument_types() not override and get_return_type_impl()
+    // result is not compile time be sure, the function should override return true
+    // more information see https://github.com/apache/doris/pull/45159
+    virtual bool dont_append_return_type_name_when_register_function() const = 0;
+
     /// For higher-order functions (functions, that have lambda expression as at least one argument).
     /// You pass data types with empty DataTypeFunction for lambda arguments.
     /// This function will replace it with DataTypeFunction containing actual types.
@@ -299,9 +304,7 @@ public:
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
 
-    // if a function's get_variadic_argument_types() not override and get_return_type_impl()
-    // result is not compile time be sure, the function should override return true
-    virtual bool dont_append_return_type_name_when_register_function() { return false; }
+    bool dont_append_return_type_name_when_register_function() const override { return false; }
 
 protected:
     // Get the result type by argument type. If the function does not apply to these arguments, throw an exception.
@@ -537,7 +540,7 @@ public:
 
     String get_name() const override { return function->get_name(); }
     bool is_variadic() const override { return function->is_variadic(); }
-    bool dont_append_return_type_name_when_register_function() override {
+    bool dont_append_return_type_name_when_register_function() const override {
         return function->dont_append_return_type_name_when_register_function();
     }
     size_t get_number_of_arguments() const override { return function->get_number_of_arguments(); }

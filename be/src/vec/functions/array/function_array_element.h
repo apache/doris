@@ -73,7 +73,7 @@ public:
 
     bool is_variadic() const override { return false; }
 
-    bool dont_append_return_type_name_when_register_function() override { return true; }
+    bool dont_append_return_type_name_when_register_function() const override { return true; }
 
     bool use_default_implementation_for_nulls() const override { return false; }
 

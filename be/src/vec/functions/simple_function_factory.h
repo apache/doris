@@ -167,20 +167,22 @@ public:
     FunctionBasePtr get_function(const std::string& name, const ColumnsWithTypeAndName& arguments,
                                  const DataTypePtr& return_type, const FunctionAttr& attr = {},
                                  int be_version = BeExecVersionManager::get_newest_version()) {
-        std::string key_str, ori_name = name;
+        // the origin name is non alias name, and not include return type and argument type
+        std::string origin_name = name;
 
         if (function_alias.contains(name)) {
-            ori_name = function_alias[name];
+            origin_name = function_alias[name];
         }
 
         if (attr.enable_decimal256) {
-            if (ori_name == "array_sum" || ori_name == "array_avg" || ori_name == "array_product" ||
-                ori_name == "array_cum_sum") {
-                ori_name += DECIMAL256_FUNCTION_SUFFIX;
+            if (origin_name == "array_sum" || origin_name == "array_avg" ||
+                origin_name == "array_product" || origin_name == "array_cum_sum") {
+                origin_name += DECIMAL256_FUNCTION_SUFFIX;
             }
         }
 
-        key_str = ori_name;
+        // key_str is origin name + argument type name (override get_variadic_argument_types) + return type name
+        std::string key_str = origin_name;
 
         temporary_function_update(be_version, key_str);
 
@@ -199,13 +201,14 @@ public:
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
             // use original name as signature without variadic arguments
-            iter = function_creators.find(ori_name);
+            iter = function_creators.find(origin_name);
             if (iter == function_creators.end()) {
                 LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
                 return nullptr;
             }
         }
 
+        // build will check expect return type is equal function return type
         return iter->second()->build(arguments, return_type);
     }
 

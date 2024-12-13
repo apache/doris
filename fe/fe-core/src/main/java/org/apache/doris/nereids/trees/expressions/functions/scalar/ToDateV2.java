@@ -82,6 +82,6 @@ public class ToDateV2 extends ScalarFunction
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        return new Date(literal);
+        return new ToDateV2(literal);
     }
 }

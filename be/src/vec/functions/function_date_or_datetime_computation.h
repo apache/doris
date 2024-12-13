@@ -726,7 +726,7 @@ public:
 
     String get_name() const override { return name; }
 
-    bool dont_append_return_type_name_when_register_function() override {
+    bool dont_append_return_type_name_when_register_function() const override {
         return Transform::dont_append_return_type_name_when_register_function();
     }
 
