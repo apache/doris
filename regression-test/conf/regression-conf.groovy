@@ -205,6 +205,13 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
+//minio test config for cloud
+enableExternalMinioTest = false
+extMinioHost = "***.**.**.**"
+extMinioPort = 19000
+extMinioAk = "minioadmin"
+extMinioSk = "minioadmin"
+
 enableExternalHudiTest = false
 hudiEmrCatalog = "***********"
 
@@ -266,3 +273,4 @@ cbsS3Sk = "*******"
 cbsS3Endpoint = "oss-cn-beijing.aliyuncs.com"
 cbsS3Bucket = "test-bucket"
 cbsS3Prefix = "test-cluster-prefix"
+

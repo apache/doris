@@ -59,7 +59,7 @@ eval set -- "${OPTS}"
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos"
+    COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,db2,oceanbase,kerberos,minio"
 else
     while true; do
         case "$1" in
@@ -138,6 +138,7 @@ RUN_DB2=0
 RUN_OCENABASE=0
 RUN_LAKESOUL=0
 RUN_KERBEROS=0
+RUN_MINIO=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -176,6 +177,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_LAKESOUL=1
     elif [[ "${element}"x == "kerberos"x ]]; then
         RUN_KERBEROS=1
+    elif [[ "${element}"x == "minio"x ]]; then
+        RUN_MINIO=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -601,6 +604,16 @@ start_kerberos() {
     fi
 }
 
+start_minio() {
+    echo "RUN_MINIO"
+    cp "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml.tpl "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/minio-RELEASE.2024-11-07.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml --env-file "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo docker compose -f "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml --env-file "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.env up -d
+    fi
+}
+
 echo "starting dockers in parrallel"
 
 declare -A pids
@@ -693,6 +706,11 @@ fi
 if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
     start_kerberos > start_kerberos.log 2>&1 &
     pids["kerberos"]=$!
+fi
+
+if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
+    start_minio > start_minio.log 2>&1 &
+    pids["minio"]=$!
 fi
 
 echo "waiting all dockers starting done"
