@@ -82,7 +82,7 @@ suite("txn_insert") {
             sql """ DROP TABLE IF EXISTS $tableMV """
             sql """
                 create table $tableMV (
-                    id int default '10', 
+                    id int not null, 
                     c1 int default '10'
                 ) distributed by hash(id, c1) 
                 properties('replication_num'="1");
@@ -96,6 +96,19 @@ suite("txn_insert") {
             sql "sync"
             order_qt_select5 """select * from $tableMV"""
             order_qt_select6 """select c1 from $tableMV"""
+        } while (0);
+        do {
+            try {
+                sql "begin"
+                sql """insert into $tableMV values(9, 2), (10, 4)"""
+                sql """insert into $tableMV values(null, 6)"""
+                sql "commit"
+            } catch (Exception e) {
+                sql "rollback"
+                logger.info("insert into $tableMV failed: " + e.getMessage())
+                assertTrue(e.getMessage().contains("too many filtered rows"))
+                assertTrue(e.getMessage().contains("url"))
+            }
         } while (0);
 
         // ------------------- insert into select -------------------
