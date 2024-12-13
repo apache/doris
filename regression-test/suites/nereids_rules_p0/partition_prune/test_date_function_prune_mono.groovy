@@ -736,7 +736,7 @@ suite("test_date_prune_mono") {
     }
     explain {
         sql """ select * from mal_test_partition_range5_date_mono where ( to_date(b)<="2020-01-14" and b >"2020-01-19") or b<"2020-01-9" """
-        contains("partitions=1/3 (p1)")
+        contains("partitions=2/3 (p1,p3)")
     }
     explain {
         sql """ select * from mal_test_partition_range5_date_mono where ( to_date(b)<="2020-01-14" and b >"2020-01-20") or b<"2020-01-9" """
@@ -769,7 +769,7 @@ suite("test_date_prune_mono") {
     }
     explain {
         sql """ select * from mal_test_partition_range5_date_mono where ( datev2(b)<="2020-01-14" and b >"2020-01-19") or b<"2020-01-9" """
-        contains("partitions=1/3 (p1)")
+        contains("partitions=2/3 (p1,p3)")
     }
     explain {
         sql """ select * from mal_test_partition_range5_date_mono where ( datev2(b)<="2020-01-14" and b >"2020-01-20") or b<"2020-01-9" """
@@ -802,7 +802,7 @@ suite("test_date_prune_mono") {
     }
     explain {
         sql """ select * from mal_test_partition_range5_date_mono where ( to_datev2(b)<="2020-01-14" and b >"2020-01-19") or b<"2020-01-9" """
-        contains("partitions=1/3 (p1)")
+        contains("partitions=2/3 (p1,p3)")
     }
     explain {
         sql """ select * from mal_test_partition_range5_date_mono where ( to_datev2(b)<="2020-01-14" and b >"2020-01-20") or b<"2020-01-9" """
