@@ -57,7 +57,7 @@ suite ("test_minio_storage_vault") {
         PROPERTIES (
             "storage_vault_name" = "${vaultName}"
         );
-    """.toString()
+    """
 
     sql """
         insert into user values (1,'Tom'), (2, 'Jelly'), (3, 'Spike'), (4, 'Tuffy');
