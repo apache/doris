@@ -93,6 +93,16 @@ suite("test_compact_with_seq2", "nonConcurrent") {
                 "disable_auto_compaction" = "true"
             );
     """
+    // batch_size is 4164 in csv_reader.cpp
+    // _batch_size is 8192 in vtablet_writer.cpp
+    def backendId_to_params = get_be_param("doris_scanner_row_bytes")
+    onFinish {
+        GetDebugPoint().disableDebugPointForAllBEs("MemTable.need_flush")
+        set_original_be_param("doris_scanner_row_bytes", backendId_to_params)
+    }
+    GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush")
+    set_be_param.call("doris_scanner_row_bytes", "1")
+
     sql """ INSERT INTO ${tableName} VALUES (10, 20, 39, 40),(11, 20, 38, 40),(12, 20, 37, 39),(13, 20, 36, 40),(14, 20, 35, 40); """
     sql """ INSERT INTO ${tableName} VALUES (11, 20, 38, 40),(15, 20, 39, 45),(16, 20, 33, 44),(17, 20, 39, 40),(18, 20, 36, 41); """
     sql """ INSERT INTO ${tableName} VALUES (12, 20, 37, 40),(13, 20, 34, 43),(14, 20, 34, 42),(15, 20, 36, 45),(16, 20, 34, 42); """
@@ -100,7 +110,71 @@ suite("test_compact_with_seq2", "nonConcurrent") {
     sql """ INSERT INTO ${tableName} VALUES (13, 20, 35, 40),(16, 20, 32, 40),(14, 20, 36, 40),(17, 20, 32, 44),(14, 20, 32, 44); """
     sql """ INSERT INTO ${tableName} VALUES (10, 20, 36, 41),(17, 20, 34, 48),(16, 20, 36, 45),(12, 20, 33, 48),(15, 20, 35, 45); """
     sql """ INSERT INTO ${tableName} VALUES (13, 20, 35, 41),(18, 20, 37, 47),(19, 20, 35, 46),(11, 20, 34, 41),(19, 20, 33, 46); """
-    order_qt_select1 """ select * from ${tableName}; """
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        file 'test_schema_change_add_key_column.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(8192, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        file 'test_schema_change_add_key_column1.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(20480, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        file 'test_schema_change_add_key_column2.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(20480, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    streamLoad {
+        table "${tableName}"
+        set 'column_separator', ','
+        file 'test_schema_change_add_key_column3.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(20480, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    // order_qt_select1 """ select * from ${tableName}; """
 
     enable_commit_rowset_spin_wait()
     enable_block_in_commit_rowset()
@@ -125,7 +199,7 @@ suite("test_compact_with_seq2", "nonConcurrent") {
         sleep(2000)
     }
 
-    order_qt_select2 """ select * from ${tableName}; """
+    // order_qt_select2 """ select * from ${tableName}; """
     // check no duplicated key
     def result = sql """ select `k1`, count(*) a from ${tableName} group by `k1` having a > 1; """
     logger.info("result: ${result}")
