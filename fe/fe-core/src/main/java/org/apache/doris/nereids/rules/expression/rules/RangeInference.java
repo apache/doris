@@ -475,6 +475,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         public ValueDesc union(ValueDesc other) {
+            // for RangeValue/DiscreteValue/UnknownValue, when union with EmptyValue,
+            // call EmptyValue.union(this) => this
             if (other instanceof EmptyValue) {
                 return other.union(this);
             }
@@ -486,6 +488,8 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         public ValueDesc intersect(ValueDesc other) {
+            // for RangeValue/DiscreteValue/UnknownValue, when intersect with EmptyValue,
+            // call EmptyValue.intersect(this) => EmptyValue
             if (other instanceof EmptyValue) {
                 return other.intersect(this);
             }
