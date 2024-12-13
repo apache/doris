@@ -2184,69 +2184,67 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
 
     bool require_tablet_stats =
             request->has_require_compaction_stats() ? request->require_compaction_stats() : false;
-    if (require_tablet_stats) {
-        // this request is from fe when it commits txn for MOW table, we send the compaction stats
-        // along with the GetDeleteBitmapUpdateLockResponse which will be sent to BE later to let
-        // BE eliminate unnecessary sync_rowsets() calls if possible
+    if (!require_tablet_stats) return;
+    // this request is from fe when it commits txn for MOW table, we send the compaction stats
+    // along with the GetDeleteBitmapUpdateLockResponse which will be sent to BE later to let
+    // BE eliminate unnecessary sync_rowsets() calls if possible
 
-        // 1. hold the delete bitmap update lock in MS(update lock_info.lock_id to current load's txn id)
-        // 2. read tablets' stats
-        // 3. check whether we still hold the delete bitmap update lock
-        // these steps can be done in different fdb txns
+    // 1. hold the delete bitmap update lock in MS(update lock_info.lock_id to current load's txn id)
+    // 2. read tablets' stats
+    // 3. check whether we still hold the delete bitmap update lock
+    // these steps can be done in different fdb txns
 
-        err = txn_kv_->create_txn(&txn);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::CREATE>(err);
-            msg = "failed to init txn";
-            return;
-        }
+    StopWatch read_stats_sw;
+    err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
 
-        int64_t total_retry = 0;
-        for (const auto& tablet_index : request->tablet_indexes()) {
-            TabletIndexPB idx(tablet_index);
-            TabletStatsPB tablet_stat;
-            int64_t retry = 0;
-            internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat, false);
-            while (retry < 3 && total_retry < 20 && code == MetaServiceCode::KV_TXN_TOO_OLD) {
-                retry++;
-                total_retry++;
-
-                code = MetaServiceCode::OK;
-                err = txn_kv_->create_txn(&txn);
-                if (err != TxnErrorCode::TXN_OK) {
-                    code = cast_as<ErrCategory::CREATE>(err);
-                    ss << "failed to init txn when get tablet stats, retry=" << retry;
-                    msg = ss.str();
-                    return;
-                }
-                internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat,
-                                          false);
-                LOG(INFO) << "retry get tablet stats, instance_id=" << instance_id
-                          << ", tablet=" << idx.tablet_id() << ", retry=" << retry
-                          << ", total_retry=" << total_retry;
-            }
-            if (code != MetaServiceCode::OK) {
-                response->clear_base_compaction_cnts();
-                response->clear_cumulative_compaction_cnts();
-                response->clear_cumulative_points();
-                LOG_WARNING(
-                        "failed to get tablet stats when internal_get_tablet_stats, "
-                        "lock_id={}, initiator={}, tablet_id={}, msg={}",
-                        request->lock_id(), request->initiator(), tablet_index.tablet_id(), msg);
+    for (const auto& tablet_idx : request->tablet_indexes()) {
+        TabletStatsPB tablet_stat;
+        std::string stats_key =
+                stats_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                  tablet_idx.partition_id(), tablet_idx.tablet_id()});
+        std::string stats_val;
+        TxnErrorCode err = txn->get(stats_key, &stats_val);
+        if (err == TxnErrorCode::TXN_TOO_OLD) {
+            code = MetaServiceCode::OK;
+            err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::CREATE>(err);
+                ss << "failed to init txn when get tablet stats";
+                msg = ss.str();
                 return;
             }
-            response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
-            response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
-            response->add_cumulative_points(tablet_stat.cumulative_point());
+            err = txn->get(stats_key, &stats_val);
         }
-
-        if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id, request->lock_id(),
-                                      request->initiator())) {
-            LOG(WARNING) << "failed to check delete bitmap lock after get tablet stats, table_id="
-                         << table_id << " request lock_id=" << request->lock_id()
-                         << " request initiator=" << request->initiator() << " msg " << msg;
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get tablet stats, err={} tablet_id={}", err,
+                              tablet_idx.tablet_id());
             return;
         }
+        if (!tablet_stat.ParseFromArray(stats_val.data(), stats_val.size())) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("marformed tablet stats value, key={}", hex(stats_key));
+            return;
+        }
+        response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
+        response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
+        response->add_cumulative_points(tablet_stat.cumulative_point());
+    }
+
+    read_stats_sw.pause();
+    LOG(INFO) << fmt::format("tablet_idxes.size()={}, read tablet compaction cnts cost={} ms",
+                             request->tablet_indexes().size(), read_stats_sw.elapsed_us() / 1000);
+
+    if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id, request->lock_id(),
+                                  request->initiator())) {
+        LOG(WARNING) << "failed to check delete bitmap lock after get tablet stats, table_id="
+                     << table_id << " request lock_id=" << request->lock_id()
+                     << " request initiator=" << request->initiator() << " msg " << msg;
     }
 }
 
