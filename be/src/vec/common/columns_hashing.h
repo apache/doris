@@ -152,8 +152,12 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
 
     template <typename Data, typename Key>
     ALWAYS_INLINE FindResult find_key_with_hash(Data& data, size_t i, Key key, size_t hash_value) {
-        if (key_column->is_null_at(i) && data.has_null_key_data()) {
-            return FindResult {&data.template get_null_key_data<Mapped>(), true};
+        if (key_column->is_null_at(i)) {
+            if (data.has_null_key_data()) {
+                return FindResult {&data.template get_null_key_data<Mapped>(), true};
+            } else {
+                return FindResult {nullptr, false};
+            }
         }
         return Base::find_key_impl(key, hash_value, data);
     }
