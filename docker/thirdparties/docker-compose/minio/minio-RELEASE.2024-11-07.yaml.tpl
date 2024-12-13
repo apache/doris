@@ -35,8 +35,8 @@ services:
       - MINIO_REGION_NAME=us-east-1
       - TZ=Asia/Shanghai
     volumes:
-      - ./script:/bin
-    command: [ "bash", "-c", "/bin/minio_init.sh" ]
+      - ./script/minio_init.sh:/bin/minio_init.sh
+    entrypoint : ["bash", "-c", "bash /bin/minio_init.sh"]
     networks:
       - doris--minio
 

@@ -16,5 +16,18 @@
 # specific language governing permissions and limitations
 # under the License.
 
-mc config host add local http://localhost:9000 minioadmin minioadmin
-mc mb local/test-bucket
+{
+    while true; do
+        if mc ping --count 1 local; then
+            echo "minio server is reachable."
+            mc config host add local http://localhost:9000 minioadmin minioadmin
+            mc mb -p local/test-bucket
+            break
+        else
+            echo "minio server is not reachable. Retrying in 1 seconds..."
+            sleep 1
+        fi
+    done
+} &
+
+/bin/docker-entrypoint.sh server /data --console-address ':9001'

@@ -205,10 +205,10 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
-//minio test config for cloud
+// minio external test config
 enableExternalMinioTest = false
 extMinioHost = "***.**.**.**"
-extMinioPort = 19000
+extMinioPort = 9000
 extMinioAk = "minioadmin"
 extMinioSk = "minioadmin"
 

@@ -607,7 +607,7 @@ start_kerberos() {
 start_minio() {
     echo "RUN_MINIO"
     cp "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml.tpl "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/minio-RELEASE.2024-11-07.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml --env-file "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -f "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.yaml --env-file "${ROOT}"/docker-compose/minio/minio-RELEASE.2024-11-07.env up -d
@@ -708,7 +708,7 @@ if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
     pids["kerberos"]=$!
 fi
 
-if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
+if [[ "${RUN_MINIO}" -eq 1 ]]; then
     start_minio > start_minio.log 2>&1 &
     pids["minio"]=$!
 fi
