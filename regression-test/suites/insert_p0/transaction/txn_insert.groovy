@@ -101,7 +101,7 @@ suite("txn_insert") {
             try {
                 sql "begin"
                 sql """insert into $tableMV values(9, 2), (10, 4)"""
-                sql """insert into $tableMV values('aa', 6)"""
+                sql """insert into $tableMV values(null, 6)"""
                 sql "commit"
             } catch (Exception e) {
                 sql "rollback"
