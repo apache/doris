@@ -330,7 +330,6 @@ TEST_F(ThreadPoolTest, TestZeroQueueSize) {
 TEST_F(ThreadPoolTest, TestDeadlocks) {
     ::testing::FLAGS_gtest_death_test_style = "threadsafe";
 
-#endif
     EXPECT_ANY_THROW({
         EXPECT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
         EXPECT_TRUE(_pool->submit_func(std::bind((&ThreadPool::shutdown), _pool.get())).ok());
