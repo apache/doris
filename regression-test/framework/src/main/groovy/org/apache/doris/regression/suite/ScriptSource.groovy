@@ -81,12 +81,13 @@ class SqlFileSource implements ScriptSource {
                     String tag = suiteName
                     String exceptionStr = ""
                     boolean order = suiteName.endsWith("_order")
+                    boolean no_dump_sql = suiteName.contains("_no_dump_sql")
                     log.info("Try to execute group: ${groupName} suite: ${suiteName} with ${sqls.size()} stmts")
                     for (int i = 0; i < sqls.size(); ++i) {
                         String singleSql = sqls.get(i)
                         String tagName = (i == 0) ? tag : "${tag}_${i + 1}"
                         try {
-                            quickTest(tagName, singleSql, [order:order])
+                            quickTest(tagName, singleSql, [order:order, dump_sql:!no_dump_sql])
                         } catch (Throwable e) {
                             String curException = "exception : ${e.getMessage()}\n" + "sql is :" + "${singleSql}\n"
                             exceptionStr += curException
