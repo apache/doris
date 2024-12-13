@@ -73,7 +73,7 @@ suite("regression_test_variant_nested", "p0"){
         qt_sql """
             select * from var_nested order by k limit 101
         """ 
-        for (i = 101; i < 121; ++i) {
+        for (int i = 101; i < 121; ++i) {
             sql """insert into var_nested values (${i}, '{"nested${i}" : {"nested": [{"yyyxxxx" : "11111"},{"ax1111" : "1111"},{"axxxb": 100, "xxxy111": 111}, {"ddsss":1024, "aaa" : "11"}, {"xx" : 10}]}, "not nested" : 1024, "not nested2" : {"llll" : 123}}');"""
         }
         def trigger_full_compaction_on_tablets = { tablets ->
