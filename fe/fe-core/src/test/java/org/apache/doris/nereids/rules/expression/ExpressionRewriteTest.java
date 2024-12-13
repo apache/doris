@@ -340,12 +340,11 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     @Test
     void testSimplifyRangeAndAddMinMax() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-            bottomUp(
-                SimplifyRange.INSTANCE,
-                AddMinMax.INSTANCE
-            )
+                bottomUp(
+                        SimplifyRange.INSTANCE,
+                        AddMinMax.INSTANCE
+                )
         ));
-
 
         assertRewriteAfterTypeCoercion("ISNULL(TA)", "ISNULL(TA)");
         assertRewriteAfterTypeCoercion("ISNULL(TA) and null", "ISNULL(TA) and null");
