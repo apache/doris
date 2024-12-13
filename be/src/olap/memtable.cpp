@@ -34,6 +34,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -350,7 +351,7 @@ Status MemTable::_sort_by_cluster_keys() {
     }
     Tie tie = Tie(0, mutable_block.rows());
 
-    for (auto cid : _tablet_schema->cluster_key_idxes()) {
+    for (auto cid : _tablet_schema->cluster_key_uids()) {
         auto index = _tablet_schema->field_index(cid);
         if (index == -1) {
             return Status::InternalError("could not find cluster key column with unique_id=" +
@@ -589,6 +590,7 @@ void MemTable::shrink_memtable_by_agg() {
 }
 
 bool MemTable::need_flush() const {
+    DBUG_EXECUTE_IF("MemTable.need_flush", { return true; });
     auto max_size = config::write_buffer_size;
     if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         auto update_columns_size = _num_columns;
@@ -619,7 +621,7 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
         (_skip_bitmap_col_idx == -1) ? _aggregate<true, false>() : _aggregate<true, true>();
     }
     if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow &&
-        !_tablet_schema->cluster_key_idxes().empty()) {
+        !_tablet_schema->cluster_key_uids().empty()) {
         if (_partial_update_mode != UniqueKeyUpdateModePB::UPSERT) {
             return Status::InternalError(
                     "Partial update for mow with cluster keys is not supported");

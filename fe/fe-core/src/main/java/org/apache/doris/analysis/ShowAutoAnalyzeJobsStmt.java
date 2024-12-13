@@ -40,7 +40,7 @@ import com.google.common.collect.ImmutableList;
  *        [TABLE]
  *        [
  *            WHERE
- *            [PRIORITY = ["HIGH"|"MID"|"LOW"]]
+ *            [PRIORITY = ["HIGH"|"MID"|"LOW"|"VERY_LOW"]]
  *        ]
  */
 public class ShowAutoAnalyzeJobsStmt extends ShowStmt implements NotFallbackInParser {
@@ -175,7 +175,7 @@ public class ShowAutoAnalyzeJobsStmt extends ShowStmt implements NotFallbackInPa
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like: "
-                    + "PRIORITY = \"HIGH|MID|LOW\"");
+                    + "PRIORITY = \"HIGH|MID|LOW|VERY_LOW\"");
         }
     }
 

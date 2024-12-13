@@ -173,26 +173,11 @@ struct FakeSharedState final : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(FakeSharedState)
 };
 
-class DependencyWithStack : public Dependency {
-public:
-    using SharedState = FakeSharedState;
-    DependencyWithStack(int id, int node_id, std::string name, bool ready = false)
-            : Dependency(id, node_id, name, ready) {}
-
-    void set_ready() override {
-        _stack_set_ready = get_stack_trace();
-        Dependency::set_ready();
-    }
-
-protected:
-    std::string _stack_set_ready;
-};
-
-class CountedFinishDependency final : public DependencyWithStack {
+class CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name)
-            : DependencyWithStack(id, node_id, name, true) {}
+            : Dependency(id, node_id, name, true) {}
 
     void add() {
         std::unique_lock<std::mutex> l(_mtx);
@@ -773,7 +758,7 @@ public:
         }
     }
     void sub_running_sink_operators();
-    void sub_running_source_operators(LocalExchangeSourceLocalState& local_state);
+    void sub_running_source_operators();
     void _set_always_ready() {
         for (auto& dep : source_deps) {
             DCHECK(dep);

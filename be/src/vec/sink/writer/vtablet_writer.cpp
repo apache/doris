@@ -92,6 +92,7 @@ namespace doris {
 class TExpr;
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_sink_write_bytes;
 bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte",
@@ -662,14 +663,14 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             _send_block_callback->clear_in_flight();
             return;
         }
-        if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95F) {
+        if (double(compressed_bytes) >= double(config::brpc_max_body_size) * 0.95F) {
             LOG(WARNING) << "send block too large, this rpc may failed. send size: "
                          << compressed_bytes << ", threshold: " << config::brpc_max_body_size
                          << ", " << channel_info();
         }
     }
 
-    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
+    auto remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request->eos()) {
             cancel(fmt::format("{}, err: timeout", channel_info()));
@@ -847,7 +848,7 @@ void VNodeChannel::_add_block_success_callback(const PTabletWriterAddBlockResult
     if (result.has_load_channel_profile()) {
         TRuntimeProfileTree tprofile;
         const auto* buf = (const uint8_t*)result.load_channel_profile().data();
-        uint32_t len = result.load_channel_profile().size();
+        auto len = cast_set<uint32_t>(result.load_channel_profile().size());
         auto st = deserialize_thrift_msg(buf, &len, false, &tprofile);
         if (st.ok()) {
             _state->load_channel_profile()->update(tprofile);
@@ -917,7 +918,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
             PTabletWriterCancelRequest,
             DummyBrpcCallback<PTabletWriterCancelResult>>::create_unique(request, cancel_callback);
 
-    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
+    auto remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         remain_ms = config::min_load_rpc_timeout_ms;
     }
@@ -1393,13 +1394,12 @@ static Status cancel_channel_and_check_intolerable_failure(Status status,
     nch.cancel(err_msg);
 
     // check if index has intolerable failure
-    Status index_st = ich.check_intolerable_failure();
-    if (!index_st.ok()) {
+    if (Status index_st = ich.check_intolerable_failure(); !index_st.ok()) {
         status = std::move(index_st);
-    } else if (Status st = ich.check_tablet_received_rows_consistency(); !st.ok()) {
-        status = std::move(st);
-    } else if (Status st = ich.check_tablet_filtered_rows_consistency(); !st.ok()) {
-        status = std::move(st);
+    } else if (Status receive_st = ich.check_tablet_received_rows_consistency(); !receive_st.ok()) {
+        status = std::move(receive_st);
+    } else if (Status filter_st = ich.check_tablet_filtered_rows_consistency(); !filter_st.ok()) {
+        status = std::move(filter_st);
     }
     return status;
 }
@@ -1706,7 +1706,7 @@ void VTabletWriter::_generate_one_index_channel_payload(
 
     size_t row_cnt = row_ids.size();
 
-    for (int i = 0; i < row_ids.size(); i++) {
+    for (size_t i = 0; i < row_ids.size(); i++) {
         // (tablet_id, VNodeChannel) where this tablet locate
         auto it = _channels[index_idx]->_channels_by_tablet.find(tablet_ids[i]);
         DCHECK(it != _channels[index_idx]->_channels_by_tablet.end())
