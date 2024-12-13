@@ -89,14 +89,15 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
     public void start() {
         jobScheduler = new JobScheduler<T, C>(jobMap);
+        clearTaskStatusWhenFeRestart();
         jobScheduler.start();
     }
 
-    private void clearTaskStatusWhenFeRestart() {
+    public void clearTaskStatusWhenFeRestart() {
         List<T> runningJobs = jobMap.values().stream()
                 .filter(job -> job.getJobStatus().equals(JobStatus.RUNNING)).collect(Collectors.toList());
         for (T job : runningJobs) {
-            
+            job.updateTaskStatusAfterRestart();
         }
     }
 

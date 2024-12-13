@@ -461,15 +461,26 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     public void onReplayEnd(AbstractJob<?, C> replayJob) throws JobException {
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay delete scheduler job").build());
     }
-    
-    private void updateTaskStatusAfterRestart() {
+
+    public void updateTaskStatusAfterRestart() {
+        List<T> tasks = queryAllTasks();
+        if (CollectionUtils.isEmpty(tasks)) {
+            return;
+        }
+        List<T> runningTasks = tasks.stream().filter(task -> task.getStatus().equals(TaskStatus.RUNNING) || task.getStatus().equals(TaskStatus.PENDING))
+                .collect(Collectors.toList());
         if (CollectionUtils.isEmpty(runningTasks)) {
             return;
         }
+
         runningTasks.forEach(task -> {
-            if (task.getStatus().equals(TaskStatus.RUNNING)) {
-                task.setStatus(TaskStatus.PENDING);
+            try {
+                task.onFail("task failed because of restart");
+            } catch (JobException e) {
+                log.warn("task failed because of restart, job id is {}, task id is {}",
+                        jobId, task.getTaskId(), e);
             }
         });
+
     }
 }
