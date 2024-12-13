@@ -677,7 +677,8 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
     auto st = compaction->prepare_compact();
     if (!st.ok()) {
         long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        if (st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) {
+        if (st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>() &&
+            st.msg() != "_last_delete_version.first not equal to -1") {
             // Backoff strategy if no suitable version
             tablet->last_cumu_no_suitable_version_ms = now;
         }
