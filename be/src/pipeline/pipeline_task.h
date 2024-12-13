@@ -133,7 +133,7 @@ public:
 
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    virtual Status close(Status exec_status);
+    virtual Status close(Status exec_status, bool close_sink = true);
 
     void put_in_runnable_queue() {
         _schedule_time++;
@@ -293,7 +293,8 @@ public:
 
     PipelineId pipeline_id() const { return _pipeline->id(); }
 
-    virtual void clear_blocking_state(bool wake_up_by_downstream = false) {}
+    virtual void clear_blocking_state() {}
+    virtual void set_wake_up_early() {}
 
 protected:
     void _finish_p_dependency() {

@@ -325,7 +325,7 @@ Status PipelineTask::execute(bool* eos) {
     return status;
 }
 
-Status PipelineTask::close(Status exec_status) {
+Status PipelineTask::close(Status exec_status, bool close_sink) {
     int64_t close_ns = 0;
     Defer defer {[&]() {
         if (_task_queue) {
@@ -335,7 +335,9 @@ Status PipelineTask::close(Status exec_status) {
     Status s;
     {
         SCOPED_RAW_TIMER(&close_ns);
-        s = _sink->close(_state);
+        if (close_sink) {
+            s = _sink->close(_state);
+        }
         for (auto& op : _operators) {
             auto tem = op->close(_state);
             if (!tem.ok() && s.ok()) {
