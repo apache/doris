@@ -20,7 +20,7 @@ suite("nereids_scalar_fn_Date") {
 	sql 'set enable_nereids_planner=true'
 	sql 'set enable_fallback_to_original_planner=false'
   sql """
-  CREATE TABLE `datewithstr` (
+  CREATE TABLE IF NOT EXISTS `datewithstr` (
     `id` bigint,
     `date` varchar(100)
     ) ENGINE=OLAP
