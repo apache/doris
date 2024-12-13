@@ -1249,11 +1249,11 @@ class Suite implements GroovyInterceptable {
     }
 
     // params containsKey
-    //     order: output in order
-    //     dump_sql: output sql
+    //     order: output in order, default is false
+    //     dump_sql: output sql, default is true
     void quickRunTest(String tag, Object arg, Map<String, Object> params) {
         def isOrder = params.getOrDefault('order', false) as boolean
-        def isDumpSql = params.getOrDefault('dump_sql', false) as boolean
+        def isDumpSql = params.getOrDefault('dump_sql', true) as boolean
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
