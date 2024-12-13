@@ -278,8 +278,6 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             uint32_t start = partition_rows_histogram[i];
             uint32_t size = partition_rows_histogram[i + 1] - start;
             if (size > 0) {
-                LOG(WARNING) << "=========1 " << _num_partitions << ' ' << i << " "
-                             << bucket_seq_to_instance_idx[i] << ' ' << size;
                 _enqueue_data_and_set_ready(bucket_seq_to_instance_idx[i], local_state,
                                             {new_block_wrapper, {row_idx, start, size}});
             } else {
