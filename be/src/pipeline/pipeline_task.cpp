@@ -396,6 +396,7 @@ Status PipelineTask::execute(bool* eos) {
             return status;
         });
 
+        auto workload_group = _state->get_query_ctx()->workload_group();
         if (_pending_block) [[unlikely]] {
             LOG(INFO) << "Query: " << print_id(query_id)
                       << " has pending block, size: " << _pending_block->allocated_bytes();
@@ -414,7 +415,6 @@ Status PipelineTask::execute(bool* eos) {
             const auto reserve_size = _root->get_reserve_mem_size(_state);
             _root->reset_reserve_mem_size(_state);
 
-            auto workload_group = _state->get_query_ctx()->workload_group();
             if (workload_group && _state->enable_reserve_memory() && reserve_size > 0) {
                 auto st = thread_context()->try_reserve_memory(reserve_size);
 
@@ -483,6 +483,20 @@ Status PipelineTask::execute(bool* eos) {
                     _eos = *eos;
                     *eos = false;
                     continue;
+                }
+                if (workload_group) {
+                    bool is_low_watermark = false;
+                    bool is_high_watermark = false;
+                    workload_group->check_mem_used(&is_low_watermark, &is_high_watermark);
+                    // for hash join build sink, if it's eos at this reserve, it will build hash table and
+                    // it will not be able to spill later even if memory is low, and will cause cancel of queries.
+                    // So make a check here, if it's low watermark after reserve and if reserved memory is too many,
+                    // then trigger revoke memory.
+                    if (is_low_watermark &&
+                        sink_reserve_size >= workload_group->memory_limit() * 0.05) {
+                        RETURN_IF_ERROR(_sink->revoke_memory(_state, nullptr));
+                        continue;
+                    }
                 }
             }
 
