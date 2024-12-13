@@ -63,7 +63,6 @@ public class TabletHealthTest extends TestWithFeService {
         Config.colocate_group_relocate_delay_second = -1000; // be dead will imm relocate
         Config.tablet_schedule_interval_ms = 7200_000L;  //disable schedule
         Config.tablet_checker_interval_ms = 7200_000L;  //disable checker
-        Config.max_scheduling_tablets = 2000;
     }
 
     @Override
@@ -81,6 +80,8 @@ public class TabletHealthTest extends TestWithFeService {
 
     @Override
     protected void runBeforeEach() throws Exception {
+        // set back to default value
+        Config.max_scheduling_tablets = 2000;
         for (Table table : db.getTables()) {
             dropTable(table.getName(), true);
         }
