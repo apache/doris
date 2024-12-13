@@ -55,11 +55,9 @@ public:
 
     static SnapshotManager* instance();
 
-    Result<std::vector<PendingRowsetGuard>> convert_rowset_ids(const std::string& clone_dir,
-                                                               int64_t tablet_id,
-                                                               int64_t replica_id,
-                                                               int64_t partition_id,
-                                                               int32_t schema_hash);
+    Result<std::vector<PendingRowsetGuard>> convert_rowset_ids(
+            const std::string& clone_dir, int64_t tablet_id, int64_t replica_id,
+            int64_t partition_id, int32_t schema_hash, bool is_restore, int64_t storage_policy_id);
 
 private:
     SnapshotManager() : _snapshot_base_id(0) {

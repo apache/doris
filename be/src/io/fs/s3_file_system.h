@@ -99,7 +99,9 @@ protected:
             abs_path = path;
         } else {
             // path with no schema
-            abs_path = _s3_conf.prefix / path;
+            abs_path = std::filesystem::path(
+                               fmt::format("s3://{}/{}", _s3_conf.bucket, _s3_conf.prefix)) /
+                       path;
         }
         return Status::OK();
     }

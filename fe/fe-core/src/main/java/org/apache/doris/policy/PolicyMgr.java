@@ -147,6 +147,24 @@ public class PolicyMgr implements Writable {
     }
 
     /**
+     * Create policy through StoragePolicy.
+     **/
+    public void createStoragePolicy(StoragePolicy storagePolicy) throws UserException {
+        Map<String, String> pros = Maps.newConcurrentMap();
+        if (storagePolicy.getCooldownTimestampMs() != -1) {
+            pros.put(StoragePolicy.COOLDOWN_DATETIME, String.valueOf(storagePolicy.getCooldownTimestampMs()));
+        }
+        if (storagePolicy.getCooldownTtl() != -1) {
+            pros.put(StoragePolicy.COOLDOWN_TTL, String.valueOf(storagePolicy.getCooldownTtl()));
+        }
+        pros.put(StoragePolicy.STORAGE_RESOURCE, storagePolicy.getStorageResource());
+
+        CreatePolicyStmt stmt = new CreatePolicyStmt(storagePolicy.getType(), true,
+                storagePolicy.getPolicyName(), pros);
+        createPolicy(stmt);
+    }
+
+    /**
      * Create policy through http api.
      **/
     public void addPolicy(Policy policy) throws UserException {
@@ -272,7 +290,7 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    private List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
+    public List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
         if (typeToPolicyMap == null) {
             return new ArrayList<>();
         }
@@ -317,6 +335,11 @@ public class PolicyMgr implements Writable {
             addTablePolicies((RowPolicy) policy);
         }
 
+    }
+
+    public void replayDrop(StoragePolicy policy) {
+        DropPolicyLog log = new DropPolicyLog(policy.getType(), policy.getPolicyName());
+        replayDrop(log);
     }
 
     public void replayDrop(DropPolicyLog log) {

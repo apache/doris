@@ -57,6 +57,8 @@ public:
 
     void set_fs(io::FileSystemSPtr fs);
 
+    void clear_resource_id();
+
     const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
 
     bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }

@@ -41,6 +41,7 @@
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "io/fs/broker_file_system.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
@@ -49,8 +50,10 @@
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
 #include "olap/data_dir.h"
+#include "olap/olap_define.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "runtime/client_cache.h"
@@ -80,6 +83,11 @@ Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_pat
         LOG(FATAL) << "unknown fs type: " << static_cast<int>(fs.type());
     }
     return Status::OK();
+}
+
+bool _end_with(std::string_view str, std::string_view match) {
+    return str.size() >= match.size() &&
+           str.compare(str.size() - match.size(), match.size(), match) == 0;
 }
 
 } // namespace
@@ -123,6 +131,161 @@ Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& l
 }
 
 SnapshotLoader::~SnapshotLoader() = default;
+
+static Status list_segment_inverted_index_file(io::RemoteFileSystem* cold_fs,
+                                               const std::string& dir, const std::string& rowset,
+                                               std::vector<std::string>* remote_files) {
+    bool exists = true;
+    std::vector<io::FileInfo> files;
+    RETURN_IF_ERROR(cold_fs->list(dir, true, &files, &exists));
+    for (auto& tmp_file : files) {
+        io::Path path(tmp_file.file_name);
+        std::string file_name = path.filename();
+
+        if (file_name.substr(0, rowset.length()).compare(rowset) != 0 ||
+            !_end_with(file_name, ".idx")) {
+            continue;
+        }
+        remote_files->push_back(file_name);
+    }
+
+    return Status::OK();
+}
+
+static Status check_need_upload(const std::string& src_path, const std::string& local_file,
+                                std::map<std::string, FileStat>& remote_files, std::string* md5sum,
+                                bool* need_upload) {
+    // calc md5sum of localfile
+    RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(src_path + "/" + local_file, md5sum));
+    VLOG_CRITICAL << "get file checksum: " << local_file << ": " << *md5sum;
+
+    // check if this local file need upload
+    auto find = remote_files.find(local_file);
+    if (find != remote_files.end()) {
+        if (*md5sum != find->second.md5) {
+            // remote storage file exist, but with different checksum
+            LOG(WARNING) << "remote file checksum is invalid. remote: " << find->first
+                         << ", local: " << *md5sum;
+            // TODO(cmy): save these files and delete them later
+            *need_upload = true;
+        }
+    } else {
+        *need_upload = true;
+    }
+
+    return Status::OK();
+}
+
+static Status download_and_upload_one_cold_file(
+        io::RemoteFileSystem& dest_fs, io::RemoteFileSystem* cold_fs,
+        const std::string& remote_seg_path, const std::string& local_seg_path,
+        const std::string& dest_seg_path, const std::string& local_path,
+        const std::string& local_file, std::map<std::string, FileStat>& remote_files) {
+    RETURN_IF_ERROR(cold_fs->download(remote_seg_path, local_seg_path));
+
+    bool need_upload = false;
+    std::string md5sum;
+    RETURN_IF_ERROR(check_need_upload(local_path, local_file, remote_files, &md5sum, &need_upload));
+
+    if (!need_upload) {
+        VLOG_CRITICAL << "cold file exist in remote path, no need to upload: " << local_file;
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(upload_with_checksum(dest_fs, local_seg_path, dest_seg_path, md5sum));
+
+    //delete local file
+    RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(local_seg_path));
+
+    return Status::OK();
+}
+
+static Status upload_remote_cold_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet_id,
+                                        const std::string& local_path, const std::string& dest_path,
+                                        io::RemoteFileSystem* cold_fs, const std::string& rowset_id,
+                                        int segments, int have_inverted_index,
+                                        std::map<std::string, FileStat>& remote_files) {
+    Status res = Status::OK();
+
+    for (int i = 0; i < segments; i++) {
+        std::string local_file = fmt::format("{}_{}.dat", rowset_id, i);
+        std::string remote_seg_path =
+                fmt::format("{}/{}_{}.dat", remote_tablet_path(tablet_id), rowset_id, i);
+        std::string local_seg_path = fmt::format("{}/{}_{}.dat", local_path, rowset_id, i);
+        std::string dest_seg_path = fmt::format("{}/{}_{}.dat", dest_path, rowset_id, i);
+
+        RETURN_IF_ERROR(download_and_upload_one_cold_file(dest_fs, cold_fs, remote_seg_path,
+                                                          local_seg_path, dest_seg_path, local_path,
+                                                          local_file, remote_files));
+    }
+
+    if (!have_inverted_index) {
+        return res;
+    }
+
+    std::vector<std::string> remote_index_files;
+    RETURN_IF_ERROR(list_segment_inverted_index_file(cold_fs, remote_tablet_path(tablet_id),
+                                                     rowset_id, &remote_index_files));
+
+    for (auto& index_file : remote_index_files) {
+        std::string remote_index_path =
+                fmt::format("{}/{}", remote_tablet_path(tablet_id), index_file);
+        std::string local_seg_path = fmt::format("{}/{}", local_path, index_file);
+        std::string dest_seg_path = fmt::format("{}/{}", dest_path, index_file);
+
+        RETURN_IF_ERROR(download_and_upload_one_cold_file(dest_fs, cold_fs, remote_index_path,
+                                                          local_seg_path, dest_seg_path, local_path,
+                                                          index_file, remote_files));
+    }
+    return res;
+}
+
+/*
+ * get the cooldown data info from the hdr file, download the cooldown data and
+ * upload it to remote storage.
+ */
+static Status upload_remote_cold_file(io::RemoteFileSystem& dest_fs, int64_t tablet_id,
+                                      const std::string& local_path, const std::string& dest_path,
+                                      std::map<std::string, FileStat>& remote_files) {
+    Status res = Status::OK();
+    std::string hdr_file = local_path + "/" + std::to_string(tablet_id) + ".hdr";
+
+    auto tablet_meta = std::make_shared<TabletMeta>();
+    res = tablet_meta->create_from_file(hdr_file);
+    if (!res.ok()) {
+        return Status::Error<ErrorCode::ENGINE_LOAD_INDEX_TABLE_ERROR>(
+                "fail to load tablet_meta. file_path={}", hdr_file);
+    }
+
+    if (tablet_meta->tablet_id() != tablet_id) {
+        return Status::InternalError("Invalid tablet {}", tablet_meta->tablet_id());
+    }
+
+    if (!tablet_meta->cooldown_meta_id().initialized()) {
+        return res;
+    }
+
+    string rowset_id;
+    int segments;
+    int have_inverted_index;
+
+    std::shared_ptr<io::RemoteFileSystem> colddata_fs;
+    RETURN_IF_ERROR(get_remote_file_system(tablet_meta->storage_policy_id(), &colddata_fs));
+
+    for (auto rowset_meta : tablet_meta->all_rs_metas()) {
+        rowset_id = rowset_meta->rowset_id().to_string();
+        segments = rowset_meta->num_segments();
+        have_inverted_index = rowset_meta->tablet_schema()->has_inverted_index();
+
+        if (segments > 0 && !rowset_meta->is_local()) {
+            RETURN_IF_ERROR(upload_remote_cold_rowset(dest_fs, tablet_id, local_path, dest_path,
+                                                      colddata_fs.get(), rowset_id, segments,
+                                                      have_inverted_index, remote_files));
+        }
+    }
+
+    return res;
+}
 
 Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_dest_path,
                               std::map<int64_t, std::vector<std::string>>* tablet_files) {
@@ -172,30 +335,12 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
         for (auto it = local_files.begin(); it != local_files.end(); it++) {
             RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
                                           TTaskType::type::UPLOAD));
-
             const std::string& local_file = *it;
-            // calc md5sum of localfile
+            bool need_upload = false;
             std::string md5sum;
             RETURN_IF_ERROR(
-                    io::global_local_filesystem()->md5sum(src_path + "/" + local_file, &md5sum));
-            VLOG_CRITICAL << "get file checksum: " << local_file << ": " << md5sum;
+                    check_need_upload(src_path, local_file, remote_files, &md5sum, &need_upload));
             local_files_with_checksum.push_back(local_file + "." + md5sum);
-
-            // check if this local file need upload
-            bool need_upload = false;
-            auto find = remote_files.find(local_file);
-            if (find != remote_files.end()) {
-                if (md5sum != find->second.md5) {
-                    // remote storage file exist, but with different checksum
-                    LOG(WARNING) << "remote file checksum is invalid. remote: " << find->first
-                                 << ", local: " << md5sum;
-                    // TODO(cmy): save these files and delete them later
-                    need_upload = true;
-                }
-            } else {
-                need_upload = true;
-            }
-
             if (!need_upload) {
                 VLOG_CRITICAL << "file exist in remote path, no need to upload: " << local_file;
                 continue;
@@ -206,6 +351,10 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             std::string local_path = src_path + '/' + local_file;
             RETURN_IF_ERROR(upload_with_checksum(*_remote_fs, local_path, remote_path, md5sum));
         } // end for each tablet's local files
+
+        // 2.4. upload cooldown data files
+        RETURN_IF_ERROR(
+                upload_remote_cold_file(*_remote_fs, tablet_id, src_path, dest_path, remote_files));
 
         tablet_files->emplace(tablet_id, local_files_with_checksum);
         finished_num++;
@@ -760,7 +909,8 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
 
     // rename the rowset ids and tabletid info in rowset meta
     auto res = SnapshotManager::instance()->convert_rowset_ids(
-            snapshot_path, tablet_id, tablet->replica_id(), tablet->partition_id(), schema_hash);
+            snapshot_path, tablet_id, tablet->replica_id(), tablet->partition_id(), schema_hash,
+            true, tablet->storage_policy_id());
     if (!res.has_value()) [[unlikely]] {
         auto err_msg =
                 fmt::format("failed to convert rowsetids in snapshot: {}, tablet path: {}, err: {}",
@@ -829,14 +979,6 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     LOG(INFO) << "finished to reload header of tablet: " << tablet_id;
 
     return status;
-}
-
-bool SnapshotLoader::_end_with(const std::string& str, const std::string& match) {
-    if (str.size() >= match.size() &&
-        str.compare(str.size() - match.size(), match.size(), match) == 0) {
-        return true;
-    }
-    return false;
 }
 
 Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::string& src_path,

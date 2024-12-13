@@ -107,6 +107,10 @@ void RowsetMeta::set_fs(io::FileSystemSPtr fs) {
     _fs = std::move(fs);
 }
 
+void RowsetMeta::clear_resource_id() {
+    _rowset_meta_pb.clear_resource_id();
+}
+
 void RowsetMeta::to_rowset_pb(RowsetMetaPB* rs_meta_pb) const {
     *rs_meta_pb = _rowset_meta_pb;
     if (_schema) {

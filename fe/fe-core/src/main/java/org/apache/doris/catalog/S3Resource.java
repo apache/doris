@@ -33,11 +33,13 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.zip.Adler32;
 
 /**
  * S3 resource
@@ -238,6 +240,41 @@ public class S3Resource extends Resource {
             }
         }
         readUnlock();
+    }
+
+    public int getSignature(int signatureVersion) {
+        Adler32 adler32 = new Adler32();
+        adler32.update(signatureVersion);
+        final String charsetName = "UTF-8";
+
+        try {
+            // table name
+            adler32.update(name.getBytes(charsetName));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. view name: {}", name);
+            }
+            // type
+            adler32.update(type.name().getBytes(charsetName));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. view type: {}", type.name());
+            }
+            // configs
+            for (Map.Entry<String, String> config : properties.entrySet()) {
+                adler32.update(config.getKey().getBytes(charsetName));
+                adler32.update(config.getValue().getBytes(charsetName));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("signature. view config: {}", config);
+                }
+            }
+        } catch (UnsupportedEncodingException e) {
+            LOG.error("encoding error", e);
+            return -1;
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("signature: {}", Math.abs((int) adler32.getValue()));
+        }
+        return Math.abs((int) adler32.getValue());
     }
 }
 

@@ -17,11 +17,13 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.policy.StoragePolicy;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -50,17 +52,37 @@ public class BackupMeta implements Writable {
     // resource name -> resource
     @SerializedName(value = "resourceNameMap")
     private Map<String, Resource> resourceNameMap = Maps.newHashMap();
+    //don't need to serialize
+    private Map<String, StoragePolicy> storagePolicyNameMap = Maps.newHashMap();
 
     private BackupMeta() {
     }
 
-    public BackupMeta(List<Table> tables, List<Resource> resources) {
+    public BackupMeta(List<Table> tables, List<Resource> resources, List<StoragePolicy> storagePolicies) {
         for (Table table : tables) {
             tblNameMap.put(table.getName(), table);
             tblIdMap.put(table.getId(), table);
         }
         for (Resource resource : resources) {
             resourceNameMap.put(resource.getName(), resource);
+        }
+
+        for (StoragePolicy policy : storagePolicies) {
+            storagePolicyNameMap.put(policy.getName(), policy);
+
+            if (resourceNameMap.get(policy.getStorageResource()) != null) {
+                continue;
+            }
+            Resource resource = Env.getCurrentEnv().getResourceMgr()
+                    .getResource(policy.getStorageResource());
+            if (resource.getType() != Resource.ResourceType.S3) {
+                continue;
+            }
+            Resource copiedResource = resource.clone();
+            if (copiedResource == null) {
+                continue;
+            }
+            resourceNameMap.put(policy.getStorageResource(), copiedResource);
         }
     }
 
@@ -70,6 +92,10 @@ public class BackupMeta implements Writable {
 
     public Map<String, Resource> getResourceNameMap() {
         return resourceNameMap;
+    }
+
+    public Map<String, StoragePolicy> getStoragePolicyNameMap() {
+        return storagePolicyNameMap;
     }
 
     public Table getTable(String tblName) {
