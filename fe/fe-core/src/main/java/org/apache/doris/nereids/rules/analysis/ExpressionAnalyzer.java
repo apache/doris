@@ -24,6 +24,7 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -584,17 +585,19 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return visit(realExpr, context);
     }
 
-    // Register placeholder id to related slot in comparison predicate.
+    // Register prepared statement placeholder id to related slot in comparison predicate.
     // Used to replace expression in ShortCircuit plan
-    private void registerPlaceholdIdToSlot(ComparisonPredicate cp,
+    private void registerPlaceholderIdToSlot(ComparisonPredicate cp,
                     ExpressionRewriteContext context, Expression left, Expression right) {
-        // Used to replace expression in ShortCircuit plan
-        if (cp.right() instanceof Placeholder && left instanceof SlotReference) {
-            PlaceholderId id = ((Placeholder) cp.right()).getPlaceholderId();
-            context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) left);
-        } else if (cp.left() instanceof Placeholder && right instanceof SlotReference) {
-            PlaceholderId id = ((Placeholder) cp.left()).getPlaceholderId();
-            context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) right);
+        if (ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+            // Used to replace expression in ShortCircuit plan
+            if (cp.right() instanceof Placeholder && left instanceof SlotReference) {
+                PlaceholderId id = ((Placeholder) cp.right()).getPlaceholderId();
+                context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) left);
+            } else if (cp.left() instanceof Placeholder && right instanceof SlotReference) {
+                PlaceholderId id = ((Placeholder) cp.left()).getPlaceholderId();
+                context.cascadesContext.getStatementContext().getIdToComparisonSlot().put(id, (SlotReference) right);
+            }
         }
     }
 
@@ -603,7 +606,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Expression left = cp.left().accept(this, context);
         Expression right = cp.right().accept(this, context);
         // Used to replace expression in ShortCircuit plan
-        registerPlaceholdIdToSlot(cp, context, left, right);
+        registerPlaceholderIdToSlot(cp, context, left, right);
         cp = (ComparisonPredicate) cp.withChildren(left, right);
         return TypeCoercionUtils.processComparisonPredicate(cp);
     }
