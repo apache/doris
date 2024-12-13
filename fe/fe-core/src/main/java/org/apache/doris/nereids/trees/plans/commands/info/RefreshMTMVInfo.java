@@ -22,10 +22,12 @@ import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -34,9 +36,11 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -82,9 +86,9 @@ public class RefreshMTMVInfo {
 
     private void checkPartitionExist(MTMV mtmv) throws org.apache.doris.common.AnalysisException {
         MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
-        // todo: Unified locking sequence
-        mtmv.readLock();
-        relatedTable.readLock();
+        List<TableIf> tables = Lists.newArrayList(mtmv, relatedTable);
+        tables.sort(Comparator.comparing(TableIf::getId));
+        MetaLockUtils.readLockTables(tables);
         try {
             if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
                 throw new AnalysisException(
@@ -103,8 +107,7 @@ public class RefreshMTMVInfo {
                 }
             }
         } finally {
-            relatedTable.readUnlock();
-            mtmv.readUnlock();
+            MetaLockUtils.readUnlockTables(tables);
         }
     }
 
