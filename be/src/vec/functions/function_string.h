@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <glog/logging.h>
 #include <sys/types.h>
 
 #include <algorithm>

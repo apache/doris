@@ -214,7 +214,8 @@ void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types
 // A DataSet with a constant column can only have one row of data
 template <typename ReturnType, bool nullable = false>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
-                      const DataSet& data_set, bool expect_fail = false) {
+                      const DataSet& data_set, bool expect_fail = false,
+                      bool expect_not_found_function = false) {
     // 1.0 create data type
     ut_type::UTDataTypeDescs descs;
     EXPECT_TRUE(parse_ut_data_type(input_types, descs));
@@ -263,6 +264,10 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                                 : std::make_shared<ReturnType>();
     auto func = SimpleFunctionFactory::instance().get_function(
             func_name, block.get_columns_with_type_and_name(), return_type);
+    if (expect_not_found_function) {
+        EXPECT_TRUE(func == nullptr);
+        return Status::OK();
+    }
     EXPECT_TRUE(func != nullptr);
 
     doris::TypeDescriptor fn_ctx_return;
