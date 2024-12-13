@@ -2731,7 +2731,8 @@ public class Coordinator implements CoordInterface {
          * 1. `parallelExecInstanceNum * numBackends` is larger than scan ranges.
          * 2. Use Nereids planner.
          */
-        boolean ignoreStorageDataDistribution = params.fragment != null && params.fragment.useSerialSource(context);
+        boolean ignoreStorageDataDistribution = scanNodes != null && !scanNodes.isEmpty()
+                && params.fragment != null && params.fragment.useSerialSource(context);
 
         FragmentScanRangeAssignment assignment = params.scanRangeAssignment;
         for (Map.Entry<TNetworkAddress, List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> addressScanRange
