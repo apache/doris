@@ -193,7 +193,7 @@ suite("test_alter_user", "account,nonConcurrent") {
         sql 'select 1'
     }
 
-    // 9. test user default database privileges
+    // 9. test user default database privileges 
     sql """drop user if exists test_auth_user4"""
     sql """create user test_auth_user4 identified by '12345'"""
     sql """grant SELECT_PRIV on regression_test.* to test_auth_user4"""
@@ -202,5 +202,6 @@ suite("test_alter_user", "account,nonConcurrent") {
         sql 'use information_schema'
         sql 'use mysql'
     }
+
 }
 
