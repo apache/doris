@@ -230,5 +230,5 @@ CONF_Bool(enable_check_instance_id, "true");
 CONF_Bool(force_change_to_multi_follower_mode, "true");
 
 // Check if ip eq 127.0.0.1, ms/recycler exit
-CONF_Bool(prohibit_use_loopback_addresses, "true");
+CONF_Bool(disable_loopback_address_for_ms, "true");
 } // namespace doris::cloud::config

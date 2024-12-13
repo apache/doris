@@ -1539,7 +1539,7 @@ suite('test_ms_api', 'p0, docker') {
     optionsForMs.setMsNum(2)
     optionsForMs.cloudMode = true
     optionsForMs.msConfigs += [
-        'prohibit_use_loopback_addresses=false',
+        'disable_loopback_address_for_ms=false',
     ]
     docker(optionsForMs) {
         log.info("in test ms docker env")
@@ -1550,7 +1550,7 @@ suite('test_ms_api', 'p0, docker') {
         def confFile = ms2.getConfFilePath()
         log.info("ms2 conf file: {}", confFile)
         def writer = new PrintWriter(new FileWriter(confFile, true))  // true 表示 append 模式
-        writer.println("prohibit_use_loopback_addresses=true")
+        writer.println("disable_loopback_address_for_ms=true")
         writer.println("priority_networks=127.0.0.1/32")
         writer.flush()
         writer.close()

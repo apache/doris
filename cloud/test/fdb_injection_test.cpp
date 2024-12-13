@@ -71,7 +71,7 @@ int main(int argc, char** argv) {
     cloud::config::fdb_cluster_file_path = "fdb.cluster";
     cloud::config::write_schema_kv = true;
     cloud::config::enable_check_instance_id = false;
-    cloud::config::prohibit_use_loopback_addresses = false;
+    cloud::config::disable_loopback_address_for_ms = false;
 
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
