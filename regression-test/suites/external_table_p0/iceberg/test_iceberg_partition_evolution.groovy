@@ -44,6 +44,10 @@ suite("test_iceberg_partition_evolution", "p0,external,doris,external_docker,ext
     logger.info("switched to catalog " + catalog_name)
     sql """ use test_db;""" 
 
+    def tbs = sql """ show tables  """ 
+    logger.info("tables = " +tbs )
+
+
     qt_add_partition_1  """desc iceberg_add_partition;"""
     qt_add_partition_2  """select * from iceberg_add_partition order by id;"""
     qt_add_partition_3  """select id from iceberg_add_partition order by id;"""
