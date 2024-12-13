@@ -607,6 +607,9 @@ public class NereidsPlanner extends Planner {
     }
 
     private long getGarbageCollectionTime() {
+        if (!ConnectContext.get().getSessionVariable().enableProfile()) {
+            return 0;
+        }
         List<GarbageCollectorMXBean> gcMxBeans = ManagementFactory.getGarbageCollectorMXBeans();
         long initialGCTime = 0;
         for (GarbageCollectorMXBean gcBean : gcMxBeans) {

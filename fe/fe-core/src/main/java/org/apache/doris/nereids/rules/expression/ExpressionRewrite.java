@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
@@ -113,14 +114,19 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 List<NamedExpression> projects = oneRowRelation.getProjects();
                 ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
 
-                List<NamedExpression> newProjects = projects
-                        .stream()
-                        .map(expr -> (NamedExpression) rewriter.rewrite(expr, context))
-                        .collect(ImmutableList.toImmutableList());
-                if (projects.equals(newProjects)) {
-                    return oneRowRelation;
+                Builder<NamedExpression> rewrittenExprs
+                        = ImmutableList.builderWithExpectedSize(projects.size());
+                boolean changed = false;
+                for (NamedExpression project : projects) {
+                    NamedExpression newProject = (NamedExpression) rewriter.rewrite(project, context);
+                    if (!changed && !project.deepEquals(newProject)) {
+                        changed = true;
+                    }
+                    rewrittenExprs.add(newProject);
                 }
-                return new LogicalOneRowRelation(oneRowRelation.getRelationId(), newProjects);
+                return changed
+                        ? new LogicalOneRowRelation(oneRowRelation.getRelationId(), rewrittenExprs.build())
+                        : oneRowRelation;
             }).toRule(RuleType.REWRITE_ONE_ROW_RELATION_EXPRESSION);
         }
     }
