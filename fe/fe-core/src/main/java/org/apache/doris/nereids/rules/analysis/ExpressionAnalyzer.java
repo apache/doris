@@ -589,7 +589,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     // Used to replace expression in ShortCircuit plan
     private void registerPlaceholderIdToSlot(ComparisonPredicate cp,
                     ExpressionRewriteContext context, Expression left, Expression right) {
-        if (ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+        if (ConnectContext.get() != null
+                    && ConnectContext.get().getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
             // Used to replace expression in ShortCircuit plan
             if (cp.right() instanceof Placeholder && left instanceof SlotReference) {
                 PlaceholderId id = ((Placeholder) cp.right()).getPlaceholderId();
