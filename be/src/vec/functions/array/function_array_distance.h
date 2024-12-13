@@ -128,8 +128,8 @@ public:
 
         const auto& offsets1 = *arr1.offsets_ptr;
         const auto& offsets2 = *arr2.offsets_ptr;
-        const auto& nested_col1 = assert_cast<const ColumnFloat64*>(arr1.nested_col);
-        const auto& nested_col2 = assert_cast<const ColumnFloat64*>(arr2.nested_col);
+        const auto& nested_col1 = assert_cast<const ColumnFloat64*>(arr1.nested_col.get());
+        const auto& nested_col2 = assert_cast<const ColumnFloat64*>(arr2.nested_col.get());
         for (ssize_t row = 0; row < offsets1.size(); ++row) {
             if (arr1.array_nullmap_data && arr1.array_nullmap_data[row]) {
                 dst_null_data[row] = true;
