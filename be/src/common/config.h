@@ -1482,6 +1482,8 @@ DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
 // Enable validation to check the correctness of table size.
 DECLARE_Bool(enable_table_size_correctness_check);
 
+DECLARE_mInt32(revocable_memory_bytes_high_watermark);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

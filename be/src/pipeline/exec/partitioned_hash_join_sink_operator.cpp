@@ -582,14 +582,20 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
 
     local_state._child_eos = eos;
 
+    Defer defer_dgb {[&]() {
+        if (local_state.revocable_mem_size(state) > 128 * 1024 * 1024) {
+            VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", task " << state->task_id()
+                       << " sink " << node_id() << " _child_eos: " << local_state._child_eos
+                       << ", revocable memory: " << local_state.revocable_mem_size(state);
+        }
+    }};
     const auto rows = in_block->rows();
 
     const auto need_to_spill = local_state._shared_state->need_to_spill;
     if (rows == 0) {
         if (eos) {
             VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", task " << state->task_id()
-                       << " sink " << node_id() << " eos, set_ready_to_read"
-                       << ", need spill: " << need_to_spill;
+                       << " sink " << node_id() << " eos, need spill: " << need_to_spill;
 
             if (need_to_spill) {
                 return revoke_memory(state, nullptr);
@@ -605,11 +611,13 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                 Defer defer {[&]() { local_state.update_memory_usage(); }};
                 RETURN_IF_ERROR(_inner_sink_operator->sink(
                         local_state._shared_state->inner_runtime_state.get(), in_block, eos));
-                VLOG_DEBUG << "Query: " << print_id(state->query_id()) << " task "
-                           << state->task_id() << " sink " << node_id() << " eos, set_ready_to_read"
-                           << ", nonspill build usage: "
-                           << PrettyPrinter::print_bytes(_inner_sink_operator->get_memory_usage(
-                                      local_state._shared_state->inner_runtime_state.get()));
+
+                VLOG_DEBUG << fmt::format(
+                        "Query: {}, task {}, sink {} eos, set_ready_to_read, nonspill memory "
+                        "usage: {}",
+                        print_id(state->query_id()), state->task_id(), node_id(),
+                        _inner_sink_operator->get_memory_usage_debug_str(
+                                local_state._shared_state->inner_runtime_state.get()));
             }
 
             std::for_each(local_state._shared_state->partitioned_build_blocks.begin(),
@@ -646,11 +654,12 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                 local_state._shared_state->inner_runtime_state.get(), in_block, eos));
 
         if (eos) {
-            VLOG_DEBUG << "Query: " << print_id(state->query_id()) << " task " << state->task_id()
-                       << " sink " << node_id() << " eos, set_ready_to_read"
-                       << ", nonspill build usage: "
-                       << _inner_sink_operator->get_memory_usage(
-                                  local_state._shared_state->inner_runtime_state.get());
+            VLOG_DEBUG << fmt::format(
+                    "Query: {}, task {}, sink {} eos, set_ready_to_read, nonspill memory "
+                    "usage: {}",
+                    print_id(state->query_id()), state->task_id(), node_id(),
+                    _inner_sink_operator->get_memory_usage_debug_str(
+                            local_state._shared_state->inner_runtime_state.get()));
             local_state._dependency->set_ready_to_read();
         }
     }

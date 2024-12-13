@@ -42,6 +42,7 @@
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
+#include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
@@ -492,10 +493,33 @@ Status PipelineTask::execute(bool* eos) {
                     // it will not be able to spill later even if memory is low, and will cause cancel of queries.
                     // So make a check here, if it's low watermark after reserve and if reserved memory is too many,
                     // then trigger revoke memory.
-                    if (is_low_watermark &&
-                        sink_reserve_size >= workload_group->memory_limit() * 0.05) {
-                        RETURN_IF_ERROR(_sink->revoke_memory(_state, nullptr));
-                        continue;
+
+                    // debug
+                    if (sink_reserve_size > 64 * 1024 * 1024) {
+                        LOG(INFO) << fmt::format(
+                                "Query: {}, sink name: {}, node id: {}, task id: {}, "
+                                "is_low_watermark: {}, sink_reserve_size: {}, wg mem limit: {}, "
+                                "reserve/wg_limit: {}",
+                                print_id(query_id), _sink->get_name(), _sink->node_id(),
+                                _state->task_id(), is_low_watermark,
+                                PrettyPrinter::print_bytes(sink_reserve_size),
+                                PrettyPrinter::print_bytes(workload_group->memory_limit()),
+                                ((double)sink_reserve_size) / workload_group->memory_limit());
+                    }
+                    if (is_low_watermark) {
+                        const auto revocable_size = _sink->revocable_mem_size(_state);
+                        if (revocable_size >= config::revocable_memory_bytes_high_watermark) {
+                            LOG(INFO) << fmt::format(
+                                    "Query: {}, sink name: {}, node id: {}, task id: {}, "
+                                    "sink_reserve_size: {}, revoke_memory "
+                                    "because revocable memory is high: {}",
+                                    print_id(query_id), _sink->get_name(), _sink->node_id(),
+                                    _state->task_id(),
+                                    PrettyPrinter::print_bytes(sink_reserve_size),
+                                    PrettyPrinter::print_bytes(revocable_size));
+                            RETURN_IF_ERROR(_sink->revoke_memory(_state, nullptr));
+                            continue;
+                        }
                     }
                 }
             }

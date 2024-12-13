@@ -682,4 +682,12 @@ size_t HashJoinBuildSinkOperatorX::get_memory_usage(RuntimeState* state) const {
     return local_state._memory_used_counter->value();
 }
 
+std::string HashJoinBuildSinkOperatorX::get_memory_usage_debug_str(RuntimeState* state) const {
+    auto& local_state = get_local_state(state);
+    return fmt::format("build block: {}, hash table: {}, build key arena: {}",
+                       PrettyPrinter::print_bytes(local_state._build_blocks_memory_usage->value()),
+                       PrettyPrinter::print_bytes(local_state._hash_table_memory_usage->value()),
+                       PrettyPrinter::print_bytes(local_state._build_arena_memory_usage->value()));
+}
+
 } // namespace doris::pipeline
