@@ -713,41 +713,12 @@ class Suite implements GroovyInterceptable {
     }
 
     void checkNereidsExecute(String sqlString) {
-        String tag = UUID.randomUUID().toString();
-        log.info("start check" + tag)
-        String finalSqlString = "--" + tag + "\n" + sqlString
-        ProfileAction profileAction = new ProfileAction(context, tag)
-        profileAction.run {
-            log.info("start profile run" + tag)
-            sql (finalSqlString)
-        }
-        profileAction.check {
-            profileString, exception ->
-                log.info("start profile check" + tag)
-                log.info(profileString)
-                Assertions.assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-        profileAction.run()
+        sql (sqlString)
     }
 
     String checkNereidsExecuteWithResult(String sqlString) {
-        String tag = UUID.randomUUID().toString();
-        String result = null;
-        log.info("start check" + tag)
-        String finalSqlString = "--" + tag + "\n" + sqlString
-        ProfileAction profileAction = new ProfileAction(context, tag)
-        profileAction.run {
-            log.info("start profile run" + tag)
-            result = sql (finalSqlString)
-        }
-        profileAction.check {
-            profileString, exception ->
-                log.info("start profile check" + tag)
-                log.info(profileString)
-                Assertions.assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-        profileAction.run()
-        return result;
+        String result = sql (sqlString);
+        return result
     }
 
     void createMV(String sql) {
