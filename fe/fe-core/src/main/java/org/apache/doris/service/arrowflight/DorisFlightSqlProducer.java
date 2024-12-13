@@ -131,7 +131,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         String[] handleParts = handle.split(":");
         String executedPeerIdentity = handleParts[0];
         String queryId = handleParts[1];
-        ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
+        ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity, true);
         try {
             // The tokens used for authentication between getStreamStatement and getFlightInfoStatement are different.
             final FlightSqlResultCacheEntry flightSqlResultCacheEntry = Objects.requireNonNull(
@@ -173,7 +173,12 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 String[] handleParts = request.getPreparedStatementHandle().toStringUtf8().split(":");
                 String executedPeerIdentity = handleParts[0];
                 String preparedStatementId = handleParts[1];
-                flightSessionsManager.getConnectContext(executedPeerIdentity).removePreparedQuery(preparedStatementId);
+                ConnectContext ctx = flightSessionsManager.getConnectContext(executedPeerIdentity, false);
+                // If ConnectContext does not exist, it means that the Arrow Flight connection has been closed by FE.
+                // nothing needs to be done and the ADBC client does not need to know.
+                if (ctx != null) {
+                    ctx.removePreparedQuery(preparedStatementId);
+                }
             } catch (final Exception e) {
                 listener.onError(e);
                 return;
@@ -290,7 +295,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoStatement(final CommandStatementQuery request, final CallContext context,
             final FlightDescriptor descriptor) {
-        ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+        ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity(), true);
         return executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(), descriptor);
     }
 
@@ -300,7 +305,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         String[] handleParts = command.getPreparedStatementHandle().toStringUtf8().split(":");
         String executedPeerIdentity = handleParts[0];
         String preparedStatementId = handleParts[1];
-        ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
+        ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity, true);
         return executeQueryStatement(executedPeerIdentity, connectContext,
                 connectContext.getPreparedQuery(preparedStatementId), descriptor);
     }
@@ -339,7 +344,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         // if the server raises any error except for NotImplemented it will fail. (If it gets NotImplemented,
         // it will ignore and execute without a prepared statement.) see: https://github.com/apache/arrow/issues/38786
         executorService.submit(() -> {
-            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity(), true);
             try {
                 connectContext.setCommand(MysqlCommand.COM_QUERY);
                 final String query = request.getQuery();

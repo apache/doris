@@ -86,7 +86,6 @@ import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -106,7 +105,6 @@ public abstract class ConnectProcessor {
     protected final ConnectContext ctx;
     protected StmtExecutor executor = null;
     protected ConnectType connectType;
-    protected ArrayList<StmtExecutor> returnResultFromRemoteExecutor = new ArrayList<>();
 
     public ConnectProcessor(ConnectContext context) {
         this.ctx = context;
@@ -360,7 +358,7 @@ public abstract class ConnectProcessor {
                         }
                     } else if (connectType.equals(ConnectType.ARROW_FLIGHT_SQL)) {
                         if (!ctx.isReturnResultFromLocal()) {
-                            returnResultFromRemoteExecutor.add(executor);
+                            ctx.addReturnResultFromRemoteExecutor(executor);
                         }
                         Preconditions.checkState(ctx.getFlightSqlChannel().resultNum() <= 1);
                         if (ctx.getFlightSqlChannel().resultNum() == 1 && i != stmts.size() - 1) {

@@ -20,9 +20,11 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
@@ -53,6 +55,7 @@ import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.plsql.Exec;
@@ -168,6 +171,7 @@ public class ConnectContext {
     protected volatile ConnectScheduler connectScheduler;
     // Executor
     protected volatile StmtExecutor executor;
+    protected volatile ArrayList<StmtExecutor> returnResultFromRemoteExecutor = new ArrayList<>();
     // Command this connection is processing.
     protected volatile MysqlCommand command;
     // Timestamp in millisecond last command starts at
@@ -808,6 +812,36 @@ public class ConnectContext {
 
     public StmtExecutor getExecutor() {
         return executor;
+    }
+
+    public void addReturnResultFromRemoteExecutor(StmtExecutor executor) {
+        this.returnResultFromRemoteExecutor.add(executor);
+    }
+
+    public void finalizeArrowFlightSqlRequest() {
+        setThreadLocalInfo();
+        if (executor != null && executor.getParsedStmt() != null && !executor.getParsedStmt().isExplain()
+                && (executor.getParsedStmt() instanceof QueryStmt // currently only QueryStmt and insert need profile
+                || executor.getParsedStmt() instanceof LogicalPlanAdapter
+                || executor.getParsedStmt() instanceof InsertStmt)) {
+            executor.updateProfile(true);
+            if (statsErrorEstimator != null) {
+                statsErrorEstimator.updateProfile(ConnectContext.get().queryId());
+            }
+        }
+
+        for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
+            asynExecutor.finalizeQuery();
+        }
+        returnResultFromRemoteExecutor.clear();
+        // In most cases, `executor.finalizeQuery` is redundant and will be skipped directly.
+        // Because the query returning results from BE will execute `returnResultFromRemoteExecutor.finalizeQuery`,
+        // and the query returning results from FE and `insert into` will call unregisterQuery after execute.
+        executor.finalizeQuery();
+
+        remove();
+        setCommand(MysqlCommand.COM_SLEEP);
+        clear();
     }
 
     public void clear() {

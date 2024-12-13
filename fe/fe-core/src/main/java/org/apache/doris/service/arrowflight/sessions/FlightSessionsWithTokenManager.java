@@ -42,10 +42,10 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
     }
 
     @Override
-    public ConnectContext getConnectContext(String peerIdentity) {
+    public ConnectContext getConnectContext(String peerIdentity, boolean createIfNotExist) {
         try {
             ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler().getContext(peerIdentity);
-            if (null == connectContext) {
+            if (null == connectContext && createIfNotExist) {
                 connectContext = createConnectContext(peerIdentity);
                 return connectContext;
             }
