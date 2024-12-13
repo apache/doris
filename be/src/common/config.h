@@ -1482,6 +1482,8 @@ DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
 
 // Enable validation to check the correctness of table size.
 DECLARE_Bool(enable_table_size_correctness_check);
+// Enable sleep 5s between delete cumulative compaction.
+DECLARE_mBool(enable_sleep_between_delete_cumu_compaction);
 
 #ifdef BE_TEST
 // test s3
