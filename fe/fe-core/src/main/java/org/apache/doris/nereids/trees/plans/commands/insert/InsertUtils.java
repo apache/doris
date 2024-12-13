@@ -367,8 +367,7 @@ public class InsertUtils {
             );
         }
 
-        Optional<ExpressionAnalyzer> analyzer = Optional.empty();
-        analyzeContext.map(
+        Optional<ExpressionAnalyzer> analyzer = analyzeContext.map(
                 cascadesContext -> buildExprAnalyzer(plan, cascadesContext)
         );
 
