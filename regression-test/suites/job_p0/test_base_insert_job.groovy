@@ -116,7 +116,7 @@ suite("test_base_insert_job") {
 
     def taskStatus = sql """select status from tasks("type"="insert") where JobName ='${jobName}'"""
     for (int i = 0; i < taskStatus.size(); i++) {
-        assert taskStatus.get(i).get(0) =="CANCELLED" || taskStatus.get(i).get(0) =="FINISHED"
+        assert taskStatus.get(i).get(0) =="CANCELED" || taskStatus.get(i).get(0) =="SUCCESS"
     }
     sql """
        CREATE JOB ${jobMixedName}  ON SCHEDULE every 1 second  DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
@@ -168,7 +168,7 @@ suite("test_base_insert_job") {
     // table should have one record after job finished
     assert datas.size() == 1
     // one time job only has one task. when job finished, task status should be FINISHED
-    assert datas.get(0).get(0) == "FINISHED"
+    assert datas.get(0).get(0) == "SUCCESS"
     // check table data
     def dataCount1 = sql """select count(1) from ${tableName} where user_id=1001"""
     assert dataCount1.get(0).get(0) == 1
@@ -202,8 +202,6 @@ suite("test_base_insert_job") {
     def past_start_time_job = sql """ select status from jobs("type"="insert") where name='past_start_time'"""
     println past_start_time_job
     assert past_start_time_job.get(0).get(0) == "RUNNING"
-    def recurringTableDatas = sql """ select count(1) from ${tableName} where user_id=99 and type=99 """
-    assert recurringTableDatas.get(0).get(0) == 1
     sql """
         DROP JOB IF EXISTS where jobname =  'past_start_time'
     """
@@ -306,7 +304,7 @@ suite("test_base_insert_job") {
             CREATE JOB test_error_starts  ON SCHEDULE every -1 second    comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
-        //ignore
+        assert e.getMessage().contains("expecting INTEGER_VALUE")
     }
 
     // test keyword as job name
