@@ -34,18 +34,23 @@
 #include "gutil/strings/split.h" // for string split
 #include "gutil/strtoint.h"      //  for atoi64
 #include "runtime/workload_group/workload_group_metrics.h"
+#include "util/cgroup_util.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
 
 namespace doris {
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(avail_cpu_num, MetricUnit::NOUNIT);
+
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(host_cpu_num, MetricUnit::NOUNIT);
 struct CpuNumberMetrics {
     CpuNumberMetrics(MetricEntity* ent) : entity(ent) {
         INT_COUNTER_METRIC_REGISTER(entity, host_cpu_num);
+        INT_COUNTER_METRIC_REGISTER(entity, avail_cpu_num);
     }
 
     IntAtomicCounter* host_cpu_num {nullptr};
+    IntAtomicCounter* avail_cpu_num {nullptr};
     MetricEntity* entity = nullptr;
 };
 
@@ -1003,6 +1008,14 @@ void SystemMetrics::_update_proc_metrics() {
     }
 
     fclose(fp);
+}
+
+void SystemMetrics::update_be_avail_cpu_num() {
+    int64_t physical_cpu_num = _cpu_num_metrics->host_cpu_num->value();
+    if (physical_cpu_num > 0) {
+        physical_cpu_num = CGroupUtil::get_cgroup_limited_cpu_number(physical_cpu_num);
+        _cpu_num_metrics->avail_cpu_num->set_value(physical_cpu_num);
+    }
 }
 
 void SystemMetrics::get_metrics_from_proc_vmstat() {
