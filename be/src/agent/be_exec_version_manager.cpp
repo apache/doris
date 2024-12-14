@@ -110,7 +110,10 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
  *
  * 7: start from doris 3.0.2
  *    a. window funnel logic change
-*     b. support const column in serialize/deserialize function: PR #41175
+ *    b. support const column in serialize/deserialize function: PR #41175
+ *
+ * ATTN: DO NOT USE THIS FUNCTION ANYMORE. ADD INDIVIDUAL OPTION LIKE #45358 THEN THE PATCH COULD BE BACKPORT ANY
+ *        BRANCH AS YOU LIKE.
  */
 
 const int BeExecVersionManager::max_be_exec_version = 8;

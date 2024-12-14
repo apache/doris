@@ -18,9 +18,9 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <gen_cpp/PaloInternalService_types.h>
 #include <glog/logging.h>
 
-#include "common/exception.h"
 #include "common/status.h"
 
 namespace doris {
@@ -35,7 +35,7 @@ constexpr inline int AGGREGATION_2_1_VERSION =
 constexpr inline int USE_CONST_SERDE =
         8; // support const column in serialize/deserialize function: PR #41175
 
-class BeExecVersionManager {
+class [[deprecated("Do not use this, add individual option like #45358")]] BeExecVersionManager {
 public:
     BeExecVersionManager() = delete;
 
