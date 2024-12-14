@@ -1529,8 +1529,10 @@ build_jemalloc_doris() {
         WITH_LG_PAGE=''
     fi
 
+    # CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
+    #     --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
     CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
-        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+        --enable-prof --disable-libdl --disable-shared
 
     make -j "${PARALLEL}"
     make install

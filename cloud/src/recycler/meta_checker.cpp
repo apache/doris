@@ -25,6 +25,7 @@
 #include <chrono>
 #include <set>
 
+#include "common/logging.h"
 #include "common/util.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv.h"
@@ -54,6 +55,7 @@ struct PartitionInfo {
     int64_t db_id;
     int64_t table_id;
     int64_t partition_id;
+    int64_t tablet_id;
     int64_t visible_version;
 };
 
@@ -173,6 +175,9 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
                     MYSQL_ROW row = mysql_fetch_row(result);
                     TabletInfo tablet_info = {0};
                     tablet_info.tablet_id = atoll(row[0]);
+                    VLOG_DEBUG << "get tablet info log"
+                               << ", db name" << elem.first << ", table name" << table
+                               << ",tablet id" << tablet_info.tablet_id;
                     tablet_info.schema_version = atoll(row[4]);
                     tablets.push_back(std::move(tablet_info));
                 }
@@ -201,6 +206,13 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
                 partition_info.db_id = atoll(row[4]);
                 partition_info.table_id = atoll(row[5]);
                 partition_info.partition_id = atoll(row[6]);
+                partition_info.tablet_id = tablet_info.tablet_id;
+                VLOG_DEBUG << "get partition info log"
+                           << ", db id" << partition_info.db_id << ", table id"
+                           << partition_info.table_id << ", partition id"
+                           << partition_info.partition_id << ", tablet id"
+                           << partition_info.tablet_id;
+
                 partitions.insert({partition_info.partition_id, std::move(partition_info)});
             }
         }
@@ -217,9 +229,16 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
                 int num_row = mysql_num_rows(result);
                 for (int i = 0; i < num_row; ++i) {
                     MYSQL_ROW row = mysql_fetch_row(result);
-                    int partition_id = atoll(row[0]);
-                    int visible_version = atoll(row[2]);
+                    int64_t partition_id = atoll(row[0]);
+                    int64_t visible_version = atoll(row[2]);
                     partitions[partition_id].visible_version = visible_version;
+                    VLOG_DEBUG << "get partition version log"
+                               << ", db name" << elem.first << ", table name" << table
+                               << ", raw partition id" << row[0] << ", first partition id"
+                               << partition_id << ", db id" << partitions[partition_id].db_id
+                               << ", table id" << partitions[partition_id].table_id
+                               << ", second partition id" << partitions[partition_id].partition_id
+                               << ", tablet id" << partitions[partition_id].tablet_id;
                 }
             }
             mysql_free_result(result);
@@ -354,14 +373,23 @@ bool MetaChecker::check_fdb_by_fe_meta(MYSQL* conn) {
         int64_t db_id = elem.second.db_id;
         int64_t table_id = elem.second.table_id;
         int64_t partition_id = elem.second.partition_id;
+        int64_t tablet_id = elem.second.tablet_id;
         std::string ver_key = partition_version_key({instance_id_, db_id, table_id, partition_id});
         std::string ver_val;
         err = txn->get(ver_key, &ver_val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            LOG(WARNING) << "version key not found, partition id: " << partition_id;
+            LOG_WARNING("version key not found.")
+                    .tag("db id", db_id)
+                    .tag("table id", table_id)
+                    .tag("partition id", partition_id)
+                    .tag("tablet id", tablet_id);
             return false;
         } else if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get version: " << partition_id;
+            LOG_WARNING("failed to get version.")
+                    .tag("db id", db_id)
+                    .tag("table id", table_id)
+                    .tag("partition id", partition_id)
+                    .tag("tablet id", tablet_id);
             return false;
         }
 
