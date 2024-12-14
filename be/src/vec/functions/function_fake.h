@@ -38,7 +38,7 @@ class Block;
 namespace doris::vectorized {
 
 struct UDTFImpl {
-    static bool has_return_type_in_signature() { return false; }
+    static bool has_return_type_in_signature() { return true; }
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return std::make_shared<DataTypeUInt8>(); //just fake return uint8
     }

@@ -132,6 +132,8 @@ public:
             function_variadic_set.insert(name);
         }
         std::string key_str = name;
+        // regist for just have name
+        function_creators[key_str] = ptr;
         if (!types.empty()) {
             for (const auto& type : types) {
                 key_str.append(type->get_family_name());
@@ -143,6 +145,7 @@ public:
             key_str.append(remove_nullable(ret_type)->get_family_name());
         }
 
+        // maybe have variadic arguments and return type
         function_creators[key_str] = ptr;
     }
 
@@ -200,10 +203,10 @@ public:
 
         // find key_str first, if not found, maybe the function has_return_type_in_signature() is false
         // so we need find without return type and variadic arguments
-        // if a function have variadic arguments, then it must be possible to get return type
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
             // use original name as signature without variadic arguments
+            // regist origin name for every function on register_function()
             iter = function_creators.find(origin_name);
             if (iter == function_creators.end()) {
                 LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);

@@ -112,7 +112,7 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
         static constexpr auto name = #NAME;                                                        \
         static constexpr auto is_nullable = true;                                                  \
         static bool has_return_type_in_signature() {                                               \
-            return false;                                                                          \
+            return true;                                                                           \
         }                                                                                          \
         static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta,              \
                                                bool& is_null) {                                    \
@@ -173,7 +173,7 @@ struct AddQuartersImpl {
             Int64, std::conditional_t<std::is_same_v<DateType, DataTypeDateV2>, UInt32, UInt64>>;
     static constexpr auto name = "quarters_add";
     static constexpr auto is_nullable = true;
-    static bool has_return_type_in_signature() { return false; }
+    static bool has_return_type_in_signature() { return true; }
     static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta, bool& is_null) {
         if constexpr (std::is_same_v<DateType, DataTypeDate> ||
                       std::is_same_v<DateType, DataTypeDateTime>) {
@@ -276,7 +276,7 @@ struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>, DateType
                                    DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;           \
         using ReturnType = RETURN_TYPE;                                                            \
         static bool has_return_type_in_signature() {                                               \
-            return false;                                                                          \
+            return true;                                                                           \
         }                                                                                          \
         static constexpr auto name = #FN_NAME;                                                     \
         static constexpr auto is_nullable = false;                                                 \
@@ -304,7 +304,7 @@ struct TimeDiffImpl {
             date_cast::IsV2<DateType1>() || date_cast::IsV2<DateType2>();
 
     using ReturnType = DataTypeTimeV2;
-    static bool has_return_type_in_signature() { return false; }
+    static bool has_return_type_in_signature() { return true; }
 
     static constexpr auto name = "timediff";
     static constexpr int64_t limit_value = 3020399000000; // 838:59:59 convert to microsecond
@@ -867,7 +867,7 @@ struct CurrentDateTimeImpl {
     static constexpr auto name = FunctionName::name;
     using ReturnType = std::conditional_t<WithPrecision, DataTypeDateTimeV2, DataTypeDateTime>;
 
-    static bool has_return_type_in_signature() { return false; }
+    static bool has_return_type_in_signature() { return true; }
     static DataTypes get_variadic_argument_types() {
         if constexpr (WithPrecision) {
             return {std::make_shared<DataTypeInt32>()};
