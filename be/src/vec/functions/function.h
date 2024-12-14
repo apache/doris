@@ -238,7 +238,7 @@ public:
                                   const DataTypePtr& return_type) const = 0;
 
     // if a function's get_variadic_argument_types() not override and get_return_type_impl()
-    // result is not compile time be sure, the function should override return true
+    // result is rely on arguments, the function should override return false
     // more information see https://github.com/apache/doris/pull/45159
     virtual bool has_return_type_in_signature() const = 0;
 
