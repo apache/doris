@@ -41,7 +41,7 @@ suite("test_group_commit_interval_ms_property") {
 
 
     try {
-        test_table = table
+        def test_table = table
         sql """ drop table if exists ${test_table} force; """
         sql """
             CREATE table ${test_table} (
@@ -56,7 +56,7 @@ suite("test_group_commit_interval_ms_property") {
                 );
             """
 
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
 
             sql """ set group_commit = async_mode; """
 

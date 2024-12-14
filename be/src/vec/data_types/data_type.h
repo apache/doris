@@ -151,8 +151,6 @@ public:
       */
     virtual bool is_value_represented_by_number() const { return false; }
 
-    virtual bool is_object() const { return false; }
-
     /** Values are unambiguously identified by contents of contiguous memory region,
       *  that can be obtained by IColumn::get_data_at method.
       * Examples: numbers, Date, DateTime, String, FixedString,

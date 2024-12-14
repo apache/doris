@@ -44,6 +44,7 @@
 #include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
 #include "http/http_client.h"
+#include "http/utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
@@ -399,28 +400,62 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                         .error(st);
             }
         }};
-        std::string remote_url_prefix;
+
+        std::string remote_dir;
         {
             std::stringstream ss;
             if (snapshot_path->back() == '/') {
-                ss << "http://" << get_host_port(src.host, src.http_port) << HTTP_REQUEST_PREFIX
-                   << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << *snapshot_path
-                   << _clone_req.tablet_id << "/" << _clone_req.schema_hash << "/";
+                ss << *snapshot_path << _clone_req.tablet_id << "/" << _clone_req.schema_hash
+                   << "/";
             } else {
-                ss << "http://" << get_host_port(src.host, src.http_port) << HTTP_REQUEST_PREFIX
-                   << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << *snapshot_path
-                   << "/" << _clone_req.tablet_id << "/" << _clone_req.schema_hash << "/";
+                ss << *snapshot_path << "/" << _clone_req.tablet_id << "/" << _clone_req.schema_hash
+                   << "/";
             }
-            remote_url_prefix = ss.str();
+            remote_dir = ss.str();
         }
 
-        status = _download_files(&data_dir, remote_url_prefix, local_data_path);
-        if (!status.ok()) [[unlikely]] {
-            LOG_WARNING("failed to download snapshot from remote BE")
-                    .tag("url", mask_token(remote_url_prefix))
-                    .error(status);
-            continue; // Try another BE
+        std::string address = get_host_port(src.host, src.http_port);
+        if (config::enable_batch_download && is_support_batch_download(address).ok()) {
+            // download files via batch api.
+            LOG_INFO("remote BE supports batch download, use batch file download")
+                    .tag("address", address)
+                    .tag("remote_dir", remote_dir);
+            status = _batch_download_files(&data_dir, address, remote_dir, local_data_path);
+            if (!status.ok()) [[unlikely]] {
+                LOG_WARNING("failed to download snapshot from remote BE in batch")
+                        .tag("address", address)
+                        .tag("remote_dir", remote_dir)
+                        .error(status);
+                continue; // Try another BE
+            }
+        } else {
+            if (config::enable_batch_download) {
+                LOG_INFO("remote BE does not support batch download, use single file download")
+                        .tag("address", address)
+                        .tag("remote_dir", remote_dir);
+            } else {
+                LOG_INFO("batch download is disabled, use single file download")
+                        .tag("address", address)
+                        .tag("remote_dir", remote_dir);
+            }
+
+            std::string remote_url_prefix;
+            {
+                std::stringstream ss;
+                ss << "http://" << address << HTTP_REQUEST_PREFIX << HTTP_REQUEST_TOKEN_PARAM
+                   << token << HTTP_REQUEST_FILE_PARAM << remote_dir;
+                remote_url_prefix = ss.str();
+            }
+
+            status = _download_files(&data_dir, remote_url_prefix, local_data_path);
+            if (!status.ok()) [[unlikely]] {
+                LOG_WARNING("failed to download snapshot from remote BE")
+                        .tag("url", mask_token(remote_url_prefix))
+                        .error(status);
+                continue; // Try another BE
+            }
         }
+
         // No need to try again with another BE
         _pending_rs_guards = DORIS_TRY(_engine.snapshot_mgr()->convert_rowset_ids(
                 local_data_path, _clone_req.tablet_id, _clone_req.replica_id, _clone_req.table_id,
@@ -514,7 +549,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     // If the header file is not exist, the table couldn't loaded by olap engine.
     // Avoid of data is not complete, we copy the header file at last.
     // The header file's name is end of .hdr.
-    for (int i = 0; i < file_name_list.size() - 1; ++i) {
+    for (int i = 0; i + 1 < file_name_list.size(); ++i) {
         if (file_name_list[i].ends_with(".hdr")) {
             std::swap(file_name_list[i], file_name_list[file_name_list.size() - 1]);
             break;
@@ -593,10 +628,88 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
     }
     _copy_size = (int64_t)total_file_size;
     _copy_time_ms = (int64_t)total_time_ms;
-    LOG(INFO) << "succeed to copy tablet " << _signature << ", total file size: " << total_file_size
-              << " B"
-              << ", cost: " << total_time_ms << " ms"
+    LOG(INFO) << "succeed to copy tablet " << _signature
+              << ", total files: " << file_name_list.size()
+              << ", total file size: " << total_file_size << " B, cost: " << total_time_ms << " ms"
               << ", rate: " << copy_rate << " MB/s";
+    return Status::OK();
+}
+
+Status EngineCloneTask::_batch_download_files(DataDir* data_dir, const std::string& address,
+                                              const std::string& remote_dir,
+                                              const std::string& local_dir) {
+    constexpr size_t BATCH_FILE_SIZE = 64 << 20; // 64MB
+    constexpr size_t BATCH_FILE_NUM = 64;
+
+    // Check local path exist, if exist, remove it, then create the dir
+    // local_file_full_path = tabletid/clone， for a specific tablet, there should be only one folder
+    // if this folder exists, then should remove it
+    // for example, BE clone from BE 1 to download file 1 with version (2,2), but clone from BE 1 failed
+    // then it will try to clone from BE 2, but it will find the file 1 already exist, but file 1 with same
+    // name may have different versions.
+    RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(local_dir));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(local_dir));
+
+    const std::string& token = _cluster_info->token;
+    std::vector<std::pair<std::string, size_t>> file_info_list;
+    RETURN_IF_ERROR(list_remote_files_v2(address, token, remote_dir, &file_info_list));
+
+    // If the header file is not exist, the table couldn't loaded by olap engine.
+    // Avoid of data is not complete, we copy the header file at last.
+    // The header file's name is end of .hdr.
+    for (int i = 0; i + 1 < file_info_list.size(); ++i) {
+        if (file_info_list[i].first.ends_with(".hdr")) {
+            std::swap(file_info_list[i], file_info_list[file_info_list.size() - 1]);
+            break;
+        }
+    }
+
+    MonotonicStopWatch watch;
+    watch.start();
+
+    size_t total_file_size = 0;
+    size_t total_files = file_info_list.size();
+    std::vector<std::pair<std::string, size_t>> batch_files;
+    for (size_t i = 0; i < total_files;) {
+        size_t batch_file_size = 0;
+        for (size_t j = i; j < total_files; j++) {
+            // Split batchs by file number and file size,
+            if (BATCH_FILE_NUM <= batch_files.size() || BATCH_FILE_SIZE <= batch_file_size ||
+                // ... or separate the last .hdr file into a single batch.
+                (j + 1 == total_files && !batch_files.empty())) {
+                break;
+            }
+            batch_files.push_back(file_info_list[j]);
+            batch_file_size += file_info_list[j].second;
+        }
+
+        // check disk capacity
+        if (data_dir->reach_capacity_limit(batch_file_size)) {
+            return Status::Error<EXCEEDED_LIMIT>(
+                    "reach the capacity limit of path {}, file_size={}", data_dir->path(),
+                    batch_file_size);
+        }
+
+        RETURN_IF_ERROR(download_files_v2(address, token, remote_dir, local_dir, batch_files));
+
+        total_file_size += batch_file_size;
+        i += batch_files.size();
+        batch_files.clear();
+    }
+
+    uint64_t total_time_ms = watch.elapsed_time() / 1000 / 1000;
+    total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
+    double copy_rate = 0.0;
+    if (total_time_ms > 0) {
+        copy_rate = total_file_size / ((double)total_time_ms) / 1000;
+    }
+    _copy_size = (int64_t)total_file_size;
+    _copy_time_ms = (int64_t)total_time_ms;
+    LOG(INFO) << "succeed to copy tablet " << _signature
+              << ", total files: " << file_info_list.size()
+              << ", total file size: " << total_file_size << " B, cost: " << total_time_ms << " ms"
+              << ", rate: " << copy_rate << " MB/s";
+
     return Status::OK();
 }
 

@@ -30,6 +30,7 @@ class PartitionField;
 }; // namespace iceberg
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 class IColumn;
 class PartitionColumnTransform;
@@ -174,7 +175,7 @@ public:
         temp_arguments[0] = 0; // str column
         temp_arguments[1] = 1; // pos
         temp_arguments[2] = 2; // width
-        size_t result_column_id = 3;
+        uint32_t result_column_id = 3;
 
         SubstringUtil::substring_execute(temp_block, temp_arguments, result_column_id,
                                          temp_block.rows());
@@ -623,9 +624,9 @@ public:
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
 
-            int32_t days_from_unix_epoch = value.daynr() - 719528;
-            Int64 long_value = static_cast<Int64>(days_from_unix_epoch);
-            uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
+            int64_t days_from_unix_epoch = value.daynr() - 719528;
+            uint32_t hash_value = HashUtil::murmur_hash3_32(&days_from_unix_epoch,
+                                                            sizeof(days_from_unix_epoch), 0);
 
             *p_out = (hash_value & INT32_MAX) % _bucket_num;
             ++p_in;
@@ -836,7 +837,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-            *p_out = datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_date(), value);
+            // datetime_diff<YEAR> actually returns int
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_date(), value));
             ++p_in;
             ++p_out;
         }
@@ -906,7 +909,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            *p_out = datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_datetime(), value);
+            // datetime_diff<YEAR> actually returns int
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_datetime(), value));
             ++p_in;
             ++p_out;
         }
@@ -976,7 +981,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-            *p_out = datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_date(), value);
+            // datetime_diff<MONTH> actually returns int
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_date(), value));
             ++p_in;
             ++p_out;
         }
@@ -1046,7 +1053,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            *p_out = datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_datetime(), value);
+            // datetime_diff<MONTH> actually returns int
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_datetime(), value));
             ++p_in;
             ++p_out;
         }
@@ -1116,7 +1125,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-            *p_out = datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_date(), value);
+            // datetime_diff<DAY> actually returns int
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_date(), value));
             ++p_in;
             ++p_out;
         }
@@ -1192,7 +1203,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            *p_out = datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_datetime(), value);
+            // datetime_diff<DAY> actually returns int
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_datetime(), value));
             ++p_in;
             ++p_out;
         }
@@ -1267,7 +1280,9 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            *p_out = datetime_diff<HOUR>(PartitionColumnTransformUtils::epoch_datetime(), value);
+            // hour diff would't overflow int32
+            *p_out = cast_set<int, int64_t, false>(
+                    datetime_diff<HOUR>(PartitionColumnTransformUtils::epoch_datetime(), value));
             ++p_in;
             ++p_out;
         }
@@ -1333,3 +1348,4 @@ private:
 
 } // namespace vectorized
 } // namespace doris
+#include "common/compile_check_end.h"

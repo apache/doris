@@ -297,11 +297,13 @@ public class EditLog {
                 case OperationType.OP_RECOVER_TABLE: {
                     RecoverInfo info = (RecoverInfo) journal.getData();
                     env.replayRecoverTable(info);
+                    env.getBinlogManager().addRecoverTableRecord(info, logId);
                     break;
                 }
                 case OperationType.OP_RECOVER_PARTITION: {
                     RecoverInfo info = (RecoverInfo) journal.getData();
                     env.replayRecoverPartition(info);
+                    env.getBinlogManager().addRecoverTableRecord(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_TABLE: {
@@ -1444,7 +1446,8 @@ public class EditLog {
     }
 
     public void logRecoverPartition(RecoverInfo info) {
-        logEdit(OperationType.OP_RECOVER_PARTITION, info);
+        long logId = logEdit(OperationType.OP_RECOVER_PARTITION, info);
+        Env.getCurrentEnv().getBinlogManager().addRecoverTableRecord(info, logId);
     }
 
     public void logModifyPartition(ModifyPartitionInfo info) {
@@ -1471,7 +1474,8 @@ public class EditLog {
     }
 
     public void logRecoverTable(RecoverInfo info) {
-        logEdit(OperationType.OP_RECOVER_TABLE, info);
+        long logId = logEdit(OperationType.OP_RECOVER_TABLE, info);
+        Env.getCurrentEnv().getBinlogManager().addRecoverTableRecord(info, logId);
     }
 
     public void logDropRollup(DropInfo info) {
@@ -2082,15 +2086,11 @@ public class EditLog {
 
     public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {
         long logId = logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES, info);
-        LOG.info("walter log modify table add or drop inverted indices, infos: {}, json: {}",
-                info, info.toJson(), new RuntimeException("test"));
         Env.getCurrentEnv().getBinlogManager().addModifyTableAddOrDropInvertedIndices(info, logId);
     }
 
     public void logIndexChangeJob(IndexChangeJob indexChangeJob) {
         long logId = logEdit(OperationType.OP_INVERTED_INDEX_JOB, indexChangeJob);
-        LOG.info("walter log inverted index job, infos: {}, json: {}",
-                indexChangeJob, indexChangeJob.toJson(), new RuntimeException("test"));
         Env.getCurrentEnv().getBinlogManager().addIndexChangeJob(indexChangeJob, logId);
     }
 
