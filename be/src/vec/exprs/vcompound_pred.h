@@ -158,7 +158,7 @@ public:
         if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
             return Status::OK();
         }
-        if (get_num_children() == 1 || !_all_child_is_not_const()) {
+        if (get_num_children() == 1 || _has_const_child()) {
             return VectorizedFnCall::execute(context, block, result_column_id);
         }
 
@@ -256,6 +256,7 @@ public:
                 *result_column_id = block->columns();
 
                 auto col_res = lhs_column->clone_resized(size);
+                lhs_data_column = assert_cast<ColumnUInt8*>(col_res.get())->get_data().data();
                 block->insert({std::move(col_res), _data_type, _expr_name});
             }
 
@@ -380,9 +381,9 @@ private:
         return (l_null & r_null) | (r_null & (r_null ^ a)) | (l_null & (l_null ^ b));
     }
 
-    bool _all_child_is_not_const() const {
-        return std::ranges::all_of(
-                _children, [](const VExprSPtr& arg) -> bool { return !arg->is_constant(); });
+    bool _has_const_child() const {
+        return std::ranges::any_of(_children,
+                                   [](const VExprSPtr& arg) -> bool { return arg->is_constant(); });
     }
 
     std::pair<uint8*, uint8*> _get_raw_data_and_null_map(ColumnPtr column,
