@@ -2362,7 +2362,7 @@ public:
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
-    bool dont_append_return_type_name_when_register_function() const override { return true; }
+    bool has_return_type_in_signature() const override { return false; }
 
 protected:
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,

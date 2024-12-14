@@ -56,7 +56,7 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool dont_append_return_type_name_when_register_function() const override { return true; }
+    bool has_return_type_in_signature() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(arguments[0]))

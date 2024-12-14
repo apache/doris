@@ -138,7 +138,7 @@ public:
             }
         }
         auto impl = std::static_pointer_cast<FunctionBuilderImpl>(ptr());
-        if (!impl->dont_append_return_type_name_when_register_function()) {
+        if (impl->has_return_type_in_signature()) {
             auto ret_type = impl->get_return_type_impl(types);
             key_str.append(remove_nullable(ret_type)->get_family_name());
         }
@@ -198,6 +198,9 @@ public:
         }
         key_str.append(remove_nullable(return_type)->get_family_name());
 
+        // find key_str first, if not found, maybe the function has_return_type_in_signature() is false
+        // so we need find without return type and variadic arguments
+        // if a function have variadic arguments, then it must be possible to get return type
         auto iter = function_creators.find(key_str);
         if (iter == function_creators.end()) {
             // use original name as signature without variadic arguments

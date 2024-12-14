@@ -63,7 +63,7 @@ public:
 
     bool is_variadic() const override { return false; }
 
-    bool dont_append_return_type_name_when_register_function() const override { return true; }
+    bool has_return_type_in_signature() const override { return false; }
 
     size_t get_number_of_arguments() const override { return 2; }
 

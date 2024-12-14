@@ -111,7 +111,7 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
         using InputNativeType = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<DateType>>; \
         static constexpr auto name = #NAME;                                                        \
         static constexpr auto is_nullable = true;                                                  \
-        static bool dont_append_return_type_name_when_register_function() {                        \
+        static bool has_return_type_in_signature() {                                               \
             return false;                                                                          \
         }                                                                                          \
         static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta,              \
@@ -173,7 +173,7 @@ struct AddQuartersImpl {
             Int64, std::conditional_t<std::is_same_v<DateType, DataTypeDateV2>, UInt32, UInt64>>;
     static constexpr auto name = "quarters_add";
     static constexpr auto is_nullable = true;
-    static bool dont_append_return_type_name_when_register_function() { return false; }
+    static bool has_return_type_in_signature() { return false; }
     static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta, bool& is_null) {
         if constexpr (std::is_same_v<DateType, DataTypeDate> ||
                       std::is_same_v<DateType, DataTypeDateTime>) {
@@ -196,9 +196,7 @@ template <typename Transform, typename DateType>
 struct SubtractIntervalImpl {
     using ReturnType = typename Transform::ReturnType;
     using InputNativeType = typename Transform::InputNativeType;
-    static bool dont_append_return_type_name_when_register_function() {
-        return Transform::dont_append_return_type_name_when_register_function();
-    }
+    static bool has_return_type_in_signature() { return Transform::has_return_type_in_signature(); }
     static constexpr auto is_nullable = true;
     static inline Int64 execute(const InputNativeType& t, Int64 delta, bool& is_null) {
         return Transform::execute(t, -delta, is_null);
@@ -277,7 +275,7 @@ struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>, DateType
                 std::conditional_t<std::is_same_v<DateType2, DataTypeDateTimeV2>,                  \
                                    DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;           \
         using ReturnType = RETURN_TYPE;                                                            \
-        static bool dont_append_return_type_name_when_register_function() {                        \
+        static bool has_return_type_in_signature() {                                               \
             return false;                                                                          \
         }                                                                                          \
         static constexpr auto name = #FN_NAME;                                                     \
@@ -306,7 +304,7 @@ struct TimeDiffImpl {
             date_cast::IsV2<DateType1>() || date_cast::IsV2<DateType2>();
 
     using ReturnType = DataTypeTimeV2;
-    static bool dont_append_return_type_name_when_register_function() { return false; }
+    static bool has_return_type_in_signature() { return false; }
 
     static constexpr auto name = "timediff";
     static constexpr int64_t limit_value = 3020399000000; // 838:59:59 convert to microsecond
@@ -358,7 +356,7 @@ TIME_DIFF_FUNCTION_IMPL(MicroSecondsDiffImpl, microseconds_diff, MICROSECOND);
                 std::conditional_t<std::is_same_v<DateType, DataTypeDateTimeV2>,                  \
                                    DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;          \
         using ReturnType = RETURN_TYPE;                                                           \
-        static bool dont_append_return_type_name_when_register_function() {                       \
+        static bool has_return_type_in_signature() {                                              \
             return false;                                                                         \
         }                                                                                         \
         static constexpr auto name = #NAME;                                                       \
@@ -726,8 +724,8 @@ public:
 
     String get_name() const override { return name; }
 
-    bool dont_append_return_type_name_when_register_function() const override {
-        return Transform::dont_append_return_type_name_when_register_function();
+    bool has_return_type_in_signature() const override {
+        return Transform::has_return_type_in_signature();
     }
 
     bool is_variadic() const override { return true; }
@@ -869,7 +867,7 @@ struct CurrentDateTimeImpl {
     static constexpr auto name = FunctionName::name;
     using ReturnType = std::conditional_t<WithPrecision, DataTypeDateTimeV2, DataTypeDateTime>;
 
-    static bool dont_append_return_type_name_when_register_function() { return false; }
+    static bool has_return_type_in_signature() { return false; }
     static DataTypes get_variadic_argument_types() {
         if constexpr (WithPrecision) {
             return {std::make_shared<DataTypeInt32>()};

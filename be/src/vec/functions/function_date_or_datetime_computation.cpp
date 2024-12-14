@@ -34,14 +34,14 @@ using FunctionDatetimeAddQuarters =
         FunctionDateOrDateTimeComputation<AddQuartersImpl<DataTypeDateTime>>;
 using FunctionDatetimeAddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDateTime>>;
 
-using FunctionAddSeconds = FunctionDateOrDateTimeComputation<AddSecondsImpl<DataTypeDate>>;
-using FunctionAddMinutes = FunctionDateOrDateTimeComputation<AddMinutesImpl<DataTypeDate>>;
-using FunctionAddHours = FunctionDateOrDateTimeComputation<AddHoursImpl<DataTypeDate>>;
-using FunctionAddDays = FunctionDateOrDateTimeComputation<AddDaysImpl<DataTypeDate>>;
-using FunctionAddWeeks = FunctionDateOrDateTimeComputation<AddWeeksImpl<DataTypeDate>>;
-using FunctionAddMonths = FunctionDateOrDateTimeComputation<AddMonthsImpl<DataTypeDate>>;
-using FunctionAddQuarters = FunctionDateOrDateTimeComputation<AddQuartersImpl<DataTypeDate>>;
-using FunctionAddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDate>>;
+using FunctionDateAddSeconds = FunctionDateOrDateTimeComputation<AddSecondsImpl<DataTypeDate>>;
+using FunctionDateAddMinutes = FunctionDateOrDateTimeComputation<AddMinutesImpl<DataTypeDate>>;
+using FunctionDateAddHours = FunctionDateOrDateTimeComputation<AddHoursImpl<DataTypeDate>>;
+using FunctionDateAddDays = FunctionDateOrDateTimeComputation<AddDaysImpl<DataTypeDate>>;
+using FunctionDateAddWeeks = FunctionDateOrDateTimeComputation<AddWeeksImpl<DataTypeDate>>;
+using FunctionDateAddMonths = FunctionDateOrDateTimeComputation<AddMonthsImpl<DataTypeDate>>;
+using FunctionDateAddQuarters = FunctionDateOrDateTimeComputation<AddQuartersImpl<DataTypeDate>>;
+using FunctionDateAddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDate>>;
 
 using FunctionDatetimeSubSeconds =
         FunctionDateOrDateTimeComputation<SubtractSecondsImpl<DataTypeDateTime>>;
@@ -60,14 +60,15 @@ using FunctionDatetimeSubQuarters =
 using FunctionDatetimeSubYears =
         FunctionDateOrDateTimeComputation<SubtractYearsImpl<DataTypeDateTime>>;
 
-using FunctionSubSeconds = FunctionDateOrDateTimeComputation<SubtractSecondsImpl<DataTypeDate>>;
-using FunctionSubMinutes = FunctionDateOrDateTimeComputation<SubtractMinutesImpl<DataTypeDate>>;
-using FunctionSubHours = FunctionDateOrDateTimeComputation<SubtractHoursImpl<DataTypeDate>>;
-using FunctionSubDays = FunctionDateOrDateTimeComputation<SubtractDaysImpl<DataTypeDate>>;
-using FunctionSubWeeks = FunctionDateOrDateTimeComputation<SubtractWeeksImpl<DataTypeDate>>;
-using FunctionSubMonths = FunctionDateOrDateTimeComputation<SubtractMonthsImpl<DataTypeDate>>;
-using FunctionSubQuarters = FunctionDateOrDateTimeComputation<SubtractQuartersImpl<DataTypeDate>>;
-using FunctionSubYears = FunctionDateOrDateTimeComputation<SubtractYearsImpl<DataTypeDate>>;
+using FunctionDateSubSeconds = FunctionDateOrDateTimeComputation<SubtractSecondsImpl<DataTypeDate>>;
+using FunctionDateSubMinutes = FunctionDateOrDateTimeComputation<SubtractMinutesImpl<DataTypeDate>>;
+using FunctionDateSubHours = FunctionDateOrDateTimeComputation<SubtractHoursImpl<DataTypeDate>>;
+using FunctionDateSubDays = FunctionDateOrDateTimeComputation<SubtractDaysImpl<DataTypeDate>>;
+using FunctionDateSubWeeks = FunctionDateOrDateTimeComputation<SubtractWeeksImpl<DataTypeDate>>;
+using FunctionDateSubMonths = FunctionDateOrDateTimeComputation<SubtractMonthsImpl<DataTypeDate>>;
+using FunctionDateSubQuarters =
+        FunctionDateOrDateTimeComputation<SubtractQuartersImpl<DataTypeDate>>;
+using FunctionDateSubYears = FunctionDateOrDateTimeComputation<SubtractYearsImpl<DataTypeDate>>;
 
 using FunctionDateDiff =
         FunctionDateOrDateTimeComputation<DateDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
@@ -132,14 +133,14 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDatetimeAddYears>();
     factory.register_function<FunctionDatetimeAddQuarters>();
 
-    factory.register_function<FunctionAddSeconds>();
-    factory.register_function<FunctionAddMinutes>();
-    factory.register_function<FunctionAddHours>();
-    factory.register_function<FunctionAddDays>();
-    factory.register_function<FunctionAddWeeks>();
-    factory.register_function<FunctionAddMonths>();
-    factory.register_function<FunctionAddYears>();
-    factory.register_function<FunctionAddQuarters>();
+    factory.register_function<FunctionDateAddSeconds>();
+    factory.register_function<FunctionDateAddMinutes>();
+    factory.register_function<FunctionDateAddHours>();
+    factory.register_function<FunctionDateAddDays>();
+    factory.register_function<FunctionDateAddWeeks>();
+    factory.register_function<FunctionDateAddMonths>();
+    factory.register_function<FunctionDateAddYears>();
+    factory.register_function<FunctionDateAddQuarters>();
 
     factory.register_function<FunctionDatetimeSubSeconds>();
     factory.register_function<FunctionDatetimeSubMinutes>();
@@ -150,14 +151,14 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDatetimeSubQuarters>();
     factory.register_function<FunctionDatetimeSubWeeks>();
 
-    factory.register_function<FunctionSubSeconds>();
-    factory.register_function<FunctionSubMinutes>();
-    factory.register_function<FunctionSubHours>();
-    factory.register_function<FunctionSubDays>();
-    factory.register_function<FunctionSubMonths>();
-    factory.register_function<FunctionSubYears>();
-    factory.register_function<FunctionSubQuarters>();
-    factory.register_function<FunctionSubWeeks>();
+    factory.register_function<FunctionDateSubSeconds>();
+    factory.register_function<FunctionDateSubMinutes>();
+    factory.register_function<FunctionDateSubHours>();
+    factory.register_function<FunctionDateSubDays>();
+    factory.register_function<FunctionDateSubMonths>();
+    factory.register_function<FunctionDateSubYears>();
+    factory.register_function<FunctionDateSubQuarters>();
+    factory.register_function<FunctionDateSubWeeks>();
 
     factory.register_function<FunctionDateDiff>();
     factory.register_function<FunctionTimeDiff>();
