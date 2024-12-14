@@ -104,6 +104,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataTypesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDatabasesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
@@ -342,6 +343,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterJobStatusCommand(AlterJobStatusCommand alterJobStatusCommand, C context) {
         return visitCommand(alterJobStatusCommand, context);
+    }
+
+    default R visitShowDatabasesCommand(ShowDatabasesCommand showDatabasesCommand, C context) {
+        return visitCommand(showDatabasesCommand, context);
     }
 
     default R visitAlterViewCommand(AlterViewCommand alterViewCommand, C context) {

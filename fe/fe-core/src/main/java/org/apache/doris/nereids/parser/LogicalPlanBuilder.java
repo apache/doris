@@ -259,6 +259,7 @@ import org.apache.doris.nereids.DorisParser.ShowCreateViewContext;
 import org.apache.doris.nereids.DorisParser.ShowDataSkewContext;
 import org.apache.doris.nereids.DorisParser.ShowDataTypesContext;
 import org.apache.doris.nereids.DorisParser.ShowDatabaseIdContext;
+import org.apache.doris.nereids.DorisParser.ShowDatabasesContext;
 import org.apache.doris.nereids.DorisParser.ShowDeleteContext;
 import org.apache.doris.nereids.DorisParser.ShowDiagnoseTabletContext;
 import org.apache.doris.nereids.DorisParser.ShowDynamicPartitionContext;
@@ -579,6 +580,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataSkewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataTypesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDatabasesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
@@ -5098,6 +5100,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tabletIdLists.add(Long.parseLong(tabletToken.getText()));
         });
         return new ShowTabletsBelongCommand(tabletIdLists);
+    }
+
+    @Override
+    public LogicalPlan visitShowDatabases(ShowDatabasesContext ctx) {
+        String catalogName = ctx.catalog != null ? stripQuotes(ctx.catalog.getText()) : null;
+        String pattern = null;
+        if (ctx.LIKE() != null) {
+            pattern = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new ShowDatabasesCommand(catalogName, pattern);
     }
 
     @Override
