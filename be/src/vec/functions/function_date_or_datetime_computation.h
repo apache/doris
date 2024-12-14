@@ -357,7 +357,7 @@ TIME_DIFF_FUNCTION_IMPL(MicroSecondsDiffImpl, microseconds_diff, MICROSECOND);
                                    DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;          \
         using ReturnType = RETURN_TYPE;                                                           \
         static bool has_return_type_in_signature() {                                              \
-            return false;                                                                         \
+            return true;                                                                          \
         }                                                                                         \
         static constexpr auto name = #NAME;                                                       \
         static constexpr auto is_nullable = false;                                                \
