@@ -22,7 +22,7 @@ parser grammar DorisParser;
 options { tokenVocab = DorisLexer; }
 
 @members {
-    public boolean ansiSQLSyntax = false;
+    public boolean doris_legacy_SQL_syntax = true;
 }
 
 multiStatements
@@ -53,7 +53,6 @@ statementBase
     | supportedJobStatement             #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
     | supportedCleanStatement           #supportedCleanStatementAlias
-    | supportedDescribeStatement        #supportedDescribeStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
     | supportedSetStatement             #supportedSetStatementAlias
     | supportedUnsetStatement           #supportedUnsetStatementAlias
@@ -65,20 +64,21 @@ statementBase
     | supportedAdminStatement           #supportedAdminStatementAlias
     | supportedUseStatement             #supportedUseStatementAlias
     | supportedOtherStatement           #supportedOtherStatementAlias
-    | supportedKillStatement            #supportedKillStatementAlias
-    | supportedStatsStatement           #supportedStatsStatementAlias
-    | supportedTransactionStatement     #supportedTransactionStatementAlias
-    | supportedGrantRevokeStatement     #supportedGrantRevokeStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
 unsupportedStatement
     : unsupportedUseStatement
+    | unsupportedDmlStatement
+    | unsupportedKillStatement
+    | unsupportedDescribeStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
     | unsupportedAlterStatement
+    | unsupportedGrantRevokeStatement
     | unsupportedAdminStatement
+    | unsupportedTransactionStatement
     | unsupportedCancelStatement
     | unsupportedRefreshStatement
     | unsupportedLoadStatement
@@ -481,66 +481,63 @@ unsupportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
-    | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
-    | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
-        wildWhere? sortClause? limitClause?                                         #showBuildIndex
+    : CLEAN ALL PROFILE                                                             #cleanAllProfile
+    | CLEAN LABEL label=identifier? (FROM | IN) database=identifier                 #cleanLabel
     ;
 
-createRoutineLoad
-    : CREATE ROUTINE LOAD label=multipartIdentifier (ON table=identifier)?
-              (WITH (APPEND | DELETE | MERGE))?
-              (loadProperty (COMMA loadProperty)*)? propertyClause? FROM type=identifier
-              LEFT_PAREN customProperties=propertyItemList RIGHT_PAREN
-              commentSpec?
+unsupportedRefreshStatement
+    : REFRESH LDAP (ALL | (FOR user=identifierOrText))                              #refreshLdap
     ;
 
-unsupportedLoadStatement
-    : LOAD mysqlDataDesc
-        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
-        (commentSpec)?                                                              #mysqlLoad
-    | SHOW ALL? ROUTINE LOAD ((FOR label=multipartIdentifier) | wildWhere?)         #showRoutineLoad
-    | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
-    | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
+unsupportedCleanStatement
+    : CLEAN QUERY STATS ((FOR database=identifier)
+        | ((FROM | IN) table=multipartIdentifier))                                  #cleanQueryStats
+    | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
     ;
 
-loadProperty
-    : COLUMNS TERMINATED BY STRING_LITERAL                                          #separator
-    | importColumnsStatement                                                        #importColumns
-    | importPrecedingFilterStatement                                                #importPrecedingFilter
-    | importWhereStatement                                                          #importWhere
-    | importDeleteOnStatement                                                       #importDeleteOn
-    | importSequenceStatement                                                       #importSequence
-    | partitionSpec                                                                 #importPartitions
+supportedCancelStatement
+    : CANCEL LOAD ((FROM | IN) database=identifier)? wildWhere?                     #cancelLoad
+    | CANCEL EXPORT ((FROM | IN) database=identifier)? wildWhere?                   #cancelExport
+    | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUpJob
     ;
 
-importSequenceStatement
-    : ORDER BY identifier
+unsupportedCancelStatement
+    : CANCEL ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
+        FROM tableName=multipartIdentifier (LEFT_PAREN jobIds+=INTEGER_VALUE
+            (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelAlterTable
+    | CANCEL BUILD INDEX ON tableName=multipartIdentifier
+        (LEFT_PAREN jobIds+=INTEGER_VALUE
+            (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelBuildIndex
+    | CANCEL DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
+    | CANCEL BACKUP ((FROM | IN) database=identifier)?                              #cancelBackup
+    | CANCEL RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
     ;
 
-importDeleteOnStatement
-    : DELETE ON booleanExpression
+supportedAdminStatement
+    : ADMIN SHOW REPLICA DISTRIBUTION FROM baseTableRef                             #adminShowReplicaDistribution
+    | ADMIN REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
+        (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                             #adminRebalanceDisk
+    | ADMIN CANCEL REBALANCE DISK (ON LEFT_PAREN backends+=STRING_LITERAL
+        (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                             #adminCancelRebalanceDisk
+    | ADMIN DIAGNOSE TABLET tabletId=INTEGER_VALUE                                  #adminDiagnoseTablet
+    | ADMIN SHOW REPLICA STATUS FROM baseTableRef (WHERE STATUS EQ|NEQ STRING_LITERAL)?   #adminShowReplicaStatus
+    | ADMIN COMPACT TABLE baseTableRef (WHERE TYPE EQ STRING_LITERAL)?              #adminCompactTable
+    | ADMIN CHECK tabletList properties=propertyClause?                             #adminCheckTablets
+    | ADMIN SHOW TABLET STORAGE FORMAT VERBOSE?                                     #adminShowTabletStorageFormat
+    | ADMIN CLEAN TRASH
+        (ON LEFT_PAREN backends+=STRING_LITERAL
+              (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                       #adminCleanTrash
+    | ADMIN SET TABLE name=multipartIdentifier STATUS properties=propertyClause?    #adminSetTableStatus
+    | ADMIN SET TABLE name=multipartIdentifier STATUS properties=propertyClause?    #adminSetTableStatus    
+    | ADMIN SET TABLE name=multipartIdentifier
+        PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
 
-importWhereStatement
-    : WHERE booleanExpression
-    ;
-
-importPrecedingFilterStatement
-    : PRECEDING FILTER booleanExpression
-    ;
-
-importColumnsStatement
-    : COLUMNS LEFT_PAREN importColumnDesc (COMMA importColumnDesc)* RIGHT_PAREN
-    ;
-
-importColumnDesc
-    : name=identifier (EQ booleanExpression)?
-    | LEFT_PAREN name=identifier (EQ booleanExpression)? RIGHT_PAREN
-    ;
-
-channelDescriptions
-    : channelDescription (COMMA channelDescription)*
-    ;
+supportedRecoverStatement
+    : RECOVER DATABASE name=identifier id=INTEGER_VALUE? (AS alias=identifier)?     #recoverDatabase
+    | RECOVER TABLE name=multipartIdentifier
+        id=INTEGER_VALUE? (AS alias=identifier)?                                    #recoverTable
 
 channelDescription
     : FROM source=multipartIdentifier INTO destination=multipartIdentifier
@@ -604,6 +601,8 @@ supportedAdminStatement
     | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
     | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
     | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
+    | ADMIN SET TABLE name=multipartIdentifier
+        PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
 
 supportedRecoverStatement
@@ -618,8 +617,6 @@ unsupportedAdminStatement
     : ADMIN SET REPLICA VERSION PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN  #adminSetReplicaVersion
     | ADMIN SET (FRONTEND | (ALL FRONTENDS)) CONFIG
         (LEFT_PAREN propertyItemList RIGHT_PAREN)? ALL?                             #adminSetFrontendConfig
-    | ADMIN SET TABLE name=multipartIdentifier
-        PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
 
 baseTableRef
@@ -2029,35 +2026,6 @@ nonReserved
     | RANDOM
     | RECENT
     | RECOVER
-    | RECYCLE
-    | REFRESH
-    | REPEATABLE
-    | REPLACE
-    | REPLACE_IF_NOT_NULL
-    | REPLAYER
-    | REPOSITORIES
-    | REPOSITORY
-    | RESOURCE
-    | RESOURCES
-    | RESTORE
-    | RESTRICTIVE
-    | RESUME
-    | RETURNS
-    | REWRITTEN
-    | RIGHT_BRACE
-    | RLIKE
-    | ROLLBACK
-    | ROLLUP
-    | ROUTINE
-    | S3
-    | SAMPLE
-    | SCHEDULE
-    | SCHEDULER
-    | SCHEMA
-    | SECOND
-    | SERIALIZABLE
-    | SET_SESSION_VARIABLE
-    | SESSION
     | SESSION_USER
     | SHAPE
     | SKEW
