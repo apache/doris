@@ -199,6 +199,8 @@ supportedCreateStatement
     | CREATE SQL_BLOCK_RULE (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                        #createSqlBlockRule
     | CREATE ENCRYPTKEY (IF NOT EXISTS)? multipartIdentifier AS STRING_LITERAL  #createEncryptkey
+    | CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
+            properties=propertyClause?                                              #createDatabase
     ;
 
 supportedAlterStatement
@@ -751,9 +753,7 @@ analyzeProperties
     ;
 
 unsupportedCreateStatement
-    : CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
-        properties=propertyClause?                                              #createDatabase
-    | CREATE (GLOBAL | SESSION | LOCAL)?
+    : CREATE (GLOBAL | SESSION | LOCAL)?
         (TABLES | AGGREGATE)? FUNCTION (IF NOT EXISTS)?
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
         RETURNS returnType=dataType (INTERMEDIATE intermediateType=dataType)?

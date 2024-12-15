@@ -111,6 +111,7 @@ import org.apache.doris.nereids.DorisParser.ComplexColTypeListContext;
 import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.CreateCatalogContext;
+import org.apache.doris.nereids.DorisParser.CreateDatabaseContext;
 import org.apache.doris.nereids.DorisParser.CreateEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.CreateFileContext;
 import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
@@ -509,6 +510,7 @@ import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDbCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
@@ -5452,6 +5454,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
         }
         return new ShowConvertLSCCommand(databaseName);
+    }
+
+    @Override
+    public LogicalPlan visitCreateDatabase(CreateDatabaseContext ctx) {
+        boolean ifNotExists = (ctx.IF() != null && ctx.NOT() != null && ctx.EXISTS() != null);
+        Map<String, String> properties = visitPropertyClause(ctx.propertyClause()) == null ? Maps.newHashMap()
+                : visitPropertyClause(ctx.propertyClause());
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        String databaseName = "";
+        String catalogName = "";
+        if (nameParts.size() == 2) {
+            // The identifier is in the form "internalcatalog.databasename"
+            catalogName = nameParts.get(0);
+            databaseName = nameParts.get(1);
+        } else if (nameParts.size() == 1) {
+            // The identifier is in the form "databasename"
+            databaseName = nameParts.get(0);
+        }
+
+        return new CreateDbCommand(ifNotExists, new DbName(catalogName, databaseName), properties);
     }
 }
 

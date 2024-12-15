@@ -15,33 +15,43 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.DbName;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
-import org.apache.commons.lang3.StringUtils;
+import com.google.common.base.Strings;
 
 import java.util.HashMap;
 import java.util.Map;
 
-public class CreateDbStmt extends DdlStmt implements NotFallbackInParser {
-    private boolean ifNotExists;
+/** CreateDbCommand */
+public class CreateDbCommand extends Command implements ForwardWithSync {
+    private final boolean ifNotExists;
     private String ctlName;
-    private String dbName;
-    private Map<String, String> properties;
+    private final String dbName;
+    private final Map<String, String> properties;
+    private final DbName dbNameIf;
 
-    public CreateDbStmt(boolean ifNotExists, DbName dbName, Map<String, String> properties) {
+    /** CreateDbCommand Constructor */
+    public CreateDbCommand(boolean ifNotExists, DbName dbName, Map<String, String> properties) {
+        super(PlanType.CREATE_DATABASE_COMMAND);
         this.ifNotExists = ifNotExists;
+        this.dbNameIf = dbName;
         this.ctlName = dbName.getCtl();
         this.dbName = dbName.getDb();
         this.properties = properties == null ? new HashMap<>() : properties;
@@ -52,34 +62,9 @@ public class CreateDbStmt extends DdlStmt implements NotFallbackInParser {
         }
     }
 
-    // For nereids
-    public CreateDbStmt(boolean ifNotExists, DbName dbName, Map<String, String> properties, Void unused) {
-        this.ifNotExists = ifNotExists;
-        this.ctlName = dbName.getCtl();
-        this.dbName = dbName.getDb();
-        this.properties = properties == null ? new HashMap<>() : properties;
-    }
-
-    public String getFullDbName() {
-        return dbName;
-    }
-
-    public String getCtlName() {
-        return ctlName;
-    }
-
-    public boolean isSetIfNotExists() {
-        return ifNotExists;
-    }
-
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        if (StringUtils.isEmpty(ctlName)) {
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (Strings.isNullOrEmpty(ctlName)) {
             ctlName = Env.getCurrentEnv().getCurrentCatalog().getName();
         }
         FeNameFormat.checkCatalogName(ctlName);
@@ -88,25 +73,22 @@ public class CreateDbStmt extends DdlStmt implements NotFallbackInParser {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(ConnectContext.get(), ctlName, dbName, PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), dbName);
         }
+
+        CatalogIf<?> catalogIf;
+        if (Strings.isNullOrEmpty(ctlName)) {
+            catalogIf = Env.getCurrentEnv().getCurrentCatalog();
+        } else {
+            catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
+        }
+        CreateDbStmt stmt = new CreateDbStmt(ifNotExists, dbNameIf, properties);
+        catalogIf.createDb(stmt);
     }
 
     @Override
-    public String toString() {
-        return toSql();
-    }
-
-    @Override
-    public String toSql() {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("CREATE DATABASE ").append("`").append(dbName).append("`");
-        if (properties.size() > 0) {
-            stringBuilder.append("\nPROPERTIES (\n");
-            stringBuilder.append(new PrintableMap<>(properties, "=", true, true, false));
-            stringBuilder.append("\n)");
-        }
-        return stringBuilder.toString();
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitCreateDatabaseCommand(this, context);
     }
 
     @Override
