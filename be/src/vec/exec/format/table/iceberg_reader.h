@@ -167,7 +167,9 @@ protected:
     bool _has_schema_change = false;
     bool _has_iceberg_schema = false;
 
-    int64_t _remaining_push_down_count;
+    // the table level row count for optimizing query like:
+    // select count(*) from table;
+    int64_t _remaining_table_level_row_count;
     Fileformat _file_format = Fileformat::NONE;
 
     const int64_t MIN_SUPPORT_DELETE_FILES_VERSION = 2;
