@@ -234,24 +234,27 @@ public:
         auto vector_vector_null = [&]<bool is_and_op>() {
             auto col_res = ColumnUInt8::create(size);
             auto col_nulls = ColumnUInt8::create(size);
+
             auto* __restrict res_datas = assert_cast<ColumnUInt8*>(col_res)->get_data().data();
             auto* __restrict res_nulls = assert_cast<ColumnUInt8*>(col_nulls)->get_data().data();
             ColumnPtr temp_null_map = nullptr;
             // maybe both children are nullable / or one of children is nullable
-            lhs_null_map = create_null_map_column(temp_null_map, lhs_null_map);
-            rhs_null_map = create_null_map_column(temp_null_map, rhs_null_map);
+            auto* __restrict lhs_null_map_tmp = create_null_map_column(temp_null_map, lhs_null_map);
+            auto* __restrict rhs_null_map_tmp = create_null_map_column(temp_null_map, rhs_null_map);
+            auto* __restrict lhs_data_column_tmp = lhs_data_column;
+            auto* __restrict rhs_data_column_tmp = rhs_data_column;
 
             if constexpr (is_and_op) {
                 for (size_t i = 0; i < size; ++i) {
-                    res_nulls[i] = apply_and_null(lhs_data_column[i], lhs_null_map[i],
-                                                  rhs_data_column[i], rhs_null_map[i]);
-                    res_datas[i] = lhs_data_column[i] & rhs_data_column[i];
+                    res_nulls[i] = apply_and_null(lhs_data_column_tmp[i], lhs_null_map_tmp[i],
+                                                  rhs_data_column_tmp[i], rhs_null_map_tmp[i]);
+                    res_datas[i] = lhs_data_column_tmp[i] & rhs_data_column_tmp[i];
                 }
             } else {
                 for (size_t i = 0; i < size; ++i) {
-                    res_nulls[i] = apply_or_null(lhs_data_column[i], lhs_null_map[i],
-                                                 rhs_data_column[i], rhs_null_map[i]);
-                    res_datas[i] = lhs_data_column[i] | rhs_data_column[i];
+                    res_nulls[i] = apply_or_null(lhs_data_column_tmp[i], lhs_null_map_tmp[i],
+                                                 rhs_data_column_tmp[i], rhs_null_map_tmp[i]);
+                    res_datas[i] = lhs_data_column_tmp[i] | rhs_data_column_tmp[i];
                 }
             }
             auto result_column = ColumnNullable::create(std::move(col_res), std::move(col_nulls));
