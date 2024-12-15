@@ -115,6 +115,7 @@ import org.apache.doris.nereids.DorisParser.CreateEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.CreateFileContext;
 import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.CreateProcedureContext;
+import org.apache.doris.nereids.DorisParser.CreateRepositoryContext;
 import org.apache.doris.nereids.DorisParser.CreateRoleContext;
 import org.apache.doris.nereids.DorisParser.CreateRoutineLoadContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
@@ -515,6 +516,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -1728,7 +1730,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         String comment = visitCommentSpec(ctx.commentSpec());
         Map<String, LoadProperty> loadPropertyMap = new HashMap<>();
-        for (DorisParser.LoadPropertyContext oneLoadPropertyCOntext : ctx.loadProperty()) {
+        for (LoadPropertyContext oneLoadPropertyCOntext : ctx.loadProperty()) {
             LoadProperty loadProperty = visitLoadProperty(oneLoadPropertyCOntext);
             if (loadProperty == null) {
                 throw new AnalysisException("invalid clause of routine load");
@@ -5452,6 +5454,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
         }
         return new ShowConvertLSCCommand(databaseName);
+    }
+
+    @Override
+    public LogicalPlan visitCreateRepository(CreateRepositoryContext ctx) {
+
+        boolean isReadOnly;
+
+        isReadOnly = (ctx.READ() != null && ctx.ONLY() != null);
+
+        Map<String, String> properties = ctx.storageBackend().propertyClause() != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.storageBackend().propertyClause())) : Maps.newHashMap();
+
+        StorageBackend.StorageType type = null;
+
+        if (ctx.storageBackend().S3() != null) {
+            type = StorageBackend.StorageType.S3;
+        } else if (ctx.storageBackend().HDFS() != null) {
+            type = StorageBackend.StorageType.HDFS;
+        } else if (ctx.storageBackend().LOCAL() != null) {
+            type = StorageBackend.StorageType.LOCAL;
+        } else if (ctx.storageBackend().BROKER() != null) {
+            type = StorageBackend.StorageType.BROKER;
+        }
+        return new CreateRepositoryCommand(isReadOnly, ctx.name.getText(), ctx.storageBackend(), type, properties);
     }
 }
 
