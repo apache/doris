@@ -843,11 +843,7 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {
-        Configuration conf = DFSFileSystem.getHdfsConf(table.getCatalog().ifNotSetFallbackToSimpleAuth());
-        for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
+        return table.getCatalog().getConfiguration();
     }
 
     public static Optional<String> getSerdeProperty(Table table, String key) {
