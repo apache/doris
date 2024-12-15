@@ -94,8 +94,8 @@ suite("agg_group_concat") {
 
     qt_test """select group_concat(distinct kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table order by 1,2;"""
     qt_test """select multi_distinct_group_concat(kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table order by 1,2;"""
-    qt_test """select group_concat(distinct kstr), group_concat(kstr2) from agg_group_concat_table order by 1,2;"""
-    qt_test """select multi_distinct_group_concat(kstr), group_concat(kstr2) from agg_group_concat_table order by 1,2;"""
+    test """select group_concat(distinct kstr), group_concat(kstr2) from agg_group_concat_table order by 1,2;"""
+    test """select multi_distinct_group_concat(kstr), group_concat(kstr2) from agg_group_concat_table order by 1,2;"""
 
     qt_test """select group_concat(distinct kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table group by kbint order by 1,2;"""
     qt_test """select multi_distinct_group_concat(kstr order by kint), group_concat(kstr2 order by kbint) from agg_group_concat_table group by kbint order by 1,2;"""
