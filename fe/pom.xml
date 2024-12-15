@@ -223,15 +223,19 @@ under the License.
     </modules>
     <properties>
         <!--suppress UnresolvedMavenProperty -->
+        <doris.hive.catalog.shade.version>2.1.1</doris.hive.catalog.shade.version>
+        <avro.version>1.11.4</avro.version>
+        <parquet.version>1.13.1</parquet.version>
+        <spark.version>3.4.3</spark.version>
+        <hudi.version>0.15.0</hudi.version>
+        <obs.dependency.scope>compile</obs.dependency.scope>
+        <cos.dependency.scope>compile</cos.dependency.scope>
+        <gcs.dependency.scope>compile</gcs.dependency.scope>
         <doris.thirdparty>${fe.dir}/../thirdparty</doris.thirdparty>
         <!--suppress UnresolvedMavenProperty -->
         <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
-        <obs.dependency.scope>compile</obs.dependency.scope>
-        <cos.dependency.scope>compile</cos.dependency.scope>
-        <gcs.dependency.scope>compile</gcs.dependency.scope>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.hive.catalog.shade.version>2.1.1</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <!--plugin parameters-->
@@ -251,7 +255,7 @@ under the License.
         <commons-text.version>1.10.0</commons-text.version>
         <commons-validator.version>1.7</commons-validator.version>
         <gson.version>2.10.1</gson.version>
-        <guava.version>32.1.2-jre</guava.version>
+        <guava.version>33.2.1-jre</guava.version>
         <jackson.version>2.16.0</jackson.version>
         <java-cup.version>0.11-a-czt02-cdh</java-cup.version>
         <javassist.version>3.18.2-GA</javassist.version>
@@ -304,7 +308,6 @@ under the License.
         <javax.activation.version>1.2.0</javax.activation.version>
         <jaxws-api.version>2.3.0</jaxws-api.version>
         <RoaringBitmap.version>0.8.13</RoaringBitmap.version>
-        <spark.version>3.4.3</spark.version>
         <hudi-spark.version>hudi-spark3.4.x</hudi-spark.version>
         <hive.version>3.1.3</hive.version>
         <hive.common.version>2.3.9</hive.common.version>
@@ -317,14 +320,11 @@ under the License.
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.4.3</iceberg.version>
         <maxcompute.version>0.49.0-public</maxcompute.version>
-        <avro.version>1.11.4</avro.version>
         <arrow.version>17.0.0</arrow.version>
-        <!-- hudi -->
-        <hudi.version>0.15.0</hudi.version>
+
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
 
-        <parquet.version>1.13.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
         <commons-compress.version>1.27.1</commons-compress.version>
         <scala.version>2.12.10</scala.version>
@@ -347,7 +347,7 @@ under the License.
         <spring.version>2.7.18</spring.version>
         <spring-framework.version>5.3.39</spring-framework.version>
         <orc.version>1.8.4</orc.version>
-        <zookeeper.version>3.9.2</zookeeper.version>
+        <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
@@ -966,6 +966,11 @@ under the License.
                 </exclusions>
             </dependency>
             <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk15on</artifactId>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
                 <groupId>org.objenesis</groupId>
                 <artifactId>objenesis</artifactId>
                 <version>${objenesis.version}</version>
@@ -1290,6 +1295,10 @@ under the License.
                     <exclusion>
                         <groupId>org.apache.arrow</groupId>
                         <artifactId>arrow-vector</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.ini4j</groupId>
+                        <artifactId>ini4j</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
