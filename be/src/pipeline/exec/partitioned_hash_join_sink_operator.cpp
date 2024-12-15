@@ -586,7 +586,8 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
         if (local_state.revocable_mem_size(state) > 128 * 1024 * 1024) {
             VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", task " << state->task_id()
                        << " sink " << node_id() << " _child_eos: " << local_state._child_eos
-                       << ", revocable memory: " << local_state.revocable_mem_size(state);
+                       << ", revocable memory: "
+                       << PrettyPrinter::print_bytes(local_state.revocable_mem_size(state));
         }
     }};
     const auto rows = in_block->rows();
@@ -600,6 +601,17 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
             if (need_to_spill) {
                 return revoke_memory(state, nullptr);
             } else {
+                const auto revocable_size = revocable_mem_size(state);
+                if (revocable_size >= config::revocable_memory_bytes_high_watermark) {
+                    LOG(INFO) << fmt::format(
+                            "Query: {}, sink name: {}, node id: {}, task id: {}, "
+                            "revoke_memory "
+                            "because revocable memory is high: {}",
+                            print_id(state->query_id()), get_name(), node_id(), state->task_id(),
+                            PrettyPrinter::print_bytes(revocable_size));
+                    return revoke_memory(state, nullptr);
+                }
+
                 if (UNLIKELY(!local_state._shared_state->inner_runtime_state)) {
                     RETURN_IF_ERROR(_setup_internal_operator(state));
                 }

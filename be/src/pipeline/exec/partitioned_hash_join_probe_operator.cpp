@@ -339,8 +339,9 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
                 }
             }
 
-            if (_recovered_build_block->allocated_bytes() >=
-                vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
+            auto block_bytes = _recovered_build_block->allocated_bytes();
+            COUNTER_UPDATE(_memory_used_counter, block_bytes);
+            if (block_bytes >= vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
                 break;
             }
         }
@@ -606,7 +607,10 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
         }
     }
 
+    auto old_probe_blocks_bytes = local_state._probe_blocks_bytes->value();
     COUNTER_SET(local_state._probe_blocks_bytes, bytes_of_blocks);
+    COUNTER_UPDATE(local_state._memory_used_counter,
+                   local_state._probe_blocks_bytes->value() - old_probe_blocks_bytes);
 
     return Status::OK();
 }
@@ -924,8 +928,13 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
         COUNTER_SET(local_state._memory_usage_reserved,
                     int64_t(local_state.estimate_memory_usage()));
     });
+    LOG(INFO) << "Query: " << print_id(state->query_id()) << ", hash probe node: " << node_id()
+              << ", task: " << state->task_id()
+              << " get_block, child eos: " << local_state._child_eos
+              << ", need spill: " << need_to_spill;
 
     if (need_more_input_data(state)) {
+        LOG(INFO) << "need more input data";
         {
             SCOPED_TIMER(local_state._get_child_next_timer);
             RETURN_IF_ERROR(_child->get_block_after_projects(state, local_state._child_block.get(),
@@ -955,6 +964,7 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
     }
 
     if (!need_more_input_data(state)) {
+        LOG(INFO) << "not need more input data";
         SCOPED_TIMER(local_state.exec_time_counter());
         if (need_to_spill) {
             RETURN_IF_ERROR(pull(state, block, eos));
