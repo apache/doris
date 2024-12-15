@@ -2034,13 +2034,16 @@ int InstanceRecycler::scan_and_recycle(
 
     std::unique_ptr<RangeGetIterator> it;
     do {
+        if (get_range_retried > 1000) {
+            err = "txn_get exceeds max retry, may not scan all keys";
+            ret = -1;
+            return -1;
+        }
         int get_ret = txn_get(txn_kv_.get(), begin, end, it);
-        if (get_ret != 0 && get_range_retried > 10) {
+        if (get_ret != 0) { // txn kv may complain "Request for future version"
             LOG(WARNING) << "failed to get kv, range=[" << hex(begin) << "," << hex(end)
                          << ") num_scanned=" << cnt << " txn_get_ret=" << get_ret
                          << " get_range_retried=" << get_range_retried;
-            return -1;
-        } else if (get_ret != 0) { // txn kv may complain "Request for future version"
             ++get_range_retried;
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             continue; // try again
