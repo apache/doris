@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_nereids_rebalance_disk") {
+    //cloud-mode
+    if (isCloudMode()) {
+        return
+    }
+
     // can not use qt command since the output change based on cluster and backend ip
     checkNereidsExecute(""" admin rebalance disk; """)
     checkNereidsExecute(""" admin rebalance disk ON ("127.0.0.1:9050"); """)
