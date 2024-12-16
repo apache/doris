@@ -18,15 +18,44 @@
 suite("test_nereids_rebalance_disk") {
     //cloud-mode
     if (isCloudMode()) {
-        return
+        def String error_in_cloud = "Unsupported"
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+
+        test {
+            sql """ admin rebalance disk; """
+            exception "${error_in_cloud}"
+        }
+        test {
+            sql """ admin rebalance disk ON ("127.0.0.1:9050"); """
+            exception "${error_in_cloud}"
+        }
+        test {
+            sql """ admin rebalance disk ON ("192.168.0.1:9050", "127.0.0.1:9050", "192.168.0.2:9050"); """
+            exception "${error_in_cloud}"
+        }
+
+        test {
+            sql """ admin cancel rebalance disk;  """
+            exception "${error_in_cloud}"
+        }
+        test {
+            sql """ admin cancel rebalance disk ON ("127.0.0.1:9050"); """
+            exception "${error_in_cloud}"
+        }
+        test {
+            sql """ admin cancel rebalance disk ON ("192.168.0.1:9050", "127.0.0.1:9050", "192.168.0.2:9050"); """
+            exception "${error_in_cloud}"
+        }
+    } else {
+        // can not use qt command since the output change based on cluster and backend ip
+        checkNereidsExecute(""" admin rebalance disk; """)
+        checkNereidsExecute(""" admin rebalance disk ON ("127.0.0.1:9050"); """)
+        checkNereidsExecute(""" admin rebalance disk ON ("192.168.0.1:9050", "127.0.0.1:9050", "192.168.0.2:9050"); """)
+
+        checkNereidsExecute(""" admin cancel rebalance disk; """)
+        checkNereidsExecute(""" admin cancel rebalance disk ON ("127.0.0.1:9050"); """)
+        checkNereidsExecute(""" admin cancel rebalance disk ON ("192.168.0.1:9050", "127.0.0.1:9050", "192.168.0.2:9050"); """)
     }
 
-    // can not use qt command since the output change based on cluster and backend ip
-    checkNereidsExecute(""" admin rebalance disk; """)
-    checkNereidsExecute(""" admin rebalance disk ON ("127.0.0.1:9050"); """)
-    checkNereidsExecute(""" admin rebalance disk ON ("192.168.0.1:9050", "127.0.0.1:9050", "192.168.0.2:9050"); """)
-
-    checkNereidsExecute(""" admin cancel rebalance disk; """)
-    checkNereidsExecute(""" admin cancel rebalance disk ON ("127.0.0.1:9050"); """)
-    checkNereidsExecute(""" admin cancel rebalance disk ON ("192.168.0.1:9050", "127.0.0.1:9050", "192.168.0.2:9050"); """)
 }
