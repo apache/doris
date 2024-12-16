@@ -25,10 +25,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -130,10 +132,22 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
             Expression originExpr, List<Expression> predicates,
             BinaryOperator<ValueDesc> op, boolean isAnd) {
 
+        boolean convertIsNullToEmptyValue = isAnd && predicates.stream().anyMatch(expr -> expr instanceof NullLiteral);
         Multimap<Expression, ValueDesc> groupByReference
                 = Multimaps.newListMultimap(new LinkedHashMap<>(), ArrayList::new);
         for (Expression predicate : predicates) {
-            ValueDesc valueDesc = predicate.accept(this, context);
+            // EmptyValue(a) = IsNull(a) and null,  it doesn't equals to IsNull(a).
+            // Only the and expression contains at least a null literal in its conjunctions,
+            // then EmptyValue(a) can equivalent to IsNull(a).
+            // so for expression and(IsNull(a), IsNull(b), ..., null), a, b can convert to EmptyValue.
+            // What's more, if a is not nullable, then EmptyValue(a) always equals to IsNull(a),
+            // but we don't consider this case here, we should fold IsNull(a) to FALSE using other rule.
+            ValueDesc valueDesc = null;
+            if (convertIsNullToEmptyValue && predicate instanceof IsNull) {
+                valueDesc = new EmptyValue(context, ((IsNull) predicate).child(), predicate);
+            } else {
+                valueDesc = predicate.accept(this, context);
+            }
             List<ValueDesc> valueDescs = (List<ValueDesc>) groupByReference.get(valueDesc.reference);
             valueDescs.add(valueDesc);
         }
@@ -461,6 +475,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         public ValueDesc union(ValueDesc other) {
+            // for RangeValue/DiscreteValue/UnknownValue, when union with EmptyValue,
+            // call EmptyValue.union(this) => this
+            if (other instanceof EmptyValue) {
+                return other.union(this);
+            }
             Expression originExpr = FoldConstantRuleOnFE.evaluate(
                     ExpressionUtils.or(toExpr, other.toExpr), context);
             return new UnknownValue(context, originExpr,
@@ -469,6 +488,11 @@ public class RangeInference extends ExpressionVisitor<RangeInference.ValueDesc, 
 
         @Override
         public ValueDesc intersect(ValueDesc other) {
+            // for RangeValue/DiscreteValue/UnknownValue, when intersect with EmptyValue,
+            // call EmptyValue.intersect(this) => EmptyValue
+            if (other instanceof EmptyValue) {
+                return other.intersect(this);
+            }
             Expression originExpr = FoldConstantRuleOnFE.evaluate(
                     ExpressionUtils.and(toExpr, other.toExpr), context);
             return new UnknownValue(context, originExpr,

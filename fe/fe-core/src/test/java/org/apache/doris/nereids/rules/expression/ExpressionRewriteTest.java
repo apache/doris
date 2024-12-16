@@ -277,7 +277,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testOrAddMinMax() {
+    void testAddMinMax() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
             bottomUp(
                 AddMinMax.INSTANCE
@@ -335,5 +335,45 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00'",
                 "(AA in (timestamp '2024-01-01 02:00:00',timestamp '2024-01-02 02:00:00',timestamp '2024-01-03 02:00:00') or AA < timestamp '2024-01-01 01:00:00' ) and AA <= timestamp '2024-01-03 02:00:00'");
 
+    }
+
+    @Test
+    void testSimplifyRangeAndAddMinMax() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(
+                        SimplifyRange.INSTANCE,
+                        AddMinMax.INSTANCE
+                )
+        ));
+
+        assertRewriteAfterTypeCoercion("ISNULL(TA)", "ISNULL(TA)");
+        assertRewriteAfterTypeCoercion("ISNULL(TA) and null", "ISNULL(TA) and null");
+        assertRewriteAfterTypeCoercion("ISNULL(TA) and ISNULL(TA)", "ISNULL(TA)");
+        assertRewriteAfterTypeCoercion("ISNULL(TA) or ISNULL(TA)", "ISNULL(TA)");
+        assertRewriteAfterTypeCoercion("ISNULL(TA) and TA between 20 and 10", "ISNULL(TA) and null");
+        // assertRewriteAfterTypeCoercion("ISNULL(TA) and TA > 10", "ISNULL(TA) and null"); // should be, but not support now
+        assertRewriteAfterTypeCoercion("ISNULL(TA) and TA > 10 and null", "ISNULL(TA) and null");
+        assertRewriteAfterTypeCoercion("ISNULL(TA) or TA > 10", "ISNULL(TA) or TA > 10");
+        // assertRewriteAfterTypeCoercion("(TA < 30 or TA > 40) and TA between 20 and 10", "TA IS NULL AND NULL"); // should be, but not support because flatten and
+        assertRewriteAfterTypeCoercion("(TA < 30 or TA > 40) and TA is null and null", "TA IS NULL AND NULL");
+        assertRewriteAfterTypeCoercion("(TA < 30 or TA > 40) or TA between 20 and 10", "TA < 30 or TA > 40");
+
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA between 30 and 40 or TA between 60 and 50",
+                "(TA <= 20 or TA >= 30) and TA >= 10 and TA <= 40");
+        // should be, but not support yet, because 'TA is null and null' => UnknownValue(EmptyValue(TA) and null)
+        //assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA between 30 and 40 or TA is null and null",
+        //        "(TA <= 20 or TA >= 30) and TA >= 10 and TA <= 40");
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA between 30 and 40 or TA is null and null",
+                "(TA <= 20 or TA >= 30 or TA is null and null) and TA >= 10 and TA <= 40");
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 or TA between 30 and 40 or TA is null",
+                "TA >= 10 and TA <= 20 or TA >= 30 and TA <= 40 or TA is null");
+        assertRewriteAfterTypeCoercion("ISNULL(TB) and (TA between 10 and 20 or TA between 30 and 40 or TA between 60 and 50)",
+                "ISNULL(TB) and ((TA <= 20 or TA >= 30) and TA >= 10 and TA <= 40)");
+        assertRewriteAfterTypeCoercion("ISNULL(TB) and (TA between 10 and 20 or TA between 30 and 40 or TA is null)",
+                "ISNULL(TB) and (TA >= 10 and TA <= 20 or TA >= 30 and TA <= 40 or TA is null)");
+        assertRewriteAfterTypeCoercion("TB between 20 and 10 and (TA between 10 and 20 or TA between 30 and 40 or TA between 60 and 50)",
+                "TB IS NULL AND NULL and (TA <= 20 or TA >= 30) and TA >= 10 and TA <= 40");
+        assertRewriteAfterTypeCoercion("TA between 10 and 20 and TB between 10 and 20 or TA between 30 and 40 and TB between 30 and 40 or TA between 60 and 50 and TB between 60 and 50",
+                "(TA <= 20 and TB <= 20 or TA >= 30 and TB >= 30 or TA is null and null and TB is null) and TA >= 10 and TA <= 40 and TB >= 10 and TB <= 40");
     }
 }
