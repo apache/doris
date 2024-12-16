@@ -82,7 +82,7 @@ public:
     VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                     const VExprContextSPtrs& output_vexpr_ctxs, std::string schema,
                     std::vector<std::string> column_names, bool output_object_data,
-                    TFileCompressType::type compression,
+                    TFileCompressType::type compression, bool legacy_hive_compatible = false,
                     const iceberg::Schema* iceberg_schema = nullptr);
 
     ~VOrcTransformer() = default;
@@ -115,6 +115,7 @@ private:
     std::unique_ptr<orc::Type> _schema;
     std::unique_ptr<orc::Writer> _writer;
 
+    bool _legacy_hive_compatible;
     const iceberg::Schema* _iceberg_schema;
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type

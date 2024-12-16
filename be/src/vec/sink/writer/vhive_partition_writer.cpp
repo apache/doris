@@ -27,6 +27,7 @@
 #include "vec/runtime/vcsv_transformer.h"
 #include "vec/runtime/vorc_transformer.h"
 #include "vec/runtime/vparquet_transformer.h"
+#include "vec/sink/writer/vhive_config.h"
 
 namespace doris {
 namespace vectorized {
@@ -107,9 +108,17 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
+        bool legacy_hive_compatible = false;
+        auto it = _hadoop_conf.find(HiveCatalogConfig::ORC_WRITER_LEGACY_HIVE_COMPATIBLE);
+        if (it != _hadoop_conf.end()) {
+            const std::string& value = it->second;
+            std::string lower_value = value;
+            std::transform(lower_value.begin(), lower_value.end(), lower_value.begin(), ::tolower);
+            legacy_hive_compatible = (lower_value == "false" ? false : true);
+        }
         _file_format_transformer = std::make_unique<VOrcTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
-                _hive_compress_type);
+                _hive_compress_type, legacy_hive_compatible);
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_CSV_PLAIN: {
