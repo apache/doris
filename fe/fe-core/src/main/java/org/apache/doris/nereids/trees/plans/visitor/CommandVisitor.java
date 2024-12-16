@@ -85,6 +85,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
@@ -576,6 +577,10 @@ public interface CommandVisitor<R, C> {
     default R visitShowReplicaDistributionCommand(ShowReplicaDistributionCommand showReplicaDistributedCommand,
                                                     C context) {
         return visitCommand(showReplicaDistributedCommand, context);
+    }
+
+    default R visitShowCharsetCommand(ShowCharsetCommand showCharsetCommand, C context) {
+        return visitCommand(showCharsetCommand, context);
     }
 
     default R visitDropWorkloadPolicyCommand(DropWorkloadPolicyCommand dropWorkloadPolicyCommand, C context) {
