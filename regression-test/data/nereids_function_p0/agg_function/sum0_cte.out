@@ -3,28 +3,19 @@
 78	78
 
 -- !shape --
-cost = 134.37066666666666
-PhysicalCTEAnchor ( cteId=CTEId#0 )
-|--PhysicalCTEProducer[467] ( stats=13, cteId=CTEId#0 )
-|  +--PhysicalProject[462]@1 ( stats=13, projects=[ksint#3, kint#4] )
-|     +--PhysicalOlapScan[fn_test]@0 ( stats=13 )
-+--PhysicalResultSink[554] ( outputExprs=[__sum0_0#255, __sum0_1#256] )
-   +--PhysicalNestedLoopJoin[549]@7 ( stats=1, type=CROSS_JOIN, hashCondition=[], otherCondition=[], markCondition=[] )
-      |--PhysicalHashAggregate[503]@4 ( stats=1, aggPhase=DISTINCT_GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[sum0(partial_sum0(kint)#255) AS `sum0(kint)`#255], partitionExpr=Optional.empty, topnFilter=false, topnPushDown=false )
-      |  +--PhysicalDistribute[498]@13 ( stats=1, distributionSpec=DistributionSpecGather )
-      |     +--PhysicalHashAggregate[493]@13 ( stats=1, aggPhase=DISTINCT_LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_sum0(kint#89) AS `partial_sum0(kint)`#255], partitionExpr=Optional.empty, topnFilter=false, topnPushDown=false )
-      |        +--PhysicalHashAggregate[488]@12 ( stats=13, aggPhase=GLOBAL, aggMode=BUFFER_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[kint#89], outputExpr=[kint#89], partitionExpr=Optional[[kint#89]], topnFilter=false, topnPushDown=false )
-      |           +--PhysicalDistribute[483]@11 ( stats=13, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[89], shuffleType=EXECUTION_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[89]], exprIdToEquivalenceSet={89=0} ) )
-      |              +--PhysicalHashAggregate[478]@11 ( stats=13, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=true, groupByExpr=[kint#89], outputExpr=[kint#89], partitionExpr=Optional[[kint#89]], topnFilter=false, topnPushDown=false )
-      |                 +--PhysicalDistribute[473]@3 ( stats=13, distributionSpec=DistributionSpecExecutionAny )
-      |                    +--PhysicalCTEConsumer[468] ( stats=13, cteId=CTEId#0, map={kint#89=kint#4} )
-      +--PhysicalDistribute[544]@6 ( stats=1, distributionSpec=DistributionSpecReplicated )
-         +--PhysicalHashAggregate[539]@6 ( stats=1, aggPhase=DISTINCT_GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[sum0(partial_sum0(ksint)#256) AS `sum0(ksint)`#256], partitionExpr=Optional.empty, topnFilter=false, topnPushDown=false )
-            +--PhysicalDistribute[534]@17 ( stats=1, distributionSpec=DistributionSpecGather )
-               +--PhysicalHashAggregate[529]@17 ( stats=1, aggPhase=DISTINCT_LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_sum0(ksint#173) AS `partial_sum0(ksint)`#256], partitionExpr=Optional.empty, topnFilter=false, topnPushDown=false )
-                  +--PhysicalHashAggregate[524]@16 ( stats=13, aggPhase=GLOBAL, aggMode=BUFFER_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[ksint#173], outputExpr=[ksint#173], partitionExpr=Optional[[ksint#173]], topnFilter=false, topnPushDown=false )
-                     +--PhysicalDistribute[519]@15 ( stats=13, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[173], shuffleType=EXECUTION_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[173]], exprIdToEquivalenceSet={173=0} ) )
-                        +--PhysicalHashAggregate[514]@15 ( stats=13, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=true, groupByExpr=[ksint#173], outputExpr=[ksint#173], partitionExpr=Optional[[ksint#173]], topnFilter=false, topnPushDown=false )
-                           +--PhysicalDistribute[509]@5 ( stats=13, distributionSpec=DistributionSpecExecutionAny )
-                              +--PhysicalCTEConsumer[504] ( stats=13, cteId=CTEId#0, map={ksint#173=ksint#3} )
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalOlapScan[fn_test]
+--PhysicalResultSink
+----NestedLoopJoin[CROSS_JOIN]
+------hashAgg[DISTINCT_GLOBAL]
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[DISTINCT_GLOBAL]
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

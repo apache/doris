@@ -22,7 +22,7 @@ suite("sum0_cte") {
     select * from (select sum0(distinct kint) from tmp ) t cross join (select sum0(distinct ksint) from tmp) tt;
     """
     qt_shape """
-    explain physical plan
+    explain shape plan
     with tmp as (select * from fn_test)
     select * from (select sum0(distinct kint) from tmp ) t cross join (select sum0(distinct ksint) from tmp) tt;
     """
