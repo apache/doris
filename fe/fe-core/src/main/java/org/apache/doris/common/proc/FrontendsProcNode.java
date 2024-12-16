@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
+import org.apache.doris.common.util.FormatIpUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
@@ -30,7 +31,6 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import inet.ipaddr.IPAddressString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -225,17 +225,12 @@ public class FrontendsProcNode implements ProcNodeInterface {
                 continue;
             }
             // Format the IP address
-            String formattedIp = formatIp(address.getHostAddress());
+            String formattedIp = FormatIpUtil.formatIp(address.getHostAddress());
 
-            if (formatIp(fe.getHost()).equals(formattedIp)) {
+            if (FormatIpUtil.formatIp(fe.getHost()).equals(formattedIp)) {
                 return true;
             }
         }
         return false;
-    }
-
-    private static String formatIp(String str) {
-        // Use IPAddressString to format the IP address
-        return new IPAddressString(str).getAddress().toCanonicalString();
     }
 }

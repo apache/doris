@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.FormatIpUtil;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -76,7 +77,7 @@ public class Frontend implements Writable {
     public Frontend(FrontendNodeType role, String nodeName, String host, String hostName, int editLogPort) {
         this.role = role;
         this.nodeName = nodeName;
-        this.host = host;
+        this.host = FormatIpUtil.formatIp(host);
         this.editLogPort = editLogPort;
     }
 
@@ -231,7 +232,7 @@ public class Frontend implements Writable {
     }
 
     public void setHost(String host) {
-        this.host = host;
+        this.host = FormatIpUtil.formatIp(host);
     }
 
     public HostInfo toHostInfo() {
