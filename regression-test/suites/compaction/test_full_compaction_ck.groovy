@@ -121,7 +121,7 @@ suite("test_full_compaction_ck") {
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
             backend_id = tablet.BackendId
-            times = 1
+            def times = 1
 
             do{
                 (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)

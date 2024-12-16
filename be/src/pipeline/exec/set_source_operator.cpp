@@ -128,7 +128,7 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
     auto block_size = 0;
 
     auto add_result = [&local_state, &block_size, this](auto value) {
-        auto it = value.begin();
+        auto* it = &value;
         if constexpr (is_intersect) {
             if (it->visited) { //intersected: have done probe, so visited values it's the result
                 _add_result_columns(local_state, value, block_size);
@@ -147,8 +147,8 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
 
     *eos = iter == hash_table_ctx.hash_table->end();
     if (*eos && hash_table_ctx.hash_table->has_null_key_data()) {
-        auto value = hash_table_ctx.hash_table->template get_null_key_data<RowRefListWithFlags>();
-        if constexpr (std::is_same_v<RowRefListWithFlags, std::decay_t<decltype(value)>>) {
+        auto value = hash_table_ctx.hash_table->template get_null_key_data<RowRefWithFlag>();
+        if constexpr (std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>>) {
             add_result(value);
         }
     }
@@ -168,15 +168,13 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
 
 template <bool is_intersect>
 void SetSourceOperatorX<is_intersect>::_add_result_columns(
-        SetSourceLocalState<is_intersect>& local_state, RowRefListWithFlags& value,
-        int& block_size) {
+        SetSourceLocalState<is_intersect>& local_state, RowRefWithFlag& value, int& block_size) {
     auto& build_col_idx = local_state._shared_state->build_col_idx;
     auto& build_block = local_state._shared_state->build_block;
 
-    auto it = value.begin();
     for (auto idx = build_col_idx.begin(); idx != build_col_idx.end(); ++idx) {
         auto& column = *build_block.get_by_position(idx->second).column;
-        local_state._mutable_cols[idx->first]->insert_from(column, it->row_num);
+        local_state._mutable_cols[idx->first]->insert_from(column, value.row_num);
     }
     block_size++;
 }

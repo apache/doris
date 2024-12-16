@@ -94,6 +94,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                         logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
                                 && p.getProjects().get(1).toSql()
                                 .equals("if(age IS NULL, 0, 1) AS `if(age IS NULL, 0, 1)`")
+                                && p.getProjects().get(1).getDataType().isBigIntType()
                         )
                 );
     }

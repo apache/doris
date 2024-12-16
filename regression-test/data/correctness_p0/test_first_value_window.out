@@ -41,3 +41,103 @@
 11	23	04-23-13	\N	10	10	10
 12	24	02-24-10-21	\N	\N	\N	\N
 
+-- !select_default4 --
+a	1	1	1	0
+a	\N	1	\N	1
+a	\N	1	\N	2
+a	\N	1	\N	3
+b	\N	\N	\N	4
+b	3	3	3	5
+b	\N	3	\N	6
+b	2	2	2	7
+
+-- !select_default5 --
+a	\N	\N	\N	0
+a	1	1	\N	1
+a	\N	1	\N	2
+a	\N	1	\N	3
+b	\N	\N	\N	4
+b	3	3	\N	5
+b	\N	3	\N	6
+b	2	3	\N	7
+
+-- !select_default_desc --
+a	2	3
+a	\N	2
+a	\N	1
+a	1	0
+b	2	7
+b	\N	6
+b	3	5
+b	\N	4
+
+-- !select_default_asc --
+a	1	0
+a	\N	1
+a	\N	2
+a	2	3
+b	\N	4
+b	3	5
+b	\N	6
+b	2	7
+
+-- !select_default_last_rewrite_first --
+a	1	1	0
+a	\N	1	1
+a	\N	1	2
+a	2	1	3
+b	\N	\N	4
+b	3	3	5
+b	\N	3	6
+b	2	3	7
+
+-- !select_default6 --
+a	\N	2	\N	0
+a	1	2	1	1
+a	2	2	2	2
+a	\N	2	2	3
+b	\N	2	\N	4
+b	3	2	3	5
+b	\N	2	3	6
+b	2	2	2	7
+
+-- !select_default_last_rewrite_first2 --
+a	1	1	0
+a	\N	1	1
+a	\N	1	2
+a	2	2	3
+b	\N	\N	4
+b	3	3	5
+b	\N	3	6
+b	2	2	7
+
+-- !select_default7 --
+a	1	1	1	1	1	0
+a	\N	1	1	1	1	1
+a	\N	1	1	1	1	2
+a	2	2	2	2	1	3
+b	\N	\N	\N	\N	\N	4
+b	3	3	3	3	3	5
+b	\N	3	3	3	3	6
+b	2	2	2	2	3	7
+
+-- !select_default8 --
+a	1	2	0
+a	\N	\N	1
+a	\N	\N	2
+a	2	\N	3
+b	\N	2	4
+b	3	\N	5
+b	\N	\N	6
+b	2	\N	7
+
+-- !select_default9 --
+a	1	2	0
+a	\N	\N	1
+a	\N	\N	2
+a	2	\N	3
+b	\N	2	4
+b	3	\N	5
+b	\N	\N	6
+b	2	\N	7
+

@@ -17,6 +17,10 @@
 
 
 suite("test_nereids_show_tablet_storage_format") {
+    //cloud-mode
+    if (isCloudMode()) {
+        return
+    }
     checkNereidsExecute("""show tablet storage format;""")
     checkNereidsExecute("""show tablet storage format verbose;""")
     checkNereidsExecute("""admin show tablet storage format;""")

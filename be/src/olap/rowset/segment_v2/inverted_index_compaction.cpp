@@ -79,7 +79,16 @@ Status compact_column(int64_t index_id,
 
     // delete temporary segment_path, only when inverted_index_ram_dir_enable is false
     if (!config::inverted_index_ram_dir_enable) {
-        std::ignore = io::global_local_filesystem()->delete_directory(tmp_path.data());
+        auto st = io::global_local_filesystem()->delete_directory(tmp_path.data());
+        DBUG_EXECUTE_IF("compact_column_delete_tmp_path_error", {
+            st = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
+                    "debug point: compact_column_delete_tmp_path_error in index compaction");
+        })
+        if (!st.ok()) {
+            LOG(WARNING) << "compact column failed to delete tmp path: " << tmp_path
+                         << ", error: " << st.to_string();
+            return st;
+        }
     }
     return Status::OK();
 }

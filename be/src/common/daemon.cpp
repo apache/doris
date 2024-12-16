@@ -437,6 +437,8 @@ void Daemon::calculate_metrics_thread() {
                 // update lst map
                 DorisMetrics::instance()->system_metrics()->get_network_traffic(
                         &lst_net_send_bytes, &lst_net_receive_bytes);
+
+                DorisMetrics::instance()->system_metrics()->update_be_avail_cpu_num();
             }
             update_rowsets_and_segments_num_metrics();
         }

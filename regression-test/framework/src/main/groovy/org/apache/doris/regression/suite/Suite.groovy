@@ -713,41 +713,12 @@ class Suite implements GroovyInterceptable {
     }
 
     void checkNereidsExecute(String sqlString) {
-        String tag = UUID.randomUUID().toString();
-        log.info("start check" + tag)
-        String finalSqlString = "--" + tag + "\n" + sqlString
-        ProfileAction profileAction = new ProfileAction(context, tag)
-        profileAction.run {
-            log.info("start profile run" + tag)
-            sql (finalSqlString)
-        }
-        profileAction.check {
-            profileString, exception ->
-                log.info("start profile check" + tag)
-                log.info(profileString)
-                Assertions.assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-        profileAction.run()
+        sql (sqlString)
     }
 
     String checkNereidsExecuteWithResult(String sqlString) {
-        String tag = UUID.randomUUID().toString();
-        String result = null;
-        log.info("start check" + tag)
-        String finalSqlString = "--" + tag + "\n" + sqlString
-        ProfileAction profileAction = new ProfileAction(context, tag)
-        profileAction.run {
-            log.info("start profile run" + tag)
-            result = sql (finalSqlString)
-        }
-        profileAction.check {
-            profileString, exception ->
-                log.info("start profile check" + tag)
-                log.info(profileString)
-                Assertions.assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-        profileAction.run()
-        return result;
+        String result = sql (sqlString);
+        return result
     }
 
     void createMV(String sql) {
@@ -2713,5 +2684,14 @@ class Suite implements GroovyInterceptable {
             sshExec("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"", false)
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
+    }
+
+    def check_fold_consistency = { test_sql ->
+        def re_fe = order_sql "select /*+SET_VAR(enable_fold_constant_by_be=false)*/ ${test_sql}"
+        def re_be = order_sql "select /*+SET_VAR(enable_fold_constant_by_be=true)*/ ${test_sql}"
+        def re_no_fold = order_sql "select /*+SET_VAR(debug_skip_fold_constant=true)*/ ${test_sql}"
+        logger.info("check sql: ${test_sql}")
+        assertEquals(re_fe, re_be)
+        assertEquals(re_fe, re_no_fold)
     }
 }

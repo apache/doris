@@ -159,4 +159,193 @@ suite("test_first_value_window") {
             ,first_value(`state`, 1) over(partition by `myday` order by `time_col` rows between 1 preceding and 1 following) v3
         from ${tableName3} order by `id`, `myday`, `time_col`;
     """
+
+    qt_select_default4 """
+        SELECT uid
+            ,amt
+            ,LAST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) amt1
+            ,LAST_VALUE(amt, false) OVER(PARTITION BY uid ORDER BY time_s ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) amt2
+            ,time_s
+        FROM (
+            SELECT 'a' AS uid, 1    AS amt, 0 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 1 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+            SELECT 'a' AS uid, null    AS amt, 3 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+            SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+            SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+            ) t
+        ORDER BY uid, time_s
+        ;
+    """
+
+    qt_select_default5 """
+        SELECT uid
+            ,amt
+            ,FIRST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) amt1
+            ,FIRST_VALUE(amt, false) OVER(PARTITION BY uid ORDER BY time_s ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) amt2
+            ,time_s
+        FROM (
+            SELECT 'a' AS uid, NULL    AS amt, 0 AS time_s UNION ALL
+            SELECT 'a' AS uid, 1 AS amt, 1 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+            SELECT 'a' AS uid, null    AS amt, 3 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+            SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+            SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+            ) t
+        ORDER BY uid, time_s
+        ;
+    """
+    qt_select_default_desc """
+        SELECT uid
+            ,amt
+            ,time_s
+        FROM (
+            SELECT 'a' AS uid, 1    AS amt, 0 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 1 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+            SELECT 'a' AS uid, 2    AS amt, 3 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+            SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+            SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+            ) t
+            order by uid,time_s desc;
+    """
+
+    qt_select_default_asc """
+        SELECT uid
+            ,amt
+            ,time_s
+        FROM (
+            SELECT 'a' AS uid, 1    AS amt, 0 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 1 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+            SELECT 'a' AS uid, 2    AS amt, 3 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+            SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+            SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+            ) t
+            order by uid,time_s ASC;
+    """
+
+    // FIRST_VALUE: ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    qt_select_default_last_rewrite_first """ 
+            SELECT uid
+        ,amt
+        ,(LAST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)) amt3
+        ,time_s
+    FROM (
+        SELECT 'a' AS uid, 1    AS amt, 0 AS time_s UNION ALL
+        SELECT 'a' AS uid, null AS amt, 1 AS time_s UNION ALL
+        SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+        SELECT 'a' AS uid, 2    AS amt, 3 AS time_s UNION ALL
+        SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+        SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+        SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+        SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+        ) t
+    ORDER BY uid, time_s;
+    """
+
+    qt_select_default6 """
+        SELECT uid
+        ,amt
+        ,LAST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED following) amt1
+        ,LAST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) amt2
+        ,time_s
+    FROM (
+        SELECT 'a' AS uid, null    AS amt, 0 AS time_s UNION ALL
+        SELECT 'a' AS uid, 1 AS amt, 1 AS time_s UNION ALL
+        SELECT 'a' AS uid, 2 AS amt, 2 AS time_s UNION ALL
+        SELECT 'a' AS uid, null    AS amt, 3 AS time_s UNION ALL
+        SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+        SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+        SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+        SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+        ) t
+    ORDER BY uid, time_s
+    ;
+    """
+
+    //last value: ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    qt_select_default_last_rewrite_first2 """
+            SELECT uid
+        ,amt
+        ,(FIRST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)) amt3
+        ,time_s
+        FROM (
+            SELECT 'a' AS uid, 1    AS amt, 0 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 1 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+            SELECT 'a' AS uid, 2    AS amt, 3 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+            SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+            SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+            ) t
+        ORDER BY uid, time_s;
+    """
+
+    qt_select_default7 """
+    SELECT uid
+        ,amt
+        ,COALESCE(LAST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)) amt1
+        ,COALESCE(LAST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s ASC ROWS BETWEEN 100 PRECEDING AND CURRENT ROW)) amt_not
+        ,COALESCE(FIRST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)) amt2
+        ,COALESCE(LAST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s DESC ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)) amt3
+        ,time_s
+    FROM (
+        SELECT 'a' AS uid, 1    AS amt, 0 AS time_s UNION ALL
+        SELECT 'a' AS uid, null AS amt, 1 AS time_s UNION ALL
+        SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+        SELECT 'a' AS uid, 2    AS amt, 3 AS time_s UNION ALL
+        SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+        SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+        SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+        SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+        ) t
+    ORDER BY uid, time_s
+    ;
+    """
+
+    qt_select_default8 """
+            SELECT uid
+        ,amt
+        ,(FIRST_VALUE(amt, true) OVER(PARTITION BY uid ORDER BY time_s ROWS between 3 following AND 6 FOLLOWING)) amt3
+        ,time_s
+        FROM (
+            SELECT 'a' AS uid, 1    AS amt, 0 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 1 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+            SELECT 'a' AS uid, 2    AS amt, 3 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+            SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+            SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+            ) t
+        ORDER BY uid, time_s;
+    """
+
+    qt_select_default9 """
+            SELECT uid
+        ,amt
+        ,(FIRST_VALUE(amt) OVER(PARTITION BY uid ORDER BY time_s ROWS between 3 following AND 6 FOLLOWING)) amt3
+        ,time_s
+        FROM (
+            SELECT 'a' AS uid, 1    AS amt, 0 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 1 AS time_s UNION ALL
+            SELECT 'a' AS uid, null AS amt, 2 AS time_s UNION ALL
+            SELECT 'a' AS uid, 2    AS amt, 3 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 4 AS time_s UNION ALL
+            SELECT 'b' AS uid, 3    AS amt, 5 AS time_s UNION ALL
+            SELECT 'b' AS uid, null AS amt, 6 AS time_s UNION ALL
+            SELECT 'b' AS uid, 2    AS amt, 7 AS time_s 
+            ) t
+        ORDER BY uid, time_s;
+    """
 }

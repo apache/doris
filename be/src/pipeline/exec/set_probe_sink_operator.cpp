@@ -231,7 +231,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                                 local_state._shared_state->valid_element_in_hash_tbl);
                         while (iter != iter_end) {
                             auto& mapped = iter->get_second();
-                            auto it = mapped.begin();
+                            auto* it = &mapped;
 
                             if constexpr (is_intersect) {
                                 if (it->visited) {
@@ -249,7 +249,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                     } else if (is_intersect) {
                         while (iter != iter_end) {
                             auto& mapped = iter->get_second();
-                            auto it = mapped.begin();
+                            auto* it = &mapped;
                             it->visited = false;
                             ++iter;
                         }

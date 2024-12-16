@@ -66,6 +66,8 @@ public:
     void update_max_network_receive_bytes_rate(int64_t max_receive_bytes_rate);
     void update_allocator_metrics();
 
+    void update_be_avail_cpu_num();
+
 private:
     void _install_cpu_metrics();
     // On Intel(R) Xeon(R) CPU E5-2450 0 @ 2.10GHz;

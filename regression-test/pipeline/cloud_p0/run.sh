@@ -13,7 +13,7 @@ fi
 EOF
 ############################# run.sh content ########################################
 # shellcheck source=/dev/null
-# check_tpcds_table_rows, restart_doris, set_session_variable, check_tpcds_result
+# check_tpcds_table_rows, restart_doris, set_session_variable, check_tpcds_result, _monitor_connection
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 # shellcheck source=/dev/null
 # create_an_issue_comment
@@ -47,6 +47,9 @@ export DORIS_HOME
 exit_flag=0
 need_collect_log=false
 
+# monitoring the log files in "${DORIS_HOME}"/regression-test/log/ for keyword 'Reach limit of connections'
+_monitor_regression_log &
+
 # shellcheck disable=SC2317
 run() {
     set -e
@@ -72,7 +75,6 @@ run() {
     export JAVA_HOME
     if "${teamcity_build_checkoutDir}"/run-regression-test.sh \
         --teamcity \
-        --clean \
         --run \
         --times "${repeat_times_from_trigger:-1}" \
         -parallel 18 \

@@ -121,7 +121,8 @@ Status InvertedIndexReader::read_null_bitmap(const io::IOContext* io_ctx,
 
         if (!dir) {
             // TODO: ugly code here, try to refact.
-            auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size);
+            auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
+                                                        io_ctx);
             if (!st.ok()) {
                 LOG(WARNING) << st;
                 return st;
@@ -137,7 +138,6 @@ Status InvertedIndexReader::read_null_bitmap(const io::IOContext* io_ctx,
                 InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
         if (dir->fileExists(null_bitmap_file_name)) {
             null_bitmap_in = dir->openInput(null_bitmap_file_name);
-            null_bitmap_in->setIoContext(io_ctx);
             size_t null_bitmap_size = null_bitmap_in->length();
             faststring buf;
             buf.resize(null_bitmap_size);
@@ -180,7 +180,8 @@ Status InvertedIndexReader::handle_searcher_cache(
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         IndexSearcherPtr searcher;
 
-        auto st = _inverted_index_file_reader->init(config::inverted_index_read_buffer_size);
+        auto st =
+                _inverted_index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx);
         if (!st.ok()) {
             LOG(WARNING) << st;
             return st;
@@ -210,6 +211,9 @@ Status InvertedIndexReader::create_index_searcher(lucene::store::Directory* dir,
 
     auto searcher_result = DORIS_TRY(index_searcher_builder->get_index_searcher(dir));
     *searcher = searcher_result;
+
+    // When the meta information has been read, the ioContext needs to be reset to prevent it from being used by other queries.
+    static_cast<DorisCompoundReader*>(dir)->getDorisIndexInput()->setIoContext(nullptr);
 
     // NOTE: before mem_tracker hook becomes active, we caculate reader memory size by hand.
     mem_tracker->consume(index_searcher_builder->get_reader_size());

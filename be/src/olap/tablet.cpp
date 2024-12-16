@@ -1750,8 +1750,13 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         }
 
         if (!res.ok()) {
-            tablet->set_last_cumu_compaction_failure_time(UnixMillis());
             permits = 0;
+            // if we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
+            // no need to wait 5s.
+            if (!(res.msg() == "_last_delete_version.first not equal to -1") ||
+                config::enable_sleep_between_delete_cumu_compaction) {
+                tablet->set_last_cumu_compaction_failure_time(UnixMillis());
+            }
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 return Status::InternalError("prepare cumulative compaction with err: {}", res);
@@ -1759,6 +1764,12 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             // return OK if OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
+            LOG_INFO(
+                    "cumulative compaction meet delete rowset, increase cumu point without other "
+                    "operation.")
+                    .tag("tablet id:", tablet->tablet_id())
+                    .tag("after cumulative compaction, cumu point:",
+                         tablet->cumulative_layer_point());
             return Status::OK();
         }
     } else if (compaction_type == CompactionType::BASE_COMPACTION) {
@@ -2604,30 +2615,6 @@ std::string Tablet::get_segment_filepath(std::string_view rowset_id, int64_t seg
     return fmt::format("{}/_binlog/{}_{}.dat", _tablet_path, rowset_id, segment_index);
 }
 
-std::string Tablet::get_segment_index_filepath(std::string_view rowset_id,
-                                               std::string_view segment_index,
-                                               std::string_view index_id) const {
-    auto format = _tablet_meta->tablet_schema()->get_inverted_index_storage_format();
-    if (format == doris::InvertedIndexStorageFormatPB::V1) {
-        return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index,
-                           index_id);
-    } else {
-        return fmt::format("{}/_binlog/{}_{}.idx", _tablet_path, rowset_id, segment_index);
-    }
-}
-
-std::string Tablet::get_segment_index_filepath(std::string_view rowset_id, int64_t segment_index,
-                                               int64_t index_id) const {
-    auto format = _tablet_meta->tablet_schema()->get_inverted_index_storage_format();
-    if (format == doris::InvertedIndexStorageFormatPB::V1) {
-        return fmt::format("{}/_binlog/{}_{}_{}.idx", _tablet_path, rowset_id, segment_index,
-                           index_id);
-    } else {
-        DCHECK(index_id == -1);
-        return fmt::format("{}/_binlog/{}_{}.idx", _tablet_path, rowset_id, segment_index);
-    }
-}
-
 std::vector<std::string> Tablet::get_binlog_filepath(std::string_view binlog_version) const {
     const auto& [rowset_id, num_segments] = get_binlog_info(binlog_version);
     std::vector<std::string> binlog_filepath;
@@ -2672,10 +2659,25 @@ void Tablet::gc_binlogs(int64_t version) {
 
         // add binlog segment files and index files
         for (int64_t i = 0; i < num_segments; ++i) {
-            wait_for_deleted_binlog_files.emplace_back(get_segment_filepath(rowset_id, i));
-            for (const auto& index : this->tablet_schema()->inverted_indexes()) {
-                wait_for_deleted_binlog_files.emplace_back(
-                        get_segment_index_filepath(rowset_id, i, index->index_id()));
+            auto segment_file_path = get_segment_filepath(rowset_id, i);
+            wait_for_deleted_binlog_files.emplace_back(segment_file_path);
+
+            // index files
+            if (tablet_schema()->has_inverted_index()) {
+                if (tablet_schema()->get_inverted_index_storage_format() ==
+                    InvertedIndexStorageFormatPB::V1) {
+                    for (const auto& index : tablet_schema()->inverted_indexes()) {
+                        auto index_file = InvertedIndexDescriptor::get_index_file_path_v1(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(
+                                        segment_file_path),
+                                index->index_id(), index->get_index_suffix());
+                        wait_for_deleted_binlog_files.emplace_back(index_file);
+                    }
+                } else {
+                    auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
+                            InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path));
+                    wait_for_deleted_binlog_files.emplace_back(index_file);
+                }
             }
         }
     };

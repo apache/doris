@@ -25,22 +25,16 @@ import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDesc;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
-import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.BoundType;
@@ -52,7 +46,6 @@ import org.apache.commons.lang3.NotImplementedException;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * This class implements the function to simplify expression range.
@@ -108,11 +101,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
     private Expression getExpression(EmptyValue value) {
         Expression reference = value.getReference();
-        if (reference.nullable()) {
-            return new And(new IsNull(reference), new NullLiteral(BooleanType.INSTANCE));
-        } else {
-            return BooleanLiteral.FALSE;
-        }
+        return ExpressionUtils.falseOrNull(reference);
     }
 
     private Expression getExpression(RangeValue value) {
@@ -136,11 +125,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         if (!result.isEmpty()) {
             return ExpressionUtils.and(result);
         } else {
-            if (reference.nullable()) {
-                return new Or(new Not(new IsNull(reference)), new NullLiteral(BooleanType.INSTANCE));
-            } else {
-                return BooleanLiteral.TRUE;
-            }
+            return ExpressionUtils.trueOrNull(reference);
         }
     }
 
@@ -167,8 +152,15 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
         if (sourceValues.isEmpty()) {
             return originExpr;
         }
-        List<Expression> sourceExprs = sourceValues.stream().map(sourceValue -> getExpression(sourceValue))
-                .collect(Collectors.toList());
+        List<Expression> sourceExprs = Lists.newArrayListWithExpectedSize(sourceValues.size());
+        for (ValueDesc sourceValue : sourceValues) {
+            Expression expr = getExpression(sourceValue);
+            if (value.isAnd()) {
+                sourceExprs.addAll(ExpressionUtils.extractConjunction(expr));
+            } else {
+                sourceExprs.addAll(ExpressionUtils.extractDisjunction(expr));
+            }
+        }
         Expression result = value.isAnd() ? ExpressionUtils.and(sourceExprs) : ExpressionUtils.or(sourceExprs);
         result = FoldConstantRuleOnFE.evaluate(result, value.getExpressionRewriteContext());
         // ATTN: we must return original expr, because OrToIn is implemented with MutableState,

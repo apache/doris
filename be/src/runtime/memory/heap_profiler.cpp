@@ -30,8 +30,8 @@ void HeapProfiler::set_prof_active(bool prof) {
 #ifdef USE_JEMALLOC
     std::lock_guard guard(_mutex);
     try {
-        int err = jemallctl("prof.active", nullptr, nullptr, &prof, 1);
-        err |= jemallctl("prof.thread_active_init", nullptr, nullptr, &prof, 1);
+        int err = mallctl("prof.active", nullptr, nullptr, &prof, 1);
+        err |= mallctl("prof.thread_active_init", nullptr, nullptr, &prof, 1);
         if (err) {
             LOG(WARNING) << "jemalloc heap profiling start failed, " << err;
         } else {
@@ -48,7 +48,7 @@ bool HeapProfiler::get_prof_dump(const std::string& profile_file_name) {
     std::lock_guard guard(_mutex);
     const char* file_name_ptr = profile_file_name.c_str();
     try {
-        int err = jemallctl("prof.dump", nullptr, nullptr, &file_name_ptr, sizeof(const char*));
+        int err = mallctl("prof.dump", nullptr, nullptr, &file_name_ptr, sizeof(const char*));
         if (err) {
             LOG(WARNING) << "dump heap profile failed, " << err;
             return false;
@@ -93,7 +93,7 @@ bool HeapProfiler::check_heap_profiler() {
 #ifdef USE_JEMALLOC
     size_t value = 0;
     size_t sz = sizeof(value);
-    jemallctl("prof.active", &value, &sz, nullptr, 0);
+    mallctl("prof.active", &value, &sz, nullptr, 0);
     return value;
 #else
     return false;

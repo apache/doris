@@ -101,7 +101,7 @@ void MemInfo::refresh_allocator_mem() {
     // the current epoch number, which might be useful to log as a sanity check.
     uint64_t epoch = 0;
     size_t sz = sizeof(epoch);
-    jemallctl("epoch", &epoch, &sz, &epoch, sz);
+    mallctl("epoch", &epoch, &sz, &epoch, sz);
 
     // Number of extents of the given type in this arena in the bucket corresponding to page size index.
     // Large size class starts at 16384, the extents have three sizes before 16384: 4096, 8192, and 12288, so + 3

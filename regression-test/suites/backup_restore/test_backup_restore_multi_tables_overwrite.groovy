@@ -86,7 +86,7 @@ suite("test_backup_restore_multi_tables_overwrite", "backup_restore") {
 
     qt_select "SELECT * FROM ${dbName}.${firstTableName} ORDER BY id"
     for (def tableName in tables) {
-        result = sql "SELECT * FROM ${dbName}.${tableName}"
+        def result = sql "SELECT * FROM ${dbName}.${tableName}"
         assertEquals(result.size(), numRows);
         sql "DROP TABLE ${dbName}.${tableName} FORCE"
     }

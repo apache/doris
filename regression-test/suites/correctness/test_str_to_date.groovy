@@ -72,26 +72,9 @@ suite("test_str_to_date") {
         SELECT id, STR_TO_DATE(s1, s2) as result from test_str_to_date_db order by id;
     """
 
-    def re_fe
-    def re_be
-    def re_no_fold
-
-    def check_three_ways = { test_sql ->
-        re_fe = order_sql "select /*+SET_VAR(enable_fold_constant_by_be=false)*/ ${test_sql}"
-        re_be = order_sql "select /*+SET_VAR(enable_fold_constant_by_be=true)*/ ${test_sql}"
-        re_no_fold = order_sql "select /*+SET_VAR(debug_skip_fold_constant=true)*/ ${test_sql}"
-        logger.info("check sql: ${test_sql}")
-        qt_check_fe "select /*+SET_VAR(enable_fold_constant_by_be=false)*/ ${test_sql}"
-        qt_check_be "select /*+SET_VAR(enable_fold_constant_by_be=true)*/ ${test_sql}"
-        qt_check_no_fold "select /*+SET_VAR(debug_skip_fold_constant=true)*/ ${test_sql}"
-        assertEquals(re_fe, re_be)
-        assertEquals(re_fe, re_no_fold)
-    }
-
-    check_three_ways "STR_TO_DATE('2019-12-01', 'yyyy-MM-dd')"
-    check_three_ways "STR_TO_DATE(null, 'yyyy-MM-dd')"
-    check_three_ways "STR_TO_DATE('2019-12-01', null)"
-    check_three_ways "STR_TO_DATE(null, null)"
-    check_three_ways "STR_TO_DATE('无效日期', 'yyyy-MM-dd')"
+    check_fold_consistency "STR_TO_DATE('2019-12-01', 'yyyy-MM-dd')"
+    check_fold_consistency "STR_TO_DATE(null, 'yyyy-MM-dd')"
+    check_fold_consistency "STR_TO_DATE('2019-12-01', null)"
+    check_fold_consistency "STR_TO_DATE(null, null)"
+    check_fold_consistency "STR_TO_DATE('无效日期', 'yyyy-MM-dd')"
 }
-

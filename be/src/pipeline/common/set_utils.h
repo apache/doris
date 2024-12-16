@@ -20,13 +20,20 @@
 #include <variant>
 #include <vector>
 
-#include "pipeline/exec/join/join_op.h"
 #include "vec/common/hash_table/hash_map_util.h"
 
 namespace doris {
 
+struct RowRefWithFlag {
+    bool visited;
+    uint32_t row_num = 0;
+    RowRefWithFlag() = default;
+    RowRefWithFlag(size_t row_num_count, bool is_visited = false)
+            : visited(is_visited), row_num(row_num_count) {}
+};
+
 template <typename T>
-using SetData = PHHashMap<T, RowRefListWithFlags, HashCRC32<T>>;
+using SetData = PHHashMap<T, RowRefWithFlag, HashCRC32<T>>;
 
 template <typename T>
 using SetFixedKeyHashTableContext = vectorized::MethodKeysFixed<SetData<T>>;
@@ -39,9 +46,8 @@ using SetPrimaryTypeHashTableContextNullable = vectorized::MethodSingleNullableC
         vectorized::MethodOneNumber<T, vectorized::DataWithNullKey<SetData<T>>>>;
 
 using SetSerializedHashTableContext =
-        vectorized::MethodSerialized<PHHashMap<StringRef, RowRefListWithFlags>>;
-using SetMethodOneString =
-        vectorized::MethodStringNoCache<PHHashMap<StringRef, RowRefListWithFlags>>;
+        vectorized::MethodSerialized<PHHashMap<StringRef, RowRefWithFlag>>;
+using SetMethodOneString = vectorized::MethodStringNoCache<PHHashMap<StringRef, RowRefWithFlag>>;
 
 using SetHashTableVariants =
         std::variant<std::monostate, SetSerializedHashTableContext, SetMethodOneString,

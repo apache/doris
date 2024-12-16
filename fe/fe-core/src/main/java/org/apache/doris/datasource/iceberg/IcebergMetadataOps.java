@@ -160,7 +160,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 return null;
             });
         } catch (Exception e) {
-            throw new DdlException("Failed to drop database: " + stmt.getDbName() + " ,error message is: ", e);
+            throw new DdlException(
+                "Failed to drop database: " + stmt.getDbName() + ", error message is: " + e.getMessage(), e);
         }
     }
 

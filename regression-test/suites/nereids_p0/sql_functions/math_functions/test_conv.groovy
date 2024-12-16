@@ -36,26 +36,10 @@ suite("test_conv") {
 
     qt_select6 """ select conv(float_2,10,2), float_2 from test_tb_with_null; """
 
-    def re_fe
-    def re_be
-    def re_no_fold
-
-    def check_three_ways = { test_sql ->
-        re_fe = order_sql "select/*+SET_VAR(enable_fold_constant_by_be=false)*/ ${test_sql}"
-        re_be = order_sql "select/*+SET_VAR(enable_fold_constant_by_be=true)*/ ${test_sql}"
-        re_no_fold = order_sql "select/*+SET_VAR(debug_skip_fold_constant=true)*/ ${test_sql}"
-        logger.info("check on sql: ${test_sql}")
-        qt_check_fe "select/*+SET_VAR(enable_fold_constant_by_be=false)*/ ${test_sql}"
-        qt_check_be "select/*+SET_VAR(enable_fold_constant_by_be=true)*/ ${test_sql}"
-        qt_check_no_fold "select/*+SET_VAR(debug_skip_fold_constant=true)*/ ${test_sql}"
-        assertEquals(re_fe, re_be)
-        assertEquals(re_fe, re_no_fold)
-    }
-
-    check_three_ways "conv(null, null, null)"
-    check_three_ways "conv(15, 10, 2)"
-    check_three_ways "conv(null, 10, 2)"
-    check_three_ways "conv(15, null, 2)"
-    check_three_ways "conv(15, 10, null)"
-    check_three_ways "conv('123', 10, 2)"
+    check_fold_consistency "conv(null, null, null)"
+    check_fold_consistency "conv(15, 10, 2)"
+    check_fold_consistency "conv(null, 10, 2)"
+    check_fold_consistency "conv(15, null, 2)"
+    check_fold_consistency "conv(15, 10, null)"
+    check_fold_consistency "conv('123', 10, 2)"
 }

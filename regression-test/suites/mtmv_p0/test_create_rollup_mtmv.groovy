@@ -51,7 +51,7 @@ suite("test_create_rollup_mtmv","mtmv") {
         alter table ${mvName} ADD ROLLUP rollup1(k3);
         """
 
-    max_try_secs = 60
+    def max_try_secs = 60
     while (max_try_secs--) {
         def jobStateResult = sql """SHOW ALTER TABLE ROLLUP WHERE TableName='${mvName}' ORDER BY CreateTime DESC LIMIT 1; """
         String res = jobStateResult[0][8]

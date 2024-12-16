@@ -202,7 +202,7 @@ suite("test_build_mtmv") {
         AS
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
-    jobName = getJobName("regression_test_mtmv_p0", mvName);
+    def jobName = getJobName("regression_test_mtmv_p0", mvName);
     println jobName
     waitingMTMVTaskFinished(jobName)
     order_qt_select "SELECT * FROM ${mvName}"

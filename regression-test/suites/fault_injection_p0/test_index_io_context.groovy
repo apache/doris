@@ -80,7 +80,6 @@ suite("test_index_io_context", "nonConcurrent") {
 
         try {
             GetDebugPoint().enableDebugPointForAllBEs("DorisFSDirectory::FSIndexInput::readInternal")
-
             qt_sql """ select count() from ${tableName1} where request match_any 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName1} where request match_any 'ticket_quest_bg2.jpg'; """
             qt_sql """ select count() from ${tableName1} where request match_any 'ticket_quest_bg2.jpg'; """

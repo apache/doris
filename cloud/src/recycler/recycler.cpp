@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <deque>
 #include <string>
 #include <string_view>
@@ -747,7 +748,10 @@ int InstanceRecycler::recycle_indexes() {
                 .tag("num_recycled", num_recycled);
     });
 
-    auto calc_expiration = [](const RecycleIndexPB& index) {
+    auto calc_expiration = [](const RecycleIndexPB& index) -> int64_t {
+        if (config::force_immediate_recycle) {
+            return 0;
+        }
         int64_t expiration = index.expiration() > 0 ? index.expiration() : index.creation_time();
         int64_t retention_seconds = config::retention_seconds;
         if (index.state() == RecycleIndexPB::DROPPED) {
@@ -942,7 +946,10 @@ int InstanceRecycler::recycle_partitions() {
                 .tag("num_recycled", num_recycled);
     });
 
-    auto calc_expiration = [](const RecyclePartitionPB& partition) {
+    auto calc_expiration = [](const RecyclePartitionPB& partition) -> int64_t {
+        if (config::force_immediate_recycle) {
+            return 0;
+        }
         int64_t expiration =
                 partition.expiration() > 0 ? partition.expiration() : partition.creation_time();
         int64_t retention_seconds = config::retention_seconds;
@@ -1686,7 +1693,10 @@ int InstanceRecycler::recycle_rowsets() {
         return 0;
     };
 
-    auto calc_expiration = [](const RecycleRowsetPB& rs) {
+    auto calc_expiration = [](const RecycleRowsetPB& rs) -> int64_t {
+        if (config::force_immediate_recycle) {
+            return 0;
+        }
         // RecycleRowsetPB created by compacted or dropped rowset has no expiration time, and will be recycled when exceed retention time
         int64_t expiration = rs.expiration() > 0 ? rs.expiration() : rs.creation_time();
         int64_t retention_seconds = config::retention_seconds;
@@ -1923,8 +1933,9 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         // ATTN: `txn_expiration` should > 0, however we use `creation_time` + a large `retention_time` (> 1 day in production environment)
         //  when `txn_expiration` <= 0 in some unexpected situation (usually when there are bugs). This is usually safe, coz loading
         //  duration or timeout always < `retention_time` in practice.
-        int64_t expiration =
-                rowset.txn_expiration() > 0 ? rowset.txn_expiration() : rowset.creation_time();
+        int64_t expiration = config::force_immediate_recycle ? 0
+                             : rowset.txn_expiration() > 0   ? rowset.txn_expiration()
+                                                             : rowset.creation_time();
         VLOG_DEBUG << "recycle tmp rowset scan, key=" << hex(k) << " num_scanned=" << num_scanned
                    << " num_expired=" << num_expired << " expiration=" << expiration
                    << " txn_expiration=" << rowset.txn_expiration()
@@ -2106,7 +2117,7 @@ int InstanceRecycler::abort_timeout_txn() {
                 LOG_WARNING("malformed txn_running_pb").tag("key", hex(k));
                 return -1;
             }
-            if (txn_running_pb.timeout_time() > current_time) {
+            if (!config::force_immediate_recycle && txn_running_pb.timeout_time() > current_time) {
                 return 0;
             }
             ++num_timeout;
@@ -2196,7 +2207,8 @@ int InstanceRecycler::recycle_expired_txn_label() {
             LOG_WARNING("malformed txn_running_pb").tag("key", hex(k));
             return -1;
         }
-        if ((recycle_txn_pb.has_immediate() && recycle_txn_pb.immediate()) ||
+        if ((config::force_immediate_recycle) ||
+            (recycle_txn_pb.has_immediate() && recycle_txn_pb.immediate()) ||
             (recycle_txn_pb.creation_time() + config::label_keep_max_second * 1000L <=
              current_time)) {
             LOG_INFO("found recycle txn").tag("key", hex(k));
@@ -2492,14 +2504,16 @@ int InstanceRecycler::recycle_copy_jobs() {
                 int64_t current_time =
                         duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
                 if (copy_job.finish_time_ms() > 0) {
-                    if (current_time <
-                        copy_job.finish_time_ms() + config::copy_job_max_retention_second * 1000) {
+                    if (!config::force_immediate_recycle &&
+                        current_time < copy_job.finish_time_ms() +
+                                               config::copy_job_max_retention_second * 1000) {
                         return 0;
                     }
                 } else {
                     // For compatibility, copy job does not contain finish time before 2.2.2, use start time
-                    if (current_time <
-                        copy_job.start_time_ms() + config::copy_job_max_retention_second * 1000) {
+                    if (!config::force_immediate_recycle &&
+                        current_time < copy_job.start_time_ms() +
+                                               config::copy_job_max_retention_second * 1000) {
                         return 0;
                     }
                 }
@@ -2508,7 +2522,7 @@ int InstanceRecycler::recycle_copy_jobs() {
             int64_t current_time =
                     duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
             // if copy job is timeout: delete all copy file kvs and copy job kv
-            if (current_time <= copy_job.timeout_time_ms()) {
+            if (!config::force_immediate_recycle && current_time <= copy_job.timeout_time_ms()) {
                 return 0;
             }
             ++num_expired;
@@ -2796,6 +2810,9 @@ int InstanceRecycler::recycle_expired_stage_objects() {
         int64_t expiration_time =
                 duration_cast<seconds>(system_clock::now().time_since_epoch()).count() -
                 config::internal_stage_objects_expire_time_second;
+        if (config::force_immediate_recycle) {
+            expiration_time = INT64_MAX;
+        }
         ret1 = accessor->delete_all(expiration_time);
         if (ret1 != 0) {
             LOG(WARNING) << "failed to recycle expired stage objects, instance_id=" << instance_id_

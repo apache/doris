@@ -88,21 +88,9 @@ suite("test_template_two_args") {
     order_qt_const_partial_nullable_no_null "select atan2(1e100, nullable(1e-10))"
 
     /// folding
-    def re_fe
-    def re_be
-    def re_no_fold
-    def check_three_ways = { test_sql ->
-        re_fe = order_sql "select/*+SET_VAR(enable_fold_constant_by_be=false)*/ ${test_sql}"
-        re_be = order_sql "select/*+SET_VAR(enable_fold_constant_by_be=true)*/ ${test_sql}"
-        re_no_fold = order_sql "select/*+SET_VAR(debug_skip_fold_constant=true)*/ ${test_sql}"
-        logger.info("check on sql ${test_sql}")
-        assertEquals(re_fe, re_be)
-        assertEquals(re_fe, re_no_fold)
-    }
-
-    check_three_ways "atan2(-1, -2)"
-    check_three_ways "atan2(-1e100, 3.14)"
-    check_three_ways "atan2(0, 0)"
-    check_three_ways "atan2(1e100, 1e100)"
-    check_three_ways "atan2(-0.5, 0.5)"
+    check_fold_consistency "atan2(-1, -2)"
+    check_fold_consistency "atan2(-1e100, 3.14)"
+    check_fold_consistency "atan2(0, 0)"
+    check_fold_consistency "atan2(1e100, 1e100)"
+    check_fold_consistency "atan2(-0.5, 0.5)"
 }

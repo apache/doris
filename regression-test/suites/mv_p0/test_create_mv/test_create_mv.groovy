@@ -67,7 +67,7 @@ suite("test_create_mv") {
 
     sql """ SHOW ALTER TABLE MATERIALIZED VIEW """
 
-    max_try_secs = 60
+    def max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tableName)
         if (res == "FINISHED" || res == "CANCELLED") {
