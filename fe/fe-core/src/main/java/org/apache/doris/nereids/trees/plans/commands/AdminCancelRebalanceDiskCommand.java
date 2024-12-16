@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -29,15 +30,19 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * admin cancel rebalance disk
  */
-public class AdminCancelRebalanceDiskCommand extends AbstractRebalanceDiskCommand {
+public class AdminCancelRebalanceDiskCommand extends Command implements NoForward {
     private static final Logger LOG = LogManager.getLogger(AdminCancelRebalanceDiskCommand.class);
     private List<String> backends;
 
@@ -66,6 +71,28 @@ public class AdminCancelRebalanceDiskCommand extends AbstractRebalanceDiskComman
             return;
         }
         Env.getCurrentEnv().getTabletScheduler().cancelRebalanceDisk(rebalanceDiskBackends);
+    }
+
+    private List<Backend> getNeedRebalanceDiskBackends(List<String> backends) throws AnalysisException {
+        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+        List<Backend> needRebalanceDiskBackends = Lists.newArrayList();
+        if (backends == null) {
+            needRebalanceDiskBackends.addAll(backendsInfo.values());
+        } else {
+            Map<String, Long> backendsID = new HashMap<>();
+            for (Backend backend : backendsInfo.values()) {
+                backendsID.put(
+                        NetUtils.getHostPortInAccessibleFormat(backend.getHost(), backend.getHeartbeatPort()),
+                        backend.getId());
+            }
+            for (String be : backends) {
+                if (backendsID.containsKey(be)) {
+                    needRebalanceDiskBackends.add(backendsInfo.get(backendsID.get(be)));
+                    backendsID.remove(be);
+                }
+            }
+        }
+        return needRebalanceDiskBackends;
     }
 
     @Override
