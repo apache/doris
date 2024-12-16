@@ -50,7 +50,7 @@ suite("test_cumu_compaction_with_delete") {
             sql """ delete from ${tableName} where user_id = 1"""
         }
 
-        now = System.currentTimeMillis()
+        def now = System.currentTimeMillis()
 
         while(true){
             if(check_cumu_point(100)){
@@ -58,7 +58,7 @@ suite("test_cumu_compaction_with_delete") {
             }
             Thread.sleep(1000)
         }
-        time_diff = System.currentTimeMillis() - now
+        def time_diff = System.currentTimeMillis() - now
         logger.info("time_diff:" + time_diff)
         assertTrue(time_diff<200*1000)
 
@@ -99,7 +99,7 @@ suite("test_cumu_compaction_with_delete") {
             sql """ delete from ${tableName} where user_id = 1"""
         }
 
-        now = System.currentTimeMillis()
+        def now = System.currentTimeMillis()
 
         while(true){
             if(check_cumu_point(100)){
@@ -107,7 +107,7 @@ suite("test_cumu_compaction_with_delete") {
             }
             Thread.sleep(1000)
         }
-        time_diff = System.currentTimeMillis() - now
+        def time_diff = System.currentTimeMillis() - now
         logger.info("time_diff:" + time_diff)
         assertTrue(time_diff>=200*1000)
 
