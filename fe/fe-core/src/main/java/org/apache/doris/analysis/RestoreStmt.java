@@ -44,10 +44,12 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     public static final String PROP_CLEAN_TABLES = "clean_tables";
     public static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
     public static final String PROP_ATOMIC_RESTORE = "atomic_restore";
+    public static final String PROP_COLOCATE_WITH = "colocate_with";
 
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private String backupTimestamp = null;
+    private String colocateWith = null;
     private int metaVersion = -1;
     private boolean reserveReplica = false;
     private boolean reserveDynamicPartitionEnable = false;
@@ -121,6 +123,10 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
     public boolean isCleanPartitions() {
         return isCleanPartitions;
+    }
+
+    public String getColocateWith() {
+        return colocateWith;
     }
 
     public boolean isAtomicRestore() {
@@ -208,6 +214,12 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
         // is clean partitions
         isCleanPartitions = eatBooleanProperty(copiedProperties, PROP_CLEAN_PARTITIONS, isCleanPartitions);
+
+        // colocate with
+        if (copiedProperties.containsKey(PROP_COLOCATE_WITH)) {
+            colocateWith = copiedProperties.get(PROP_COLOCATE_WITH);
+            copiedProperties.remove(PROP_COLOCATE_WITH);
+        }
 
         // is atomic restore
         isAtomicRestore = eatBooleanProperty(copiedProperties, PROP_ATOMIC_RESTORE, isAtomicRestore);

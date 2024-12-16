@@ -737,15 +737,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * Reset properties to correct values.
      */
     public void resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
-                                          ReplicaAllocation replicaAlloc, boolean isBeingSynced) {
+                                          ReplicaAllocation replicaAlloc, boolean isBeingSynced, String colocateWith) {
         if (tableProperty != null) {
             tableProperty.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica, replicaAlloc);
         }
         if (isBeingSynced) {
             setBeingSyncedProperties();
         }
-        // remove colocate property.
-        setColocateGroup(null);
+        if (colocateWith != null) {
+            setColocateGroup(colocateWith);
+        } else {
+            setColocateGroup(null);
+        }
     }
 
     /**
