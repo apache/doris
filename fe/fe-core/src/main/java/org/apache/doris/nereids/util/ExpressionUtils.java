@@ -192,12 +192,34 @@ public class ExpressionUtils {
         return optionalAnd(ImmutableList.copyOf(collection));
     }
 
+    /**
+     *  AND expression, also remove duplicate expression, boolean literal
+     */
     public static Expression and(Collection<Expression> expressions) {
-        return combineAsLeftDeepTree(And.class, expressions);
+        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
+        for (Expression expression : expressions) {
+            if (expression.equals(BooleanLiteral.FALSE)) {
+                return BooleanLiteral.FALSE;
+            } else if (!expression.equals(BooleanLiteral.TRUE)) {
+                distinctExpressions.add(expression);
+            }
+        }
+
+        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        if (exprList.isEmpty()) {
+            return BooleanLiteral.TRUE;
+        } else if (exprList.size() == 1) {
+            return exprList.get(0);
+        } else {
+            return new And(exprList);
+        }
     }
 
+    /**
+     *  AND expression, also remove duplicate expression, boolean literal
+     */
     public static Expression and(Expression... expressions) {
-        return combineAsLeftDeepTree(And.class, Lists.newArrayList(expressions));
+        return and(Lists.newArrayList(expressions));
     }
 
     public static Optional<Expression> optionalOr(List<Expression> expressions) {
@@ -208,12 +230,50 @@ public class ExpressionUtils {
         }
     }
 
+    /**
+     *  OR expression, also remove duplicate expression, boolean literal
+     */
     public static Expression or(Expression... expressions) {
-        return combineAsLeftDeepTree(Or.class, Lists.newArrayList(expressions));
+        return or(Lists.newArrayList(expressions));
     }
 
+    /**
+     *  OR expression, also remove duplicate expression, boolean literal
+     */
     public static Expression or(Collection<Expression> expressions) {
-        return combineAsLeftDeepTree(Or.class, expressions);
+        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
+        for (Expression expression : expressions) {
+            if (expression.equals(BooleanLiteral.TRUE)) {
+                return BooleanLiteral.TRUE;
+            } else if (!expression.equals(BooleanLiteral.FALSE)) {
+                distinctExpressions.add(expression);
+            }
+        }
+
+        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        if (exprList.isEmpty()) {
+            return BooleanLiteral.FALSE;
+        } else if (exprList.size() == 1) {
+            return exprList.get(0);
+        } else {
+            return new Or(exprList);
+        }
+    }
+
+    public static Expression falseOrNull(Expression expression) {
+        if (expression.nullable()) {
+            return new And(new IsNull(expression), new NullLiteral(BooleanType.INSTANCE));
+        } else {
+            return BooleanLiteral.FALSE;
+        }
+    }
+
+    public static Expression trueOrNull(Expression expression) {
+        if (expression.nullable()) {
+            return new Or(new Not(new IsNull(expression)), new NullLiteral(BooleanType.INSTANCE));
+        } else {
+            return BooleanLiteral.TRUE;
+        }
     }
 
     /**
