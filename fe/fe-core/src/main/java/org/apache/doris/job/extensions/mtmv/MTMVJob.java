@@ -50,7 +50,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -134,14 +133,9 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
         task.setTaskType(taskType);
         ArrayList<MTMVTask> tasks = new ArrayList<>();
         tasks.add(task);
-        initTasks(tasks, taskType);
+        super.initTasks(tasks, taskType);
         LOG.info("finish create mtmv task, task: {}", task);
         return tasks;
-    }
-
-    @Override
-    public void initTasks(Collection<? extends MTMVTask> tasks, TaskType taskType) {
-        super.initTasks(tasks, taskType);
     }
 
     /**
