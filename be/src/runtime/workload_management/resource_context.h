@@ -42,9 +42,24 @@ public:
     }
 };
 
+class WorkloadGroupContext {
+    ENABLE_FACTORY_CREATOR(WorkloadGroupContext);
+
+public:
+    WorkloadGroupContext() = default;
+    virtual ~WorkloadGroupContext() = default;
+
+    WorkloadGroupPtr workload_group() { return _workload_group; }
+    void set_workload_group(WorkloadGroupPtr wg) { _workload_group = wg; }
+
+private:
+    WorkloadGroupPtr _workload_group = nullptr;
+};
+
 // Every task should have its own resource context. And BE may adjust the resource
 // context during running.
-// Workload group will hold the resource context and do some control work.
+// ResourceContext contains many contexts or controller, the task could implements their
+// own implementation.
 class ResourceContext : public std::enable_shared_from_this<ResourceContext> {
     ENABLE_FACTORY_CREATOR(ResourceContext);
 
@@ -58,10 +73,11 @@ public:
     }
     virtual ~ResourceContext() = default;
 
-    // The caller should not hold the object, since it is a raw pointer.
+    // Only return the raw pointer to the caller, so that the caller should not save it to other variables.
     CPUContext* cpu_context() { return cpu_context_.get(); }
     MemoryContext* memory_context() { return memory_context_.get(); }
     IOContext* io_context() { return io_context_.get(); }
+    WorkloadGroupContext* workload_group_context() { return workload_group_context_.get(); }
     TaskController* task_controller() { return task_controller_.get(); }
 
     void set_cpu_context(std::shared_ptr<CPUContext> cpu_context) { cpu_context_ = cpu_context; }
@@ -69,26 +85,20 @@ public:
         memory_context_ = memory_context;
     }
     void set_io_context(std::shared_ptr<IOContext> io_context) { io_context_ = io_context; }
+    void set_workload_group_context(std::shared_ptr<WorkloadGroupContext> wg_context) {
+        workload_group_context_ = wg_context;
+    }
     void set_task_controller(std::shared_ptr<TaskController> task_controller) {
         task_controller_ = task_controller;
     }
-
-    void set_workload_group(std::shared_ptr<WorkloadGroup> wg) {
-        // update all child context's workload group property
-        workload_group_ = wg;
-    }
-
-    std::shared_ptr<WorkloadGroup> workload_group() { return workload_group_.lock(); }
 
 private:
     // The controller's init value is nullptr, it means the resource context will ignore this controller.
     std::shared_ptr<CPUContext> cpu_context_ = nullptr;
     std::shared_ptr<MemoryContext> memory_context_ = nullptr;
     std::shared_ptr<IOContext> io_context_ = nullptr;
+    std::shared_ptr<WorkloadGroupContext> workload_group_context_ = nullptr;
     std::shared_ptr<TaskController> task_controller_ = nullptr;
-    // Workload group will own resource context, so that resource context only have weak ptr for workload group.
-    // TODO: should use atomic weak ptr to avoid the concurrent modification of the pointer.
-    std::weak_ptr<WorkloadGroup> workload_group_ = nullptr;
 };
 
 } // namespace doris
