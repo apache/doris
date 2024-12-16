@@ -593,7 +593,15 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
     auto literal_data = literal->get_column_ptr()->get_data_at(0);
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
     auto slot_type = slot->type();
-    switch (slot_type.type) {
+    auto primitive_type = slot_type.type;
+    auto src_type = OrcReader::convert_to_doris_type(orc_type).type;
+    if (src_type != slot_type.type &&
+        !(is_string_type(src_type) && is_string_type(primitive_type))) {
+        LOG(WARNING) << "Unsupported Push Down Schema Changed Column " << slot_type.type << " to "
+                     << src_type;
+        return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
+    }
+    switch (primitive_type) {
 #define M(NAME)                                                                \
     case TYPE_##NAME: {                                                        \
         auto [valid, orc_literal] = convert_to_orc_literal<TYPE_##NAME>(       \
