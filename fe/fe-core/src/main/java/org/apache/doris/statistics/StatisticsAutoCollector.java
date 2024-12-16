@@ -123,15 +123,6 @@ public class StatisticsAutoCollector extends MasterDaemon {
 
     protected void processOneJob(TableIf table, JobPriority priority)
                 throws DdlException, ExecutionException, InterruptedException {
-        List<Pair<String, String>> needRunColumns = table.getColumnIndexPairs(
-                table.getSchemaAllIndexes(false)
-                        .stream()
-                        .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                        .map(Column::getName)
-                        .collect(Collectors.toSet()));
-        if (needRunColumns == null || needRunColumns.isEmpty()) {
-            return;
-        }
         AnalysisMethod analysisMethod =
                 table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                         ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
@@ -149,6 +140,15 @@ public class StatisticsAutoCollector extends MasterDaemon {
             if (tableStatsStatus != null && !tableStatsStatus.isColumnsStatsEmpty()) {
                 manager.dropStats(table);
             }
+            return;
+        }
+        List<Pair<String, String>> needRunColumns = table.getColumnIndexPairs(
+                table.getSchemaAllIndexes(false)
+                        .stream()
+                        .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                        .map(Column::getName)
+                        .collect(Collectors.toSet()));
+        if (needRunColumns == null || needRunColumns.isEmpty()) {
             return;
         }
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
