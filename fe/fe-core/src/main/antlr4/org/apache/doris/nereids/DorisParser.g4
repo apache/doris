@@ -234,6 +234,7 @@ supportedShowStatement
     | SHOW DYNAMIC PARTITION TABLES ((FROM | IN) database=multipartIdentifier)?     #showDynamicPartition
     | SHOW EVENTS ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showEvents
     | SHOW LAST INSERT                                                              #showLastInsert 
+    | SHOW ((CHAR SET) | CHARSET)                                                   #showCharset
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
@@ -331,7 +332,6 @@ unsupportedShowStatement
     | SHOW CATALOG name=identifier                                                  #showCatalog
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
-    | SHOW ((CHAR SET) | CHARSET) wildWhere?                                        #showCharset
     | SHOW COUNT LEFT_PAREN ASTERISK RIGHT_PAREN (WARNINGS | ERRORS)                #showWaringErrorCount
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
         wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
