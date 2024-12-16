@@ -68,7 +68,7 @@ suite("test_partitions_auth","p0,auth") {
         }
     }
 
-    sql """grant select_priv on ${catalogName}.${dbName}.${tableName} to ${user}"""
+    sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
 
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         sql """
