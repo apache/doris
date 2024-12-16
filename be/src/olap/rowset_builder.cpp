@@ -415,19 +415,7 @@ void BaseRowsetBuilder::_build_current_tablet_schema(int64_t index_id,
                                                     indexes[i], ori_tablet_schema);
     }
     if (_tablet_schema->schema_version() > ori_tablet_schema.schema_version()) {
-        // After schema change, should include extracted column
-        // For example: a table has two columns, k and v
-        // After adding a column v2, the schema version increases, max_version_schema needs to be updated.
-        // _tablet_schema includes k, v, and v2
-        // if v is a variant, need to add the columns decomposed from the v to the _tablet_schema.
-        if (_tablet_schema->num_variant_columns() > 0) {
-            TabletSchemaSPtr max_version_schema = std::make_shared<TabletSchema>();
-            max_version_schema->copy_from(*_tablet_schema);
-            max_version_schema->copy_extracted_columns(ori_tablet_schema);
-            _tablet->update_max_version_schema(max_version_schema);
-        } else {
-            _tablet->update_max_version_schema(_tablet_schema);
-        }
+        _tablet->update_max_version_schema(_tablet_schema);
     }
 
     _tablet_schema->set_table_id(table_schema_param->table_id());

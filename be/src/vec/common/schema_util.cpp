@@ -415,9 +415,9 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     // Ensure that the output schema also excludes these extracted columns. This approach prevents
     // duplicated paths following the update_least_common_schema process.
     auto build_schema_without_extracted_columns = [&](const TabletSchemaSPtr& base_schema) {
-        output_schema = std::make_shared<TabletSchema>(*base_schema);
-        // Merge columns from other schemas
-        output_schema->clear_columns();
+        output_schema = std::make_shared<TabletSchema>();
+        // not copy columns but only shadow copy other attributes
+        output_schema->shawdow_copy_without_columns(*base_schema);
         // Get all columns without extracted columns and collect variant col unique id
         for (const TabletColumnPtr& col : base_schema->columns()) {
             if (col->is_variant_type()) {

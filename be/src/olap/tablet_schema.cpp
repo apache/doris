@@ -1064,6 +1064,21 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     _table_id = tablet_schema.table_id();
 }
 
+void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schema) {
+    *this = tablet_schema;
+    _field_path_to_index.clear();
+    _field_name_to_index.clear();
+    _field_id_to_index.clear();
+    _num_columns = 0;
+    _num_variant_columns = 0;
+    _num_null_columns = 0;
+    _num_key_columns = 0;
+    _cols.clear();
+    _vl_field_mem_size = 0;
+    // notice : do not ref columns
+    _column_cache_handlers.clear();
+}
+
 void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
     for (auto& col : _cols) {
         if (col->unique_id() < 0) {
@@ -1205,23 +1220,6 @@ bool TabletSchema::is_dropped_column(const TabletColumn& col) const {
             << " and name = " << col.name() << " table_id=" << _table_id;
     auto it = _field_name_to_index.find(StringRef {col.name()});
     return it == _field_name_to_index.end() || _cols[it->second]->unique_id() != col.unique_id();
-}
-
-void TabletSchema::copy_extracted_columns(const TabletSchema& src_schema) {
-    std::unordered_set<int32_t> variant_columns;
-    for (const auto& col : columns()) {
-        if (col->is_variant_type()) {
-            variant_columns.insert(col->unique_id());
-        }
-    }
-    for (const TabletColumnPtr& col : src_schema.columns()) {
-        if (col->is_extracted_column() && variant_columns.contains(col->parent_unique_id())) {
-            ColumnPB col_pb;
-            col->to_schema_pb(&col_pb);
-            TabletColumn new_col(col_pb);
-            append_column(new_col, ColumnType::VARIANT);
-        }
-    }
 }
 
 void TabletSchema::reserve_extracted_columns() {
