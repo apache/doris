@@ -64,26 +64,22 @@ public abstract class AbstractTask implements Task {
 
     @Override
     public void onFail() throws JobException {
-        status = TaskStatus.FAILED;
-        if (!isCallable()) {
-            return;
+        try {
+            status = TaskStatus.FAILED;
+            if (!isCallable()) {
+                return;
+            }
+            setFinishTimeMs(System.currentTimeMillis());
+            Env.getCurrentEnv().getJobManager().getJob(jobId).onTaskFail(this);
+        } finally {
+            closeOrReleaseResources();
         }
-        Env.getCurrentEnv().getJobManager().getJob(jobId).onTaskFail(this);
     }
 
     @Override
     public void onFail(String errMsg) throws JobException {
-        if (TaskStatus.CANCELED.equals(status)) {
-            return;
-        }
-        status = TaskStatus.FAILED;
-        setFinishTimeMs(System.currentTimeMillis());
         setErrMsg(errMsg);
-        if (!isCallable()) {
-            return;
-        }
-        Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
-        job.onTaskFail(this);
+        onFail();
     }
 
     private boolean isCallable() {
@@ -154,6 +150,13 @@ public abstract class AbstractTask implements Task {
      * @throws Exception Any exception that might occur during the cancellation process in the subclass.
      */
     protected abstract void executeCancelLogic() throws Exception;
+
+    @Override
+    public void initialize() throws JobException {
+        this.jobId = getJobId();
+        this.createTimeMs = System.currentTimeMillis();
+        this.status = TaskStatus.PENDING;
+    }
 
     @Override
     public void before() throws JobException {

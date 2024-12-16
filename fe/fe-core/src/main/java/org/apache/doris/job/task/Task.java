@@ -29,6 +29,12 @@ import org.apache.doris.thrift.TRow;
 public interface Task {
 
     /**
+     * This method is called immediately after the task is created.
+     * Implementations can use this method to perform necessary initialization.
+     */
+    void initialize() throws JobException;
+
+    /**
      * This method is called before the task is executed.
      * Implementations can use this method to perform any necessary setup or initialization.
      */

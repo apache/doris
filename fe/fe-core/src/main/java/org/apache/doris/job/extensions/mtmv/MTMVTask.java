@@ -220,7 +220,7 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void exec(Set<String> refreshPartitionNames,
-            Map<TableIf, String> tableWithPartKey)
+                      Map<TableIf, String> tableWithPartKey)
             throws Exception {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
         StatementContext statementContext = new StatementContext();
@@ -288,17 +288,21 @@ public class MTMVTask extends AbstractTask {
     }
 
     @Override
+    public void initialize() throws JobException {
+        try {
+            mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
+        } catch (Exception e) {
+            LOG.warn("get mtmv failed, dbId: {}, mtmvId: {}", dbId, mtmvId, e);
+            throw new JobException(e.getMessage(), e);
+        }
+    }
+
+    @Override
     public void before() throws JobException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("mtmv task before, taskId: {}", super.getTaskId());
         }
         super.before();
-        try {
-            mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
-        } catch (UserException e) {
-            LOG.warn("before task failed:", e);
-            throw new JobException(e);
-        }
     }
 
     /**
