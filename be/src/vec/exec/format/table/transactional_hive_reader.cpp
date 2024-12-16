@@ -137,7 +137,7 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
         }
         auto iter = std::find(delete_delta_file_names.begin(), delete_delta_file_names.end(),
                               remove_bucket_attemptId(file_name));
-        if (iter == delete_delta.file_names.end()) {
+        if (iter == delete_delta_file_names.end()) {
             continue;
         }
         auto delete_file = fmt::format("{}/{}", delete_delta.directory_location,

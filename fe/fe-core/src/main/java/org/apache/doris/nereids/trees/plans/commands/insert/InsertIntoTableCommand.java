@@ -314,7 +314,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 HMSExternalTable hiveExternalTable = (HMSExternalTable) targetTableIf;
                 if (hiveExternalTable.isHiveTransactionalTable()) {
-                    throw new UserException("Not supported insert into hive table");
+                    throw new UserException("Not supported insert into hive transactional table.");
                 }
 
                 return ExecutorFactory.from(

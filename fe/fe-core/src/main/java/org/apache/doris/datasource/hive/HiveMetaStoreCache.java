@@ -867,12 +867,13 @@ public class HiveMetaStoreCache {
                 return fileCacheValues;
             }
 
-            RemoteFileSystem fileSystem = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
-                new FileSystemCache.FileSystemCacheKey(
-                        LocationPath.getFSIdentity(partitions.get(0).getPath(), bindBrokerName),
-                        catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
-
             for (HivePartition partition : partitions) {
+                //Get filesystem multiple times, reason: https://github.com/apache/doris/pull/23409.
+                RemoteFileSystem fileSystem = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
+                        new FileSystemCache.FileSystemCacheKey(
+                                LocationPath.getFSIdentity(partition.getPath(), bindBrokerName),
+                                catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
+
                 if (!Strings.isNullOrEmpty(remoteUser)) {
                     UserGroupInformation ugi = UserGroupInformation.createRemoteUser(remoteUser);
                     fileCacheValues.add(

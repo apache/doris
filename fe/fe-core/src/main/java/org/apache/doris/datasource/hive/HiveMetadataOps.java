@@ -181,7 +181,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                 }
             }
 
-            if (props.containsKey("transactional") && props.get("transactional").equals("true")) {
+            if (props.containsKey("transactional") && props.get("transactional").equalsIgnoreCase("true")) {
                 throw new UserException("Not support create hive transactional table.");
                 /*
                     CREATE TABLE trans6(

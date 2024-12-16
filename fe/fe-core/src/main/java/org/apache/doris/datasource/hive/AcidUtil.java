@@ -21,8 +21,8 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
+import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -64,7 +64,6 @@ public class AcidUtil {
 
     @Getter
     @ToString
-    @EqualsAndHashCode
     private static class ParsedBase {
         private final long writeId;
         private final long visibilityId;
@@ -131,7 +130,7 @@ public class AcidUtil {
     }
 
 
-    private static boolean isValidMetaDataFile(RemoteFileSystem fileSystem, String baseDir)
+    private static boolean isValidMetaDataFile(FileSystem fileSystem, String baseDir)
             throws IOException {
         String fileLocation = baseDir + "_metadata_acid";
         Status status = fileSystem.exists(fileLocation);
@@ -161,7 +160,7 @@ public class AcidUtil {
         return true;
     }
 
-    private static boolean isValidBase(RemoteFileSystem remoteFileSystem, String baseDir,
+    private static boolean isValidBase(FileSystem fileSystem, String baseDir,
             ParsedBase base, ValidWriteIdList writeIdList) throws IOException {
         if (base.writeId == Long.MIN_VALUE) {
             //Ref: https://issues.apache.org/jira/browse/HIVE-13369
@@ -173,7 +172,7 @@ public class AcidUtil {
         }
 
         // hive 4 : just check "_v" suffix, before hive 4 : check `_metadata_acid` file in baseDir.
-        if ((base.visibilityId > 0) || isValidMetaDataFile(remoteFileSystem, baseDir)) {
+        if ((base.visibilityId > 0) || isValidMetaDataFile(fileSystem, baseDir)) {
             return writeIdList.isValidBase(base.writeId);
         }
 
@@ -208,7 +207,7 @@ public class AcidUtil {
 
         if (split2 == -1) {
             long max = Long.parseLong(rest.substring(split + 1));
-            return new ParsedDelta(min, max, fileName, -1, deleteDelta, visibilityId);
+            return new ParsedDelta(min, max, path, -1, deleteDelta, visibilityId);
         }
 
         long max = Long.parseLong(rest.substring(split + 1, split2));
@@ -219,7 +218,7 @@ public class AcidUtil {
     //Since the hive3 library cannot read the hive4 transaction table normally, and there are many problems
     // when using the Hive 4 library directly, this method is implemented.
     //Ref: hive/ql/src/java/org/apache/hadoop/hive/ql/io/AcidUtils.java#getAcidState
-    public static FileCacheValue getAcidState(RemoteFileSystem fileSystem, HivePartition partition,
+    public static FileCacheValue getAcidState(FileSystem fileSystem, HivePartition partition,
             Map<String, String> txnValidIds, Map<String, String> catalogProps) throws Exception {
 
         // Ref: https://issues.apache.org/jira/browse/HIVE-18192
