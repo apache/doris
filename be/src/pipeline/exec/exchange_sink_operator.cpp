@@ -224,7 +224,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
                 _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
         _broadcast_pb_mem_limiter =
                 vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
-    } else if (local_size > 0) {
+    } else if (!only_local_exchange) {
         size_t dep_id = 0;
         for (auto& channel : channels) {
             if (channel->is_local()) {
