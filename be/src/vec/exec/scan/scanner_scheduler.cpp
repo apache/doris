@@ -270,7 +270,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
     size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     size_t raw_bytes_read = 0;
-    bool first_read = true;
     int64_t limit = scanner->limit();
     while (!eos && raw_bytes_read < raw_bytes_threshold) {
         if (UNLIKELY(ctx->done())) {
@@ -288,7 +287,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         ctx->update_peak_memory_usage(free_block->allocated_bytes());
         ctx->update_peak_memory_usage(-free_block->allocated_bytes());
         status = scanner->get_block_after_projects(state, free_block.get(), &eos);
-        first_read = false;
         if (!status.ok()) {
             LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
             break;
