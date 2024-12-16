@@ -57,7 +57,7 @@ TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
     {
         // vector vs vector
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
-        static_cast<void>(check_function<DataTypeUInt8, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     {
@@ -65,8 +65,8 @@ TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
         InputTypeSet input_types = {TypeIndex::String, Consted {TypeIndex::String}};
         for (const auto& line : data_set) {
             DataSet const_cidr_dataset = {line};
-            static_cast<void>(check_function<DataTypeUInt8, false>(func_name, input_types,
-                                                                   const_cidr_dataset));
+            static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types,
+                                                                  const_cidr_dataset));
         }
     }
 
@@ -75,8 +75,8 @@ TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
         InputTypeSet input_types = {Consted {TypeIndex::String}, TypeIndex::String};
         for (const auto& line : data_set) {
             DataSet const_addr_dataset = {line};
-            static_cast<void>(check_function<DataTypeUInt8, false>(func_name, input_types,
-                                                                   const_addr_dataset));
+            static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types,
+                                                                  const_addr_dataset));
         }
     }
 }

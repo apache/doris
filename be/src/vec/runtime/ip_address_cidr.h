@@ -24,6 +24,33 @@
 #include "vec/common/format_ip.h"
 namespace doris {
 
+namespace vectorized {
+static inline std::pair<UInt32, UInt32> apply_cidr_mask(UInt32 src, UInt8 bits_to_keep) {
+    if (bits_to_keep >= 8 * sizeof(UInt32)) {
+        return {src, src};
+    }
+    if (bits_to_keep == 0) {
+        return {static_cast<UInt32>(0), static_cast<UInt32>(-1)};
+    }
+    UInt32 mask = static_cast<UInt32>(-1) << (8 * sizeof(UInt32) - bits_to_keep);
+    UInt32 lower = src & mask;
+    UInt32 upper = lower | ~mask;
+
+    return {lower, upper};
+}
+
+static inline void apply_cidr_mask(const char* __restrict src, char* __restrict dst_lower,
+                                   char* __restrict dst_upper, UInt8 bits_to_keep) {
+    // little-endian mask
+    const auto& mask = get_cidr_mask_ipv6(bits_to_keep);
+
+    for (int8_t i = IPV6_BINARY_LENGTH - 1; i >= 0; --i) {
+        dst_lower[i] = src[i] & mask[i];
+        dst_upper[i] = dst_lower[i] | ~mask[i];
+    }
+}
+} // namespace vectorized
+
 class IPAddressVariant {
 public:
     explicit IPAddressVariant(std::string_view address_str) {
