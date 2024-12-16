@@ -1192,12 +1192,15 @@ suite('test_ms_api', 'p0, docker') {
             def feNode5 = [cloud_unique_id: "${cloudUniqueId}", ip : "${ip5}", edit_log_port: "${edit_log_port}", node_type:"FE_OBSERVER"]
             def feNode6 = [cloud_unique_id: "${cloudUniqueId}", ip : "${ip6}", edit_log_port: "${edit_log_port}", node_type:"FE_FOLLOWER"]
             def addNodesClusterFailed = [cluster_name: "${feClusterName}", cluster_id: "${feClusterId}", type: "SQL", nodes: [feNode4, feNode5, feNode6]]
+            def dropAllFeNodesFailed = [cluster_name: "${feClusterName}", cluster_id: "${feClusterId}", type: "SQL", nodes: [feNodeMap1, feNodeMap2, feNodeMap3, feNode4, feNode5, feNode6]]
             def addNodesClusterSucc = [cluster_name: "${feClusterName}", cluster_id: "${feClusterId}", type: "SQL", nodes: [feNode5, feNode6]]
             def addNodesFailedBody = [instance_id: "${instance_id}", cluster: addNodesClusterFailed]
+            def dropAllFeNodesClusterBody = [instance_id: "${instance_id}", cluster: dropAllFeNodesFailed]
             def addNodesBodySuccBody= [instance_id: "${instance_id}", cluster: addNodesClusterSucc]
             jsonOutput = new JsonOutput()
             def addSomeFENodesFailed = jsonOutput.toJson(addNodesFailedBody)
             def addSomeFENodesSucc = jsonOutput.toJson(addNodesBodySuccBody)
+            def dropAllFeNodesFailedJson = jsonOutput.toJson(dropAllFeNodesClusterBody)
 
             add_node_api.call(msHttpPort, addSomeFENodesFailed) {
                 respCode, body ->
@@ -1222,6 +1225,27 @@ suite('test_ms_api', 'p0, docker') {
                         json = parseJson(body)
                         log.info("add some fe nodes http cli result: ${body} ${respCode} ${json}".toString())
                         assertTrue(json.code.equalsIgnoreCase("OK"))
+                }
+            }
+
+            // inject point, to change MetaServiceImpl_get_cluster_set_config
+            inject_to_ms_api.call(msHttpPort, "resource_manager::set_safe_drop_time", -1) {
+            respCode, body ->
+                log.info("inject resource_manager::set_safe_drop_time resp: ${body} ${respCode}".toString()) 
+            }
+
+            enable_ms_inject_api.call(msHttpPort) {
+                respCode, body ->
+                log.info("enable inject resp: ${body} ${respCode}".toString()) 
+            }
+
+            if (i == 1) {
+                drop_node_api.call(msHttpPort, dropAllFeNodesFailedJson) {
+                    respCode, body ->
+                        json = parseJson(body)
+                        log.info("drop all fe nodes failed http cli result: ${body} ${respCode} ${json}".toString())
+                        assertTrue(json.code.equalsIgnoreCase("INTERNAL_ERROR"))
+                        assertTrue(json.msg.contains("instance invalid, cant modify, plz check")) 
                 }
             }
 
