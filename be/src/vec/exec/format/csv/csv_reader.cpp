@@ -928,7 +928,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
                 _trim_tailing_spaces, _trim_double_quotes, _value_separator,
                 _value_separator_length);
     } else {
-        // If we pass _file_slot_descs.size() -1, it will case BE core dump
+        // If we pass `_file_slot_descs.size() - 1` to EncloseCsvTextFieldSplitter, it will cause BE core dump
         // because currently _file_slot_descs is an empty vector.
         // The _file_slot_descs.size() is only used to reserve space,
         // so it's ok to pass 0 to EncloseCsvLineReaderContext
