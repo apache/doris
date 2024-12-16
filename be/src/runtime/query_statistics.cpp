@@ -97,6 +97,7 @@ void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
 
     std::vector<TNodeExecStatsItemPB> pbList;
     if (!_exec_stats_items.empty()) {
+        LOG(INFO) << "zxiong8 " << " size: " << _exec_stats_items.size();
         for (const auto &[node_id, exec_stats_item]: _exec_stats_items) {
             TNodeExecStatsItemPB *pb = new TNodeExecStatsItemPB();
             pb->__set_node_id(node_id);
@@ -106,8 +107,10 @@ void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
             pb->__set_rf_filter_rows(exec_stats_item->rf_filter_rows);
             pb->__set_pred_filter_rows(exec_stats_item->pred_filter_rows);
             pbList.push_back(*pb);
+            statistics->node_exec_stats_items.push_back(*pb);
         }
-        statistics->__set_node_exec_stats_items(pbList);
+        //statistics->__set_node_exec_stats_items(pbList);
+        //statistics->node_exec_stats_items.push_back();
     }
 }
 
@@ -120,7 +123,7 @@ void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
 }
 
 QueryStatistics::~QueryStatistics() {
-    _exec_stats_items.clear();
+    //_exec_stats_items.clear();
 }
 
 } // namespace doris

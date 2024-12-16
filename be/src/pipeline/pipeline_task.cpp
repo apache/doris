@@ -38,6 +38,7 @@
 #include "util/defer_op.h"
 #include "util/mem_info.h"
 #include "util/runtime_profile.h"
+#include "common/logging.h"
 
 namespace doris {
 class RuntimeState;
@@ -126,6 +127,10 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
     // todo: check if local_params's exec_stats_node_ids exists
     if (!local_params.exec_stats_node_ids.empty()) {
         query_ctx->init_node_exec_stats(local_params.exec_stats_node_ids);
+        for (auto& it : query_ctx->_node_exec_stats) {
+            const auto& id = it.first;
+            LOG(INFO) << "zxiong2 " << print_id(query_ctx->query_id());
+        }
     }
     return Status::OK();
 }

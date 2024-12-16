@@ -322,16 +322,18 @@ void RuntimeQueryStatisticsMgr::_report_query_profiles_function() {
     }
 }
 
-void QueryStatisticsCtx::collect_query_statistics(TQueryStatistics* tq_s, std::shared_ptr<QueryContext> query_context) {
+void QueryStatisticsCtx::collect_query_statistics(TQueryStatistics* tq_s,
+                                                  std::unordered_map<int32_t, std::shared_ptr<NodeExecStats>> node_map) {
     QueryStatistics tmp_qs;
     for (auto& qs_ptr : _qs_list) {
         tmp_qs.merge(*qs_ptr);
     }
-    for (const auto& [node_id, exec_stats] : query_context->_node_exec_stats) {
+    for (const auto& [node_id, exec_stats] : node_map) {
         tmp_qs.add_exec_stats_item(node_id, exec_stats->push_rows, exec_stats->pull_rows, exec_stats->pred_filter_rows,
                                 exec_stats->index_filter_rows, exec_stats->rf_filter_rows);
     }
     tmp_qs.to_thrift(tq_s);
+    LOG(INFO) << "zxiong9 " << tq_s->node_exec_stats_items.size();
     tq_s->__set_workload_group_id(_wg_id);
 }
 
@@ -349,6 +351,13 @@ void RuntimeQueryStatisticsMgr::register_query_statistics(std::string query_id,
 
 void RuntimeQueryStatisticsMgr::register_query_context(std::shared_ptr<QueryContext> ctx_ptr) {
     _query_context = std::move(ctx_ptr);
+}
+
+void RuntimeQueryStatisticsMgr::copy_node_exec_stats(std::string query_id, QueryContext *ctx) {
+    for (const auto& [node_id, exec_stats] : ctx->_node_exec_stats) {
+        auto node_exec_stats = std::make_shared<NodeExecStats>();
+        _query_statistics_ctx_map.at(query_id)->_mgr_node_exec_stats[node_id] = node_exec_stats;
+    }
 }
 
 void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
@@ -370,7 +379,8 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
             }
             
             TQueryStatistics ret_t_qs;
-            qs_ctx_ptr->collect_query_statistics(&ret_t_qs, _query_context);
+            qs_ctx_ptr->collect_query_statistics(&ret_t_qs, qs_ctx_ptr->_mgr_node_exec_stats);
+            LOG(INFO) << "zxiong7 " << query_id << " size: " << ret_t_qs.node_exec_stats_items.size();
             fe_qs_map.at(qs_ctx_ptr->_fe_addr)[query_id] = ret_t_qs;
 
             bool is_query_finished = qs_ctx_ptr->_is_query_finished;
@@ -403,6 +413,8 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
         // 2.2 send report
         TReportWorkloadRuntimeStatusParams report_runtime_params;
         report_runtime_params.__set_backend_id(be_id);
+        std::map<std::string, TQueryStatistics> temp_map = qs_map;
+
         report_runtime_params.__set_query_statistics_map(qs_map);
 
         TReportExecStatusParams params;
@@ -531,7 +543,7 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
     // block's schema come from SchemaBackendActiveTasksScanner::_s_tbls_columns
     for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
         TQueryStatistics tqs;
-        qs_ctx_ptr->collect_query_statistics(&tqs, _query_context);
+        qs_ctx_ptr->collect_query_statistics(&tqs, qs_ctx_ptr->_mgr_node_exec_stats);
         SchemaScannerHelper::insert_int64_value(0, be_id, block);
         SchemaScannerHelper::insert_string_value(1, qs_ctx_ptr->_fe_addr.hostname, block);
         SchemaScannerHelper::insert_string_value(2, query_id, block);

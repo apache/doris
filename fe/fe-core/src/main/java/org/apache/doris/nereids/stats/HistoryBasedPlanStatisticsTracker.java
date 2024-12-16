@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
@@ -47,6 +48,9 @@ import static com.google.common.graph.Traverser.forTree;
 import static com.google.common.hash.Hashing.sha256;
 import static java.lang.Double.isNaN;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.apache.doris.statistics.util.StatisticsUtil.sleep;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -56,20 +60,21 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 public class HistoryBasedPlanStatisticsTracker {
+    private static final Logger LOG = LogManager.getLogger(HistoryBasedPlanStatisticsTracker.class);
     private final HistoryBasedPlanStatisticsProvider historyBasedPlanStatisticsProvider;
     private final HistoryBasedStatisticsCacheManager historyBasedStatisticsCacheManager;
-    Map<PlanNodeWithHash, PlanStatisticsWithSourceInfo> planStatisticsMap = new HashMap<>();
+    //Map<PlanNodeWithHash, PlanStatisticsWithSourceInfo> planStatisticsMap = new HashMap<>();
 
-    private CascadesContext context;
+    private CascadesContext cascadesContext;
 
     private ConnectContext connectContext;
     private PhysicalPlan root;
 
     public HistoryBasedPlanStatisticsTracker(
-            ConnectContext context,
+            ConnectContext connectContext,
             HistoryBasedPlanStatisticsProvider historyBasedPlanStatisticsProvider,
             HistoryBasedStatisticsCacheManager historyBasedStatisticsCacheManager) {
-        this.connectContext = context;
+        this.connectContext = connectContext;
         this.historyBasedPlanStatisticsProvider = historyBasedPlanStatisticsProvider;
         this.historyBasedStatisticsCacheManager = historyBasedStatisticsCacheManager;
     }
@@ -82,8 +87,8 @@ public class HistoryBasedPlanStatisticsTracker {
         return this.historyBasedStatisticsCacheManager;
     }
 
-    public void setContext(CascadesContext context, PhysicalPlan root) {
-        this.context = context;
+    public void setContext(CascadesContext cascadesContext, PhysicalPlan root) {
+        this.cascadesContext = cascadesContext;
         this.root = root;
     }
 
@@ -115,21 +120,26 @@ public class HistoryBasedPlanStatisticsTracker {
         return PlanStatistics.EMPTY;
     }
 
-    public Map<PlanNodeWithHash, PlanStatisticsWithSourceInfo> getQueryStats(String queryId) {
-        Map<Integer, PhysicalPlan> idToPlanMap = context.getNeedStatsPlanIdNodeMap();
-
-        WorkloadRuntimeStatusMgr mgr = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr();
-        Map<String, TQueryStatistics> queryStatisticsMap = mgr.getQueryStatisticsMap();
+    public Map<PlanNodeWithHash, PlanStatisticsWithSourceInfo> getQueryStats(String queryId, TQueryStatistics qs) {
+        Map<Integer, PhysicalPlan> idToPlanMap = cascadesContext.getNeedStatsPlanIdNodeMap();
         Map<PhysicalPlan, PlanNodeCanonicalInfo> planToInfoMap = new HashMap<>();
-
-        //for (AuditEvent event : auditEventList) {
-            TQueryStatistics qs = queryStatisticsMap.get(queryId);
-            if (qs != null) {
-                List<TNodeExecStatsItemPB> pbList = qs.getNodeExecStatsItems();
-                for (TNodeExecStatsItemPB nodeStats : pbList) {
-                    int nodeId = nodeStats.node_id;
-                    PlanStatistics planStatistics = PlanStatistics.buildFromPB(nodeStats);
-                    PhysicalPlan planNode = idToPlanMap.get(nodeId);
+        Map<PlanNodeWithHash, PlanStatisticsWithSourceInfo> planStatisticsMap = new HashMap<>();
+        if (qs == null) {
+            LOG.info("error1: queryId:" + queryId + " scan_rows:");
+        } else if (qs.getNodeExecStatsItems() == null) {
+            LOG.info("error2: queryId:" + queryId + " scan_rows:" + qs.scan_rows);
+        } else if (qs.getNodeExecStatsItems().isEmpty()) {
+            LOG.info("error3: queryId:" + queryId + " scan_rows:" + qs.scan_rows);
+        } else {
+            LOG.info("ok4: queryId:" + queryId + " scan_rows:" + qs.getNodeExecStatsItems().size());
+        }
+        if (qs != null && qs.getNodeExecStatsItems() != null && !qs.getNodeExecStatsItems().isEmpty()) {
+            List<TNodeExecStatsItemPB> pbList = qs.getNodeExecStatsItems();
+            for (TNodeExecStatsItemPB nodeStats : pbList) {
+                int nodeId = nodeStats.node_id;
+                PlanStatistics planStatistics = PlanStatistics.buildFromPB(nodeStats);
+                PhysicalPlan planNode = idToPlanMap.get(nodeId);
+                if (planNode != null) {
                     buildPlanNodeToInfoMap((PlanNode) planNode, pbList, planToInfoMap);
                     Optional<PlanNodeCanonicalInfo> planNodeCanonicalInfo = Optional.ofNullable(
                             planToInfoMap.get(planNode));
@@ -148,42 +158,46 @@ public class HistoryBasedPlanStatisticsTracker {
                     }
                 }
             }
-        //}
+        }
+
         return ImmutableMap.copyOf(planStatisticsMap);
     }
 
-    public void updateStatistics() {
+    public void updateStatistics(String queryId) {
         WorkloadRuntimeStatusMgr mgr = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr();
-        List<AuditEvent> auditEventList = mgr.getQueryNeedAudit();
-        // TODO: choose which audit event
-        if (!auditEventList.isEmpty()) {
-            AuditEvent event = auditEventList.get(0);
-            Map<PlanNodeWithHash, PlanStatisticsWithSourceInfo> planStatistics = getQueryStats(event.queryId);
-            Map<PlanNodeWithHash, HistoricalPlanStatistics> historicalPlanStatisticsMap =
-                    historyBasedPlanStatisticsProvider.getStats(
-                            planStatistics.keySet().stream().collect(toImmutableList()), 1000);
+        //List<AuditEvent> auditEventList = mgr.getQueryNeedAudit();
+        //if (cascadesContext != null && !auditEventList.isEmpty()) {
+        //    for (AuditEvent event : auditEventList) {
+        Map<String, TQueryStatistics> queryStatisticsMap = mgr.getQueryStatisticsMap();
+            for (Map.Entry<String, TQueryStatistics> e : queryStatisticsMap.entrySet()) {
+                String queryId1 = e.getKey();
+                TQueryStatistics qs = e.getValue();
+                Map<PlanNodeWithHash, PlanStatisticsWithSourceInfo> planStatistics = getQueryStats(queryId1, qs);
+                Map<PlanNodeWithHash, HistoricalPlanStatistics> historicalPlanStatisticsMap =
+                        historyBasedPlanStatisticsProvider.getStats(
+                                planStatistics.keySet().stream().collect(toImmutableList()), 1000);
 
-            Map<PlanNodeWithHash, HistoricalPlanStatistics> newPlanStatistics = planStatistics.entrySet().stream()
-                    .filter(entry -> entry.getKey().getHash().isPresent() &&
-                            entry.getValue().getSourceInfo().getInputTableStatistics().isPresent())
-                    .collect(toImmutableMap(
-                            Map.Entry::getKey,
-                            entry -> {
-                                HistoricalPlanStatistics oldPlanStatistics = Optional.ofNullable(
-                                                historicalPlanStatisticsMap.get(entry.getKey()))
-                                        .orElseGet(HistoricalPlanStatistics::empty);
-                                HistoryBasedSourceInfo historyBasedSourceInfo = entry.getValue().getSourceInfo();
-                                return updatePlanStatistics(
-                                        oldPlanStatistics,
-                                        historyBasedSourceInfo.getInputTableStatistics().get(),
-                                        entry.getValue().getPlanStatistics());
-                            }));
+                Map<PlanNodeWithHash, HistoricalPlanStatistics> newPlanStatistics = planStatistics.entrySet().stream()
+                        .filter(entry -> entry.getKey().getHash().isPresent() &&
+                                entry.getValue().getSourceInfo().getInputTableStatistics().isPresent())
+                        .collect(toImmutableMap(
+                                Map.Entry::getKey,
+                                entry -> {
+                                    HistoricalPlanStatistics oldPlanStatistics = Optional.ofNullable(
+                                                    historicalPlanStatisticsMap.get(entry.getKey()))
+                                            .orElseGet(HistoricalPlanStatistics::empty);
+                                    HistoryBasedSourceInfo historyBasedSourceInfo = entry.getValue().getSourceInfo();
+                                    return updatePlanStatistics(
+                                            oldPlanStatistics,
+                                            historyBasedSourceInfo.getInputTableStatistics().get(),
+                                            entry.getValue().getPlanStatistics());
+                                }));
 
-            if (!newPlanStatistics.isEmpty()) {
-                historyBasedPlanStatisticsProvider.putStats(ImmutableMap.copyOf(newPlanStatistics));
+                if (!newPlanStatistics.isEmpty()) {
+                    historyBasedPlanStatisticsProvider.putStats(ImmutableMap.copyOf(newPlanStatistics));
+                }
+                historyBasedStatisticsCacheManager.invalidate(queryId);
             }
-            historyBasedStatisticsCacheManager.invalidate(event.queryId);
-        }
     }
 
     public static HistoricalPlanStatistics updatePlanStatistics(

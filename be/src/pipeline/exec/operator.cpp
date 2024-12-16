@@ -81,6 +81,8 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
+#include <glog/logging.h>
+#include "common/logging.h"
 
 namespace doris {
 class RowDescriptor;
@@ -237,8 +239,12 @@ Status OperatorXBase::open(RuntimeState* state) {
 void PipelineXLocalStateBase::update_exec_stats(RuntimeState* state) {
     QueryContext* ctx = state->get_query_ctx();
     if (ctx != nullptr && ctx->need_record_exec_stats(_parent->node_id())) {
-        ctx->update_push_rows_stats(_parent->node_id(), get_query_statistics_ptr()->get_returned_rows()); // push means output rows
-        ctx->update_pull_rows_stats(_parent->node_id(), get_query_statistics_ptr()->get_scan_rows()); // pull means input rows
+        ctx->update_push_rows_stats(_parent->node_id(), get_query_statistics_ptr()->get_returned_rows());
+        ctx->update_pull_rows_stats(_parent->node_id(), get_query_statistics_ptr()->get_scan_rows());
+        for (auto& it : ctx->_node_exec_stats) {
+            const auto& id = it.first;
+            LOG(INFO) << "zxiong3 " << print_id(ctx->query_id());
+        }
         //ctx->update_pred_filter_stats(_node_id, state->num_rows_load_unselected());
         // todo: update rows after runtime filter
         //if (_bloom_filter_eval_context.join_runtime_filter_input_counter != nullptr &&

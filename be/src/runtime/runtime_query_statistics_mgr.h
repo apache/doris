@@ -43,6 +43,14 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
+struct NodeExecStats {
+    std::atomic_int64_t push_rows;
+    std::atomic_int64_t pull_rows;
+    std::atomic_int64_t pred_filter_rows;
+    std::atomic_int64_t index_filter_rows;
+    std::atomic_int64_t rf_filter_rows;
+};
+
 class QueryStatisticsCtx {
 public:
     QueryStatisticsCtx(TNetworkAddress fe_addr, TQueryType::type query_type)
@@ -52,11 +60,12 @@ public:
         this->_query_start_time = MonotonicMillis();
     }
     ~QueryStatisticsCtx() = default;
-
-    void collect_query_statistics(TQueryStatistics* tq_s, std::shared_ptr<QueryContext> query_context);
+    void collect_query_statistics(TQueryStatistics* tq_s,
+                                  std::unordered_map<int32_t, std::shared_ptr<NodeExecStats>> map);
 
 public:
     std::vector<std::shared_ptr<QueryStatistics>> _qs_list;
+    std::unordered_map<int32_t, std::shared_ptr<NodeExecStats>> _mgr_node_exec_stats;
     bool _is_query_finished;
     const TNetworkAddress _fe_addr;
     const TQueryType::type _query_type;
@@ -95,7 +104,7 @@ public:
 
     // used for backend_active_tasks
     void get_active_be_tasks_block(vectorized::Block* block);
-
+    void copy_node_exec_stats(std::string, QueryContext *ctx);
     void start_report_thread();
     void report_query_profiles_thread();
     void trigger_report_profile();
@@ -109,7 +118,7 @@ public:
 private:
     std::shared_mutex _qs_ctx_map_lock;
     std::map<std::string, std::unique_ptr<QueryStatisticsCtx>> _query_statistics_ctx_map;
-    std::shared_ptr<QueryContext> _query_context; 
+    std::shared_ptr<QueryContext> _query_context;
 
     std::mutex _report_profile_mutex;
     std::atomic_bool started = false;

@@ -159,6 +159,8 @@ QueryContext::~QueryContext() {
     }
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
+    LOG(INFO) << "zxiong5 " << _node_exec_stats.size();
+    _exec_env->runtime_query_statistics_mgr()->copy_node_exec_stats(print_id(_query_id), this);
 
     if (enable_profile()) {
         _report_query_profile();
@@ -186,6 +188,7 @@ QueryContext::~QueryContext() {
     }
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
+    _node_exec_stats.clear();
     _shared_hash_table_controller.reset();
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
@@ -195,7 +198,7 @@ QueryContext::~QueryContext() {
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     // the only one msg shows query's end. any other msg should append to it if need.
-    LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
+    LOG_INFO("zxiong0 Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
 void QueryContext::set_ready_to_execute(Status reason) {

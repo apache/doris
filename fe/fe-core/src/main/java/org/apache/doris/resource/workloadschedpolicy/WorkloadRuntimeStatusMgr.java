@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.thrift.TNodeExecStatsItemPB;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
@@ -225,6 +226,27 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         dst.shuffle_send_rows += src.shuffle_send_rows;
         if (dst.max_peak_memory_bytes < src.max_peak_memory_bytes) {
             dst.max_peak_memory_bytes = src.max_peak_memory_bytes;
+        }
+        List<TNodeExecStatsItemPB> dst_list = dst.getNodeExecStatsItems();
+        if (src.node_exec_stats_items != null && !src.node_exec_stats_items.isEmpty()) {
+            for (TNodeExecStatsItemPB pb : src.node_exec_stats_items) {
+                TNodeExecStatsItemPB targetPb = null;
+                for (TNodeExecStatsItemPB dst_pb : dst_list) {
+                    if (dst_pb.node_id == pb.node_id) {
+                        targetPb = dst_pb;
+                    }
+                }
+                if (targetPb != null) {
+                    targetPb.push_rows += pb.push_rows;
+                    targetPb.pull_rows += pb.pull_rows;
+                } else {
+                    TNodeExecStatsItemPB newPb = new TNodeExecStatsItemPB();
+                    newPb.node_id = pb.node_id;
+                    newPb.push_rows = pb.push_rows;
+                    newPb.pull_rows = pb.pull_rows;
+                    dst_list.add(newPb);
+                }
+            }
         }
     }
 

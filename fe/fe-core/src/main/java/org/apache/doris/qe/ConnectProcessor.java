@@ -79,6 +79,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
+import static org.apache.doris.statistics.util.StatisticsUtil.sleep;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -369,7 +370,10 @@ public abstract class ConnectProcessor {
                             true);
                     LOG.debug("Write audit logs for query {}", DebugUtil.printId(ctx.queryId));
                     if (executor.getQueryStatisticsForAuditLog() != null && ctx.getSessionVariable().isEnableHboTracker()) {
-                        executor.getHistoryBasedPlanStatisticsTracker().updateStatistics();
+                        // TODO: can't get the realtime current query_id since the audit log channel is asyn and
+                        // can't send the stats back to fe in time
+                        // change the logic to get all audit query and update the stats
+                        executor.getHistoryBasedPlanStatisticsTracker().updateStatistics(DebugUtil.printId(ctx.queryId));
                     }
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR) {
