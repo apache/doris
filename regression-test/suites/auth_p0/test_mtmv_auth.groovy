@@ -50,6 +50,9 @@ suite("test_mtmv_auth","p0,auth") {
             select * from ${tableName};
         """
 
+    sql """refresh MATERIALIZED VIEW ${mvName} auto"""
+    waitingMTMVTaskFinishedByMvName(mvName)
+
     //cloud-mode
     if (isCloudMode()) {
         def clusters = sql " SHOW CLUSTERS; "
