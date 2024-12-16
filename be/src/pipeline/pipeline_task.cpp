@@ -372,6 +372,10 @@ Status PipelineTask::execute(bool* eos) {
             RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
         }
 
+        if (*eos) {
+            RETURN_IF_ERROR(close(Status::OK(), false));
+        }
+
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             Status status = _sink->sink(_state, block, *eos);
@@ -383,7 +387,6 @@ Status PipelineTask::execute(bool* eos) {
             }
 
             if (*eos) { // just return, the scheduler will do finish work
-                RETURN_IF_ERROR(close(status, false));
                 _task_profile->add_info_string("TaskState", "Finished");
                 _eos = true;
                 return Status::OK();
