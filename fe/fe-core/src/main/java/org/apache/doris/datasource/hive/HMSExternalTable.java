@@ -543,7 +543,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private List<Column> getIcebergSchema() {
-        return IcebergUtils.getSchema(catalog, dbName, name);
+        return IcebergUtils.getSchema(catalog, dbName, name, IcebergUtils.UNKNOWN_SNAPSHOT_ID);
     }
 
     private List<Column> getHudiSchema() {

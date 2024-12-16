@@ -17,21 +17,16 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
-import java.util.List;
+public class IcebergMvccSnapshot implements MvccSnapshot {
+    private final IcebergSnapshotCacheValue snapshotCacheValue;
 
-public class IcebergSchemaCacheValue extends SchemaCacheValue {
-
-    private final List<Column> partitionColumns;
-
-    public IcebergSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
-        super(schema);
-        this.partitionColumns = partitionColumns;
+    public IcebergMvccSnapshot(IcebergSnapshotCacheValue snapshotCacheValue) {
+        this.snapshotCacheValue = snapshotCacheValue;
     }
 
-    public List<Column> getPartitionColumns() {
-        return partitionColumns;
+    public IcebergSnapshotCacheValue getSnapshotCacheValue() {
+        return snapshotCacheValue;
     }
 }
