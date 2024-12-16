@@ -597,6 +597,13 @@ public:
         return 1;
     }
 
+    int revocable_memory_high_watermark_percent() const {
+        if (_query_options.__isset.revocable_memory_high_watermark_percent) {
+            return _query_options.revocable_memory_high_watermark_percent;
+        }
+        return 10;
+    }
+
     size_t minimum_operator_memory_required_bytes() const {
         if (_query_options.__isset.minimum_operator_memory_required_kb) {
             return _query_options.minimum_operator_memory_required_kb * 1024;

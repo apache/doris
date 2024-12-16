@@ -494,43 +494,6 @@ Status PipelineTask::execute(bool* eos) {
                     *eos = false;
                     continue;
                 }
-                if (workload_group) {
-                    bool is_low_watermark = false;
-                    bool is_high_watermark = false;
-                    workload_group->check_mem_used(&is_low_watermark, &is_high_watermark);
-                    // for hash join build sink, if it's eos at this reserve, it will build hash table and
-                    // it will not be able to spill later even if memory is low, and will cause cancel of queries.
-                    // So make a check here, if it's low watermark after reserve and if reserved memory is too many,
-                    // then trigger revoke memory.
-
-                    // debug
-                    if (sink_reserve_size > 64 * 1024 * 1024) {
-                        LOG(INFO) << fmt::format(
-                                "Query: {}, sink name: {}, node id: {}, task id: {}, "
-                                "is_low_watermark: {}, sink_reserve_size: {}, wg mem limit: {}, "
-                                "reserve/wg_limit: {}",
-                                print_id(query_id), _sink->get_name(), _sink->node_id(),
-                                _state->task_id(), is_low_watermark,
-                                PrettyPrinter::print_bytes(sink_reserve_size),
-                                PrettyPrinter::print_bytes(workload_group->memory_limit()),
-                                ((double)sink_reserve_size) / workload_group->memory_limit());
-                    }
-                    if (is_low_watermark) {
-                        const auto revocable_size = _sink->revocable_mem_size(_state);
-                        if (revocable_size >= config::revocable_memory_bytes_high_watermark) {
-                            LOG(INFO) << fmt::format(
-                                    "Query: {}, sink name: {}, node id: {}, task id: {}, "
-                                    "sink_reserve_size: {}, revoke_memory "
-                                    "because revocable memory is high: {}",
-                                    print_id(query_id), _sink->get_name(), _sink->node_id(),
-                                    _state->task_id(),
-                                    PrettyPrinter::print_bytes(sink_reserve_size),
-                                    PrettyPrinter::print_bytes(revocable_size));
-                            RETURN_IF_ERROR(_sink->revoke_memory(_state, nullptr));
-                            continue;
-                        }
-                    }
-                }
             }
 
             // Define a lambda function to catch sink exception, because sink will check

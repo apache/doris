@@ -566,6 +566,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
     public static final String MIN_REVOCABLE_MEM = "min_revocable_mem";
     public static final String ENABLE_SPILL = "enable_spill";
+    public static final String REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT = "revocable_memory_high_watermark_percent";
     public static final String ENABLE_RESERVE_MEMORY = "enable_reserve_memory";
     public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
@@ -2242,6 +2243,9 @@ public class SessionVariable implements Serializable, Writable {
                     "Max blocks in DataQueue."},
             needForward = true, fuzzy = true)
     public long dataQueueMaxBlocks = 1;
+
+    @VariableMgr.VarAttr(name = REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT, fuzzy = true)
+    public int revocableMemoryHighWatermarkPercent = 10;
 
     // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
     // Set to 0 to disable; min: 128M
@@ -3957,6 +3961,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableForceSpill(enableForceSpill);
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
         tResult.setMinRevocableMem(minRevocableMem);
+        tResult.setRevocableMemoryHighWatermarkPercent(revocableMemoryHighWatermarkPercent);
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
 
         tResult.setEnableLocalMergeSort(enableLocalMergeSort);

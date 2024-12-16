@@ -260,7 +260,22 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
             }
         }
 
-        return Status::OK();
+        Status status;
+        if (_child_eos) {
+            std::for_each(_shared_state->partitioned_build_blocks.begin(),
+                          _shared_state->partitioned_build_blocks.end(), [&](auto& block) {
+                              if (block) {
+                                  COUNTER_UPDATE(_in_mem_rows_counter, block->rows());
+                              }
+                          });
+            status = _finish_spilling();
+            VLOG_DEBUG << fmt::format(
+                    "Query: {}, task {}, sink {} _revoke_unpartitioned_block set_ready_to_read",
+                    print_id(state->query_id()), state->task_id(), _parent->node_id());
+            _dependency->set_ready_to_read();
+        }
+
+        return status;
     };
 
     auto exception_catch_func = [spill_func]() mutable {
@@ -547,12 +562,19 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                 return revoke_memory(state, nullptr);
             } else {
                 const auto revocable_size = revocable_mem_size(state);
-                if (revocable_size >= config::revocable_memory_bytes_high_watermark) {
-                    LOG(INFO) << fmt::format(
-                            "Query: {}, sink name: {}, node id: {}, task id: {}, "
-                            "revoke_memory "
+                // TODO: consider parallel?
+                // After building hash table it will not be able to spill later
+                // even if memory is low, and will cause cancel of queries.
+                // So make a check here, if build blocks mem usage is too high,
+                // then trigger revoke memory.
+                auto query_mem_limit = state->get_query_ctx()->mem_limit();
+                if (revocable_size >= (double)query_mem_limit / 100.0 *
+                                              state->revocable_memory_high_watermark_percent()) {
+                    VLOG_DEBUG << fmt::format(
+                            "Query: {}, task {}, sink {}, query mem limit: {}, revoke_memory "
                             "because revocable memory is high: {}",
-                            print_id(state->query_id()), get_name(), node_id(), state->task_id(),
+                            print_id(state->query_id()), state->task_id(), node_id(),
+                            PrettyPrinter::print_bytes(query_mem_limit),
                             PrettyPrinter::print_bytes(revocable_size));
                     return revoke_memory(state, nullptr);
                 }
